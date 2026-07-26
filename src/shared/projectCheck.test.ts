@@ -112,6 +112,37 @@ describe('参照の不整合（消したのに残っている）', () => {
     expect(e!.message).toContain('A3')
   })
 
+  it('映像トラックの並びが番号順でない（V4 が V3 の下に入った）', () => {
+    // 退避トラックを番号を無視した位置に挿入すると、番号が大きいほど前面という
+    // 前提が壊れる。V4 のテロップが V3 の画像の後ろに隠れて理由が分からなくなる。
+    const d = validProject()
+    d.tracks = [
+      { id: 'V3', name: 'V3', kind: 'video' },
+      { id: 'V4', name: 'V4', kind: 'video' },
+      { id: 'V2', name: 'V2', kind: 'video' },
+      { id: 'V1', name: 'V1', kind: 'video' },
+      { id: 'A1', name: 'A1', kind: 'audio' },
+      { id: 'A2', name: 'A2', kind: 'audio' },
+      { id: 'A3', name: 'A3', kind: 'audio' }
+    ]
+    const p = checkProject(d)
+    expect(p.some((x) => x.code === 'W_TRACK_ORDER' && x.message.includes('V3'))).toBe(true)
+  })
+
+  it('音声トラックの並びが番号順でない（A4 が A3 の上に入った）', () => {
+    const d = validProject()
+    d.tracks = [
+      { id: 'V3', name: 'V3', kind: 'video' },
+      { id: 'V2', name: 'V2', kind: 'video' },
+      { id: 'V1', name: 'V1', kind: 'video' },
+      { id: 'A1', name: 'A1', kind: 'audio' },
+      { id: 'A2', name: 'A2', kind: 'audio' },
+      { id: 'A4', name: 'A4', kind: 'audio' },
+      { id: 'A3', name: 'A3', kind: 'audio' }
+    ]
+    expect(checkProject(d).some((x) => x.code === 'W_TRACK_ORDER')).toBe(true)
+  })
+
   it('消したトラックの状態が残っている', () => {
     const d = validProject()
     d.trackStates = { V1: {}, V7: { muted: true } }

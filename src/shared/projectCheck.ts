@@ -73,6 +73,25 @@ export function checkProject(raw: unknown): ProjectProblem[] {
     }
   })
 
+  // 並び順＝タイムラインの縦位置＝重なり順（前にあるほど前面）。
+  // 映像は番号の降順（V3,V2,V1）、音声は昇順（A1,A2,A3）でなければならない。
+  // 崩れると「番号が大きいほど前面」という前提が壊れ、V4 のテロップが V3 の
+  // 画像の後ろに隠れる、といった説明できない見え方になる。
+  const vNums = tracks.filter((t: Any) => isObj(t) && t.kind === 'video').map((t: Any) => trackNum(t.id))
+  const aNums = tracks.filter((t: Any) => isObj(t) && t.kind === 'audio').map((t: Any) => trackNum(t.id))
+  for (let i = 0; i + 1 < vNums.length; i++) {
+    if (vNums[i] < vNums[i + 1]) {
+      push('warning', 'W_TRACK_ORDER', `映像トラックの並びが番号の降順になっていません（V${vNums[i]} の下に V${vNums[i + 1]}）`, 'tracks')
+      break
+    }
+  }
+  for (let i = 0; i + 1 < aNums.length; i++) {
+    if (aNums[i] > aNums[i + 1]) {
+      push('warning', 'W_TRACK_ORDER', `音声トラックの並びが番号の昇順になっていません（A${aNums[i]} の下に A${aNums[i + 1]}）`, 'tracks')
+      break
+    }
+  }
+
   // trackStates が実在しないトラックを指していないか（トラック削除時の掃除漏れ）
   if (isObj(d.trackStates)) {
     for (const k of Object.keys(d.trackStates)) {

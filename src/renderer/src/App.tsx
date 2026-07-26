@@ -998,6 +998,25 @@ export default function App(): JSX.Element {
   const reservedTrackIdsRef = useRef<Set<string>>(new Set())
   // 映像レイヤーに動画を置く前に、V{n} と A{n} を「その動画専用」に空ける。
   // 既にテロップ/画像/SEが載っていたら1段追加してそちらへ退避させる（リンクを崩さないため）。
+  // トラックを番号順の正しい位置へ挿入する。
+  // 配列の並び＝タイムラインの縦位置＝重なり順（前にあるほど前面）なので、
+  // 番号を無視して挿入すると「番号が大きいほど前面」という前提が壊れる。
+  // 映像は番号の降順（V3,V2,V1）、音声は昇順（A1,A2,A3）で並べる。
+  function insertTrackOrdered(list: Track[], tr: Track): Track[] {
+    const n = trackNum(tr.id)
+    const next = [...list]
+    if (tr.kind === 'video') {
+      const at = next.findIndex((t) => t.kind === 'video' && trackNum(t.id) < n)
+      next.splice(at >= 0 ? at : next.findIndex((t) => t.kind === 'audio'), 0, tr)
+    } else {
+      let at = -1
+      next.forEach((t, i) => {
+        if (t.kind === 'audio' && trackNum(t.id) < n) at = i
+      })
+      next.splice(at >= 0 ? at + 1 : next.length, 0, tr)
+    }
+    return next
+  }
   function reserveTrackPairForVideo(vTrack: string): string {
     const aTrack = pairedAudioOf(vTrack)
     const reserved = reservedTrackIdsRef.current
@@ -1030,22 +1049,16 @@ export default function App(): JSX.Element {
     if (moveCueTo || addATrack || moveSeTo) {
       // 値渡しで上書きすると連続ドロップの後発が古いスナップショットで巻き戻すため関数更新にする
       setTracks((prev) => {
-        const next = [...prev]
-        const lastAudioAt = (): number => next.map((t) => t.kind).lastIndexOf('audio')
-        if (moveCueTo && !next.some((t) => t.id === moveCueTo)) {
-          const at = next.findIndex((t) => t.id === vTrack)
-          next.splice(Math.max(0, at), 0, { id: moveCueTo, name: moveCueTo, kind: 'video' })
-        }
+        // 以前は挿入位置を「退避元の隣」で決めていたため、V2 の隣に V4 が入って
+        // V3 より下（背面）になり、A2 の隣に A4 が入って A3 より上になっていた。
+        // 番号順の位置に入れる。
+        let next = [...prev]
+        if (moveCueTo && !next.some((t) => t.id === moveCueTo))
+          next = insertTrackOrdered(next, { id: moveCueTo, name: moveCueTo, kind: 'video' })
         if (addATrack && !next.some((t) => t.id === aTrack))
-          next.splice(lastAudioAt() + 1, 0, { id: aTrack, name: aTrack, kind: 'audio' })
-        if (moveSeTo && !next.some((t) => t.id === moveSeTo)) {
-          const at = next.findIndex((t) => t.id === aTrack)
-          next.splice(at >= 0 ? at + 1 : lastAudioAt() + 1, 0, {
-            id: moveSeTo,
-            name: moveSeTo,
-            kind: 'audio'
-          })
-        }
+          next = insertTrackOrdered(next, { id: aTrack, name: aTrack, kind: 'audio' })
+        if (moveSeTo && !next.some((t) => t.id === moveSeTo))
+          next = insertTrackOrdered(next, { id: moveSeTo, name: moveSeTo, kind: 'audio' })
         return next
       })
       setTrackStates((prev) => {
