@@ -8725,29 +8725,8 @@ export default function App(): JSX.Element {
                     onVideoReframeStart(e, null) // 本体ドラッグ＝パン（クリックだけなら動かない）
                   }
                 }}
-                onWheel={(e) => {
-                  // リフレーム選択中はホイールで対象（動画切片 or 選択画像）を拡大縮小（中心基準）
-                  // リフレーム枠の表示条件と同じ集合にする（映像レイヤーが抜けていて、
-                  // 枠と倍率表示は出るのにホイールだけ無反応だった）
-                  if (
-                    !(
-                      videoSelected ||
-                      selectedVideoIds.length ||
-                      selectedImgIds.length === 1 ||
-                      selectedVClipIds.length === 1
-                    )
-                  )
-                    return
-                  const tgt = reframeTargetRef.current
-                  if (!tgt) return
-                  const z = {
-                    ...tgt.zoom,
-                    scale: clamp(tgt.zoom.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1), 0.2, 8)
-                  }
-                  if (tgt.kind === 'video') setSegZoom(tgt.id, z)
-                  else if (tgt.kind === 'vclip') setVClipZoom(tgt.id, z)
-                  else setImgZoom(tgt.id, z)
-                }}
+                // ホイールでの拡大縮小は付けない。枠が出ているだけで意図せず映像が
+                // 拡大され、元に戻すのが手間になるため（拡大はスライダーと四隅のドラッグで行う）。
                 onDragOver={(e) => {
                   if (draggingMediaRef.current?.kind === 'video') e.preventDefault()
                 }}
