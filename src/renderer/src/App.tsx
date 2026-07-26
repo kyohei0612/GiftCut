@@ -888,7 +888,15 @@ export default function App(): JSX.Element {
       )
       return
     }
-    setSelectedImgIds([clip.id])
+    // 既に選択済みのクリップを掴んだら選択全体を動かす（テロップは既にこの
+    // 挙動。以前は選択を1つに潰してから掴んだクリップだけ動かしていたため、
+    // 矩形選択で5個選んでも1個しか動かず残りの選択も消えていた）
+    const grpIds =
+      selectedImgIds.includes(clip.id) && selectedImgIds.length > 1 ? selectedImgIds : [clip.id]
+    setSelectedImgIds(grpIds)
+    const grpBase = new Map(
+      imgClips.filter((c) => grpIds.includes(c.id)).map((c) => [c.id, c.tStart])
+    )
     const sx = e.clientX
     const s0 = clip.tStart
     const d0 = clip.duration
@@ -922,10 +930,19 @@ export default function App(): JSX.Element {
           lane !== 'V1' &&
           tracks.some((t) => t.id === lane && t.kind === 'video') &&
           !trackStates[lane]?.locked
+        // 掴んだクリップのずれ量を選択全体に同じだけ適用する
+        const shift = nt - s0
         setImgClips((prev) =>
-          prev.map((c) =>
-            c.id === clip.id ? { ...c, tStart: nt, track: laneOk ? lane : c.track } : c
-          )
+          prev.map((c) => {
+            if (!grpIds.includes(c.id)) return c
+            const base = grpBase.get(c.id) ?? c.tStart
+            return {
+              ...c,
+              tStart: Math.max(0, base + shift),
+              // トラック移動は掴んだ1つだけ（全部同じ行へ寄せると重なって壊れる）
+              track: laneOk && c.id === clip.id ? lane : c.track
+            }
+          })
         )
       }
     }
@@ -1150,7 +1167,15 @@ export default function App(): JSX.Element {
       )
       return
     }
-    setSelectedVClipIds([clip.id])
+    // 既に選択済みのクリップを掴んだら選択全体を動かす（テロップは既にこの挙動）
+    const grpIds =
+      selectedVClipIds.includes(clip.id) && selectedVClipIds.length > 1
+        ? selectedVClipIds
+        : [clip.id]
+    const grpBase = new Map(
+      vClips.filter((c) => grpIds.includes(c.id)).map((c) => [c.id, c.tStart])
+    )
+    setSelectedVClipIds(grpIds)
     const sx = e.clientX
     const t0 = clip.tStart
     const s0 = clip.srcStart
@@ -1189,10 +1214,18 @@ export default function App(): JSX.Element {
         // 移動先が変わるときは、対の音声トラックを確保してから移す
         // （確保しないと A{n} が無く無音になり、音声の帯も消える）
         if (laneOk && lane !== clip.track) reserveTrackPairForVideo(lane)
+        const shift = nt - t0
         setVClips((prev) =>
-          prev.map((c) =>
-            c.id === clip.id ? { ...c, tStart: nt, track: laneOk ? lane : c.track } : c
-          )
+          prev.map((c) => {
+            if (!grpIds.includes(c.id)) return c
+            const base = grpBase.get(c.id) ?? c.tStart
+            return {
+              ...c,
+              tStart: Math.max(0, base + shift),
+              // トラック移動は掴んだ1つだけ（対の音声トラック確保も1つ分で済む）
+              track: laneOk && c.id === clip.id ? lane : c.track
+            }
+          })
         )
       }
     }
@@ -5419,7 +5452,13 @@ export default function App(): JSX.Element {
       )
       return
     }
-    setSelectedSeIds([clip.id])
+    // 既に選択済みのクリップを掴んだら選択全体を動かす（テロップは既にこの挙動）
+    const grpIds =
+      selectedSeIds.includes(clip.id) && selectedSeIds.length > 1 ? selectedSeIds : [clip.id]
+    const grpBase = new Map(
+      seClips.filter((c) => grpIds.includes(c.id)).map((c) => [c.id, c.tStart])
+    )
+    setSelectedSeIds(grpIds)
     const inner = trackInnerRef.current
     const sx = e.clientX
     const s0 = clip.tStart
@@ -5461,10 +5500,18 @@ export default function App(): JSX.Element {
           lane !== 'A1' &&
           tracks.some((t) => t.id === lane && t.kind === 'audio') &&
           !trackStates[lane]?.locked
+        const shift = nt - s0
         setSeClips((prev) =>
-          prev.map((c) =>
-            c.id === clip.id ? { ...c, tStart: nt, track: laneOk ? lane : c.track } : c
-          )
+          prev.map((c) => {
+            if (!grpIds.includes(c.id)) return c
+            const base = grpBase.get(c.id) ?? c.tStart
+            return {
+              ...c,
+              tStart: Math.max(0, base + shift),
+              // トラック移動は掴んだ1つだけ（全部同じ行へ寄せると重なって壊れる）
+              track: laneOk && c.id === clip.id ? lane : c.track
+            }
+          })
         )
       }
     }
