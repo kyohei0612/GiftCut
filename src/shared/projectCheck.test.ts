@@ -198,12 +198,6 @@ describe('時間の不整合', () => {
     expect(w!.severity).toBe('warning')
   })
 
-  it('本編の終わりより後に置かれたクリップ（警告）', () => {
-    const d = validProject()
-    // 本編は 10 + 5 + 5 = 20 秒
-    ;(d.seClips as Record<string, unknown>[])[0].tStart = 500
-    expect(checkProject(d).some((x) => x.code === 'W_CLIP_PAST_END')).toBe(true)
-  })
 })
 
 describe('ID の重複', () => {

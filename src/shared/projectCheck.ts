@@ -321,22 +321,10 @@ export function checkProject(raw: unknown): ProjectProblem[] {
     push('error', 'E_NO_SOURCES', 'srcId を持つ切片があるのにソース一覧が空です')
   }
 
-  // ---- タイムラインの総尺が絶対配置クリップより短くないか ----
-  const total = segments
-    .filter((s: Any) => isObj(s) && num(s.srcStart) !== null && num(s.srcEnd) !== null)
-    .reduce((a: number, s: Any) => a + segTLen(s as TimeSeg), 0)
-  if (total > 0) {
-    for (const c of placed) {
-      if (c.tStart > total + 1e-3) {
-        push(
-          'warning',
-          'W_CLIP_PAST_END',
-          `本編の終わり（${total.toFixed(3)}秒）より後に置かれています（${c.tStart.toFixed(3)}秒）`,
-          c.where
-        )
-      }
-    }
-  }
+  // 「本編より後ろにあるクリップ」は指摘しない。
+  // 書き出しは extendSec で最終フレームを伸ばして末尾のテロップを含める作りなので、
+  // 本編より後ろにテロップがあるのは仕様どおり。実データで179件の誤検知になり、
+  // 本物の指摘が埋もれていた。
 
   return p
 }

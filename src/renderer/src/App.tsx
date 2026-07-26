@@ -1057,68 +1057,72 @@ export default function App(): JSX.Element {
     }
     return next
   }
+  /**
+   * 動画を置くレーンを空ける。
+   *
+   * そのレーンに何か（テロップ/画像/映像レイヤー）が載っていたら、そのレーン以上を
+   * まとめて1つ上へずらす。V2 に置くなら V2 の中身は V3 へ、V3 に何かあれば V4 へ、
+   * という形で全部そのまま繰り上がる。番号と縦位置の対応（大きいほど前面）も保たれる。
+   *
+   * 音声側も同じ番号だけずらす。V{n} と A{n} は対で扱う決まりなので、映像だけ
+   * ずらすと対応が崩れて、映像レイヤーの音が別のトラックに残ってしまう。
+   *
+   * 戻り値は動画を置くレーン（＝引数のまま。空けたので番号は変わらない）。
+   */
   function reserveTrackPairForVideo(vTrack: string): string {
-    const aTrack = pairedAudioOf(vTrack)
-    const reserved = reservedTrackIdsRef.current
-    // 反映済みの予約は解く（トラックを削除したあと同じ番号を再利用できるように）
-    reserved.forEach((id) => {
-      if (tracks.some((t) => t.id === id)) reserved.delete(id)
-    })
-    // 退避先の新トラックIDは「今のトラック＋予約分」の最大番号+1
-    const nextTrackId = (kind: 'video' | 'audio'): string => {
-      const p = kind === 'video' ? 'V' : 'A'
-      const nums = tracks.filter((t) => t.kind === kind).map((t) => trackNum(t.id))
-      reserved.forEach((id) => {
-        if (id.startsWith(p)) nums.push(trackNum(id))
-      })
-      return p + (Math.max(0, ...nums) + 1)
-    }
+    const n = trackNum(vTrack)
+    const aTrack = 'A' + n
+    const occupied =
+      cuesRef.current.some((c) => cueTrack(c) === vTrack) ||
+      imgClipsRef.current.some((c) => c.track === vTrack) ||
+      vClipsRef.current.some((c) => c.track === vTrack)
+    const seOccupied = seClipsRef.current.some((c) => c.track === aTrack)
 
-    // 映像側: そのトラックにテロップ/画像があれば、1段上に新トラックを作って移す
-    const vBusy =
-      cues.some((c) => cueTrack(c) === vTrack) || imgClips.some((c) => c.track === vTrack)
-    const moveCueTo = vBusy ? nextTrackId('video') : null
-    if (moveCueTo) reserved.add(moveCueTo)
-    // 音声側: 対の音声トラックが無ければ作る。SE/BGMがあれば1段下に作って移す
-    const aExists = tracks.some((t) => t.id === aTrack) || reserved.has(aTrack)
-    const addATrack = !aExists
-    const moveSeTo = aExists && seClips.some((c) => c.track === aTrack) ? nextTrackId('audio') : null
-    if (addATrack) reserved.add(aTrack)
-    if (moveSeTo) reserved.add(moveSeTo)
-
-    if (moveCueTo || addATrack || moveSeTo) {
-      // 値渡しで上書きすると連続ドロップの後発が古いスナップショットで巻き戻すため関数更新にする
+    if (occupied || seOccupied) {
+      // n 以上のレーンを1つ上へ。上から順に動かさないと番号がぶつかる。
+      const bump = (id: string): string => {
+        const k = trackNum(id)
+        return k >= n ? id[0] + (k + 1) : id
+      }
+      setCues((prev) => prev.map((c) => ({ ...c, track: bump(cueTrack(c)) })))
+      setImgClips((prev) => prev.map((c) => ({ ...c, track: bump(c.track) })))
+      setVClips((prev) => prev.map((c) => ({ ...c, track: bump(c.track) })))
+      setSeClips((prev) => prev.map((c) => ({ ...c, track: bump(c.track) })))
+      // 受け皿のトラックを1本ずつ足す（映像・音声とも）
       setTracks((prev) => {
-        // 以前は挿入位置を「退避元の隣」で決めていたため、V2 の隣に V4 が入って
-        // V3 より下（背面）になり、A2 の隣に A4 が入って A3 より上になっていた。
-        // 番号順の位置に入れる。
         let next = [...prev]
-        if (moveCueTo && !next.some((t) => t.id === moveCueTo))
-          next = insertTrackOrdered(next, { id: moveCueTo, name: moveCueTo, kind: 'video' })
-        if (addATrack && !next.some((t) => t.id === aTrack))
-          next = insertTrackOrdered(next, { id: aTrack, name: aTrack, kind: 'audio' })
-        if (moveSeTo && !next.some((t) => t.id === moveSeTo))
-          next = insertTrackOrdered(next, { id: moveSeTo, name: moveSeTo, kind: 'audio' })
+        const vMax = Math.max(
+          0,
+          ...next.filter((t) => t.kind === 'video').map((t) => trackNum(t.id))
+        )
+        const aMax = Math.max(
+          0,
+          ...next.filter((t) => t.kind === 'audio').map((t) => trackNum(t.id))
+        )
+        const vNew = 'V' + (vMax + 1)
+        const aNew = 'A' + (aMax + 1)
+        if (!next.some((t) => t.id === vNew))
+          next = insertTrackOrdered(next, { id: vNew, name: vNew, kind: 'video' })
+        if (!next.some((t) => t.id === aNew))
+          next = insertTrackOrdered(next, { id: aNew, name: aNew, kind: 'audio' })
         return next
       })
+      // トラックの状態（ロック等）も一緒にずらす
       setTrackStates((prev) => {
-        const next = { ...prev }
-        for (const id of [moveCueTo, addATrack ? aTrack : null, moveSeTo])
-          if (id && !next[id]) next[id] = newTrackState(id)
+        const next: Record<string, TrackState> = {}
+        for (const [id, st] of Object.entries(prev)) next[bump(id)] = st
         return next
       })
+      showToast(vTrack + ' に置くため、上のレーンを1つずつ繰り上げました。')
     }
-    if (moveCueTo) {
-      const dst = moveCueTo
-      setCues((prev) => prev.map((c) => (cueTrack(c) === vTrack ? { ...c, track: dst } : c)))
-      setImgClips((prev) => prev.map((c) => (c.track === vTrack ? { ...c, track: dst } : c)))
-      showToast(vTrack + ' のテロップ/画像を ' + dst + ' へ移動しました（映像と音声をリンクさせるため）。')
-    }
-    if (moveSeTo) {
-      const dst = moveSeTo
-      setSeClips((prev) => prev.map((c) => (c.track === aTrack ? { ...c, track: dst } : c)))
-      showToast(aTrack + ' の音声クリップを ' + dst + ' へ移動しました（映像と音声をリンクさせるため）。')
-    }
+
+    // 対の音声トラックが無ければ作る（無いと映像レイヤーの音が鳴らない）
+    setTracks((prev) =>
+      prev.some((t) => t.id === aTrack)
+        ? prev
+        : insertTrackOrdered(prev, { id: aTrack, name: aTrack, kind: 'audio' })
+    )
+    setTrackStates((prev) => (prev[aTrack] ? prev : { ...prev, [aTrack]: newTrackState(aTrack) }))
     return vTrack
   }
   // 映像レイヤーに動画クリップを置く
