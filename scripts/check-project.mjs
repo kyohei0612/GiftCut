@@ -41,19 +41,20 @@ const args = process.argv.slice(2)
 const asJson = args.includes('--json')
 const target = args.find((a) => !a.startsWith('--'))
 
-/** 引数が無ければ自動保存を探す（Electron の userData 配下） */
+/**
+ * 引数が無ければ自動保存ファイルを検査する。
+ * 場所は main/index.ts の autosavePath() と同じ:
+ *   app.getPath('userData')/giftcut-autosave.json
+ * userData は package.json の name（giftcut）から決まる。
+ */
 function defaultTarget() {
-  const bases = [
-    join(process.env.APPDATA || join(homedir(), 'AppData/Roaming'), 'giftcut'),
-    join(homedir(), 'AppData/Roaming/GiftCut')
+  const appData = process.env.APPDATA || join(homedir(), 'AppData/Roaming')
+  const candidates = [
+    join(appData, 'giftcut', 'giftcut-autosave.json'),
+    join(homedir(), 'Library/Application Support/giftcut/giftcut-autosave.json'),
+    join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'giftcut/giftcut-autosave.json')
   ]
-  for (const b of bases) {
-    for (const name of ['autosave.json', 'autosave.gcproj', 'project-autosave.json']) {
-      const p = join(b, name)
-      if (existsSync(p)) return p
-    }
-  }
-  return null
+  return candidates.find((p) => existsSync(p)) ?? null
 }
 
 const file = target ? resolve(target) : defaultTarget()

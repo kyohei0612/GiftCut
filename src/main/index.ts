@@ -24,6 +24,8 @@ import {
   validateFilterGraph,
   type GraphInput
 } from '../shared/filterGraph'
+// 保存するプロジェクトの整合性検査（参照切れ・長さ0・id重複など）
+import { checkProject, formatProjectProblems } from '../shared/projectCheck'
 
 // 書き出し中の ffmpeg プロセス（キャンセル用）。exportCanceled でユーザー中断とエラーを区別する。
 let currentExportFf: ChildProcess | null = null
@@ -562,6 +564,8 @@ app.whenReady().then(() => {
         const tmpFile = target + '.tmp'
         writeFileSync(tmpFile, json, 'utf-8')
         renameSync(tmpFile, target)
+        // 保存したものが壊れていないかを毎回検査する（保存自体は止めない）
+        inspectProject(json, 'save')
         return { ok: true, path: target }
       } catch (e) {
         return { ok: false, error: String(e) }
@@ -588,6 +592,39 @@ app.whenReady().then(() => {
 
   // ---- 自動保存 / クラッシュ復帰 ----
   const autosavePath = (): string => join(app.getPath('userData'), 'giftcut-autosave.json')
+
+  // 保存のたびにプロジェクトの整合性を検査する。
+  // 「壊れたプロジェクトを保存してしまい、開き直して初めて気づく」を無くすため、
+  // ファイルの場所を探してコマンドを打つのではなく、保存経路そのものに検査を挿す。
+  // 保存自体は絶対に止めない（作業内容を失う方が害が大きい）。結果は
+  // userData/giftcut-check.json に残し、問題があればコンソールにも出す。
+  const checkReportPath = (): string => join(app.getPath('userData'), 'giftcut-check.json')
+  const inspectProject = (json: string, origin: string): void => {
+    try {
+      const problems = checkProject(JSON.parse(json))
+      const errors = problems.filter((x: { severity: string }) => x.severity === 'error')
+      writeFileSync(
+        checkReportPath(),
+        JSON.stringify(
+          {
+            ok: errors.length === 0,
+            origin,
+            errors: errors.length,
+            warnings: problems.length - errors.length,
+            problems
+          },
+          null,
+          2
+        ),
+        'utf-8'
+      )
+      if (problems.length) {
+        console.warn(`[project:${origin}] 整合性の指摘:\n` + formatProjectProblems(problems))
+      }
+    } catch {
+      // 検査で保存を妨げない
+    }
+  }
   ipcMain.handle('project:autosave', async (_e, json: string) => {
     try {
       // 非同期＋アトミック書き込み（メインスレッドを止めず、途中で落ちても壊れない）。
@@ -596,6 +633,7 @@ app.whenReady().then(() => {
       const tmpFile = dst + '.tmp'
       await writeFileAsync(tmpFile, json, 'utf-8')
       renameSync(tmpFile, dst)
+      inspectProject(json, 'autosave')
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }
