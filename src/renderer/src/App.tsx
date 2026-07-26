@@ -128,6 +128,7 @@ interface VSeg {
   afadeOut?: number // 音声フェードアウト（秒）
   zoom?: { scale: number; x: number; y: number } // リフレーム（拡大率＋中心オフセット, フレーム比）
   crop?: { l: number; t: number; r: number; b: number } // クロップ（各辺の切り抜き率 0..1。切った領域は黒）
+  label?: string // ラベルカラー（テロップと同じ。素材の見分け用）
   gap?: boolean // タイムラインの空白（映像なし・無音）。「位置を指定して配置」した際の隙間埋め。
 }
 const DEFAULT_ZOOM = { scale: 1, x: 0, y: 0 }
@@ -761,6 +762,7 @@ export default function App(): JSX.Element {
   // ---- SE クリップ（A2 トラックに配置した効果音）----
   interface SEClip {
     id: number
+    label?: string
     path: string
     name: string
     tStart: number
@@ -800,6 +802,7 @@ export default function App(): JSX.Element {
   // ---- 画像クリップ（V2/V3等の映像トラックに置く静止画。プレミアの画像配置に相当）----
   interface ImgClip {
     id: number
+    label?: string
     path: string
     name: string
     tStart: number
@@ -1001,6 +1004,7 @@ export default function App(): JSX.Element {
   // 音声は必ず対になる音声トラック（V2→A2, V3→A3）に連動表示・再生される＝映像と音は常にセット。
   interface VClip {
     id: number
+    label?: string
     path: string
     name: string
     track: string
@@ -1501,6 +1505,18 @@ export default function App(): JSX.Element {
   const isVideoSel = (id: number): boolean => selectedVideoIds.includes(id)
   const isAudioSel = (id: number): boolean => selectedAudioIds.includes(id)
   const anySegSelected = (): boolean => selectedVideoIds.length > 0 || selectedAudioIds.length > 0
+  // どのクリップにもラベルカラーを付けられる（以前はテロップだけの機能だった）。
+  // 素材が増えると見分けが付かなくなるため、色で分類できるようにする。
+  function setClipLabel(kind: string, id: number, color?: string): void {
+    if (kind === 'seg')
+      setSegments((prev) => prev.map((c) => (c.id === id ? { ...c, label: color } : c)))
+    else if (kind === 'img')
+      setImgClips((prev) => prev.map((c) => (c.id === id ? { ...c, label: color } : c)))
+    else if (kind === 'se')
+      setSeClips((prev) => prev.map((c) => (c.id === id ? { ...c, label: color } : c)))
+    else if (kind === 'vclip')
+      setVClips((prev) => prev.map((c) => (c.id === id ? { ...c, label: color } : c)))
+  }
   function clearSegSel(): void {
     setSelectedVideoIds([])
     setSelectedAudioIds([])
@@ -10541,6 +10557,8 @@ export default function App(): JSX.Element {
                             key={`vc-${clip.id}`}
                             className={`clip video-clip vclip ${selectedVClipIds.includes(clip.id) ? 'clip-selected' : ''}`}
                             style={{
+                              // ラベルカラーは左端の帯で示す（塗りつぶすと文字が読めなくなる）
+                              boxShadow: clip.label ? `inset 4px 0 0 ${clip.label}` : undefined,
                               left: clip.tStart * zoom,
                               width: Math.max(vcLen(clip) * zoom - 1, 12)
                             }}
@@ -10584,6 +10602,8 @@ export default function App(): JSX.Element {
                             key={`vca-${clip.id}`}
                             className={`clip audio-clip vclip-audio ${selectedVClipIds.includes(clip.id) ? 'clip-selected' : ''} ${clip.muted ? 'clip-muted' : ''}`}
                             style={{
+                              // ラベルカラーは左端の帯で示す（塗りつぶすと文字が読めなくなる）
+                              boxShadow: clip.label ? `inset 4px 0 0 ${clip.label}` : undefined,
                               left: clip.tStart * zoom,
                               width: Math.max(vcLen(clip) * zoom - 1, 12)
                             }}
@@ -10642,6 +10662,8 @@ export default function App(): JSX.Element {
                             key={`img-${clip.id}`}
                             className={`clip img-clip ${selectedImgIds.includes(clip.id) ? 'clip-selected' : ''}`}
                             style={{
+                              // ラベルカラーは左端の帯で示す（塗りつぶすと文字が読めなくなる）
+                              boxShadow: clip.label ? `inset 4px 0 0 ${clip.label}` : undefined,
                               left: clip.tStart * zoom,
                               width: Math.max(clip.duration * zoom - 1, 12)
                             }}
@@ -10724,7 +10746,12 @@ export default function App(): JSX.Element {
                         <div
                           key={L.seg.id}
                           className={`clip video-clip ${L.seg.videoBlank ? 'clip-blank' : ''} ${isVideoSel(L.seg.id) ? 'clip-selected' : ''}`}
-                          style={{ left: L.tStart * zoom, width: Math.max(L.len * zoom - 1, 10) }}
+                          style={{
+                            left: L.tStart * zoom,
+                            width: Math.max(L.len * zoom - 1, 10),
+                            // ラベルカラーは左端の帯で示す（塗りつぶすと文字が読めなくなる）
+                            boxShadow: L.seg.label ? `inset 4px 0 0 ${L.seg.label}` : undefined
+                          }}
                           title={srcOfSeg(L.seg)?.name ?? videoName ?? ''}
                           onPointerDown={(e) => onSegPointerDown(L, e, 'video')}
                           onContextMenu={(e) => {
@@ -10960,7 +10987,10 @@ export default function App(): JSX.Element {
                           <div
                             key={L.seg.id}
                             className={`clip audio-clip ${isAudioSel(L.seg.id) ? 'clip-selected' : ''} ${L.seg.muted ? 'clip-muted' : ''}`}
-                            style={{ left: L.tStart * zoom, width: Math.max(L.len * zoom - 1, 10) }}
+                            style={{ left: L.tStart * zoom, width: Math.max(L.len * zoom - 1, 10),
+                              // ラベルカラーは左端の帯で示す
+                              boxShadow: L.seg.label ? `inset 4px 0 0 ${L.seg.label}` : undefined
+                            }}
                             title={ssrc?.name ?? videoName ?? ''}
                             onPointerDown={(e) => onSegPointerDown(L, e, 'audio')}
                           >
@@ -11600,6 +11630,29 @@ export default function App(): JSX.Element {
           <div className="ctx-title">
             {clipMenu.kind === 'se' ? '🔊' : clipMenu.kind === 'img' ? '🖼' : '🎬'}{' '}
             {clipMenu.name}
+          </div>
+          {/* ラベルカラー: どのクリップにも付けられる */}
+          <div className="ctx-swatches">
+            {LABEL_COLORS.map((l) => (
+              <button
+                key={l.color}
+                className="ctx-swatch"
+                style={{ background: l.color }}
+                title={l.name}
+                onClick={() => {
+                  setClipLabel(clipMenu.kind, clipMenu.id, l.color)
+                  setClipMenu(null)
+                }}
+              />
+            ))}
+            <button
+              className="ctx-swatch ctx-swatch-none"
+              title="色なし"
+              onClick={() => {
+                setClipLabel(clipMenu.kind, clipMenu.id, undefined)
+                setClipMenu(null)
+              }}
+            />
           </div>
           {clipMenu.kind !== 'seg' && (
             <button
