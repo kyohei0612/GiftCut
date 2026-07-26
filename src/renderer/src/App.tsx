@@ -314,7 +314,7 @@ const ACTION_LIST: { id: ShortcutId; label: string; group: string }[] = [
   { id: 'undo', label: '元に戻す', group: '編集' },
   { id: 'redo', label: 'やり直し', group: '編集' },
   { id: 'copy', label: 'コピー', group: '編集' },
-  { id: 'cut', label: 'カット', group: '編集' },
+  { id: 'cut', label: '切り取り', group: '編集' },
   { id: 'paste', label: '貼り付け', group: '編集' },
   { id: 'duplicate', label: '複製', group: '編集' },
   { id: 'addTelop', label: 'テロップを追加', group: '編集' },
@@ -3643,7 +3643,7 @@ export default function App(): JSX.Element {
   async function captureScreenshot(): Promise<void> {
     const v = videoRef.current
     if (!videoSrc || !v) {
-      showToast('先に動画を読み込んでください。')
+      showToast('先に動画を読み込んでください。\n「ファイル」→「動画をプロジェクトに追加…」から追加できます。')
       return
     }
     const size =
@@ -6912,7 +6912,7 @@ export default function App(): JSX.Element {
   // ================= 書き出し =================
   async function exportProject(): Promise<void> {
     if (!videoPath) {
-      showToast('先に「読み込み」から動画を読み込んでください。')
+      showToast('先に動画を読み込んでください。\n「ファイル」→「動画をプロジェクトに追加…」から追加できます。')
       return
     }
     // テロップが無くても書き出せる（カット＋BGM＋画像だけの動画も作れる）
@@ -7957,7 +7957,7 @@ export default function App(): JSX.Element {
               setLoudnormLUFS(e.target.value === 'off' ? null : Number(e.target.value))
             }
           >
-            <option value="-14">🔊 音量そろえ -14 (YouTube)</option>
+            <option value="-14">🔊 音量そろえ -14 LUFS（YouTube）</option>
             <option value="-16">🔊 音量そろえ -16 (podcast)</option>
             <option value="-23">🔊 音量そろえ -23 (放送)</option>
             <option value="off">音量そろえ OFF</option>
@@ -8019,7 +8019,7 @@ export default function App(): JSX.Element {
                   return (
                     <>
                       <label className="field-label">
-                        {se.track === 'A2' ? 'SE（効果音）' : '音声クリップ'}
+                        {se.track === 'A2' ? 'SE（効果音）' : 'オーディオクリップ'}
                       </label>
                       <div className="time-val" style={{ marginBottom: 8 }}>
                         🔊 {se.name}
@@ -9189,7 +9189,7 @@ export default function App(): JSX.Element {
                   ＋ ファイル追加
                 </button>
                 <button className="btn small" onClick={addFolderToProject} title="フォルダごと追加（SE等）">
-                  📁 フォルダ追加
+                  📂 フォルダから一括追加
                 </button>
                 <button className="btn small" onClick={handleImportSrt} title="SRT（テロップ）を読み込む">
                   🗒 SRT
@@ -9422,7 +9422,7 @@ export default function App(): JSX.Element {
                           <div className="tpl-grid">{s.cards}</div>
                         ) : (
                           <div className="tpl-hint" style={{ padding: '6px 2px' }}>
-                            空のフォルダです。各テロップの右下（ホバー）でこのフォルダを選ぶと入ります。
+                            空のフォルダです。テロップを右クリック→このフォルダを選ぶと入ります。
                           </div>
                         ))}
                     </div>
@@ -9662,7 +9662,7 @@ export default function App(): JSX.Element {
                     return (
                       <>
                         <div className="tpl-hint">
-                          タイムライン(A2)へドラッグで配置／クリックで試聴／右クリックでフォルダ移動
+                          タイムラインへドラッグで配置 / クリックで試聴 / 右クリックでフォルダ移動
                         </div>
                         {favList.length > 0 &&
                           accSec(
@@ -10318,7 +10318,7 @@ export default function App(): JSX.Element {
                     <div className="marker-line" />
                     <div
                       className="marker-flag"
-                      title={`${formatTimecode(mk.t, fps)}${mk.label ? '：' + mk.label : ''}（クリックで頭出し・ドラッグで移動・ダブルクリックで名前・Deleteで削除）`}
+                      title={`${formatTimecode(mk.t, fps)}${mk.label ? '：' + mk.label : ''}（クリックで頭出し / ドラッグで移動 / ダブルクリックで名前 / Delete で削除）`}
                       onPointerDown={(e) => onMarkerPointerDown(mk, e)}
                       onDoubleClick={(e) => {
                         e.stopPropagation()
@@ -11128,9 +11128,9 @@ export default function App(): JSX.Element {
                 title="「素材と同じ」なら素材のフレームレートをそのまま保つ（60fps素材が30fpsに落ちない）"
               >
                 <option value="source">素材と同じ（{fpsLabel(srcFpsForExport())}fps）</option>
-                <option value="24">24 fps</option>
-                <option value="30">30 fps</option>
-                <option value="60">60 fps</option>
+                <option value="24">24fps</option>
+                <option value="30">30fps</option>
+                <option value="60">60fps</option>
               </select>
             </div>
             <div className="sp-row">
@@ -11323,7 +11323,7 @@ export default function App(): JSX.Element {
                 行のキーをクリック → 新しいキーを押す（Esc でキャンセル）
               </span>
               <button className="btn" onClick={resetShortcuts}>
-                初期設定に戻す
+                ショートカットをリセット
               </button>
             </div>
           </div>

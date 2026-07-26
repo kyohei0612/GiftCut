@@ -153,7 +153,7 @@ export default function CropModal({ src, ringColor = '#fff', onCancel, onConfirm
               キャンセル
             </button>
             <button className="btn btn-primary" onClick={confirm}>
-              決定
+              OK
             </button>
           </div>
         </div>

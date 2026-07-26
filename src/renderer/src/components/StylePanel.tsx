@@ -109,7 +109,7 @@ export default function StylePanel({
       {/* ===== 整列と変形（Premiere: 最上段）===== */}
       <div className={secCls('align')}>
         <div className="sp-head sp-head-btn" onClick={() => toggle('align')}>
-          {closed.align ? '▸' : '▾'} 整列と変形
+          {closed.align ? '▶' : '▼'} 整列と変形
         </div>
         <div className="sp-row">
           <span className="sp-label">位置</span>
@@ -159,7 +159,7 @@ export default function StylePanel({
       {/* ===== スタイル（プリセット）===== */}
       <div className={secCls('style')}>
         <div className="sp-head sp-head-btn" onClick={() => toggle('style')}>
-          {closed.style ? '▸' : '▾'} スタイル（プリセット）
+          {closed.style ? '▶' : '▼'} スタイル（プリセット）
         </div>
         <div className="preset-chips">
           {presets.length ? (
@@ -199,7 +199,7 @@ export default function StylePanel({
       {/* ===== コラボアイコン（GiftCut固有。CSS orderで最下段に表示）===== */}
       <div className={secCls('icon')}>
         <div className="sp-head sp-head-btn" onClick={() => toggle('icon')}>
-          {closed.icon ? '▸' : '▾'} コラボアイコン（テロップ前に表示）
+          {closed.icon ? '▶' : '▼'} コラボアイコン（テロップ前に表示）
         </div>
         <div className="sp-row">
           <input
@@ -310,7 +310,7 @@ export default function StylePanel({
       {/* ===== テキスト ===== */}
       <div className={secCls('text')}>
         <div className="sp-head sp-head-btn" onClick={() => toggle('text')}>
-          {closed.text ? '▸' : '▾'} テキスト
+          {closed.text ? '▶' : '▼'} テキスト
         </div>
 
         <select
@@ -399,7 +399,7 @@ export default function StylePanel({
           style={{ display: 'flex', alignItems: 'center', gap: 8 }}
           onClick={() => toggle('app')}
         >
-          <span>{closed.app ? '▸' : '▾'} アピアランス</span>
+          <span>{closed.app ? '▶' : '▼'} アピアランス</span>
           <select
             className="sp-select mini"
             style={{ marginLeft: 'auto' }}
@@ -608,8 +608,8 @@ export default function StylePanel({
                   </button>
                 )}
               </div>
-              <Slider label="不透明度" min={0} max={100} value={sh.opacity} onChange={(v) => upd({ opacity: v })} />
-              <Slider label="角度" min={0} max={360} value={sh.angle} onChange={(v) => upd({ angle: v })} />
+              <Slider unit="%" label="不透明度" min={0} max={100} value={sh.opacity} onChange={(v) => upd({ opacity: v })} />
+              <Slider unit="°" label="角度" min={0} max={360} value={sh.angle} onChange={(v) => upd({ angle: v })} />
               <Slider label="距離" min={0} max={100} value={sh.distance} onChange={(v) => upd({ distance: v })} />
               <Slider label="サイズ" min={0} max={100} value={sh.spread ?? 0} onChange={(v) => upd({ spread: v })} />
               <Slider label="ぼかし" min={0} max={250} value={sh.blur} onChange={(v) => upd({ blur: v })} />
@@ -688,11 +688,14 @@ function ScrubNumber({
   )
 }
 
+// unit: 数値の単位。同じ「不透明度」なのに映像レイヤーでは 70% でテロップでは 70、
+// 同じ「角度」なのにグラデでは 45 度表記で影では 45、と単位の有無がバラバラだった。
 function Slider(props: {
   label: string
   min: number
   max: number
   value: number
+  unit?: string
   onChange: (v: number) => void
 }): JSX.Element {
   return (
@@ -705,7 +708,10 @@ function Slider(props: {
         value={props.value}
         onChange={(e) => props.onChange(Number(e.target.value))}
       />
-      <span className="sp-val">{props.value}</span>
+      <span className="sp-val">
+        {props.value}
+        {props.unit ?? ''}
+      </span>
     </div>
   )
 }

@@ -472,7 +472,7 @@ export function FillPicker({
           <div className="sp-row" style={{ gap: 6 }}>
             {sel.kind === 'opacity' && (
               <>
-                <span className="sp-label">不透明</span>
+                <span className="sp-label">不透明度</span>
                 <input
                   type="number"
                   className="sp-num"
