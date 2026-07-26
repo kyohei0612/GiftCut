@@ -548,6 +548,18 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (import.meta.env.DEV) localStorage.setItem('giftcut.qa.open', qaOpen ? '1' : '0')
   }, [qaOpen])
+  // マグネットの切り替えはここを通す。以前はショートカット(S)だけが保存していて、
+  // ツールバーのボタンから切ると再起動で ON に戻っていた。
+  function toggleSnap(): void {
+    setSnap((v) => {
+      try {
+        localStorage.setItem('giftcut.snap', JSON.stringify(!v))
+      } catch {
+        /* 無視 */
+      }
+      return !v
+    })
+  }
   const [snap, setSnap] = useState<boolean>(() => {
     try {
       return localStorage.getItem('giftcut.snap') !== 'false'
@@ -1022,6 +1034,8 @@ export default function App(): JSX.Element {
   // 確保済みだがまだ state に反映されていないトラックID。placeVClip は await getDuration を
   // 挟むので、2本続けてドロップすると後発が同じ番号を選んでしまう。それを防ぐための予約。
   const reservedTrackIdsRef = useRef<Set<string>>(new Set())
+  // 縦ドラッグで移す先のレーン。指を離した時にだけトラックを確保する。
+  const pendingLaneRef = useRef<string | null>(null)
   // 映像レイヤーに動画を置く前に、V{n} と A{n} を「その動画専用」に空ける。
   // 既にテロップ/画像/SEが載っていたら1段追加してそちらへ退避させる（リンクを崩さないため）。
   // トラックを番号順の正しい位置へ挿入する。
@@ -1250,9 +1264,10 @@ export default function App(): JSX.Element {
           lane !== 'V1' &&
           tracks.some((t) => t.id === lane && t.kind === 'video') &&
           !trackStates[lane]?.locked
-        // 移動先が変わるときは、対の音声トラックを確保してから移す
-        // （確保しないと A{n} が無く無音になり、音声の帯も消える）
-        if (laneOk && lane !== clip.track) reserveTrackPairForVideo(lane)
+        // ここではトラックを作らない。以前はポインタが動くたびに確保していたため、
+        // ドラッグ中にトラックが次々増えて画面が上へ暴走していた。
+        // 実際に移す時（指を離した時）にまとめて確保する。
+        if (laneOk && lane !== clip.track) pendingLaneRef.current = lane
         const shift = nt - t0
         setVClips((prev) =>
           prev.map((c) => {
@@ -1273,6 +1288,11 @@ export default function App(): JSX.Element {
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
       setDragTip(null)
+      // 移し終えた時にだけ、対の音声トラックを確保する
+      // （確保しないと A{n} が無く無音になり、音声の帯も消える）
+      const lane = pendingLaneRef.current
+      pendingLaneRef.current = null
+      if (lane) reserveTrackPairForVideo(lane)
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -4077,11 +4097,9 @@ export default function App(): JSX.Element {
     add.filter((m) => m.kind === 'video').forEach((m) => genThumbFor(m.id, m.path))
     // 取り込み時に尺と音声波形も用意する（配置前から波形が見える＝映像と音がリンクした状態）
     add.forEach((m) => prepareMediaMeta(m.path, m.kind))
-    // 動画がまだ無ければ、追加した最初の動画を自動でアクティブに
-    if (!videoPath) {
-      const firstVideo = add.find((m) => m.kind === 'video')
-      if (firstVideo) void loadVideo(firstVideo.path)
-    }
+    // 追加しただけではタイムラインに載せない。置く位置は自分で決めるもので、
+    // 勝手に先頭へ置かれると2本目以降が後ろに回って並べ直しになる。
+    // タイムラインへドラッグするか、ビンでダブルクリックすると読み込まれる。
   }
   async function addFilesToProject(): Promise<void> {
     const res = await window.giftcut.addMedia()
@@ -6630,11 +6648,7 @@ export default function App(): JSX.Element {
     const dispatch: Record<ShortcutId, () => void> = {
       toolSelect: () => setTool('select'),
       toolRazor: () => setTool('razor'),
-      toggleSnap: () =>
-        setSnap((s) => {
-          saveLS('giftcut.snap', !s)
-          return !s
-        }),
+      toggleSnap: () => toggleSnap(),
       playPause: () => togglePlay(),
       shuttleFwd: () => shuttleForward(),
       shuttleStop: () => stopPlayback(),
@@ -9986,7 +10000,7 @@ export default function App(): JSX.Element {
             <button
               className={`tool ${snap ? 'tool-on' : ''}`}
               title={`スナップ (${formatCombo(shortcuts.toggleSnap)})`}
-              onClick={() => setSnap((s) => !s)}
+              onClick={toggleSnap}
             >
               🧲
             </button>

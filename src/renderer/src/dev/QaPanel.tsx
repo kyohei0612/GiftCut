@@ -471,6 +471,18 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
                 直すもの
                 <b>{ngItems.length}</b>
               </button>
+              {ngOpen && (
+                <div className="qa-done-foot">
+                  <button
+                    onClick={() => {
+                      if (!window.confirm(ngItems.length + ' 件を未確認に戻して、もう一度確かめられるようにします。')) return
+                      ngItems.forEach((it) => setRec(it.id, { s: '', note: '', done: false }))
+                    }}
+                  >
+                    直したので再確認に戻す
+                  </button>
+                </div>
+              )}
               {ngOpen &&
                 ngItems.map((it) => (
                   <div className="qa-done-row" key={it.id}>
