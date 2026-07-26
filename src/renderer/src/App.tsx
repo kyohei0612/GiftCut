@@ -535,7 +535,15 @@ export default function App(): JSX.Element {
   const [zoom, setZoom] = useState(24) // px / 秒
   // マグネットの ON/OFF は編集の癖なのでPCに覚えさせる（プレビュー解像度や
   // パネル幅は保存しているのに、ここだけ毎回ONに戻っていた）。
-  const [snap, setSnap] = useState<boolean>(() => loadLS<boolean>('giftcut.snap', true))
+  // loadLS はこの行より後ろで定義されるので使えない（使うと起動時に
+  // 「Cannot access 'loadLS' before initialization」で真っ黒になる）。直接読む。
+  const [snap, setSnap] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('giftcut.snap') !== 'false'
+    } catch {
+      return true
+    }
+  })
   const [currentTime, setCurrentTime] = useState(0)
   const [monitorTab, setMonitorTab] = useState<'program' | 'mixer'>('program') // プレビュー↔ミキサー
   const [masterVolume, setMasterVolume] = useState(1) // マスター音量（全体）
