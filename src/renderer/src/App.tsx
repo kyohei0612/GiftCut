@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { parseSrt, buildSrt, formatTime, type Cue } from './lib/srt'
 import {
   anchorFrac,
@@ -41,6 +41,10 @@ import CropModal from './components/CropModal'
 import StylePanel from './components/StylePanel'
 import TelopText from './components/TelopText'
 import WaveformCanvas from './components/WaveformCanvas'
+// 検査票（動作確認チェックリスト）。開発中だけ読み込む。
+// import.meta.env.DEV は本番ビルドで false になるので、この分岐ごと
+// 消えて dev/ 配下は配布物に入らない。
+const QaPanel = import.meta.env.DEV ? lazy(() => import('./dev/QaPanel')) : null
 // 時間計算はすべて shared/timeline に集約（ズレの一元管理）。
 // ここに同じ計算を書き直さないこと。不変条件は timeline.test.ts が守っている。
 import {
@@ -537,6 +541,8 @@ export default function App(): JSX.Element {
   // パネル幅は保存しているのに、ここだけ毎回ONに戻っていた）。
   // loadLS はこの行より後ろで定義されるので使えない（使うと起動時に
   // 「Cannot access 'loadLS' before initialization」で真っ黒になる）。直接読む。
+  // 検査票の開閉（開発中のみ）
+  const [qaOpen, setQaOpen] = useState(false)
   const [snap, setSnap] = useState<boolean>(() => {
     try {
       return localStorage.getItem('giftcut.snap') !== 'false'
@@ -11434,6 +11440,40 @@ export default function App(): JSX.Element {
             setCropSrc(null)
           }}
         />
+      )}
+
+      {/* 開発中だけ出る検査票。配布ビルドでは QaPanel が null になり、
+          このブロックごと消える。 */}
+      {QaPanel && (
+        <>
+          {/* 見た目もここに書く。styles.css に置くと配布ビルドに残るため */}
+          <button
+            onClick={() => setQaOpen(true)}
+            title="動作確認チェックリストを開く（開発中のみ）"
+            style={{
+              position: 'fixed',
+              right: 12,
+              bottom: 12,
+              zIndex: 8000,
+              background: '#1b2027',
+              color: '#e0a94a',
+              border: '1px solid #3a3320',
+              borderRadius: 999,
+              padding: '6px 14px',
+              fontSize: 12,
+              letterSpacing: '0.06em',
+              cursor: 'pointer',
+              opacity: 0.72
+            }}
+          >
+            検査票
+          </button>
+          {qaOpen && (
+            <Suspense fallback={null}>
+              <QaPanel onClose={() => setQaOpen(false)} />
+            </Suspense>
+          )}
+        </>
       )}
 
       {/* ===== トースト通知 ===== */}
