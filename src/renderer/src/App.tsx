@@ -10572,8 +10572,8 @@ export default function App(): JSX.Element {
                             key={`vc-${clip.id}`}
                             className={`clip video-clip vclip ${selectedVClipIds.includes(clip.id) ? 'clip-selected' : ''}`}
                             style={{
-                              // ラベルカラーは左端の帯で示す（塗りつぶすと文字が読めなくなる）
-                              boxShadow: clip.label ? `inset 4px 0 0 ${clip.label}` : undefined,
+                              // ラベルカラーは左の境界線で示す。中の帯だとサムネや波形に覆われて見えない。
+                              borderLeft: clip.label ? `4px solid ${clip.label}` : undefined,
                               left: clip.tStart * zoom,
                               width: Math.max(vcLen(clip) * zoom - 1, 12)
                             }}
@@ -10617,8 +10617,8 @@ export default function App(): JSX.Element {
                             key={`vca-${clip.id}`}
                             className={`clip audio-clip vclip-audio ${selectedVClipIds.includes(clip.id) ? 'clip-selected' : ''} ${clip.muted ? 'clip-muted' : ''}`}
                             style={{
-                              // ラベルカラーは左端の帯で示す（塗りつぶすと文字が読めなくなる）
-                              boxShadow: clip.label ? `inset 4px 0 0 ${clip.label}` : undefined,
+                              // ラベルカラーは左の境界線で示す。中の帯だとサムネや波形に覆われて見えない。
+                              borderLeft: clip.label ? `4px solid ${clip.label}` : undefined,
                               left: clip.tStart * zoom,
                               width: Math.max(vcLen(clip) * zoom - 1, 12)
                             }}
@@ -10677,8 +10677,8 @@ export default function App(): JSX.Element {
                             key={`img-${clip.id}`}
                             className={`clip img-clip ${selectedImgIds.includes(clip.id) ? 'clip-selected' : ''}`}
                             style={{
-                              // ラベルカラーは左端の帯で示す（塗りつぶすと文字が読めなくなる）
-                              boxShadow: clip.label ? `inset 4px 0 0 ${clip.label}` : undefined,
+                              // ラベルカラーは左の境界線で示す。中の帯だとサムネや波形に覆われて見えない。
+                              borderLeft: clip.label ? `4px solid ${clip.label}` : undefined,
                               left: clip.tStart * zoom,
                               width: Math.max(clip.duration * zoom - 1, 12)
                             }}
@@ -10764,8 +10764,8 @@ export default function App(): JSX.Element {
                           style={{
                             left: L.tStart * zoom,
                             width: Math.max(L.len * zoom - 1, 10),
-                            // ラベルカラーは左端の帯で示す（塗りつぶすと文字が読めなくなる）
-                            boxShadow: L.seg.label ? `inset 4px 0 0 ${L.seg.label}` : undefined
+                            // ラベルカラーは左の境界線で示す。中の帯だとサムネや波形に覆われて見えない。
+                            borderLeft: L.seg.label ? `4px solid ${L.seg.label}` : undefined
                           }}
                           title={srcOfSeg(L.seg)?.name ?? videoName ?? ''}
                           onPointerDown={(e) => onSegPointerDown(L, e, 'video')}
@@ -11003,8 +11003,8 @@ export default function App(): JSX.Element {
                             key={L.seg.id}
                             className={`clip audio-clip ${isAudioSel(L.seg.id) ? 'clip-selected' : ''} ${L.seg.muted ? 'clip-muted' : ''}`}
                             style={{ left: L.tStart * zoom, width: Math.max(L.len * zoom - 1, 10),
-                              // ラベルカラーは左端の帯で示す
-                              boxShadow: L.seg.label ? `inset 4px 0 0 ${L.seg.label}` : undefined
+                              // ラベルカラーは左の境界線で示す
+                              borderLeft: L.seg.label ? `4px solid ${L.seg.label}` : undefined
                             }}
                             title={ssrc?.name ?? videoName ?? ''}
                             onPointerDown={(e) => onSegPointerDown(L, e, 'audio')}
