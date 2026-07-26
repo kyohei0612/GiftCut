@@ -25,6 +25,8 @@ type Mark = '' | 'ok' | 'ng'
 interface Rec {
   s: Mark
   note: string
+  /** 「完了」を押して確定したか。false/未設定＝下書き（書きかけ） */
+  done?: boolean
 }
 type Store = Record<string, Rec>
 
@@ -89,6 +91,10 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
   )
   const timers = useRef<number[]>([])
   const bodyRef = useRef<HTMLDivElement>(null)
+  // 最後に「完了」を押した項目。誤って再起動しても、ここから続けられる。
+  const [resumeId, setResumeId] = useState<string>(
+    () => localStorage.getItem(KEY + '.resume') ?? ''
+  )
   const [width, setWidth] = useState<number>(() => {
     const v = Number(localStorage.getItem(KEY + '.w'))
     return v >= 280 && v <= 720 ? v : 380
@@ -146,12 +152,31 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
       return next
     })
 
-  // OK にしたら少し見せてから消す。NG はそのまま残す（対処が要るため）。
   const ANIM = 300
+  // ✓ / ✕ を押した時点では「下書き」。内容を書いてから「完了」で確定する。
+  // 下書きの段階でも保存しているので、書いている途中で再起動しても消えない。
   function mark(id: string, kind: Mark): void {
-    const next = rec(id).s === kind ? '' : kind
-    setRec(id, { s: next })
-    if (next !== 'ok') return
+    const r = rec(id)
+    const next = r.s === kind ? '' : kind
+    setRec(id, { s: next, done: false })
+  }
+  // 「完了」＝この項目の確認を終える。ここで再開位置も記録する。
+  function commit(id: string): void {
+    const r = rec(id)
+    if (!r.s) return
+    setRec(id, { done: true })
+    setResumeId(id)
+    try {
+      // 確定した瞬間に、続きから再開するのに要るものをまとめて書き出す
+      localStorage.setItem(KEY + '.resume', id)
+      localStorage.setItem(KEY + '.at', new Date().toISOString())
+      if (bodyRef.current)
+        localStorage.setItem(KEY + '.scroll', String(bodyRef.current.scrollTop))
+    } catch {
+      /* 無視 */
+    }
+    if (r.s !== 'ok') return
+    // OK だけ流して消す（NG は対処が要るので一覧に残す）
     setLeaving((p) => (p.includes(id) ? p : [...p, id]))
     const t = window.setTimeout(() => {
       setLeaving((p) => p.filter((x) => x !== id))
@@ -160,20 +185,28 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
     timers.current.push(t)
   }
 
-  const nOk = items.filter((i) => rec(i.id).s === 'ok').length
-  const nNg = items.filter((i) => rec(i.id).s === 'ng').length
+  // 進捗は「完了を押して確定したもの」だけ数える。書きかけを進捗に入れると、
+  // 実際より進んで見えて確認漏れの元になる。
+  const nOk = items.filter((i) => rec(i.id).s === 'ok' && rec(i.id).done).length
+  const nNg = items.filter((i) => rec(i.id).s === 'ng' && rec(i.id).done).length
   const nRest = items.length - nOk - nNg
 
   // 完了したものは一覧から外して下の「完了」にしまう。
   // 退場アニメが終わるまでは残しておく（いきなり消えると見失うため）。
   const visible = items.filter((i) => {
     const s = rec(i.id).s
-    if (s === 'ok' && !leaving.includes(i.id)) return false
+    // 下書きのうちは残す（書きかけが消えると何をしていたか分からなくなる）
+    if (s === 'ok' && rec(i.id).done && !leaving.includes(i.id)) return false
     if (filter === 'star') return i.star
     if (filter === 'ng') return s === 'ng'
     return true
   })
-  const doneItems = items.filter((i) => rec(i.id).s === 'ok')
+  const doneItems = items.filter((i) => rec(i.id).s === 'ok' && rec(i.id).done)
+  const draftCount = items.filter((i) => rec(i.id).s && !rec(i.id).done).length
+  // 続きの位置＝最後に確定した項目の次にある、まだ確定していない項目
+  const resumeIdx = resumeId ? items.findIndex((i) => i.id === resumeId) : -1
+  const nextItem =
+    resumeIdx >= 0 ? items.slice(resumeIdx + 1).find((i) => !rec(i.id).done) : undefined
 
   // 章ごとにまとめる（表示順は元の並びのまま）
   const groups: { name: string; list: Item[] }[] = []
@@ -184,7 +217,8 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
   }
 
   function buildPrompt(): string {
-    const ng = items.filter((i) => rec(i.id).s === 'ng')
+    // 確定した NG だけを載せる（書きかけは症状が未記入のことが多いため）
+    const ng = items.filter((i) => rec(i.id).s === 'ng' && rec(i.id).done)
     const tail = `確認: ${items.length} 項目中 ${nOk} 件OK / ${nNg} 件NG / 未確認 ${nRest} 件`
     if (!ng.length) return `${title} をしました。NG はありません。\n\n${tail}`
     const out: string[] = [
@@ -279,6 +313,23 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
               </button>
             ))}
           </div>
+          {(nextItem || draftCount > 0) && (
+            <div className="qa-resume">
+              {draftCount > 0 && <b>書きかけ {draftCount} 件</b>}
+              {nextItem && (
+                <button
+                  onClick={() => {
+                    const el = bodyRef.current?.querySelector(
+                      `[data-qa-id="${CSS.escape(nextItem.id)}"]`
+                    )
+                    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+                  }}
+                >
+                  続きへ移動
+                </button>
+              )}
+            </div>
+          )}
           <div className="qa-actions">
             <button className="qa-btn primary" onClick={() => setPrompt(buildPrompt())}>
               修正を依頼するプロンプトを作る
@@ -332,8 +383,11 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
                   return (
                     <div
                       className={`qa-row ${r.s ? 'is-' + r.s : ''} ${
-                        leaving.includes(it.id) ? 'leaving' : ''
+                        r.s && !r.done ? 'is-draft' : ''
+                      } ${leaving.includes(it.id) ? 'leaving' : ''} ${
+                        nextItem && nextItem.id === it.id ? 'is-next' : ''
                       }`}
+                      data-qa-id={it.id}
                       key={it.id}
                     >
                       <div className="qa-mark">
@@ -364,6 +418,24 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
                             value={r.note}
                             onChange={(e) => setRec(it.id, { note: e.target.value })}
                           />
+                        )}
+                        {r.s && !r.done && (
+                          <div className="qa-commit">
+                            <span>
+                              {r.s === 'ng'
+                                ? '症状を書いたら完了を押す'
+                                : '確認できたら完了を押す'}
+                            </span>
+                            <button onClick={() => commit(it.id)}>完了</button>
+                          </div>
+                        )}
+                        {r.s === 'ng' && r.done && (
+                          <div className="qa-commit is-done">
+                            <span>記録しました</span>
+                            <button onClick={() => setRec(it.id, { done: false })}>
+                              書き直す
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -500,6 +572,22 @@ const QA_CSS = `
 .qa-row.is-ok .qa-txt{color:#a7aebc}
 .qa-star{display:inline-block;font-size:9.5px;font-weight:700;color:#e0a94a;background:#322611;
   border-radius:4px;padding:1px 4px;margin-right:5px;vertical-align:1px}
+/* 下書き（✓✕を押したがまだ完了していない）。確定前だと分かるようにする。 */
+.qa-row.is-draft{box-shadow:inset 3px 0 0 #e0a94a}
+.qa-commit{display:flex;align-items:center;gap:9px;margin-top:7px}
+.qa-commit span{font-size:11.5px;color:#737b8a;flex:1}
+.qa-commit button{border:1px solid #e0a94a;background:#e0a94a;color:#0f1216;border-radius:5px;
+  padding:3px 14px;font-size:12px;font-weight:600;cursor:pointer;flex:none}
+.qa-commit button:hover{filter:brightness(1.08)}
+.qa-commit.is-done button{background:none;color:#737b8a;border-color:#2a3038;font-weight:400}
+.qa-commit.is-done button:hover{border-color:#7ea2ff;color:#7ea2ff;filter:none}
+/* 続きの位置 */
+.qa-row.is-next{box-shadow:inset 3px 0 0 #7ea2ff}
+.qa-resume{display:flex;align-items:center;gap:8px}
+.qa-resume b{font-size:11.5px;color:#e0a94a;font-weight:600}
+.qa-resume button{margin-left:auto;border:1px solid #2a3038;background:none;color:#7ea2ff;
+  border-radius:5px;padding:3px 11px;font-size:11.5px;cursor:pointer}
+.qa-resume button:hover{border-color:#7ea2ff}
 /* 消し込みの退場アニメ。高さも詰めるので、下の項目がすっと繰り上がる。 */
 @keyframes qa-leave{
   0%{opacity:1;transform:translateX(0)}
