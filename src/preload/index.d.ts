@@ -95,7 +95,8 @@ export interface GiftcutApi {
   ) => Promise<{ ok: boolean; min?: number[]; max?: number[]; duration?: number; error?: string }>
   generateThumbnail: (videoPath: string) => Promise<{ ok: boolean; path?: string; error?: string }>
   generateProxy: (
-    videoPath: string
+    videoPath: string,
+    height?: number
   ) => Promise<{ ok: boolean; path?: string; cached?: boolean; error?: string }>
   onProxyProgress: (cb: (data: { path: string; percent: number }) => void) => () => void
   exportVideo: (

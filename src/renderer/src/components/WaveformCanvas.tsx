@@ -1,11 +1,14 @@
 import { useEffect, useRef } from 'react'
+import { waveIndexAt } from '../../../shared/timeline'
 
 interface Props {
-  min: number[] // [-1,0] 側のピーク（[0, videoDuration] を均等分割）
+  min: number[] // [-1,0] 側のピーク（[0, audioDuration] を均等分割）
   max: number[] // [0,1] 側のピーク
   srcStart: number // この切片が表示するソース範囲
   srcEnd: number
-  videoDuration: number
+  // 波形を解析した音声そのものの長さ。動画の尺を渡すと、音声ストリームとの
+  // 尺差ぶん位置が比例してズレる（後ろに行くほど再生ヘッドと合わなくなる）。
+  audioDuration: number
   width: number // 表示px幅
   height: number
   color?: string
@@ -18,7 +21,7 @@ export default function WaveformCanvas({
   max,
   srcStart,
   srcEnd,
-  videoDuration,
+  audioDuration,
   width,
   height,
   color = '#2196f3'
@@ -38,11 +41,12 @@ export default function WaveformCanvas({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, W, H)
     const P = max.length
-    if (P === 0 || videoDuration <= 0) return
+    if (P === 0 || audioDuration <= 0) return
 
     const amp = H * 0.46
     const mid = H / 2
-    const toIdxF = (t: number): number => (t / videoDuration) * P
+    // 写像は shared/timeline に集約（ここで書き直すとまたズレる）
+    const toIdxF = (t: number): number => waveIndexAt(t, audioDuration, P)
     ctx.fillStyle = color
 
     for (let x = 0; x < W; x++) {
@@ -72,7 +76,7 @@ export default function WaveformCanvas({
       const bot = mid - lo * amp
       ctx.fillRect(x, top, 1, Math.max(1, bot - top))
     }
-  }, [min, max, srcStart, srcEnd, videoDuration, width, height, color])
+  }, [min, max, srcStart, srcEnd, audioDuration, width, height, color])
 
   return <canvas ref={ref} style={{ width, height, display: 'block' }} />
 }

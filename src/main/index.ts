@@ -792,8 +792,8 @@ app.whenReady().then(() => {
 
   // 編集用プロキシのディレクトリ。userData 配下に置き、キャッシュとして使い回す。
   const proxyDir = join(app.getPath('userData'), 'giftcut-proxies')
-  // プロキシキャッシュの上限。360pでも長尺なら1本数十MBになるため、本数だけでは数GBまで
-  // 膨らんでしまう。総容量で制限し、超過ぶんだけ古い順に削除する。
+  // プロキシキャッシュの上限。360p/720p の2解像度ぶんが並ぶうえ長尺なら1本数十MB〜になるため、
+  // 本数だけでは数GBまで膨らんでしまう。総容量で制限し、超過ぶんだけ古い順に削除する。
   const PROXY_CACHE_MAX_BYTES = 3 * 1024 * 1024 * 1024 // 3GB
   const PROXY_CACHE_MAX_FILES = 200 // 極端に短い素材ばかりのときの本数上限
   // このセッションで返した（＝いま編集中のプロジェクトが使っている）プロキシは削除しない。
@@ -876,18 +876,23 @@ app.whenReady().then(() => {
   // 編集用プロキシ生成: 低解像度・短GOP（キーフレーム密）に変換し、プレビューのシークを一瞬にする。
   // 元動画のキーフレームが疎（例: 8秒間隔）だとシークに数百msかかり、カット通過や再生開始でカクつくため。
   // 書き出しは元ファイル(videoPath)を使うので画質は劣化しない。結果はキャッシュして再変換を避ける。
-  ipcMain.handle('video:proxy', async (e, videoPath: string) => {
+  // height でプレビュー解像度を選べる（既定360。renderer の「プレビュー解像度」設定に対応）。
+  ipcMain.handle('video:proxy', async (e, videoPath: string, height?: number) => {
     if (!videoPath || !existsSync(videoPath)) return { ok: false, error: 'ファイルがありません' }
     if (!allowedFiles.has(normalize(videoPath)))
       return { ok: false, error: '許可されていないファイルです' }
+    // 想定外の値でおかしなサイズに変換しないよう、扱う解像度は固定の候補だけに絞る
+    const proxyH = height === 720 ? 720 : 360
     try {
       mkdirSync(proxyDir, { recursive: true })
     } catch {
       /* 既存 */
     }
     const st = statSync(videoPath)
+    // 解像度もキーに含める。含めないと 360p と 720p が同じファイル名になり、
+    // 先に作った方がもう一方として使い回されて解像度が取り違えられる。
     const key = createHash('md5')
-      .update(normalize(videoPath) + '|' + st.size + '|' + Math.round(st.mtimeMs))
+      .update(normalize(videoPath) + '|' + st.size + '|' + Math.round(st.mtimeMs) + '|h' + proxyH)
       .digest('hex')
     const outPath = join(proxyDir, key + '.mp4')
     if (existsSync(outPath)) {
@@ -924,7 +929,7 @@ app.whenReady().then(() => {
       '-i',
       videoPath,
       '-vf',
-      'scale=-2:360', // 編集用は360pで十分（書き出しは原本フル画質）
+      `scale=-2:${proxyH}`, // 編集用の解像度（書き出しは原本フル画質）
       '-c:v',
       'libx264',
       '-preset',
@@ -1252,10 +1257,23 @@ app.whenReady().then(() => {
     let audioMap: string[] = audioPresent ? ['-map', '0:a?'] : []
 
     // 出力フレームレート（書き出し設定。既定30）。フィルタ全体で統一する。
-    const outFps = payload.fps && payload.fps > 0 ? Math.round(payload.fps) : 30
+    // 「素材と同じ」で 29.97 のような NTSC 系が来るため、以前の Math.round は使えない
+    // （29.97 が 30 に化けて素材と1000/1001だけズレ、長尺で音ズレ・尺ズレになる）。
+    const outFps =
+      typeof payload.fps === 'number' && Number.isFinite(payload.fps) && payload.fps > 0
+        ? Math.min(240, Math.max(1, payload.fps))
+        : 30
+    // ffmpeg へ渡す表記。29.97 等は10進で渡すと丸め誤差が出るので分数(30000/1001)にする。
+    // 数値計算（半フレーム詰め）には実数の outFps を使い、表記だけ分数に切り替える。
+    const fpsArg = ((): string => {
+      const n = Math.round((outFps * 1001) / 1000) // NTSC系なら n/1.001 が整数になる
+      if (n > 0 && Math.abs(outFps - (n * 1000) / 1001) < 0.005) return `${n * 1000}/1001`
+      if (Math.abs(outFps - Math.round(outFps)) < 1e-6) return String(Math.round(outFps))
+      return outFps.toFixed(6)
+    })()
     // カットを反映: 残った切片を出力解像度に揃えて連結する
     // 各切片を先に scale/pad して同一サイズにするので、黒ブランクも color で混ぜられる
-    const scalePad = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${outFps}`
+    const scalePad = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fpsArg}`
     if (segs) {
       // カット間クロスディゾルブ: 切片 i の xfade = 「i と i+1 の間」を d 秒重ねて溶かす。
       // モデルは「カット位置で完了する d 秒クロスフェード」——B側をソースの srcStart より
@@ -1376,7 +1394,7 @@ app.whenReady().then(() => {
         const coreLabel = mIn || mOut ? `[c${i}]` : `[sv${i}]`
         const vin = srcInput[s.srcIdx ?? 0] // マルチソース: この切片が使う入力（元動画）index
         if (s.videoBlank) {
-          filter += `color=c=black:s=${width}x${height}:d=${extLenN.toFixed(3)}:r=${outFps},setsar=1${fade}${tb}${coreLabel};`
+          filter += `color=c=black:s=${width}x${height}:d=${extLenN.toFixed(3)}:r=${fpsArg},setsar=1${fade}${tb}${coreLabel};`
         } else {
           // この切片の音声を使うか（下の音声ループの useSilence と同じ条件）
           const aUsed = audioPresent && !s.muted && !!srcHasAudio[s.srcIdx ?? 0]
@@ -1389,13 +1407,13 @@ app.whenReady().then(() => {
           if (mIn) {
             const d = Math.min(tin!.dur, extLenN)
             const nx = mOut ? `[ci${i}]` : `[sv${i}]`
-            filter += `color=c=black:s=${width}x${height}:d=${d.toFixed(3)}:r=${outFps},setsar=1,settb=AVTB[bi${i}];`
+            filter += `color=c=black:s=${width}x${height}:d=${d.toFixed(3)}:r=${fpsArg},setsar=1,settb=AVTB[bi${i}];`
             filter += `[bi${i}]${cur}xfade=transition=${motionName(tin!.type)}:duration=${d.toFixed(3)}:offset=0${nx};`
             cur = nx
           }
           if (mOut) {
             const d = Math.min(tout!.dur, extLenN)
-            filter += `color=c=black:s=${width}x${height}:d=${d.toFixed(3)}:r=${outFps},setsar=1,settb=AVTB[bo${i}];`
+            filter += `color=c=black:s=${width}x${height}:d=${d.toFixed(3)}:r=${fpsArg},setsar=1,settb=AVTB[bo${i}];`
             filter += `${cur}[bo${i}]xfade=transition=${motionName(tout!.type)}:duration=${d.toFixed(3)}:offset=${(extLenN - d).toFixed(3)}[sv${i}];`
           }
         }
@@ -1751,7 +1769,7 @@ app.whenReady().then(() => {
       '[v]',
       ...audioMap,
       '-r',
-      String(outFps),
+      fpsArg,
       '-c:v',
       'libx264',
       '-crf',

@@ -9,5 +9,11 @@
     "esModuleInterop": true,
     "strict": true
   },
-  "include": ["electron.vite.config.ts", "src/main/**/*", "src/preload/**/*"]
+  "include": [
+    "electron.vite.config.ts",
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/shared/**/*"
+  ],
+  "exclude": ["src/shared/**/*.test.ts"]
 }

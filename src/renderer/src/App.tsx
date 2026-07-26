@@ -41,11 +41,25 @@ import CropModal from './components/CropModal'
 import StylePanel from './components/StylePanel'
 import TelopText from './components/TelopText'
 import WaveformCanvas from './components/WaveformCanvas'
+// 時間計算はすべて shared/timeline に集約（ズレの一元管理）。
+// ここに同じ計算を書き直さないこと。不変条件は timeline.test.ts が守っている。
+import {
+  clamp,
+  FPS_FALLBACK,
+  fadeGain,
+  formatTimecode,
+  layoutSegs,
+  qFrame,
+  segSpeed,
+  segTLen,
+  tToSource,
+  totalSegLen,
+  xfadeDurAt,
+  type Layout
+} from '../../shared/timeline'
 
 type Tool = 'select' | 'razor' | 'trackFwd' | 'trackBack'
 type Ratio = '16:9' | '9:16' | '1:1'
-
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
 
 // ドラッグ中にカーソルへ付く既定のゴースト画像を消すための透明1px画像
 // （配置位置はタイムライン上のゴーストで示すので、カーソルには何も握らせない）
@@ -78,19 +92,8 @@ function setDragChip(e: React.DragEvent, icon: string, label: string): void {
 const toGcUrl = (p: string): string =>
   'gcfile://media/' + p.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')
 
-const FPS = 30 // 既定フレームレート（素材fps未取得時のフォールバック）
-// ルーラー用タイムコード HH:MM:SS:FF（フレーム繰り上がりも正しく処理）。fpsは素材の実fps。
-function formatTimecode(sec: number, fps: number = FPS): string {
-  const r = Math.max(1, Math.round(fps))
-  const tf = Math.max(0, Math.round(sec * r))
-  const f = tf % r
-  const ts = Math.floor(tf / r)
-  const p = (n: number): string => String(n).padStart(2, '0')
-  return `${p(Math.floor(ts / 3600))}:${p(Math.floor(ts / 60) % 60)}:${p(ts % 60)}:${p(f)}`
-}
+const FPS = FPS_FALLBACK // 既定フレームレート（素材fps未取得時のフォールバック）
 const XF_GRACE = 0.08 // クロスディゾルブのカット通過後、mainがBへシークし終わるまでvideoBを保持する猶予(秒)
-// タイムライン秒をフレームグリッドに量子化（分割/カット点をフレーム境界に揃える＝±1Fズレ対策）
-const qFrame = (t: number, fps: number = FPS): number => Math.round(t * fps) / fps
 const RULER_H = 24
 // トラック高さ（映像/音声グループごとにまとめて可変）。デフォはプレミア風に少し狭め
 const TRACK_H_MIN = 26
@@ -196,71 +199,21 @@ function loadSegTrans(raw: any): SegTrans | undefined {
   return { type: 'fade', dur }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
-// 切片の速度（未指定/不正は1）とタイムライン上の長さ（ソース尺/速度）
-const segSpeed = (s: VSeg): number => (s.speed && s.speed > 0 ? s.speed : 1)
-const segTLen = (s: VSeg): number => Math.max(0, s.srcEnd - s.srcStart) / segSpeed(s)
+// プレビュー解像度。'orig'=原本をそのまま再生、数値=その高さの編集用プロキシ。
+type PreviewRes = 'orig' | 720 | 360
 // 元動画（マルチソース）。1タイムラインに複数の動画を連結できる。
 interface Source {
   id: number
   path: string // 原本パス（書き出しに使用＝無劣化）
   name: string
-  proxyUrl?: string // プレビュー用プロキシの gcfile URL（生成後に差し替え）
-  origUrl: string // 原本の gcfile URL（プロキシ生成前のフォールバック）
+  origUrl: string // 原本の gcfile URL（プレビュー用プロキシは path をキーに proxyMap で持つ）
   duration: number
   fps: number
-  waveform?: { min: number[]; max: number[] } | null
+  // 波形は自分が解析した音声の長さ(dur)も持つ。動画の尺で位置を計算すると
+  // 音声ストリームとの尺差ぶん、後ろに行くほど再生ヘッドとズレる。
+  waveform?: { min: number[]; max: number[]; dur: number } | null
 }
-interface SegLayout {
-  seg: VSeg
-  index: number
-  len: number // タイムライン上の長さ
-  tStart: number // タイムライン開始位置
-  tEnd: number
-}
-function layoutSegs(segs: VSeg[]): SegLayout[] {
-  let acc = 0
-  return segs.map((seg, index) => {
-    const len = segTLen(seg)
-    const l: SegLayout = { seg, index, len, tStart: acc, tEnd: acc + len }
-    acc += len
-    return l
-  })
-}
-function totalSegLen(segs: VSeg[]): number {
-  return segs.reduce((a, s) => a + segTLen(s), 0)
-}
-// 切片 i と i+1 の間のクロスディゾルブの実効長（秒）。0なら無効。
-// B側がタイムラインより d 秒早くフェードインする方式のため、
-// d は A/B のタイムライン長と「Bのソース頭の余白（srcStart/速度）」でクランプする。
-// （編集でトリムされて余白が減っても、ここで動的に安全な長さに縮む）
-function xfadeDurAt(layout: SegLayout[], i: number): number {
-  const A = layout[i]
-  const B = layout[i + 1]
-  if (!A?.seg.xfade || !B) return 0
-  let d = Math.min(A.seg.xfade.dur, A.len, B.len)
-  d = Math.min(d, B.seg.srcStart / segSpeed(B.seg)) // 音声も同じ余白を使うので blank でも必要
-  return d > 0.01 ? d : 0
-}
-// タイムライン時間 t → { ソース時間, セグメント index, 速度 }。動画範囲外なら null
-// タイムラインは速度で圧縮されているので、ソース時間 = srcStart + (t-tStart)*速度
-function tToSource(
-  layout: SegLayout[],
-  t: number
-): { srcTime: number; index: number; speed: number } | null {
-  for (const L of layout) {
-    if (t >= L.tStart && t < L.tEnd)
-      return {
-        srcTime: L.seg.srcStart + (t - L.tStart) * segSpeed(L.seg),
-        index: L.index,
-        speed: segSpeed(L.seg)
-      }
-  }
-  const last = layout[layout.length - 1]
-  if (last && t >= last.tEnd - 1e-6)
-    return { srcTime: last.seg.srcEnd, index: last.index, speed: segSpeed(last.seg) }
-  return null
-}
-
+type SegLayout = Layout<VSeg>
 interface ContextMenu {
   x: number
   y: number
@@ -597,17 +550,14 @@ export default function App(): JSX.Element {
   const initializedForPathRef = useRef<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [playRateUI, setPlayRateUI] = useState(0)
-  // 再生プレビュー画質: 'full'=毎フレーム描画 / 'half'=~30fps / 'quarter'=~15fps。
-  // 低スペックPC向け。動画は常にネイティブ再生で滑らか、下げるのは再生ヘッド/テロップの再描画頻度。
-  const [playQuality, setPlayQuality] = useState<'full' | 'half' | 'quarter'>('full')
-  const playQualityRef = useRef<'full' | 'half' | 'quarter'>('full')
-  useEffect(() => {
-    playQualityRef.current = playQuality
-  }, [playQuality])
-  const lastPaintRef = useRef(0) // 再生中の最後にsetTimeした時刻（画質スロットル用）
+  const lastPaintRef = useRef(0) // 再生中の最後にsetTimeした時刻（再描画スロットル用）
   // 動画ズーム（リフレーム）は切片ごと（VSeg.zoom）。編集対象は再生ヘッド位置の切片。
   const [videoSelected, setVideoSelected] = useState(false) // プレビューで動画を選択中（リフレーム枠を表示）
-  const [waveform, setWaveform] = useState<{ min: number[]; max: number[] } | null>(null)
+  const [waveform, setWaveform] = useState<{
+    min: number[]
+    max: number[]
+    dur: number
+  } | null>(null)
   const [thumbnailSrc, setThumbnailSrc] = useState<string | null>(null)
 
   // ---- マルチソース（複数の元動画を1タイムラインに連結）----
@@ -642,11 +592,10 @@ export default function App(): JSX.Element {
     void window.giftcut.getFps(path).then((r) => {
       if (r?.ok && r.fps && r.fps > 0) updateSource(id, { fps: Math.round(r.fps * 1000) / 1000 })
     })
-    void window.giftcut.generateProxy(path).then((r) => {
-      if (r?.ok && r.path) updateSource(id, { proxyUrl: toGcUrl(r.path) })
-    })
+    // プロキシは「プレビュー解像度」の effect が sources を見て一括で用意する（ここでは作らない）
     void window.giftcut.generateWaveform(path).then((r) => {
-      if (r?.ok && r.min && r.max) updateSource(id, { waveform: { min: r.min, max: r.max } })
+      if (r?.ok && r.min && r.max)
+        updateSource(id, { waveform: { min: r.min, max: r.max, dur: r.duration ?? 0 } })
     })
   }
 
@@ -663,7 +612,7 @@ export default function App(): JSX.Element {
   // 取り込み済み素材の「尺」と「音声波形」をパスごとに先に用意しておく。
   // ドラッグ中のゴーストに波形をそのまま出せるようにするため（保存対象ではないキャッシュ）。
   const [mediaMeta, setMediaMeta] = useState<
-    Record<string, { dur?: number; wave?: { min: number[]; max: number[] } }>
+    Record<string, { dur?: number; wave?: { min: number[]; max: number[]; dur: number } }>
   >({})
   const mediaMetaRef = useRef<typeof mediaMeta>({})
   useEffect(() => {
@@ -688,7 +637,10 @@ export default function App(): JSX.Element {
         if (r?.ok && r.min && r.max)
           setMediaMeta((prev) => ({
             ...prev,
-            [path]: { ...prev[path], wave: { min: r.min as number[], max: r.max as number[] } }
+            [path]: {
+              ...prev[path],
+              wave: { min: r.min as number[], max: r.max as number[], dur: r.duration ?? 0 }
+            }
           }))
       })
       .finally(() => metaInFlightRef.current.delete(path))
@@ -1135,13 +1087,9 @@ export default function App(): JSX.Element {
     )
   }
   // クリップ内ローカル秒 t における音声フェード係数
+  // フェード計算は shared/timeline の fadeGain に集約（音声フェードの実装を1つに保つ）
   function vcFadeGain(c: VClip, t: number): number {
-    let g = 1
-    const len = vcLen(c)
-    if (c.afadeIn && c.afadeIn > 0 && t < c.afadeIn) g = Math.min(g, t / c.afadeIn)
-    const outStart = len - (c.afadeOut ?? 0)
-    if (c.afadeOut && c.afadeOut > 0 && t > outStart) g = Math.min(g, (len - t) / c.afadeOut)
-    return clamp(g, 0, 1)
+    return fadeGain(t, vcLen(c), c.afadeIn, c.afadeOut)
   }
   // 映像レイヤークリップの操作: 本体ドラッグ=移動 / 左右端=トリム / レザー=分割。
   // 音声側の連動バンドをドラッグしても同じ関数を通す（＝映像と音は必ず一緒に動く）。
@@ -1606,11 +1554,20 @@ export default function App(): JSX.Element {
   const [exportPct, setExportPct] = useState<number | null>(null) // FFmpegエンコード進捗%（null=不明/画像化中）
   // 書き出し設定（解像度・fps・画質）
   const [showExportDialog, setShowExportDialog] = useState(false)
+  // fps は 'source'＝素材と同じ（既定）。素材が60fpsなのに黙って30に落ちるのを防ぐため、
+  // 実数への解決は書き出し直前に行い、main へは従来どおり数値だけを渡す。
   const [exportOpts, setExportOpts] = useState<{
     resP: 2160 | 1080 | 720 | 480
-    fps: 24 | 30 | 60
+    fps: 24 | 30 | 60 | 'source'
     quality: 'high' | 'med' | 'low'
-  }>({ resP: 1080, fps: 30, quality: 'high' })
+  }>({ resP: 1080, fps: 'source', quality: 'high' })
+  // 素材fps（未取得なら既定30）。29.97 のような小数もそのまま使う（main が分数で ffmpeg に渡す）
+  const srcFpsForExport = (): number => (Number.isFinite(fps) && fps > 0 ? fps : FPS)
+  // 表示用: 整数なら「60」、そうでなければ「29.97」
+  const fpsLabel = (v: number): string => (Number.isInteger(v) ? String(v) : v.toFixed(2))
+  // 書き出しに実際に使う fps（'source'＝素材と同じ）
+  const resolveExportFps = (): number =>
+    exportOpts.fps === 'source' ? srcFpsForExport() : exportOpts.fps
   // ---- トースト通知（OS標準alertの置き換え。右下にふわっと出て自動で消える）----
   const [toasts, setToasts] = useState<{ id: number; msg: string; type: 'success' | 'error' | 'info' }[]>([])
   const toastIdRef = useRef(1)
@@ -1741,6 +1698,63 @@ export default function App(): JSX.Element {
       /* 容量超過等は無視 */
     }
   }
+  // ---- プレビュー解像度（アプリ設定。プロジェクトではなくPCごとの好みなので localStorage）----
+  // 'orig'=原本をそのまま再生（最高画質・シークは重い）/ 720・360=編集用プロキシ。
+  // 書き出しは常に原本のフル画質なので、ここを下げても完成品の画質は落ちない。
+  // ※useState の初期化関数は即時実行されるため、loadLS の定義より後に置く必要がある。
+  // 既定は 'orig'（原本）。プロキシは軽くする手段として選ぶもので、
+  // 何もしていないのに低画質で見えているのが一番困るため既定を最高画質にしている。
+  const [previewRes, setPreviewRes] = useState<PreviewRes>(() => {
+    const v = loadLS<PreviewRes>('giftcut.previewRes', 'orig')
+    return v === 'orig' || v === 720 || v === 360 ? v : 'orig'
+  })
+  const previewResRef = useRef<PreviewRes>(previewRes)
+  useEffect(() => {
+    previewResRef.current = previewRes
+    saveLS('giftcut.previewRes', previewRes)
+  }, [previewRes])
+  // 作成済みプロキシ（原本パス → gcfile URL と解像度）。映像レイヤー(VClip)も同じ映像を使うため、
+  // ソース単位ではなくパス単位で持つ（1本の動画に対してプロキシは1つ）。
+  const [proxyMap, setProxyMap] = useState<Record<string, { url: string; res: number }>>({})
+  const proxyReqRef = useRef<Set<string>>(new Set()) // 変換中のもの。同じ変換を二重に走らせない
+  const proxyFailRef = useRef<Set<string>>(new Set()) // 変換に失敗したもの。無限に作り直さない
+  const [proxyTick, setProxyTick] = useState(0) // 1本終わるたびに次を取りに行くための合図
+  // プレビューに使う映像URL。原本指定ならそのまま原本、プロキシ指定なら出来ているものを使う。
+  // 解像度切替の変換中は「前の解像度のプロキシ」を映したまま（一旦原本に戻すと二重リロードになる）。
+  const previewUrl = (path: string, orig: string): string =>
+    previewRes === 'orig' ? orig : (proxyMap[path]?.url ?? orig)
+  // 選んだ解像度のプロキシを用意する唯一の入口。ソース／映像レイヤーが増えたときや
+  // 解像度を変えたときに走り、足りないものだけ変換する。原本指定のときは何も作らない。
+  // 同時変換は2本まで（映像レイヤーが多いプロジェクトで ffmpeg が一斉に立ち上がるのを防ぐ）。
+  useEffect(() => {
+    if (previewRes === 'orig') return
+    const res = previewRes
+    const paths = new Set<string>()
+    for (const s of sources) if (s.path) paths.add(s.path)
+    for (const c of vClips) if (c.path) paths.add(c.path)
+    paths.forEach((p) => {
+      if (proxyReqRef.current.size >= 2) return // 空きが出たら次の合図で続きを取る
+      if (proxyMap[p]?.res === res) return
+      const k = res + '|' + p
+      if (proxyReqRef.current.has(k) || proxyFailRef.current.has(k)) return
+      proxyReqRef.current.add(k)
+      // 「プレビュー最適化中」の表示は主素材ぶんだけ（進捗イベントも主素材で絞っている）
+      if (p === proxyForPathRef.current) setProxyPct(0)
+      void window.giftcut.generateProxy(p, res).then((r) => {
+        // 終わったら必ず外す。残したままだと解像度を素早く往復させたときに
+        // 「変換中だから作らない」と判定され、選んだ解像度に戻れなくなる。
+        proxyReqRef.current.delete(k)
+        const rp = r?.ok ? r.path : undefined
+        if (rp) setProxyMap((m) => ({ ...m, [p]: { url: toGcUrl(rp), res } }))
+        else {
+          proxyFailRef.current.add(k)
+          if (r?.error) console.warn('プロキシ生成失敗:', r.error) // 失敗時は原本のまま再生
+        }
+        if (p === proxyForPathRef.current) setProxyPct(null)
+        setProxyTick((t) => t + 1)
+      })
+    })
+  }, [previewRes, sources, vClips, proxyMap, proxyTick])
   const [seFavs, setSeFavs] = useState<string[]>(() => loadLS('giftcut.seFavorites', []))
   const [seFolders, setSeFolders] = useState<{ key: string; label: string }[]>(() =>
     loadLS('giftcut.seFolders', [])
@@ -2353,15 +2367,15 @@ export default function App(): JSX.Element {
     currentTimeRef.current = t
     setCurrentTime(t)
   }
-  // 再生中の再生ヘッド/テロップ再描画をスロットル（低スペック向け画質モード）。
-  // ref は常に更新して同期を保ち、React state（＝再描画）だけ間引く。force で確実に反映。
+  // 再生中の再生ヘッド/テロップ再描画をスロットル。ref は常に更新して同期を保ち、
+  // React state（＝再描画）だけ間引く。force で確実に反映。
+  // 最軽量(360p)を選んだときだけ ~30fps に間引く。「解像度」と「再描画頻度」を別の
+  // つまみにするとユーザーが2つ覚えることになるため、設定は解像度ひとつに束ねている。
   function paintTime(t: number, force = false): void {
     currentTimeRef.current = t
-    const q = playQualityRef.current
-    if (!force && q !== 'full') {
-      const minMs = q === 'half' ? 33 : 66 // ~30fps / ~15fps
+    if (!force && previewResRef.current === 360) {
       const now = performance.now()
-      if (now - lastPaintRef.current < minMs) return
+      if (now - lastPaintRef.current < 33) return // ~30fps
       lastPaintRef.current = now
     }
     setCurrentTime(t)
@@ -2767,7 +2781,7 @@ export default function App(): JSX.Element {
     const seg = src ? segLayout[src.index]?.seg : undefined
     const s = srcOfSeg(seg)
     if (!s) return
-    const desired = s.proxyUrl ?? s.origUrl
+    const desired = previewUrl(s.path, s.origUrl)
     // 表示対象を切替（要素はソースごとに常設済み＝src差し替えが起きないのでちらつかない）
     if (s.id !== curSourceIdRef.current) {
       curSourceIdRef.current = s.id
@@ -2794,12 +2808,13 @@ export default function App(): JSX.Element {
       setFps(s.fps)
     }
     // 後追いのプロキシ/fps/尺が届いたら反映（届くまで原本再生・既定30のままになるのを防ぐ）
+    // プレビュー解像度を変えたときもここで src を差し替える（再生ヘッド位置は触らないので維持される）
     setVideoSrc((prev) => (prev === desired ? prev : desired))
     setFps((prev) => (Math.abs(prev - s.fps) > 1e-3 ? s.fps : prev))
     if (s.duration > 0)
       setVideoDuration((prev) => (Math.abs(prev - s.duration) > 1e-3 ? s.duration : prev))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, segLayout, sources])
+  }, [currentTime, segLayout, sources, previewRes, proxyMap])
   // 次に来る別ソースの映像を先回りシークして待機させる（切替の瞬間に正しいフレームが即出る）
   useEffect(() => {
     if (sources.length <= 1) return
@@ -3046,7 +3061,7 @@ export default function App(): JSX.Element {
       const type = segLayout[i].seg.xfade?.type ?? 'fade'
       // マルチソース: B側は自分の元動画のURL/ズームでプレビュー（A側と別ソースでも正しい映像）
       const bs = srcOfSeg(B.seg)
-      const bUrl = bs ? (bs.proxyUrl ?? bs.origUrl) : null
+      const bUrl = bs ? previewUrl(bs.path, bs.origUrl) : null
       const bZoom = B.seg.zoom
       if (currentTime >= cut - d && currentTime < cut) {
         // トランジション中: B がソース頭の手前(srcStart - 残り*速度)から先読み。p=進捗0→1。
@@ -3086,7 +3101,7 @@ export default function App(): JSX.Element {
       if (cut + XF_GRACE < currentTime) continue // 既に過ぎた境界
       if (cut - currentTime > 8) break // 8秒より先はまだ読まない
       const bs = srcOfSeg(segLayout[i + 1].seg)
-      return bs ? (bs.proxyUrl ?? bs.origUrl) : null
+      return bs ? previewUrl(bs.path, bs.origUrl) : null
     }
     return null
   })()
@@ -3609,7 +3624,6 @@ export default function App(): JSX.Element {
         path,
         name: path.split(/[\\/]/).pop() ?? path,
         origUrl: toGcUrl(path),
-        proxyUrl: undefined,
         duration: 0,
         fps: FPS,
         waveform: null
@@ -3633,27 +3647,19 @@ export default function App(): JSX.Element {
             { id: mediaIdCounter.current++, path, name: path.split(/[\\/]/).pop() ?? path, kind: 'video' as const }
           ]
     )
-    // 編集用プロキシを生成（キーフレーム密＝シーク高速）。完了したらプレビューを差し替える。
+    // 編集用プロキシ（キーフレーム密＝シーク高速）は「プレビュー解像度」の effect が sources を
+    // 見て生成し、出来たら上のソース切替 effect が src を差し替える。原本指定なら生成しない。
     // 書き出しは videoPath(原本) を使うので画質は劣化しない。
     proxyForPathRef.current = path
-    setProxyPct(0)
-    void window.giftcut.generateProxy(path).then((res) => {
-      if (proxyForPathRef.current !== path) return // 生成中に別動画へ切替えた
-      if (res?.ok && res.path) {
-        const purl = toGcUrl(res.path)
-        setVideoSrc(purl) // プレビューをプロキシに
-        updateSource(srcId, { proxyUrl: purl })
-      } else if (res?.error) console.warn('プロキシ生成失敗:', res.error) // 失敗時は原本のまま再生
-      setProxyPct(null)
-    })
     const [wf, th] = await Promise.all([
       window.giftcut.generateWaveform(path),
       window.giftcut.generateThumbnail(path)
     ])
     if (proxyForPathRef.current !== path) return // 解析中に別動画へ切替えた（前の波形/サムネを出さない）
     if (wf?.ok && wf.min && wf.max) {
-      setWaveform({ min: wf.min, max: wf.max })
-      updateSource(srcId, { waveform: { min: wf.min, max: wf.max } })
+      const wv = { min: wf.min, max: wf.max, dur: wf.duration ?? 0 }
+      setWaveform(wv)
+      updateSource(srcId, { waveform: wv })
     }
     if (th?.ok && th.path) {
       const url = toGcUrl(th.path)
@@ -3705,7 +3711,7 @@ export default function App(): JSX.Element {
     srcAddedAtRef.current.set(id, performance.now()) // GCの猶予用
     setSources((prev) => [
       ...prev,
-      { id, path, name, origUrl: toGcUrl(path), proxyUrl: undefined, duration: dur, fps: FPS, waveform: null }
+      { id, path, name, origUrl: toGcUrl(path), duration: dur, fps: FPS, waveform: null }
     ])
     // ライブラリにも追加
     setMediaItems((prev) =>
@@ -3713,15 +3719,13 @@ export default function App(): JSX.Element {
         ? prev
         : [...prev, { id: mediaIdCounter.current++, path, name, kind: 'video' as const }]
     )
-    // 後追い: fps / プロキシ / 波形 / サムネ
+    // 後追い: fps / 波形 / サムネ（プロキシは「プレビュー解像度」の effect が用意する）
     void window.giftcut.getFps(path).then((r) => {
       if (r?.ok && r.fps && r.fps > 0) updateSource(id, { fps: Math.round(r.fps * 1000) / 1000 })
     })
-    void window.giftcut.generateProxy(path).then((r) => {
-      if (r?.ok && r.path) updateSource(id, { proxyUrl: toGcUrl(r.path) })
-    })
     void window.giftcut.generateWaveform(path).then((r) => {
-      if (r?.ok && r.min && r.max) updateSource(id, { waveform: { min: r.min, max: r.max } })
+      if (r?.ok && r.min && r.max)
+        updateSource(id, { waveform: { min: r.min, max: r.max, dur: r.duration ?? 0 } })
     })
     void window.giftcut.generateThumbnail(path).then((r) => {
       if (r?.ok && r.path) {
@@ -4533,7 +4537,8 @@ export default function App(): JSX.Element {
       const eo = d.exportOpts
       setExportOpts({
         resP: [2160, 1080, 720, 480].includes(eo.resP) ? eo.resP : 1080,
-        fps: [24, 30, 60].includes(eo.fps) ? eo.fps : 30,
+        // 旧形式は数値のみ。その値は尊重し、未知の値だけ 'source'（素材と同じ）に落とす
+        fps: eo.fps === 'source' || [24, 30, 60].includes(eo.fps) ? eo.fps : 'source',
         quality: ['high', 'med', 'low'].includes(eo.quality) ? eo.quality : 'high'
       })
     }
@@ -4570,7 +4575,6 @@ export default function App(): JSX.Element {
         path: s.path,
         name: String(s.name ?? s.path.split(/[\\/]/).pop() ?? s.path),
         origUrl: toGcUrl(s.path),
-        proxyUrl: undefined,
         duration: 0,
         fps: FPS,
         waveform: null
@@ -4587,19 +4591,10 @@ export default function App(): JSX.Element {
       setVideoPath(primary.path)
       setVideoName(primary.name)
       setVideoSrc(primary.origUrl)
-      // プレビュー用プロキシを生成（キャッシュ済みなら即完了）
+      // プレビュー用プロキシは「プレビュー解像度」の effect が sources を見て用意する
+      // （キャッシュ済みなら即完了。原本指定のときは作らない）
       proxyForPathRef.current = primary.path
       setMissingMedia(null) // 正常に読み込めたので欠損情報は不要
-      setProxyPct(0)
-      void window.giftcut.generateProxy(primary.path).then((r) => {
-        if (proxyForPathRef.current !== primary.path) return
-        if (r?.ok && r.path) {
-          const purl = toGcUrl(r.path)
-          setVideoSrc(purl)
-          updateSource(primary.id, { proxyUrl: purl })
-        }
-        setProxyPct(null)
-      })
       setFps(FPS)
       void window.giftcut.getFps(primary.path).then((r) => {
         if (proxyForPathRef.current === primary.path && r?.ok && r.fps && r.fps > 0) {
@@ -4616,8 +4611,9 @@ export default function App(): JSX.Element {
       ])
       if (proxyForPathRef.current !== primary.path) return // 解析中に別プロジェクト/動画へ切替えた
       if (wf?.ok && wf.min && wf.max) {
-        setWaveform({ min: wf.min, max: wf.max })
-        updateSource(primary.id, { waveform: { min: wf.min, max: wf.max } })
+        const wv = { min: wf.min, max: wf.max, dur: wf.duration ?? 0 }
+        setWaveform(wv)
+        updateSource(primary.id, { waveform: wv })
       }
       if (th?.ok && th.path) setThumbnailSrc(toGcUrl(th.path))
     } else {
@@ -6770,8 +6766,8 @@ export default function App(): JSX.Element {
         // ラウドネス正規化（null=OFF）
         loudnormLUFS,
         totalDurationSec: outDurSec,
-        // 書き出し設定
-        fps: exportOpts.fps,
+        // 書き出し設定（'素材と同じ' はここで実数に解決してから渡す）
+        fps: resolveExportFps(),
         crf
       })
       setExportStatus(null)
@@ -8308,7 +8304,7 @@ export default function App(): JSX.Element {
                         filter: isActive ? curAdjustCss : undefined,
                         ...(isActive ? videoMainStyle : {})
                       }}
-                      src={s.proxyUrl ?? s.origUrl}
+                      src={previewUrl(s.path, s.origUrl)}
                       preload="auto"
                       muted={!isActive}
                       onLoadedMetadata={(e) => {
@@ -8386,7 +8382,8 @@ export default function App(): JSX.Element {
                       key={`vcv-${c.id}`}
                       ref={vcRefCb(c.id)}
                       className="screen-vclip"
-                      src={toGcUrl(c.path)}
+                      // 本編映像と同じプレビュー解像度方針に従う（原本指定なら原本）
+                      src={previewUrl(c.path, toGcUrl(c.path))}
                       preload="auto"
                       playsInline
                       style={{
@@ -8683,16 +8680,24 @@ export default function App(): JSX.Element {
                 </button>
               </div>
               <div className="transport-right">
-                {/* 再生画質: 低スペックPCで再生を軽くする（動画は滑らか・再描画のみ間引く） */}
+                {/* プレビュー解像度: 実際に再生する映像の解像度を切り替える（ラベル＝実挙動） */}
                 <select
                   className="pq-select"
-                  value={playQuality}
-                  onChange={(e) => setPlayQuality(e.target.value as 'full' | 'half' | 'quarter')}
-                  title="再生プレビューの画質（低スペックPCで滑らかに）"
+                  value={String(previewRes)}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setPreviewRes(v === 'orig' ? 'orig' : v === '720' ? 720 : 360)
+                  }}
+                  title={
+                    'プレビューの解像度\n' +
+                    '・原本＝元動画をそのまま再生。最高画質だがシークは重い\n' +
+                    '・720p / 360p＝編集用に軽くした映像（プロキシ）で再生。360pは再描画も間引いて最軽量\n' +
+                    '書き出しは常に原本のフル画質です（この設定は完成品の画質に影響しません）'
+                  }
                 >
-                  <option value="full">画質 フル</option>
-                  <option value="half">画質 ½（軽い）</option>
-                  <option value="quarter">画質 ¼（最軽量）</option>
+                  <option value="orig">プレビュー 原本（最高画質）</option>
+                  <option value="720">プレビュー 720p（標準）</option>
+                  <option value="360">プレビュー 360p（最軽量）</option>
                 </select>
                 {videoSrc && (
                   <span className="tc tc-fps" title="素材の実フレームレート（フレーム送り・タイムコードに反映）">
@@ -10127,8 +10132,11 @@ export default function App(): JSX.Element {
                                 max={mediaMeta[clip.path]!.wave!.max}
                                 srcStart={clip.srcStart}
                                 srcEnd={clip.srcEnd}
-                                videoDuration={
-                                  clip.srcDur || mediaMeta[clip.path]?.dur || vcLen(clip)
+                                audioDuration={
+                                  mediaMeta[clip.path]!.wave!.dur ||
+                                  clip.srcDur ||
+                                  mediaMeta[clip.path]?.dur ||
+                                  vcLen(clip)
                                 }
                                 width={Math.max(vcLen(clip) * zoom - 1, 12)}
                                 height={trackHOf('audio') - 6}
@@ -10312,7 +10320,11 @@ export default function App(): JSX.Element {
                             max={mediaMeta[videoGhost.path]!.wave!.max}
                             srcStart={0}
                             srcEnd={videoGhost.dur}
-                            videoDuration={mediaMeta[videoGhost.path]?.dur || videoGhost.dur}
+                            audioDuration={
+                              mediaMeta[videoGhost.path]!.wave!.dur ||
+                              mediaMeta[videoGhost.path]?.dur ||
+                              videoGhost.dur
+                            }
                             width={Math.max(videoGhost.dur * zoom - 1, 12)}
                             height={trackHOf('audio') - 6}
                           />
@@ -10472,7 +10484,7 @@ export default function App(): JSX.Element {
                                 max={wf.max}
                                 srcStart={L.seg.srcStart}
                                 srcEnd={L.seg.srcEnd}
-                                videoDuration={sdur}
+                                audioDuration={wf.dur || sdur}
                                 width={Math.max(L.len * zoom - 1, 10)}
                                 height={trackHOf('audio') - 6}
                               />
@@ -10543,7 +10555,11 @@ export default function App(): JSX.Element {
                             max={mediaMeta[seGhost.path]!.wave!.max}
                             srcStart={0}
                             srcEnd={seGhost.dur}
-                            videoDuration={mediaMeta[seGhost.path]?.dur || seGhost.dur}
+                            audioDuration={
+                              mediaMeta[seGhost.path]!.wave!.dur ||
+                              mediaMeta[seGhost.path]?.dur ||
+                              seGhost.dur
+                            }
                             width={Math.max(seGhost.dur * zoom - 1, 12)}
                             height={trackHOf('audio') - 6}
                           />
@@ -10630,14 +10646,20 @@ export default function App(): JSX.Element {
               <span className="sp-label">フレームレート</span>
               <select
                 className="pq-select"
-                value={exportOpts.fps}
-                onChange={(e) =>
-                  setExportOpts((o) => ({ ...o, fps: Number(e.target.value) as 24 | 30 | 60 }))
-                }
+                value={String(exportOpts.fps)}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setExportOpts((o) => ({
+                    ...o,
+                    fps: v === 'source' ? 'source' : (Number(v) as 24 | 30 | 60)
+                  }))
+                }}
+                title="「素材と同じ」なら素材のフレームレートをそのまま保つ（60fps素材が30fpsに落ちない）"
               >
-                <option value={24}>24 fps</option>
-                <option value={30}>30 fps</option>
-                <option value={60}>60 fps</option>
+                <option value="source">素材と同じ（{fpsLabel(srcFpsForExport())}fps）</option>
+                <option value="24">24 fps</option>
+                <option value="30">30 fps</option>
+                <option value="60">60 fps</option>
               </select>
             </div>
             <div className="sp-row">

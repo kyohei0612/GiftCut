@@ -105,10 +105,12 @@ const api = {
     videoPath: string
   ): Promise<{ ok: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke('video:thumbnail', videoPath),
+  // height=プレビュー解像度（360/720。未指定は360）。解像度ごとに別キャッシュになる。
   generateProxy: (
-    videoPath: string
+    videoPath: string,
+    height?: number
   ): Promise<{ ok: boolean; path?: string; cached?: boolean; error?: string }> =>
-    ipcRenderer.invoke('video:proxy', videoPath),
+    ipcRenderer.invoke('video:proxy', videoPath, height),
   onProxyProgress: (cb: (data: { path: string; percent: number }) => void): (() => void) => {
     const h = (_e: unknown, data: { path: string; percent: number }): void => cb(data)
     ipcRenderer.on('video:proxy:progress', h)
