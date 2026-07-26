@@ -12,7 +12,7 @@
 //
 // 項目の追加・修正は qa-checklist.md を編集するだけでよい。
 // ============================================================================
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import rawChecklist from './qa-checklist.md?raw'
 
 interface Item {
@@ -70,13 +70,17 @@ function loadStore(): Store {
   }
 }
 
-type Filter = 'all' | 'star' | 'rest' | 'ng'
+type Filter = 'all' | 'star' | 'ng'
 
 export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const { title, items } = useMemo(() => parseChecklist(rawChecklist), [])
   const [store, setStore] = useState<Store>(loadStore)
   const [filter, setFilter] = useState<Filter>('all')
   const [prompt, setPrompt] = useState<string | null>(null)
+  // OK を付けた直後だけ残しておく（流れて消えるアニメのため）
+  const [leaving, setLeaving] = useState<string[]>([])
+  const [doneOpen, setDoneOpen] = useState(false)
+  const timers = useRef<number[]>([])
   const [width, setWidth] = useState<number>(() => {
     const v = Number(localStorage.getItem(KEY + '.w'))
     return v >= 280 && v <= 720 ? v : 380
@@ -90,10 +94,13 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
     }
   }, [store])
 
-  // 閉じたらアプリ側の余白も戻す
+  // 閉じたらアプリ側の余白も戻し、退場アニメのタイマーも止める
   useEffect(() => {
+    const t = timers
     return () => {
       document.documentElement.style.removeProperty('--qa-w')
+      t.current.forEach((id) => window.clearTimeout(id))
+      t.current = []
     }
   }, [])
   const rec = (id: string): Rec => store[id] ?? { s: '', note: '' }
@@ -105,17 +112,34 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
       return next
     })
 
+  // OK にしたら少し見せてから消す。NG はそのまま残す（対処が要るため）。
+  const ANIM = 300
+  function mark(id: string, kind: Mark): void {
+    const next = rec(id).s === kind ? '' : kind
+    setRec(id, { s: next })
+    if (next !== 'ok') return
+    setLeaving((p) => (p.includes(id) ? p : [...p, id]))
+    const t = window.setTimeout(() => {
+      setLeaving((p) => p.filter((x) => x !== id))
+      timers.current = timers.current.filter((x) => x !== t)
+    }, ANIM)
+    timers.current.push(t)
+  }
+
   const nOk = items.filter((i) => rec(i.id).s === 'ok').length
   const nNg = items.filter((i) => rec(i.id).s === 'ng').length
   const nRest = items.length - nOk - nNg
 
+  // 完了したものは一覧から外して下の「完了」にしまう。
+  // 退場アニメが終わるまでは残しておく（いきなり消えると見失うため）。
   const visible = items.filter((i) => {
     const s = rec(i.id).s
+    if (s === 'ok' && !leaving.includes(i.id)) return false
     if (filter === 'star') return i.star
-    if (filter === 'rest') return !s
     if (filter === 'ng') return s === 'ng'
     return true
   })
+  const doneItems = items.filter((i) => rec(i.id).s === 'ok')
 
   // 章ごとにまとめる（表示順は元の並びのまま）
   const groups: { name: string; list: Item[] }[] = []
@@ -207,9 +231,8 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
           <div className="qa-filters">
             {(
               [
-                ['all', 'すべて'],
+                ['all', '残り'],
                 ['star', '★のみ'],
-                ['rest', '未確認'],
                 ['ng', 'NG']
               ] as [Filter, string][]
             ).map(([f, label]) => (
@@ -241,11 +264,7 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
         <div className="qa-body">
           {!visible.length && (
             <p className="qa-empty">
-              {filter === 'ng'
-                ? 'NG の項目はありません。'
-                : filter === 'rest'
-                  ? 'すべて確認しました。'
-                  : '項目がありません。'}
+              {filter === 'ng' ? 'NG の項目はありません。' : 'ぜんぶ確認しました。'}
             </p>
           )}
           {groups.map((g) => {
@@ -264,19 +283,24 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
                 {g.list.map((it) => {
                   const r = rec(it.id)
                   return (
-                    <div className={`qa-row ${r.s ? 'is-' + r.s : ''}`} key={it.id}>
+                    <div
+                      className={`qa-row ${r.s ? 'is-' + r.s : ''} ${
+                        leaving.includes(it.id) ? 'leaving' : ''
+                      }`}
+                      key={it.id}
+                    >
                       <div className="qa-mark">
                         <button
                           className={`qa-ok ${r.s === 'ok' ? 'on' : ''}`}
                           title="OK にする"
-                          onClick={() => setRec(it.id, { s: r.s === 'ok' ? '' : 'ok' })}
+                          onClick={() => mark(it.id, 'ok')}
                         >
                           ✓
                         </button>
                         <button
                           className={`qa-ng ${r.s === 'ng' ? 'on' : ''}`}
                           title="NG にする"
-                          onClick={() => setRec(it.id, { s: r.s === 'ng' ? '' : 'ng' })}
+                          onClick={() => mark(it.id, 'ng')}
                         >
                           ✕
                         </button>
@@ -301,6 +325,40 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
               </div>
             )
           })}
+
+          {/* 消し込んだものはここにしまう。戻せば一覧に復帰する。 */}
+          {doneItems.length > 0 && (
+            <div className="qa-done">
+              <button className="qa-done-head" onClick={() => setDoneOpen((o) => !o)}>
+                <span className="qa-caret">{doneOpen ? '▼' : '▶'}</span>
+                完了
+                <b>{doneItems.length}</b>
+              </button>
+              {doneOpen && (
+                <>
+                  {doneItems.map((it) => (
+                    <div className="qa-done-row" key={it.id}>
+                      <span>
+                        {it.star && <span className="qa-star">重点</span>}
+                        {it.text}
+                      </span>
+                      <button onClick={() => setRec(it.id, { s: '' })}>戻す</button>
+                    </div>
+                  ))}
+                  <div className="qa-done-foot">
+                    <button
+                      onClick={() => {
+                        if (window.confirm(doneItems.length + ' 件を未確認に戻します。'))
+                          doneItems.forEach((it) => setRec(it.id, { s: '' }))
+                      }}
+                    >
+                      ぜんぶ戻す
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </aside>
 
@@ -395,6 +453,32 @@ const QA_CSS = `
 .qa-row.is-ok .qa-txt{color:#a7aebc}
 .qa-star{display:inline-block;font-size:9.5px;font-weight:700;color:#e0a94a;background:#322611;
   border-radius:4px;padding:1px 4px;margin-right:5px;vertical-align:1px}
+/* 消し込みの退場アニメ。高さも詰めるので、下の項目がすっと繰り上がる。 */
+@keyframes qa-leave{
+  0%{opacity:1;transform:translateX(0)}
+  100%{opacity:0;transform:translateX(26px)}
+}
+.qa-row.leaving{animation:qa-leave .3s ease forwards;
+  transition:max-height .3s ease,padding .3s ease;max-height:0;padding-top:0;padding-bottom:0;
+  overflow:hidden;pointer-events:none}
+@media (prefers-reduced-motion:reduce){.qa-row.leaving{animation:none;opacity:0}}
+/* 完了リスト */
+.qa-done{border:1px solid #2a3038;border-radius:8px;overflow:hidden;margin-top:4px}
+.qa-done-head{width:100%;display:flex;align-items:center;gap:7px;background:#1b2027;border:0;
+  color:#a7aebc;padding:8px 11px;font:inherit;font-size:12.5px;cursor:pointer;text-align:left}
+.qa-done-head:hover{color:#e6e9ef}
+.qa-done-head b{margin-left:auto;color:#5cc98e;font-variant-numeric:tabular-nums}
+.qa-caret{font-size:9px;color:#737b8a}
+.qa-done-row{display:flex;align-items:flex-start;gap:9px;padding:6px 11px;
+  border-top:1px solid #21262d;font-size:12.5px;color:#737b8a}
+.qa-done-row span{flex:1;line-height:1.5}
+.qa-done-row button{border:1px solid #2a3038;background:none;color:#a7aebc;border-radius:5px;
+  padding:2px 9px;font-size:11.5px;cursor:pointer;flex:none}
+.qa-done-row button:hover{border-color:#7ea2ff;color:#7ea2ff}
+.qa-done-foot{padding:7px 11px;border-top:1px solid #21262d;text-align:right}
+.qa-done-foot button{border:1px solid #2a3038;background:none;color:#737b8a;border-radius:5px;
+  padding:3px 11px;font-size:11.5px;cursor:pointer}
+.qa-done-foot button:hover{border-color:#ff8a7e;color:#ff8a7e}
 .qa-note{width:100%;margin-top:6px;border:1px solid #ff8a7e;border-radius:6px;background:#0f1216;
   color:#e6e9ef;padding:6px 8px;font:inherit;font-size:12.5px;min-height:54px;resize:vertical}
 /* 生成したプロンプトはパネルの中だけを覆う（アプリ本体は操作できたまま） */
