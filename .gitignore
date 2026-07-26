@@ -1,0 +1,14 @@
+node_modules
+out
+dist
+*.log
+.DS_Store
+
+# 効果音ラボ由来のSE素材（再配布禁止のため配布ビルドには含めない）
+SE/
+
+# Gebaテロップスタイル(再配布禁止・配布ビルドに含めない)
+telop-presets/
+
+# TypeScript のビルド情報（生成物）
+*.tsbuildinfo

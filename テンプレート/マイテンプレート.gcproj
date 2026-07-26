@@ -1,0 +1,18 @@
+{
+ "version": 1,
+ "kind": "template",
+ "ratio": "16:9",
+ "mediaItems": [],
+ "iconSide": "left",
+ "iconOffset": {
+  "x": 0,
+  "y": 0
+ },
+ "iconScale": 1,
+ "iconAuto": false,
+ "telop": {
+  "favorites": [],
+  "catOverrides": {},
+  "customCats": []
+ }
+}
