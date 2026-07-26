@@ -75,12 +75,20 @@ type Filter = 'all' | 'star' | 'ng'
 export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const { title, items } = useMemo(() => parseChecklist(rawChecklist), [])
   const [store, setStore] = useState<Store>(loadStore)
-  const [filter, setFilter] = useState<Filter>('all')
+  // 表示の状態も覚える。再起動ボタンで再読み込みしても、検査票だけは
+  // まったく同じ見た目で戻ってくるようにするため（作業の続きを見失わない）。
+  const [filter, setFilter] = useState<Filter>(() => {
+    const v = localStorage.getItem(KEY + '.filter')
+    return v === 'star' || v === 'ng' ? v : 'all'
+  })
   const [prompt, setPrompt] = useState<string | null>(null)
   // OK を付けた直後だけ残しておく（流れて消えるアニメのため）
   const [leaving, setLeaving] = useState<string[]>([])
-  const [doneOpen, setDoneOpen] = useState(false)
+  const [doneOpen, setDoneOpen] = useState(
+    () => localStorage.getItem(KEY + '.doneOpen') === '1'
+  )
   const timers = useRef<number[]>([])
+  const bodyRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState<number>(() => {
     const v = Number(localStorage.getItem(KEY + '.w'))
     return v >= 280 && v <= 720 ? v : 380
@@ -93,6 +101,32 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
       /* 容量超過は無視 */
     }
   }, [store])
+  useEffect(() => {
+    localStorage.setItem(KEY + '.filter', filter)
+  }, [filter])
+  useEffect(() => {
+    localStorage.setItem(KEY + '.doneOpen', doneOpen ? '1' : '0')
+  }, [doneOpen])
+  // スクロール位置も戻す（長い一覧の途中で再起動しても続きから見られる）
+  useEffect(() => {
+    const el = bodyRef.current
+    if (!el) return
+    const y = Number(localStorage.getItem(KEY + '.scroll'))
+    if (y > 0) el.scrollTop = y
+    let raf = 0
+    const onScroll = (): void => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        localStorage.setItem(KEY + '.scroll', String(el.scrollTop))
+      })
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      el.removeEventListener('scroll', onScroll)
+    }
+  }, [])
 
   // 閉じたらアプリ側の余白も戻し、退場アニメのタイマーも止める
   useEffect(() => {
@@ -251,6 +285,19 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
             </button>
             <button
               className="qa-btn"
+              title="アプリの画面を最初から読み込み直します（起動時の処理をやり直せます）。&#10;検査票の記録・メモ・幅・スクロール位置はそのまま残ります。"
+              onClick={() => {
+                // プロセスごと再起動すると開発サーバまで終了してしまうので、
+                // 画面の読み込み直しにしてある。起動処理（自動保存からの復元など）は
+                // 最初からやり直されるので、起動まわりの確認はこれで足りる。
+                // 検査票の状態は localStorage にあるため、この操作では消えない。
+                location.reload()
+              }}
+            >
+              ↻ 再起動
+            </button>
+            <button
+              className="qa-btn"
               onClick={() => {
                 if (!Object.keys(store).length) return
                 if (window.confirm('この検査の記録を消します。項目そのものは残ります。')) setStore({})
@@ -261,7 +308,7 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
           </div>
         </div>
 
-        <div className="qa-body">
+        <div className="qa-body" ref={bodyRef}>
           {!visible.length && (
             <p className="qa-empty">
               {filter === 'ng' ? 'NG の項目はありません。' : 'ぜんぶ確認しました。'}

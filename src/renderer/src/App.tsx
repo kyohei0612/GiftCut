@@ -541,8 +541,13 @@ export default function App(): JSX.Element {
   // パネル幅は保存しているのに、ここだけ毎回ONに戻っていた）。
   // loadLS はこの行より後ろで定義されるので使えない（使うと起動時に
   // 「Cannot access 'loadLS' before initialization」で真っ黒になる）。直接読む。
-  // 検査票の開閉（開発中のみ）
-  const [qaOpen, setQaOpen] = useState(false)
+  // 検査票の開閉（開発中のみ）。再読み込みしても開いたままにする。
+  const [qaOpen, setQaOpen] = useState(
+    () => import.meta.env.DEV && localStorage.getItem('giftcut.qa.open') === '1'
+  )
+  useEffect(() => {
+    if (import.meta.env.DEV) localStorage.setItem('giftcut.qa.open', qaOpen ? '1' : '0')
+  }, [qaOpen])
   const [snap, setSnap] = useState<boolean>(() => {
     try {
       return localStorage.getItem('giftcut.snap') !== 'false'
