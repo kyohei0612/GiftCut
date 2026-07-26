@@ -1357,6 +1357,17 @@ export default function App(): JSX.Element {
     // マーカー選択も解除（残っているとDelete/Dがマーカー削除に横取りされるため）
     setSelectedMarkerId(null)
   }
+  // 選択という選択を全部解除する唯一の入口。
+  // 以前は解除処理が6箇所に散っていて、それぞれ違う部分集合しか消していなかった。
+  // その結果「動画クリップを消したのにマーカーだけ消える」「Ctrl+A→Delete が
+  // 無反応」「プレビューのリフレーム枠から抜けられない」が同時に起きていた。
+  // 解除したい場所は必ずここを通すこと（部分的に消したい場合を除く）。
+  function clearAllSelections(): void {
+    clearSegSel() // テロップ以外のクリップ＋トランジション＋マーカー
+    setSelectedIds([]) // テロップ
+    setSelectedTrackId(null) // トラック選択（残ると Delete がトラック削除に化ける）
+    setVideoSelected(false) // プレビューのリフレーム枠（残るとホイールが拡大縮小になる）
+  }
   // タイムライン上で選択中のトランジション（動画クリップの頭/尻ディップ or カット間ディゾルブ）。
   // クリップ本体とは別枠で選択でき、ここが選択中なら右パネルでそのトランジションだけを編集/削除できる。
   const [selectedTrans, setSelectedTrans] = useState<{
@@ -1485,6 +1496,14 @@ export default function App(): JSX.Element {
     const st = trackStates[id]
     if (!st || st.muted) return 0
     if (anyAudioSolo && !st.solo) return 0
+    return clamp((st.volume ?? 1) * masterVolume, 0, 1)
+  }
+  // 書き出し用のゲイン。ソロはモニタリング専用（Premiere でも各DAWでも同じ約束）
+  // なので書き出しには効かせない。BGMだけ確認しようとソロにしたまま書き出して
+  // 本編音声もSEも全部無音の動画ができる事故を防ぐ。反映するのはミュートと音量のみ。
+  function audioTrackGainForExport(id: string): number {
+    const st = trackStates[id]
+    if (!st || st.muted) return 0
     return clamp((st.volume ?? 1) * masterVolume, 0, 1)
   }
   function setTrackVolume(id: string, v: number): void {
@@ -3919,7 +3938,11 @@ export default function App(): JSX.Element {
 
   // ================= プロジェクト保存 / 読み込み =================
   // プロジェクトのシリアライズ（保存・自動保存で共通）
-  function projectJson(): string {
+  // pathOverride: 保存直後に「保存済みの基準」を作るとき、まだ state に
+  // 反映されていない新しい保存先を渡す。これを渡さないと基準が古いパスで
+  // 作られ、以降ずっと「未保存の変更あり」と判定され続ける（初回保存や
+  // 別名保存の直後に必ず起きていた）。
+  function projectJson(pathOverride?: string | null): string {
     return JSON.stringify(
       {
         version: 1,
@@ -3963,7 +3986,7 @@ export default function App(): JSX.Element {
         transDur, // トランジションの既定長
         newTelopStyle, // このプロジェクトで次に追加するテロップの既定スタイル
         // 現在のプロジェクトファイルパス（自動保存からの復帰でタイトル/上書き先を失わないため）
-        projectPath
+        projectPath: pathOverride !== undefined ? pathOverride : projectPath
       },
       null,
       1
@@ -3992,7 +4015,7 @@ export default function App(): JSX.Element {
       setProjectPath(res.path) // 以降の Ctrl+S はここへ上書き
       // 手動保存できたら自動保存の下書きは不要（毎起動で復帰プロンプトが出続けるのを防ぐ）
       void window.giftcut.autosaveClear()
-      const saved = projectJson()
+      const saved = projectJson(res.path)
       lastAutosaveRef.current = saved
       savedJsonRef.current = saved // ここを「保存済み」の基準にする
       baselineRef.current = snapNow() // 保存時点を「未編集」の基準にする
@@ -5399,11 +5422,9 @@ export default function App(): JSX.Element {
       razorSegment(L.seg, L.seg.srcStart + (t - L.tStart) * segSpeed(L.seg))
       return
     }
-    setSelectedIds([]) // テロップ選択を解除
-    setSelectedSeIds([]) // SE 選択も解除（巻き添え削除防止）
-    setSelectedImgIds([]) // 画像選択も解除（リフレーム対象が画像に残る/巻き添え削除を防ぐ）
-    setSelectedTrans(null) // トランジション帯の選択も解除（Deleteの誤爆防止）
-    setSelectedTelopTrans(null)
+    // 他種の選択を全部解除してから自分を選ぶ（巻き添え削除と、Delete が
+    // マーカー削除へ横取りされるのを防ぐ）。個別に列挙すると必ず取りこぼす。
+    clearAllSelections()
     // クリックは独立: 動画クリックは動画のみ、音声クリックは音声のみ選択（他方は解除）
     const setThis = track === 'video' ? setSelectedVideoIds : setSelectedAudioIds
     const clearOther = track === 'video' ? setSelectedAudioIds : setSelectedVideoIds
@@ -6041,6 +6062,16 @@ export default function App(): JSX.Element {
             : c
       )
     )
+    // 映像レイヤーも同区間を詰める（本編とズレると位置リンクが崩れる）
+    setVClips((prev) =>
+      prev.map((c) =>
+        c.tStart >= rmEnd
+          ? { ...c, tStart: c.tStart - removeLen }
+          : c.tStart > rmStart
+            ? { ...c, tStart: rmStart }
+            : c
+      )
+    )
     if (videoRef.current) videoRef.current.currentTime = L.seg.srcStart + removeLen * sp
     setTime(rmStart) // 再生ヘッドはカット点に留める
     clearSegSel() // 消えたクリップを選択に残さない（右パネルが空・Deleteが無反応になるのを防ぐ）
@@ -6093,6 +6124,16 @@ export default function App(): JSX.Element {
       )
     )
     setImgClips((prev) =>
+      prev.map((c) =>
+        c.tStart >= rmEnd
+          ? { ...c, tStart: c.tStart - removeLen }
+          : c.tStart > rmStart
+            ? { ...c, tStart: rmStart }
+            : c
+      )
+    )
+    // 映像レイヤーも同区間を詰める（本編とズレると位置リンクが崩れる）
+    setVClips((prev) =>
       prev.map((c) =>
         c.tStart >= rmEnd
           ? { ...c, tStart: c.tStart - removeLen }
@@ -6370,7 +6411,9 @@ export default function App(): JSX.Element {
       rippleToNextCut: () => rippleToNextCut(),
       selectAll: () => {
         // 全種別を選択（テロップだけでなく動画切片/SE/画像も。Ctrl+A→Deleteで全消しできる）
-        clearSegSel()
+        // clearSegSel だけではトラック選択が残り、Delete がトラック削除に化けて
+        // 「中身のあるトラックは削除できません」だけ出て何も消えなくなる。
+        clearAllSelections()
         setSelectedIds(cues.map((c) => c.id))
         setSelectedVideoIds(segments.map((s) => s.id))
         setSelectedAudioIds(segments.map((s) => s.id))
@@ -6379,11 +6422,9 @@ export default function App(): JSX.Element {
         setSelectedVClipIds(vClips.map((c) => c.id))
       },
       deselect: () => {
-        setSelectedIds([])
-        clearSegSel()
-        setSelectedSeIds([])
-        setSelectedMarkerId(null)
-        setSelectedTrackId(null) // トラック選択も解除（残っているとDeleteがトラック削除に化ける）
+        // リフレーム枠も閉じる（以前は「✓ 完了」ボタンだけが閉じる手段で、
+        // Escape では抜けられずプレビュー上のホイールが拡大縮小になり続けた）
+        clearAllSelections()
         setEditingId(null) // 編集オーバーレイも閉じる
       },
       undo,
@@ -6710,7 +6751,7 @@ export default function App(): JSX.Element {
           tStart: c.tStart,
           duration: c.duration,
           srcOffset: c.srcOffset,
-          volume: clamp(c.volume * audioTrackGain(c.track), 0, 4),
+          volume: clamp(c.volume * audioTrackGainForExport(c.track), 0, 4),
           fadeIn: c.fadeIn,
           fadeOut: c.fadeOut
         })),
@@ -6736,7 +6777,9 @@ export default function App(): JSX.Element {
             opacity: c.opacity != null && c.opacity < 1 ? c.opacity : undefined,
             adjust: isNeutralAdjust(c.adjust) ? undefined : c.adjust,
             crop: isNeutralCrop(c.crop) ? undefined : c.crop,
-            volume: c.muted ? 0 : clamp((c.vol ?? 1) * audioTrackGain('A' + trackNum(c.track)), 0, 4),
+            volume: c.muted
+              ? 0
+              : clamp((c.vol ?? 1) * audioTrackGainForExport('A' + trackNum(c.track)), 0, 4),
             fadeIn: c.afadeIn,
             fadeOut: c.afadeOut
           })),
@@ -6762,7 +6805,7 @@ export default function App(): JSX.Element {
             crop: isNeutralCrop(c.crop) ? undefined : c.crop
           })),
         // メイン音声(A1)トラックのゲイン×マスター
-        baseAudioVolume: audioTrackGain('A1'),
+        baseAudioVolume: audioTrackGainForExport('A1'),
         // ラウドネス正規化（null=OFF）
         loudnormLUFS,
         totalDurationSec: outDurSec,
@@ -7562,7 +7605,9 @@ export default function App(): JSX.Element {
         <div className="modebar-left">
           <span className="home">⌂</span>
           <button className="mode-tab mode-tab-on">編集</button>
-          <button className="mode-tab" onClick={exportProject}>
+          {/* 設定ダイアログを経由する（メニューや Ctrl+M と挙動を揃える。
+              以前はここだけ前回設定で即書き出しが始まっていた） */}
+          <button className="mode-tab" onClick={() => setShowExportDialog(true)}>
             書き出し
           </button>
         </div>
@@ -7672,7 +7717,7 @@ export default function App(): JSX.Element {
                           type="range"
                           min={0}
                           max={200}
-                          step={5}
+                          step={2}
                           value={Math.round(se.volume * 100)}
                           onChange={(e) => updateSelectedSE({ volume: Number(e.target.value) / 100 })}
                         />
@@ -7902,6 +7947,8 @@ export default function App(): JSX.Element {
                   const vc = vClips.find((c) => c.id === selectedVClipIds[0])
                   if (!vc) return null
                   const vz = vc.zoom ?? DEFAULT_ZOOM
+                  const va = vc.adjust ?? DEFAULT_ADJUST
+                  const vcr = vc.crop ?? DEFAULT_CROP
                   const len = Math.max(0.05, vc.srcEnd - vc.srcStart)
                   return (
                     <>
@@ -7919,7 +7966,7 @@ export default function App(): JSX.Element {
                         <input
                           type="range"
                           min={20}
-                          max={400}
+                          max={800}
                           step={1}
                           value={Math.round(vz.scale * 100)}
                           onChange={(e) =>
@@ -7997,9 +8044,20 @@ export default function App(): JSX.Element {
                         <button
                           className={`seg-btn ${vc.flipH ? 'seg-on' : ''}`}
                           onClick={() => updateSelectedVClip({ flipH: !vc.flipH })}
+                          title="左右反転"
                         >
                           ⇄ 左右
                         </button>
+                        <button
+                          className={`seg-btn ${vc.flipV ? 'seg-on' : ''}`}
+                          onClick={() => updateSelectedVClip({ flipV: !vc.flipV })}
+                          title="上下反転"
+                        >
+                          ⇅ 上下
+                        </button>
+                      </div>
+                      {/* 消音は音声の設定なので変形から出す（動画切片も音声側に置いている） */}
+                      <div className="seg seg-wide" style={{ marginTop: 6 }}>
                         <button
                           className={`seg-btn ${vc.muted ? 'seg-on' : ''}`}
                           onClick={() => updateSelectedVClip({ muted: !vc.muted })}
@@ -8008,6 +8066,70 @@ export default function App(): JSX.Element {
                           🔇 消音
                         </button>
                       </div>
+                      {/* 色調整（画像クリップ・動画切片と同じモデル） */}
+                      <label className="field-label" style={{ marginTop: 12 }}>
+                        色調整
+                      </label>
+                      {(
+                        [
+                          { key: 'b', label: '明るさ' },
+                          { key: 'c', label: 'コントラスト' },
+                          { key: 's', label: '彩度' }
+                        ] as const
+                      ).map((r) => (
+                        <div className="sp-row" key={r.key}>
+                          <span className="sp-label">{r.label}</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={2}
+                            step={0.02}
+                            value={va[r.key]}
+                            onChange={(e) => {
+                              const next = { ...va, [r.key]: Number(e.target.value) }
+                              updateSelectedVClip({
+                                adjust: isNeutralAdjust(next) ? undefined : next
+                              })
+                            }}
+                          />
+                          <span className="sp-val">{va[r.key].toFixed(2)}</span>
+                        </div>
+                      ))}
+                      {/* クロップ */}
+                      <label className="field-label" style={{ marginTop: 12 }}>
+                        クロップ（切り抜き）
+                      </label>
+                      {(
+                        [
+                          { key: 'l', label: '左' },
+                          { key: 'r', label: '右' },
+                          { key: 't', label: '上' },
+                          { key: 'b', label: '下' }
+                        ] as const
+                      ).map((r) => (
+                        <div className="sp-row" key={r.key}>
+                          <span className="sp-label">{r.label}</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={90}
+                            step={1}
+                            value={Math.round(vcr[r.key] * 100)}
+                            onChange={(e) => {
+                              const next = { ...vcr, [r.key]: Number(e.target.value) / 100 }
+                              // 対辺の合計が95%を超えないよう相手側を押し戻す（画像と同じ規則）
+                              if (next.l + next.r > 0.95)
+                                next[r.key === 'r' ? 'r' : 'l'] =
+                                  0.95 - next[r.key === 'r' ? 'l' : 'r']
+                              if (next.t + next.b > 0.95)
+                                next[r.key === 'b' ? 'b' : 't'] =
+                                  0.95 - next[r.key === 'b' ? 't' : 'b']
+                              updateSelectedVClip({ crop: isNeutralCrop(next) ? undefined : next })
+                            }}
+                          />
+                          <span className="sp-val">{Math.round(vcr[r.key] * 100)}%</span>
+                        </div>
+                      ))}
                       <button
                         className="btn small"
                         style={{ marginTop: 6 }}
@@ -8062,7 +8184,7 @@ export default function App(): JSX.Element {
                         <input
                           type="range"
                           min={20}
-                          max={400}
+                          max={800}
                           step={1}
                           value={Math.round(iz.scale * 100)}
                           onChange={(e) =>
@@ -8254,7 +8376,16 @@ export default function App(): JSX.Element {
                 }}
                 onWheel={(e) => {
                   // リフレーム選択中はホイールで対象（動画切片 or 選択画像）を拡大縮小（中心基準）
-                  if (!(videoSelected || selectedVideoIds.length || selectedImgIds.length === 1))
+                  // リフレーム枠の表示条件と同じ集合にする（映像レイヤーが抜けていて、
+                  // 枠と倍率表示は出るのにホイールだけ無反応だった）
+                  if (
+                    !(
+                      videoSelected ||
+                      selectedVideoIds.length ||
+                      selectedImgIds.length === 1 ||
+                      selectedVClipIds.length === 1
+                    )
+                  )
                     return
                   const tgt = reframeTargetRef.current
                   if (!tgt) return
@@ -8613,7 +8744,7 @@ export default function App(): JSX.Element {
                           <div className="mix-fill" style={{ height: `${g * 100}%` }} />
                           <div className="mix-knob" style={{ bottom: `${g * 100}%` }} />
                         </div>
-                        <div className="mix-db">{gainToDb(g)}</div>
+                        <div className="mix-db">{gainToDb(g)} dB</div>
                         <div className="mix-name">{tr.name}</div>
                       </div>
                     )
@@ -8628,7 +8759,7 @@ export default function App(): JSX.Element {
                       <div className="mix-fill" style={{ height: `${masterVolume * 100}%` }} />
                       <div className="mix-knob" style={{ bottom: `${masterVolume * 100}%` }} />
                     </div>
-                    <div className="mix-db">{gainToDb(masterVolume)}</div>
+                    <div className="mix-db">{gainToDb(masterVolume)} dB</div>
                     <div className="mix-name">マスター</div>
                   </div>
                 </div>
@@ -10190,6 +10321,11 @@ export default function App(): JSX.Element {
                               title="画像を削除"
                               onPointerDown={(e) => {
                                 e.stopPropagation()
+                                // ロック中は消さない（Delete キー側は守っているので揃える）
+                                if (trackStates[clip.track]?.locked) {
+                                  showToast('このトラックはロックされています。')
+                                  return
+                                }
                                 setImgClips((prev) => prev.filter((c) => c.id !== clip.id))
                                 setSelectedImgIds([])
                               }}
@@ -10531,6 +10667,11 @@ export default function App(): JSX.Element {
                             title="削除"
                             onPointerDown={(e) => {
                               e.stopPropagation()
+                              // ロック中は消さない（Delete キー側は守っているので揃える）
+                              if (trackStates[clip.track]?.locked) {
+                                showToast('このトラックはロックされています。')
+                                return
+                              }
                               setSeClips((prev) => prev.filter((c) => c.id !== clip.id))
                               setSelectedSeIds([])
                             }}
