@@ -50,6 +50,8 @@ import {
   formatTimecode,
   layoutSegs,
   qFrame,
+  rippleEnd,
+  rippleStart,
   segSpeed,
   segTLen,
   tToSource,
@@ -262,8 +264,11 @@ const DEFAULT_SHORTCUTS = {
   frameFwd5: 'shift+arrowright',
   del: 'd',
   rippleDel: 'shift+delete',
-  rippleToPrevCut: 'a',
-  rippleToNextCut: 'f',
+  // Premiere 準拠: Q=リップルトリム前方 / W=リップルトリム後方。
+  // 以前は A / F だったが、Premiere の A は非破壊のトラック選択ツールなので
+  // 「押したら映像が削られる」事故になっていた。
+  rippleToPrevCut: 'q',
+  rippleToNextCut: 'w',
   selectAll: 'ctrl+a',
   deselect: 'escape',
   undo: 'ctrl+z',
@@ -272,7 +277,7 @@ const DEFAULT_SHORTCUTS = {
   cut: 'ctrl+x',
   paste: 'ctrl+v',
   duplicate: 'ctrl+d',
-  split: 'w',
+  split: 'ctrl+k', // Premiere の「編集点を追加」と同じ
   addTelop: 't',
   addMarker: 'm',
   saveProject: 'ctrl+s',
@@ -287,7 +292,7 @@ const ACTION_LIST: { id: ShortcutId; label: string; group: string }[] = [
   { id: 'saveProject', label: 'プロジェクトを保存', group: 'ファイル' },
   { id: 'exportVideo', label: '動画を書き出し', group: 'ファイル' },
   { id: 'toolSelect', label: '選択ツール', group: 'ツール' },
-  { id: 'toolRazor', label: 'レザー（カット）ツール', group: 'ツール' },
+  { id: 'toolRazor', label: 'レザーツール', group: 'ツール' },
   { id: 'toggleSnap', label: 'スナップ切替', group: 'ツール' },
   { id: 'playPause', label: '再生 / 一時停止', group: '再生' },
   { id: 'shuttleFwd', label: '早送りシャトル', group: '再生' },
@@ -299,11 +304,11 @@ const ACTION_LIST: { id: ShortcutId; label: string; group: string }[] = [
   { id: 'frameFwd', label: '1フレーム進む', group: '再生' },
   { id: 'frameBack5', label: '5フレーム戻る', group: '再生' },
   { id: 'frameFwd5', label: '5フレーム進む', group: '再生' },
-  { id: 'split', label: '再生ヘッドで分割（カット）', group: '編集' },
-  { id: 'del', label: '削除（後ろを詰める）', group: '編集' },
-  { id: 'rippleDel', label: '削除して詰める（Delete でも可）', group: '編集' },
-  { id: 'rippleToPrevCut', label: '1つ前のカットまで詰めて削除', group: '編集' },
-  { id: 'rippleToNextCut', label: '1つ後のカットまで詰めて削除', group: '編集' },
+  { id: 'split', label: '再生ヘッドで分割', group: '編集' },
+  { id: 'del', label: '削除して詰める（Delete / Backspace も同じ）', group: '編集' },
+  { id: 'rippleDel', label: '削除して詰める（もう1つの割り当て）', group: '編集' },
+  { id: 'rippleToPrevCut', label: '前の編集点まで詰めて削除（リップルトリム前方）', group: '編集' },
+  { id: 'rippleToNextCut', label: '次の編集点まで詰めて削除（リップルトリム後方）', group: '編集' },
   { id: 'selectAll', label: '全選択', group: '編集' },
   { id: 'deselect', label: '選択解除', group: '編集' },
   { id: 'undo', label: '元に戻す', group: '編集' },
@@ -6009,23 +6014,59 @@ export default function App(): JSX.Element {
   }
   // 再生ヘッドから「1つ前のカット点」までを詰めて削除（切り抜きの不要部カット用）
   // 対象切片の頭を再生ヘッドまで前進＝[切片開始, 再生ヘッド]を除去し、後続は自動で詰まる。
+  // リップルトリムが止まる「編集点」の一覧。カット点のほかに、テロップ・画像・
+  // SE・映像レイヤーの端も編集点として扱う。これが無いと、カット点がテロップより
+  // 前にある場合にテロップごと巻き添えで消えていた。
+  // どこで止めるかの判定は shared/timeline の rippleStart / rippleEnd 側にある
+  // （テストで固定してあるので、ここに同じ判定を書き足さないこと）。
+  function allContentEdges(): number[] {
+    const out: number[] = []
+    for (const c of cuesRef.current) out.push(c.start, c.end)
+    for (const c of seClipsRef.current) out.push(c.tStart, c.tStart + c.duration)
+    for (const c of imgClipsRef.current) out.push(c.tStart, c.tStart + c.duration)
+    for (const c of vClipsRef.current) out.push(c.tStart, c.tStart + vcLen(c))
+    return out
+  }
   function rippleToPrevCut(): void {
     if (trackStates['V1']?.locked) return
     stopPlayback()
     const t = currentTimeRef.current
     const L = segLayoutRef.current.find((l) => t > l.tStart + 0.01 && t <= l.tEnd + 1e-6)
     if (!L) return
-    const removeLen = Math.min(t - L.tStart, L.len)
+    // カット点まで一気に詰めず、途中に編集点（テロップ等の端）があればそこで止める。
+    // 例: カット点0・テロップ[2,5]・再生ヘッド8 なら、[0,8] ではなく [5,8] を削る。
+    const floorT = rippleStart(L.tStart, t, allContentEdges())
+    const removeLen = Math.min(t - floorT, L.len)
     if (removeLen < 0.02) return
-    const rmStart = L.tStart
-    const rmEnd = rmStart + removeLen
+    const rmStart = floorT
+    const rmEnd = t
     const sp = segSpeed(L.seg)
-    // 動画切片: 対象の頭を removeLen（ソースでは removeLen*速度）前進（尽きたら切片ごと削除）
+    const midCut = floorT > L.tStart + 1e-6 // 切片の途中から削る＝2つに割って間を捨てる
     setSegments((prev) => {
-      const next = prev.map((s) =>
-        s.id === L.seg.id ? { ...s, srcStart: s.srcStart + removeLen * sp } : s
-      )
-      const gone = new Set(next.filter((s) => s.srcEnd - s.srcStart <= 0.02).map((s) => s.id))
+      const idx = prev.findIndex((x) => x.id === L.seg.id)
+      if (idx < 0) return prev
+      const seg = prev[idx]
+      let next: VSeg[]
+      if (!midCut) {
+        // 切片の頭から削る（従来どおり頭を前進させる）
+        next = prev.map((x) =>
+          x.id === seg.id ? { ...x, srcStart: x.srcStart + removeLen * sp } : x
+        )
+      } else {
+        // 途中を削る: [切片頭, floorT] と [t, 切片尻] を残して間を捨てる。
+        // 間のトランジションは分割点をまたげないので落とす。
+        const keepLeftEnd = seg.srcStart + (floorT - L.tStart) * sp
+        const keepRightStart = seg.srcStart + (t - L.tStart) * sp
+        next = [...prev]
+        next[idx] = { ...seg, srcEnd: keepLeftEnd, transOut: undefined, xfade: undefined }
+        next.splice(idx + 1, 0, {
+          ...seg,
+          id: segIdCounter.current++,
+          srcStart: keepRightStart,
+          transIn: undefined
+        })
+      }
+      const gone = new Set(next.filter((x) => x.srcEnd - x.srcStart <= 0.02).map((x) => x.id))
       return gone.size ? cleanupOrphanTrans(next, gone) : next
     })
     // テロップ・SEも同区間を除去して詰める（同期維持）
@@ -6072,10 +6113,10 @@ export default function App(): JSX.Element {
             : c
       )
     )
-    if (videoRef.current) videoRef.current.currentTime = L.seg.srcStart + removeLen * sp
-    setTime(rmStart) // 再生ヘッドはカット点に留める
-    clearSegSel() // 消えたクリップを選択に残さない（右パネルが空・Deleteが無反応になるのを防ぐ）
-    setSelectedIds([])
+    if (videoRef.current)
+      videoRef.current.currentTime = L.seg.srcStart + (rmStart - L.tStart) * sp
+    setTime(rmStart) // 再生ヘッドは削った位置（編集点）に留める
+    clearAllSelections() // 消えたクリップを選択に残さない
   }
   // 再生ヘッドから「1つ後のカット点」までを詰めて削除。
   // 対象切片の尻を再生ヘッドまで後退＝[再生ヘッド, 切片終わり]を除去し、後続を詰める。
@@ -6085,17 +6126,37 @@ export default function App(): JSX.Element {
     const t = currentTimeRef.current
     const L = segLayoutRef.current.find((l) => t >= l.tStart - 1e-6 && t < l.tEnd - 0.01)
     if (!L) return
-    const removeLen = Math.min(L.tEnd - t, L.len)
+    // カット点まで一気に詰めず、途中に編集点（テロップ等の端）があればそこで止める。
+    const ceilT = rippleEnd(t, L.tEnd, allContentEdges())
+    const removeLen = Math.min(ceilT - t, L.len)
     if (removeLen < 0.02) return
     const rmStart = t
-    const rmEnd = L.tEnd
+    const rmEnd = ceilT
     const sp = segSpeed(L.seg)
-    // 動画切片: 対象の尻を removeLen（ソースでは removeLen*速度）手前へ。尽きたら切片ごと削除。
+    const midCut = ceilT < L.tEnd - 1e-6 // 切片の途中まで削る＝2つに割って間を捨てる
     setSegments((prev) => {
-      const next = prev.map((s) =>
-        s.id === L.seg.id ? { ...s, srcEnd: s.srcEnd - removeLen * sp } : s
-      )
-      const gone = new Set(next.filter((s) => s.srcEnd - s.srcStart <= 0.02).map((s) => s.id))
+      const idx = prev.findIndex((x) => x.id === L.seg.id)
+      if (idx < 0) return prev
+      const seg = prev[idx]
+      let next: VSeg[]
+      if (!midCut) {
+        // 切片の尻まで削る（従来どおり尻を手前へ）
+        next = prev.map((x) =>
+          x.id === seg.id ? { ...x, srcEnd: x.srcEnd - removeLen * sp } : x
+        )
+      } else {
+        const keepLeftEnd = seg.srcStart + (t - L.tStart) * sp
+        const keepRightStart = seg.srcStart + (ceilT - L.tStart) * sp
+        next = [...prev]
+        next[idx] = { ...seg, srcEnd: keepLeftEnd, transOut: undefined, xfade: undefined }
+        next.splice(idx + 1, 0, {
+          ...seg,
+          id: segIdCounter.current++,
+          srcStart: keepRightStart,
+          transIn: undefined
+        })
+      }
+      const gone = new Set(next.filter((x) => x.srcEnd - x.srcStart <= 0.02).map((x) => x.id))
       return gone.size ? cleanupOrphanTrans(next, gone) : next
     })
     // テロップ・SEも同区間を除去して詰める（同期維持）
@@ -6317,8 +6378,10 @@ export default function App(): JSX.Element {
     let id = (Object.keys(shortcuts) as ShortcutId[]).find(
       (k) => shortcuts[k] === combo || shortcuts[k] === norm
     )
-    // Delete/Backspace は「リップル削除」（動画切片は詰めて削除・テロップ/SE同期）。'd' は黒化/ミュートに分離。
-    if (!id && norm === 'delete') id = 'rippleDel'
+    // D / Delete / Backspace / Shift+Delete はすべて同じ「削除して詰める」。
+    // 以前は del と rippleDel という2つの割り当てに分かれていたが処理は同一で、
+    // 環境設定のラベルだけが別物のように見えていた。
+    if (!id && norm === 'delete') id = 'del'
     // Ctrl+Shift+Z も「やり直し」の別名として受ける（Premiere/一般的な慣習）
     if (!id && combo === 'ctrl+shift+z') id = 'redo'
     if (!id) return
@@ -8766,7 +8829,7 @@ export default function App(): JSX.Element {
               </div>
             )}
             <div className="transport">
-              <span className="tc">{formatTime(currentTime)}</span>
+              <span className="tc">{formatTimecode(currentTime, fps)}</span>
               <div className="transport-btns">
                 <button className="tbtn" onClick={() => skipSec(-10)} title="10秒戻る">
                   «10
@@ -10749,7 +10812,7 @@ export default function App(): JSX.Element {
                 : 'トラック選択(左)'}
         </span>
         <span>比率 {ratio}</span>
-        <span>再生ヘッド {formatTime(currentTime)}</span>
+        <span>再生ヘッド {formatTimecode(currentTime, fps)}</span>
         {playRateUI !== 0 && <span>シャトル {playRateUI}x</span>}
         <span className="grow" />
         <span>GiftCut</span>

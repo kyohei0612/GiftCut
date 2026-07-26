@@ -12,7 +12,10 @@ import { describe, expect, it } from 'vitest'
 import {
   EPS,
   clamp,
+  edgesBetween,
   fadeGain,
+  rippleEnd,
+  rippleStart,
   formatTimecode,
   layoutSegs,
   normFps,
@@ -273,6 +276,62 @@ describe('xfadeDurAt のクランプ', () => {
         expect(d).toBeLessThanOrEqual(L[i + 1].len + EPS)
       }
     }
+  })
+})
+
+// ===========================================================================
+describe('リップルトリムが止まる位置', () => {
+  it('途中に編集点が無ければ切片の端まで削る（従来どおり）', () => {
+    expect(rippleStart(0, 8, [])).toBe(0)
+    expect(rippleEnd(3, 10, [])).toBe(10)
+  })
+
+  it('途中にテロップの端があればそこで止まる（テロップの巻き添え削除を防ぐ）', () => {
+    // 切片頭0・テロップ[2,5]・再生ヘッド8 → [5,8] だけ削る
+    expect(rippleStart(0, 8, [2, 5])).toBe(5)
+    // 再生ヘッド3・テロップ[5,7]・切片尻10 → [3,5] だけ削る
+    expect(rippleEnd(3, 10, [5, 7])).toBe(5)
+  })
+
+  it('編集点が複数あれば再生ヘッドに一番近いものを採る', () => {
+    expect(rippleStart(0, 20, [2, 5, 9, 14])).toBe(14)
+    expect(rippleEnd(0, 20, [2, 5, 9, 14])).toBe(2)
+  })
+
+  it('再生ヘッドが編集点の内側（テロップの上）にあっても、手前の端で止まる', () => {
+    // テロップ[5,10]・再生ヘッド8。テロップの尻(10)は再生ヘッドより後ろなので対象外。
+    // 手前の端＝テロップの頭(5)で止まるので、テロップは消えず短くなるだけ。
+    expect(rippleStart(0, 8, [5, 10])).toBe(5)
+  })
+
+  it('切片の端ちょうどにある編集点は無視する（削る量が0になって無反応に見えるのを防ぐ）', () => {
+    expect(rippleStart(0, 8, [0, 8])).toBe(0)
+    expect(rippleEnd(3, 10, [3, 10])).toBe(10)
+  })
+
+  it('範囲外の編集点は影響しない', () => {
+    expect(rippleStart(5, 8, [1, 2, 99])).toBe(5)
+    expect(rippleEnd(3, 6, [1, 2, 99])).toBe(6)
+  })
+
+  it('削る範囲は必ず切片の内側に収まる（ランダム検証）', () => {
+    const rnd = mulberry32(11)
+    for (let i = 0; i < 500; i++) {
+      const segStart = rnd() * 10
+      const segEnd = segStart + 0.5 + rnd() * 20
+      const playhead = segStart + rnd() * (segEnd - segStart)
+      const edges = Array.from({ length: Math.floor(rnd() * 8) }, () => rnd() * 40)
+      const a = rippleStart(segStart, playhead, edges)
+      const b = rippleEnd(playhead, segEnd, edges)
+      expect(a).toBeGreaterThanOrEqual(segStart)
+      expect(a).toBeLessThanOrEqual(playhead)
+      expect(b).toBeGreaterThanOrEqual(playhead)
+      expect(b).toBeLessThanOrEqual(segEnd)
+    }
+  })
+
+  it('edgesBetween は両端を含まない', () => {
+    expect(edgesBetween([0, 5, 10], 0, 10)).toEqual([5])
   })
 })
 

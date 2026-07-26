@@ -173,6 +173,48 @@ export function sourceToT(layout: readonly Layout[], index: number, srcTime: num
 }
 
 // ---------------------------------------------------------------------------
+// リップルトリム（前の編集点／次の編集点まで詰めて削除）
+// ---------------------------------------------------------------------------
+
+/**
+ * from と to の内側（両端は含まない）にある編集点だけを返す。
+ * 編集点＝カット点のほか、テロップ・画像・SE・映像レイヤーの端。
+ */
+export function edgesBetween(
+  edges: readonly number[],
+  from: number,
+  to: number,
+  eps = 1e-3
+): number[] {
+  return edges.filter((v) => v > from + eps && v < to - eps)
+}
+
+/**
+ * 前方リップルトリムで削除を始める位置。
+ *
+ * 切片の頭まで一気に詰めると、途中にあったテロップが巻き添えで消える。
+ * 途中に編集点があればそこで止める（一番再生ヘッドに近いもの）。
+ * 例: 切片頭0・テロップ[2,5]・再生ヘッド8 → 5 を返す（[5,8] だけ削る）。
+ */
+export function rippleStart(
+  segStart: number,
+  playhead: number,
+  edges: readonly number[]
+): number {
+  const inner = edgesBetween(edges, segStart, playhead)
+  return inner.length ? Math.max(...inner) : segStart
+}
+
+/**
+ * 後方リップルトリムで削除を終える位置。
+ * 例: 再生ヘッド3・テロップ[5,7]・切片尻10 → 5 を返す（[3,5] だけ削る）。
+ */
+export function rippleEnd(playhead: number, segEnd: number, edges: readonly number[]): number {
+  const inner = edgesBetween(edges, playhead, segEnd)
+  return inner.length ? Math.min(...inner) : segEnd
+}
+
+// ---------------------------------------------------------------------------
 // 波形
 // ---------------------------------------------------------------------------
 
