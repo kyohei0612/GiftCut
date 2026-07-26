@@ -692,6 +692,13 @@ export default function App(): JSX.Element {
   }
   // 実在するトラックIDへ寄せる（削除済みトラックを指すクリップは既定レーンへ）。
   // 指したままだとタイムラインに出ず選択も削除もできないのに、プレビュー/書き出しには出てしまう。
+  // 本編（V1/A1）は同じ切片を共有するリンク済みクリップなので、どちらかが
+  // ロックされていれば編集不可にする。以前は V1 しか見ておらず、A1 をロック
+  // しても A1 の波形をレザーで切れて Delete で消せた（逆に V1 だけロックすると
+  // 音量調整は通るのに削除は止まる、という説明できない状態だった）。
+  function mainLocked(): boolean {
+    return !!trackStates['V1']?.locked || !!trackStates['A1']?.locked
+  }
   function fallbackTrack(id: string, kind: 'video' | 'audio'): string {
     if (tracks.some((t) => t.id === id && t.kind === kind)) return id
     const cands = tracks.filter((t) => t.kind === kind && t.id !== (kind === 'video' ? 'V1' : 'A1'))
@@ -4500,7 +4507,9 @@ export default function App(): JSX.Element {
             name: String(c.name ?? c.path.split(/[\\/]/).pop() ?? '画像'),
             tStart: Math.max(0, Number(c.tStart) || 0),
             duration: Number(c.duration) > 0 ? Number(c.duration) : 5,
-            track: typeof c.track === 'string' ? c.track : 'V3',
+            // 存在しないトラックを指したままだと、タイムラインに出ないのに
+            // プレビューと書き出しには出る「見えないクリップ」になる
+            track: fallbackTrack(typeof c.track === 'string' ? c.track : 'V3', 'video'),
             zoom:
               c.zoom &&
               typeof c.zoom.scale === 'number' &&
@@ -5395,7 +5404,7 @@ export default function App(): JSX.Element {
   // ---- 動画セグメント編集 ----
   // ソース時間 atSrc で切片を2つに分割
   function razorSegment(seg: VSeg, atSrc: number): void {
-    if (trackStates['V1']?.locked) return
+    if (mainLocked()) return
     if (atSrc <= seg.srcStart + 0.03 || atSrc >= seg.srcEnd - 0.03) return
     const nid = segIdCounter.current++
     // 尻/間のトランジションは右半分へ移るので、その帯を選択中なら選択も付け替える
@@ -5590,7 +5599,7 @@ export default function App(): JSX.Element {
     e.stopPropagation()
     e.preventDefault()
     if (e.button !== 0) return
-    if (trackStates['V1']?.locked) return
+    if (mainLocked()) return
     stopPlayback()
     const sx = e.clientX
     const s0 = L.seg.srcStart
@@ -5653,7 +5662,7 @@ export default function App(): JSX.Element {
   // 動画切片のリップル削除。切片を除去し、その timeline 区間より後ろのテロップ/SEを同量だけ左へ
   // シフト＝映像と同期を保つ（切片削除だけだとテロップがズレる不具合の対策）。
   function rippleDeleteVideoSegments(): void {
-    if (trackStates['V1']?.locked) return
+    if (mainLocked()) return
     const ids = new Set([...selectedVideoIds, ...selectedAudioIds])
     if (!ids.size) return
     let tAcc = 0
@@ -5788,7 +5797,7 @@ export default function App(): JSX.Element {
   function setSelectedAdjust(patch: Partial<{ b: number; c: number; s: number }> | null): void {
     if (!selectedVideoIds.length) return
     // 回転/反転/速度/映像なし化は V1 のロックを見ているので揃える
-    if (trackStates['V1']?.locked) return
+    if (mainLocked()) return
     setSegments((prev) =>
       prev.map((s) => {
         if (!isVideoSel(s.id)) return s
@@ -6110,7 +6119,7 @@ export default function App(): JSX.Element {
   }
   // トランジションD&Dのドロップ確定。resolveTransDrop の判別（頭/間/尻）に drag.type を付与。
   function applyTransDrop(clientX: number): void {
-    if (trackStates['V1']?.locked) return
+    if (mainLocked()) return
     const drag = draggingTransRef.current
     const r = resolveTransDrop(clientX)
     if (!drag || !r) return
@@ -6166,7 +6175,7 @@ export default function App(): JSX.Element {
     return out
   }
   function rippleToPrevCut(): void {
-    if (trackStates['V1']?.locked) return
+    if (mainLocked()) return
     stopPlayback()
     const t = currentTimeRef.current
     const L = segLayoutRef.current.find((l) => t > l.tStart + 0.01 && t <= l.tEnd + 1e-6)
@@ -6259,7 +6268,7 @@ export default function App(): JSX.Element {
   // 再生ヘッドから「1つ後のカット点」までを詰めて削除。
   // 対象切片の尻を再生ヘッドまで後退＝[再生ヘッド, 切片終わり]を除去し、後続を詰める。
   function rippleToNextCut(): void {
-    if (trackStates['V1']?.locked) return
+    if (mainLocked()) return
     stopPlayback()
     const t = currentTimeRef.current
     const L = segLayoutRef.current.find((l) => t >= l.tStart - 1e-6 && t < l.tEnd - 0.01)
@@ -6349,7 +6358,7 @@ export default function App(): JSX.Element {
 
   // 再生ヘッドで動画を分割（切片版・Ctrl+K が動画選択時）
   function splitVideoAtPlayhead(): void {
-    if (trackStates['V1']?.locked) return
+    if (mainLocked()) return
     // 分割はフレーム境界で（素材fpsのカット点に揃える）
     const src = tToSource(segLayoutRef.current, qFrame(currentTimeRef.current, fpsRef.current))
     if (!src) return
@@ -9993,14 +10002,28 @@ export default function App(): JSX.Element {
                     onClick={() => selectTrack(tr.id)}
                     title="クリックでトラック選択（Deleteで削除）"
                   >
+                    {/* 以前はここが「ターゲット切替」だったが、target はどこからも
+                        参照されない死んだフラグで、ヘッダー内で一番強い色（既定で
+                        V1/A1 が青く光る）が何の意味も持たない状態だった。しかも
+                        名前クリックがそれに占領されてリネームができなかった。
+                        クリック＝トラック選択、ダブルクリック＝名前の変更にする。 */}
                     <span
-                      className={`th-name ${st.target ? 'th-target' : ''}`}
+                      className="th-name"
                       onClick={(e) => {
                         e.stopPropagation()
                         selectTrack(tr.id)
-                        toggleTrack(tr.id, 'target')
                       }}
-                      title="ターゲット切替 / トラック選択"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation()
+                        askText('トラック名を変更', tr.name, (v) => {
+                          const name = v.trim()
+                          if (!name) return
+                          setTracks((prev) =>
+                            prev.map((t) => (t.id === tr.id ? { ...t, name } : t))
+                          )
+                        })
+                      }}
+                      title="クリックでトラック選択 / ダブルクリックで名前を変更"
                     >
                       {tr.name}
                     </span>
@@ -10114,7 +10137,9 @@ export default function App(): JSX.Element {
                   // 画像: ポインタ直下の映像トラック（V1以外）に配置ゴースト。既定はテロップ上段
                   const t = snapClipStart(raw, dragSeDurRef.current)
                   const tid = trackFromEvent(e, 'video')
-                  const track = tid && tid !== 'V1' ? tid : 'V3'
+                  // 'V3' 決め打ちだと、V3 を削除したあとに存在しないトラックを指す
+                  // クリップが生まれる（タイムラインに出ないのに書き出しには出る）
+                  const track = fallbackTrack(tid && tid !== 'V1' ? tid : 'V3', 'video')
                   setImgGhost({ t, name: m.name, dur: dragSeDurRef.current, track })
                 }
               }}
@@ -10159,7 +10184,7 @@ export default function App(): JSX.Element {
                   void placeSE(m, t, track)
                 } else if (m.kind === 'image') {
                   const tid = trackFromEvent(e, 'video')
-                  const track = tid && tid !== 'V1' ? tid : 'V3'
+                  const track = fallbackTrack(tid && tid !== 'V1' ? tid : 'V3', 'video')
                   placeImage(m, t, track)
                 }
               }}
