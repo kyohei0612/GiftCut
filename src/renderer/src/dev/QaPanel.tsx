@@ -89,6 +89,10 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
   const [doneOpen, setDoneOpen] = useState(
     () => localStorage.getItem(KEY + '.doneOpen') === '1'
   )
+  // 直すものは既定で開く（放置されると困るため）
+  const [ngOpen, setNgOpen] = useState(
+    () => localStorage.getItem(KEY + '.ngOpen') !== '0'
+  )
   const timers = useRef<number[]>([])
   const bodyRef = useRef<HTMLDivElement>(null)
   // 最後に「完了」を押した項目。誤って再起動しても、ここから続けられる。
@@ -113,6 +117,9 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
   useEffect(() => {
     localStorage.setItem(KEY + '.doneOpen', doneOpen ? '1' : '0')
   }, [doneOpen])
+  useEffect(() => {
+    localStorage.setItem(KEY + '.ngOpen', ngOpen ? '1' : '0')
+  }, [ngOpen])
   // スクロール位置も戻す（長い一覧の途中で再起動しても続きから見られる）
   useEffect(() => {
     const el = bodyRef.current
@@ -187,11 +194,12 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
     saveResume(id)
     fadeOut(id)
   }
-  /** NG の「完了」＝症状を書き終えて確認を終える */
+  /** NG の「完了」＝症状を書き終えて確認を終える。OK と同じように流して消す。 */
   function commit(id: string): void {
     if (!rec(id).s) return
     setRec(id, { done: true })
     saveResume(id)
+    fadeOut(id)
   }
 
   // 進捗は「完了を押して確定したもの」だけ数える。書きかけを進捗に入れると、
@@ -204,13 +212,18 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
   // 退場アニメが終わるまでは残しておく（いきなり消えると見失うため）。
   const visible = items.filter((i) => {
     const s = rec(i.id).s
-    // 下書きのうちは残す（書きかけが消えると何をしていたか分からなくなる）
-    if (s === 'ok' && rec(i.id).done && !leaving.includes(i.id)) return false
+    // 確定したものは一覧から外して下のリストへしまう。
+    // 下書きのうちは残す（書きかけが消えると何をしていたか分からなくなる）。
+    // 「NG」で絞り込んだときだけ、確定した NG を一覧に出して見直せるようにする。
+    if (rec(i.id).done && !leaving.includes(i.id)) {
+      if (!(filter === 'ng' && s === 'ng')) return false
+    }
     if (filter === 'star') return i.star
     if (filter === 'ng') return s === 'ng'
     return true
   })
   const doneItems = items.filter((i) => rec(i.id).s === 'ok' && rec(i.id).done)
+  const ngItems = items.filter((i) => rec(i.id).s === 'ng' && rec(i.id).done)
   const draftCount = items.filter((i) => rec(i.id).s && !rec(i.id).done).length
   // 続きの位置＝最後に確定した項目の次にある、まだ確定していない項目
   const resumeIdx = resumeId ? items.findIndex((i) => i.id === resumeId) : -1
@@ -371,7 +384,7 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
         <div className="qa-body" ref={bodyRef}>
           {!visible.length && (
             <p className="qa-empty">
-              {filter === 'ng' ? 'NG の項目はありません。' : 'ぜんぶ確認しました。'}
+              {filter === 'ng' ? '直すものはありません。' : 'ぜんぶ確認しました。'}
             </p>
           )}
           {groups.map((g) => {
@@ -449,6 +462,31 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
               </div>
             )
           })}
+
+          {/* 直すべきものはここにまとまる。書き直しも戻すもできる。 */}
+          {ngItems.length > 0 && (
+            <div className="qa-done qa-nglist">
+              <button className="qa-done-head" onClick={() => setNgOpen((o) => !o)}>
+                <span className="qa-caret">{ngOpen ? '▼' : '▶'}</span>
+                直すもの
+                <b>{ngItems.length}</b>
+              </button>
+              {ngOpen &&
+                ngItems.map((it) => (
+                  <div className="qa-done-row" key={it.id}>
+                    <span>
+                      {it.star && <span className="qa-star">重点</span>}
+                      {it.text}
+                      {rec(it.id).note.trim() && (
+                        <em className="qa-ng-note">{rec(it.id).note.trim()}</em>
+                      )}
+                    </span>
+                    <button onClick={() => setRec(it.id, { done: false })}>書き直す</button>
+                    <button onClick={() => setRec(it.id, { s: '', note: '' })}>戻す</button>
+                  </div>
+                ))}
+            </div>
+          )}
 
           {/* 消し込んだものはここにしまう。戻せば一覧に復帰する。 */}
           {doneItems.length > 0 && (
@@ -602,6 +640,12 @@ const QA_CSS = `
   transition:max-height .3s ease,padding .3s ease;max-height:0;padding-top:0;padding-bottom:0;
   overflow:hidden;pointer-events:none}
 @media (prefers-reduced-motion:reduce){.qa-row.leaving{animation:none;opacity:0}}
+/* 直すものリスト（NG） */
+.qa-nglist .qa-done-head{color:#ff8a7e}
+.qa-nglist .qa-done-head b{color:#ff8a7e}
+.qa-nglist .qa-done-row{color:#a7aebc}
+.qa-ng-note{display:block;margin-top:3px;font-style:normal;font-size:11.5px;color:#ff8a7e;
+  white-space:pre-wrap;line-height:1.5}
 /* 完了リスト */
 .qa-done{border:1px solid #2a3038;border-radius:8px;overflow:hidden;margin-top:4px}
 .qa-done-head{width:100%;display:flex;align-items:center;gap:7px;background:#1b2027;border:0;
