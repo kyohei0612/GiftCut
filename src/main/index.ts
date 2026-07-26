@@ -16,6 +16,14 @@ import { writeFile as writeFileAsync } from 'fs/promises'
 import { createHash } from 'crypto'
 import { Readable } from 'stream'
 import { spawn, type ChildProcess } from 'child_process'
+// フィルタグラフは ffmpeg を起動する前に検証する（入力indexのズレ・ラベルの
+// 定義漏れ・無音素材からの音声参照は、起動して初めて分かると原因が読めない）。
+import {
+  formatGraphProblems,
+  hasGraphError,
+  validateFilterGraph,
+  type GraphInput
+} from '../shared/filterGraph'
 
 // 書き出し中の ffmpeg プロセス（キャンセル用）。exportCanceled でユーザー中断とエラーを区別する。
 let currentExportFf: ChildProcess | null = null
@@ -1752,11 +1760,66 @@ app.whenReady().then(() => {
     // プレースホルダ→実ラベル（必要な入力だけ split/asplit を先頭に足す）
     filter = resolveInputLabels(filter).replace(/;$/, '')
 
+    // ---- ffmpeg を起動する前にグラフを検証する ----
+    // 入力ごとのストリーム有無。確実に「無い」と言えるものだけ false にし、
+    // 判断できないものは true（許容）にする。誤検知で動く書き出しを止めないため。
+    const graphInputs: GraphInput[] = inputSpecs.map((sp) => ({
+      hasVideo: true,
+      // 画像は音声を持たない（拡張子で確実に判断できる）
+      hasAudio: !/\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(sp.path),
+      name: sp.path.split(/[\\/]/).pop()
+    }))
+    // ffprobe した実測を反映（無音の動画から [N:a] を取ろうとする事故を止める）
+    srcInput.forEach((idx, i) => {
+      if (!srcHasAudio[i] && graphInputs[idx]) graphInputs[idx].hasAudio = false
+    })
+    vcInput.forEach((idx, k) => {
+      if (!vcHasAudio[k] && graphInputs[idx]) graphInputs[idx].hasAudio = false
+    })
+    const graphProblems = validateFilterGraph(filter, {
+      inputs: graphInputs,
+      maps: ['[v]', ...audioMap.filter((a) => a !== '-map')]
+    })
+    if (graphProblems.length) {
+      // 警告は書き出しを止めない（動くが設計上おかしい、を記録に残すだけ）
+      console.warn('[export] フィルタグラフの指摘:\n' + formatGraphProblems(graphProblems))
+    }
+    if (hasGraphError(graphProblems)) {
+      // ここで止めれば、ffmpeg の暗号のようなエラーではなく原因が読める形で返せる。
+      // 検出しているのは ffmpeg でも必ず失敗する不整合なので、成立する書き出しは止まらない。
+      const errs = graphProblems.filter((p) => p.severity === 'error')
+      return {
+        ok: false,
+        error:
+          '書き出しの合成設定に不整合が見つかったため中止しました。\n' +
+          '（この状態で実行しても ffmpeg が失敗します）\n\n' +
+          formatGraphProblems(errs)
+      }
+    }
+
     const crf = typeof payload.crf === 'number' ? Math.round(payload.crf) : 23
     // フィルタは一時ファイルに書き出して -filter_complex_script で渡す。
     // テロップPNGが多い（＝入力とoverlay行が増える）とコマンドライン長がWindows上限(32767字)を
     // 超えて spawn ENAMETOOLONG になるため、最も長いフィルタ文字列を外出しして回避する。
     writeFileSync(join(tmp, 'filter.txt'), filter, 'utf-8')
+    // 直近の書き出しのフィルタグラフを残す。tmp は書き出し後に消えるため、
+    // 書き出しの不具合を後から実データで検証できるようにここへ控えを置く。
+    try {
+      writeFileSync(
+        join(app.getPath('userData'), 'last-export-filter.txt'),
+        `# 入力 ${graphInputs.length} 個\n` +
+          graphInputs
+            .map((g, i) => `#  ${i}: ${g.name}  video=${g.hasVideo} audio=${g.hasAudio}`)
+            .join('\n') +
+          `\n# -map ${audioMap.join(' ')}\n` +
+          (graphProblems.length ? `# 指摘:\n${formatGraphProblems(graphProblems)}\n` : '') +
+          '\n' +
+          filter.split(';').join(';\n'),
+        'utf-8'
+      )
+    } catch {
+      // 控えが残せなくても書き出し自体は続行する
+    }
     // 入力を並べる（重複排除済み。-ss はフィルタ組み立て中に確定するのでここで反映する）
     for (const sp of inputSpecs) {
       if (sp.ss > 0) args.push('-ss', sp.ss.toFixed(3))
