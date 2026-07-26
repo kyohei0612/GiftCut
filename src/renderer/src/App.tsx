@@ -1117,6 +1117,19 @@ export default function App(): JSX.Element {
         for (const [id, st] of Object.entries(prev)) next[bump(id)] = st
         return next
       })
+      // ずらしたあと、状態が抜けたトラックを埋める。作り忘れると
+      // トラックヘッダーの描画で落ちて画面全体が真っ黒になる。
+      // 直後は tracks の state がまだ古いので、番号から作り直して補う。
+      setTrackStates((prev) => {
+        const next = { ...prev }
+        const vMax = Math.max(0, ...Object.keys(next).filter((k) => k[0] === 'V').map(trackNum))
+        const aMax = Math.max(0, ...Object.keys(next).filter((k) => k[0] === 'A').map(trackNum))
+        for (let k = 1; k <= vMax + 1; k++)
+          if (!next['V' + k]) next['V' + k] = newTrackState('V' + k)
+        for (let k = 1; k <= aMax + 1; k++)
+          if (!next['A' + k]) next['A' + k] = newTrackState('A' + k)
+        return next
+      })
       showToast(vTrack + ' に置くため、上のレーンを1つずつ繰り上げました。')
     }
 
@@ -9067,7 +9080,7 @@ export default function App(): JSX.Element {
               <div className="mixer-stage">
                 <div className="mixer">
                   {tracks.filter((t) => t.kind === 'audio').map((tr) => {
-                    const st = trackStates[tr.id]
+                    const st = trackStates[tr.id] ?? newTrackState(tr.id)
                     const g = st?.volume ?? 1
                     return (
                       <div className="mix-ch" key={tr.id}>
@@ -10102,7 +10115,9 @@ export default function App(): JSX.Element {
                 </button>
               </div>
               {tracks.map((tr) => {
-                const st = trackStates[tr.id]
+                // 状態が無いトラックがあっても落ちないようにする。
+                // トラックを足したのに状態を作り忘れると、ここで画面全体が落ちる。
+                const st = trackStates[tr.id] ?? newTrackState(tr.id)
                 return (
                   <div
                     key={tr.id}
