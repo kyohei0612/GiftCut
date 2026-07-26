@@ -533,7 +533,9 @@ export default function App(): JSX.Element {
     setRatio(next)
   }
   const [zoom, setZoom] = useState(24) // px / 秒
-  const [snap, setSnap] = useState(true)
+  // マグネットの ON/OFF は編集の癖なのでPCに覚えさせる（プレビュー解像度や
+  // パネル幅は保存しているのに、ここだけ毎回ONに戻っていた）。
+  const [snap, setSnap] = useState<boolean>(() => loadLS<boolean>('giftcut.snap', true))
   const [currentTime, setCurrentTime] = useState(0)
   const [monitorTab, setMonitorTab] = useState<'program' | 'mixer'>('program') // プレビュー↔ミキサー
   const [masterVolume, setMasterVolume] = useState(1) // マスター音量（全体）
@@ -800,6 +802,11 @@ export default function App(): JSX.Element {
   // 選択中の画像クリップを部分更新（複数選択にまとめて適用）
   function updateSelectedImg(patch: Partial<ImgClip>): void {
     if (!selectedImgIds.length) return
+    // ロック中は変更しない（ドラッグ・削除は守っているので揃える）
+    if (imgClips.some((c) => selectedImgIds.includes(c.id) && trackStates[c.track]?.locked)) {
+      showToast('このトラックはロックされています。')
+      return
+    }
     setImgClips((prev) =>
       prev.map((c) => (selectedImgIds.includes(c.id) ? { ...c, ...patch } : c))
     )
@@ -909,8 +916,12 @@ export default function App(): JSX.Element {
         // 縦方向に動かしたら別の映像トラックへ移動（テロップの上下移動と同じ操作感）
         const irect = trackInnerRef.current?.getBoundingClientRect()
         const lane = irect ? laneAtY(ev.clientY - irect.top) : null
+        // 移動先がロック中なら受け付けない（映像レイヤー側は既にそうしている）
         const laneOk =
-          lane && lane !== 'V1' && tracks.some((t) => t.id === lane && t.kind === 'video')
+          lane &&
+          lane !== 'V1' &&
+          tracks.some((t) => t.id === lane && t.kind === 'video') &&
+          !trackStates[lane]?.locked
         setImgClips((prev) =>
           prev.map((c) =>
             c.id === clip.id ? { ...c, tStart: nt, track: laneOk ? lane : c.track } : c
@@ -1084,6 +1095,10 @@ export default function App(): JSX.Element {
   }
   function updateSelectedVClip(patch: Partial<VClip>): void {
     if (!selectedVClipIds.length) return
+    if (vClips.some((c) => selectedVClipIds.includes(c.id) && trackStates[c.track]?.locked)) {
+      showToast('このトラックはロックされています。')
+      return
+    }
     setVClips((prev) => prev.map((c) => (selectedVClipIds.includes(c.id) ? { ...c, ...patch } : c)))
   }
   function setVClipZoom(id: number, z: { scale: number; x: number; y: number }): void {
@@ -1315,6 +1330,10 @@ export default function App(): JSX.Element {
   // 選択中SEクリップにまとめてプロパティ適用（音量・フェード）
   function updateSelectedSE(patch: Partial<SEClip>): void {
     if (!selectedSeIds.length) return
+    if (seClips.some((c) => selectedSeIds.includes(c.id) && trackStates[c.track]?.locked)) {
+      showToast('このトラックはロックされています。')
+      return
+    }
     setSeClips((prev) => prev.map((c) => (selectedSeIds.includes(c.id) ? { ...c, ...patch } : c)))
   }
   function removeMedia(id: number): void {
@@ -1372,6 +1391,7 @@ export default function App(): JSX.Element {
     setSelectedIds([]) // テロップ
     setSelectedTrackId(null) // トラック選択（残ると Delete がトラック削除に化ける）
     setVideoSelected(false) // プレビューのリフレーム枠（残るとホイールが拡大縮小になる）
+    setSelectedMediaId(null) // 素材ビンの選択（残ると Delete の対象が分からなくなる）
   }
   // タイムライン上で選択中のトランジション（動画クリップの頭/尻ディップ or カット間ディゾルブ）。
   // クリップ本体とは別枠で選択でき、ここが選択中なら右パネルでそのトランジションだけを編集/削除できる。
@@ -2991,8 +3011,15 @@ export default function App(): JSX.Element {
         track: img.track,
         name: img.name
       }
+    // 選択している切片を優先する（画像・映像レイヤーは選択から取っているのに、
+    // 動画切片だけ再生ヘッド位置から取っていたため、3番目の切片を選んで枠を
+    // ドラッグすると再生ヘッドのある1番目が拡大されていた）。
+    // 選択が無いときだけ従来どおり再生ヘッド位置の切片を対象にする。
+    const selSeg = selectedVideoIds.length
+      ? segLayout.find((l) => selectedVideoIds.includes(l.seg.id))?.seg
+      : undefined
     const src = tToSource(segLayout, currentTime)
-    const seg = src ? segLayout[src.index]?.seg : undefined
+    const seg = selSeg ?? (src ? segLayout[src.index]?.seg : undefined)
     if (!seg) return null
     return {
       kind: 'video' as const,
@@ -3606,6 +3633,18 @@ export default function App(): JSX.Element {
         })()
       }))
     }
+    // 既存テロップを全置換するので、消える前に確認する（動画差し替えには確認が
+    // あるのに、こちらは無確認でスタイル済みテロップが全部消え、Undoも効かなかった）
+    if (cuesRef.current.length) {
+      const okToReplace = window.confirm(
+        '現在のテロップ ' +
+          cuesRef.current.length +
+          ' 件をすべて置き換えます。\n' +
+          'スタイルや位置の調整も失われ、この操作は元に戻せません。\n\n' +
+          'OK: 置き換える / キャンセル: 中止'
+      )
+      if (!okToReplace) return
+    }
     idCounter.current = parsed.length + 1
     resetHistory({ cues: parsed, segments: segsRef.current, seClips: seClipsRef.current }) // 履歴リセット（動画切片・SEは維持）
     setCues(parsed)
@@ -3868,6 +3907,12 @@ export default function App(): JSX.Element {
   }
   // 動画をドロップ位置へ配置（タイムラインD&D）。insert=Ctrl押下で挿入、それ以外は上書き。
   async function placeVideoAtDrop(path: string, t: number, insert: boolean): Promise<void> {
+    // V1 がロック中なら本編を書き換えない（画像/SE/映像レイヤーのドロップは
+    // 既に拒否してトーストを出しているので、そこに揃える）
+    if (trackStates['V1']?.locked) {
+      showToast('このトラックはロックされています。')
+      return
+    }
     if (!sourcesRef.current.length) {
       // 最初の1本は主ソースとして通常ロード（先頭配置）
       void loadVideo(path)
@@ -4008,11 +4053,34 @@ export default function App(): JSX.Element {
     mediaItems.length > 0
 
   // 保存（既存パスがあれば上書き）。asNew=true で「別名で保存」。
+  // 未保存の変更があるか。ウィンドウを閉じるときの判定と同じ基準にそろえる
+  // （isDirty() は履歴のベースライン比較で450msで false に戻るため使えない）。
+  function hasUnsavedChanges(): boolean {
+    try {
+      if (!hasProjectContent()) return false
+      return savedJsonRef.current !== projectJsonRef.current()
+    } catch {
+      return false
+    }
+  }
+  // 作業内容を捨てる操作の前に確認する。true=進めてよい
+  function confirmDiscard(what: string): boolean {
+    if (!hasUnsavedChanges()) return true
+    return window.confirm(
+      '保存していない変更があります。\n' +
+        what +
+        'と、その変更は失われます。\n\n' +
+        'OK: このまま続ける / キャンセル: 中止して保存する'
+    )
+  }
   async function saveProjectFn(asNew = false): Promise<void> {
     if (!hasProjectContent()) {
       showToast('保存する内容がありません。')
       return
     }
+    // 保留中(450msデバウンス)の履歴を先に確定させる。これが無いと
+    // 「動かして即 Ctrl+S」の直後の Ctrl+Z が、その移動ではなく1つ前を取り消す。
+    commitPending()
     // .gcproj 以外（例: 読み込んだSRT）を上書き先にしない安全弁
     const cur = projectPath && /\.(gcproj|json)$/i.test(projectPath) ? projectPath : null
     const res = await window.giftcut.saveProject(projectJson(), cur, asNew)
@@ -4030,6 +4098,10 @@ export default function App(): JSX.Element {
   }
 
   async function openProjectFn(): Promise<void> {
+    // 閉じるときは確認するのに開くときはしない、という非対称を解消する
+    // （確認なしだと30分の作業が警告なしに消え、しかも自動保存の下書きも
+    //   30秒後に新しいプロジェクトで上書きされて復元不能になる）
+    if (!confirmDiscard('別のプロジェクトを開く')) return
     const res = await window.giftcut.openProject()
     if (!res) return
     if (!res.ok || !res.data) {
@@ -5383,8 +5455,12 @@ export default function App(): JSX.Element {
         // 縦方向で別の音声トラックへ移動（テロップの上下移動と同じ操作感）
         const irect = inner.getBoundingClientRect()
         const lane = laneAtY(ev.clientY - irect.top)
+        // 移動先がロック中なら受け付けない
         const laneOk =
-          lane && lane !== 'A1' && tracks.some((t) => t.id === lane && t.kind === 'audio')
+          lane &&
+          lane !== 'A1' &&
+          tracks.some((t) => t.id === lane && t.kind === 'audio') &&
+          !trackStates[lane]?.locked
         setSeClips((prev) =>
           prev.map((c) =>
             c.id === clip.id ? { ...c, tStart: nt, track: laneOk ? lane : c.track } : c
@@ -5651,6 +5727,8 @@ export default function App(): JSX.Element {
   // 選択中の動画切片の色調整を更新（patch=部分更新 / null=リセット）
   function setSelectedAdjust(patch: Partial<{ b: number; c: number; s: number }> | null): void {
     if (!selectedVideoIds.length) return
+    // 回転/反転/速度/映像なし化は V1 のロックを見ているので揃える
+    if (trackStates['V1']?.locked) return
     setSegments((prev) =>
       prev.map((s) => {
         if (!isVideoSel(s.id)) return s
@@ -6391,7 +6469,11 @@ export default function App(): JSX.Element {
     const dispatch: Record<ShortcutId, () => void> = {
       toolSelect: () => setTool('select'),
       toolRazor: () => setTool('razor'),
-      toggleSnap: () => setSnap((s) => !s),
+      toggleSnap: () =>
+        setSnap((s) => {
+          saveLS('giftcut.snap', !s)
+          return !s
+        }),
       playPause: () => togglePlay(),
       shuttleFwd: () => shuttleForward(),
       shuttleStop: () => stopPlayback(),
@@ -6423,6 +6505,12 @@ export default function App(): JSX.Element {
       del: () => {
         // D は「削除」。以前は動画=映像なし化・音声=消音 だったが、
         // ユーザーの期待どおり“残さず消す”に統一した（Undo で戻せる）。
+        // 素材ビンで選んでいるときはビンの素材を消す。以前はここが素通りして
+        // 見ていない場所（タイムライン）のクリップが消えていた。
+        if (selectedMediaId != null) {
+          removeMedia(selectedMediaId)
+          return
+        }
         if (selectedMarkerId != null) {
           deleteMarker(selectedMarkerId)
           return
@@ -6496,6 +6584,15 @@ export default function App(): JSX.Element {
       cut: cutSelected,
       paste: pasteClipboard,
       duplicate: () => {
+        // ロック中トラックのクリップは複製しない（削除は守っているので揃える）
+        const lockedSel =
+          vClips.some((c) => selectedVClipIds.includes(c.id) && trackStates[c.track]?.locked) ||
+          imgClips.some((c) => selectedImgIds.includes(c.id) && trackStates[c.track]?.locked) ||
+          seClips.some((c) => selectedSeIds.includes(c.id) && trackStates[c.track]?.locked)
+        if (lockedSel) {
+          showToast('このトラックはロックされています。')
+          return
+        }
         if (selectedVClipIds.length) {
           const dupes = vClips
             .filter((c) => selectedVClipIds.includes(c.id))
@@ -6926,7 +7023,18 @@ export default function App(): JSX.Element {
     const rect = el.getBoundingClientRect()
     seekTo((cx - rect.left) / zoomRef.current)
   }
+  // スライダーや数値欄にフォーカスが残っていると、矢印キーが再生ヘッドではなく
+  // その入力欄を動かし、Space も効かなくなる。しかも pointerdown で
+  // preventDefault しているためクリックしてもフォーカスが戻らなかった。
+  // タイムライン/プレビューを触ったら明示的にフォーカスを外す。
+  function blurActiveInput(): void {
+    const el = document.activeElement as HTMLElement | null
+    if (!el) return
+    const tag = el.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') el.blur()
+  }
   function startScrub(e: React.PointerEvent): void {
+    blurActiveInput()
     e.preventDefault()
     e.stopPropagation()
     stopPlayback()
@@ -7034,6 +7142,7 @@ export default function App(): JSX.Element {
 
   // 空きトラックのドラッグ = 範囲選択（マーキー）。クリック = 選択解除（プレミア準拠）
   function onTrackAreaPointerDown(e: React.PointerEvent): void {
+    blurActiveInput() // キー操作の対象をタイムラインへ戻す
     if (maybeTrackSelect(e)) return
     if (tool !== 'select') return
     if (e.button !== 0) return // 右/中クリックで選択解除・マーキーが始まらないように
