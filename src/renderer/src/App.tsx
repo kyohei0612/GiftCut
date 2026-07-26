@@ -1364,13 +1364,48 @@ export default function App(): JSX.Element {
     setSelectedSeIds([id])
   }
   // 音声ファイルを追加：ファイル選択→A3トラックの再生ヘッド位置に配置（BGM等）。
+  // BGM を置く音声トラックを決める。テロップと同じ考え方で、再生ヘッド位置が
+  // 空いている一番上（A2 に近い側）から順に探し、無ければ1段下に作る。
+  // 以前は A3 決め打ちだったため、V3 に映像レイヤーを置いて A3 がその音声で
+  // 埋まっていても、♪＋ ボタンが A3 に BGM を重ねていた。
+  function trackForNewBgm(t: number): string {
+    // 映像レイヤーの音声で予約済みのトラックは避ける（V{n} と対になっている）
+    const reservedByVideo = new Set(vClips.map((c) => 'A' + trackNum(c.track)))
+    const cands = tracks
+      .filter(
+        (tr) =>
+          tr.kind === 'audio' &&
+          tr.id !== 'A1' &&
+          !trackStates[tr.id]?.locked &&
+          !reservedByVideo.has(tr.id)
+      )
+      .sort((a, b) => trackNum(a.id) - trackNum(b.id))
+    const busy = (id: string): boolean =>
+      seClips.some((c) => c.track === id && c.tStart < t + 1 && c.tStart + c.duration > t)
+    const free = cands.find((tr) => !busy(tr.id))
+    if (free) return free.id
+    const maxNum = Math.max(
+      1,
+      ...tracks.filter((x) => x.kind === 'audio').map((x) => trackNum(x.id))
+    )
+    const id = 'A' + (maxNum + 1)
+    setTracks((prev) =>
+      prev.some((x) => x.id === id)
+        ? prev
+        : insertTrackOrdered(prev, { id, name: id, kind: 'audio' })
+    )
+    setTrackStates((prev) => (prev[id] ? prev : { ...prev, [id]: newTrackState(id) }))
+    return id
+  }
   async function addBgm(): Promise<void> {
     const res = await window.giftcut.addMedia()
     if (!res?.paths?.length) return
+    const track = trackForNewBgm(currentTimeRef.current)
     for (const p of res.paths) {
       const name = p.split(/[\\/]/).pop() ?? '音声'
-      await placeSE({ id: -1, path: p, name, kind: 'audio' }, currentTimeRef.current, EXTRA_AUDIO_TRACK)
+      await placeSE({ id: -1, path: p, name, kind: 'audio' }, currentTimeRef.current, track)
     }
+    if (track !== EXTRA_AUDIO_TRACK) showToast(track + ' に追加しました。')
   }
   // SEクリップ内ローカル秒 t におけるフェード係数(0-1)。頭 fadeIn / 尻 fadeOut を線形。
   function seFadeGain(clip: SEClip, t: number): number {
@@ -4884,9 +4919,44 @@ export default function App(): JSX.Element {
   }
 
   // テロップを新規追加（再生ヘッド位置に2秒）
+  // 新しいテロップを置くトラックを決める。
+  // 再生ヘッドの位置に既にテロップがあれば1段上へ、無ければ既定の下段(V2)へ。
+  // 以前は V2 決め打ちだったため、動画の退避で「テロップを V4 へ移しました」と
+  // 出した直後に T を押すと、また V2 にテロップが作られていた。
+  function trackForNewTelop(t: number): string {
+    // 映像レイヤーが載っているトラックは V{n}/A{n} が対で予約されているので避ける
+    const reservedByVideo = new Set(vClips.map((c) => c.track))
+    const cands = tracks
+      .filter(
+        (tr) =>
+          tr.kind === 'video' &&
+          tr.id !== 'V1' &&
+          !trackStates[tr.id]?.locked &&
+          !reservedByVideo.has(tr.id)
+      )
+      .sort((a, b) => trackNum(a.id) - trackNum(b.id)) // 下段から順に見る
+    // これから作るテロップの尺(2秒)と重なるものがあれば「埋まっている」とみなす
+    const busy = (id: string): boolean =>
+      cues.some((c) => cueTrack(c) === id && c.start < t + 2 && c.end > t)
+    const free = cands.find((tr) => !busy(tr.id))
+    if (free) return free.id
+    // 全部埋まっている＝一番上の1段上に新しいトラックを作る
+    const maxNum = Math.max(
+      1,
+      ...tracks.filter((x) => x.kind === 'video').map((x) => trackNum(x.id))
+    )
+    const id = 'V' + (maxNum + 1)
+    setTracks((prev) =>
+      prev.some((x) => x.id === id)
+        ? prev
+        : insertTrackOrdered(prev, { id, name: id, kind: 'video' })
+    )
+    setTrackStates((prev) => (prev[id] ? prev : { ...prev, [id]: newTrackState(id) }))
+    return id
+  }
   function addTelop(): void {
-    if (trackStates['V2']?.locked) return
     const t = currentTimeRef.current
+    const track = trackForNewTelop(t)
     const id = idCounter.current++
     const style = structuredClone(newTelopStyle) // テンプレで選んだ既定スタイルを使う
     // アイコン軸が有効なら新規テロップも軸に整列（アイコンが飛ばないように）
@@ -4902,11 +4972,14 @@ export default function App(): JSX.Element {
       text: 'テロップ',
       style,
       label: DEFAULT_LABEL,
-      pos: iconAuto && iconAnchorPos ? { ...iconAnchorPos } : { x: 0.5, y: 0.85 }
+      pos: iconAuto && iconAnchorPos ? { ...iconAnchorPos } : { x: 0.5, y: 0.85 },
+      track
     }
     setCues((prev) => [...prev, cue].sort((a, b) => a.start - b.start))
-    clearSegSel()
+    clearAllSelections()
     setSelectedIds([id])
+    // 既定の下段以外に置いたときだけ知らせる（どこに出たか分からなくなるため）
+    if (track !== 'V2') showToast(track + ' にテロップを追加しました。')
   }
   // テロップテンプレを適用（選択があればそれに、無ければ次に足すテロップの既定に）。
   // レイアウト(anchor/box)とアニメは維持し、見た目だけ差し替える。
