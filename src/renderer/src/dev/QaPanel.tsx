@@ -153,21 +153,10 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
     })
 
   const ANIM = 300
-  // ✓ / ✕ を押した時点では「下書き」。内容を書いてから「完了」で確定する。
-  // 下書きの段階でも保存しているので、書いている途中で再起動しても消えない。
-  function mark(id: string, kind: Mark): void {
-    const r = rec(id)
-    const next = r.s === kind ? '' : kind
-    setRec(id, { s: next, done: false })
-  }
-  // 「完了」＝この項目の確認を終える。ここで再開位置も記録する。
-  function commit(id: string): void {
-    const r = rec(id)
-    if (!r.s) return
-    setRec(id, { done: true })
+  /** 確定した瞬間に、続きから再開するのに要るものをまとめて書き出す */
+  function saveResume(id: string): void {
     setResumeId(id)
     try {
-      // 確定した瞬間に、続きから再開するのに要るものをまとめて書き出す
       localStorage.setItem(KEY + '.resume', id)
       localStorage.setItem(KEY + '.at', new Date().toISOString())
       if (bodyRef.current)
@@ -175,14 +164,34 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
     } catch {
       /* 無視 */
     }
-    if (r.s !== 'ok') return
-    // OK だけ流して消す（NG は対処が要るので一覧に残す）
+  }
+  /** 流して消す（OK だけ。NG は対処が要るので一覧に残す） */
+  function fadeOut(id: string): void {
     setLeaving((p) => (p.includes(id) ? p : [...p, id]))
     const t = window.setTimeout(() => {
       setLeaving((p) => p.filter((x) => x !== id))
       timers.current = timers.current.filter((x) => x !== t)
     }, ANIM)
     timers.current.push(t)
+  }
+  // OK は「見て問題なし」で終わりなので1クリックで確定する。
+  // NG だけは症状を書いてもらう必要があるので下書きにして「完了」を待つ。
+  function mark(id: string, kind: Mark): void {
+    const r = rec(id)
+    const next = r.s === kind ? '' : kind
+    if (next !== 'ok') {
+      setRec(id, { s: next, done: false })
+      return
+    }
+    setRec(id, { s: 'ok', done: true })
+    saveResume(id)
+    fadeOut(id)
+  }
+  /** NG の「完了」＝症状を書き終えて確認を終える */
+  function commit(id: string): void {
+    if (!rec(id).s) return
+    setRec(id, { done: true })
+    saveResume(id)
   }
 
   // 進捗は「完了を押して確定したもの」だけ数える。書きかけを進捗に入れると、
@@ -421,11 +430,7 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
                         )}
                         {r.s && !r.done && (
                           <div className="qa-commit">
-                            <span>
-                              {r.s === 'ng'
-                                ? '症状を書いたら完了を押す'
-                                : '確認できたら完了を押す'}
-                            </span>
+                            <span>症状・修正案を書いたら完了を押す</span>
                             <button onClick={() => commit(it.id)}>完了</button>
                           </div>
                         )}
