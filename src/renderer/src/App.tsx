@@ -7791,7 +7791,11 @@ export default function App(): JSX.Element {
   const monitorAspect = ratio === '16:9' ? '16 / 9' : ratio === '9:16' ? '9 / 16' : '1 / 1'
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      // 検査票を開いている間はアプリ本体を縮める（パネルに隠れないように）
+      style={QaPanel && qaOpen ? { marginRight: 'var(--qa-w, 380px)' } : undefined}
+    >
       {/* ===== メニューバー ===== */}
       <div className="menubar">
         <div className="menu-wrap">
@@ -11446,7 +11450,9 @@ export default function App(): JSX.Element {
           このブロックごと消える。 */}
       {QaPanel && (
         <>
-          {/* 見た目もここに書く。styles.css に置くと配布ビルドに残るため */}
+          {/* 見た目もここに書く。styles.css に置くと配布ビルドに残るため。
+              開いている間はパネルの裏に隠れるので出さない。 */}
+          {!qaOpen && (
           <button
             onClick={() => setQaOpen(true)}
             title="動作確認チェックリストを開く（開発中のみ）"
@@ -11468,6 +11474,7 @@ export default function App(): JSX.Element {
           >
             検査票
           </button>
+          )}
           {qaOpen && (
             <Suspense fallback={null}>
               <QaPanel onClose={() => setQaOpen(false)} />

@@ -77,6 +77,10 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
   const [store, setStore] = useState<Store>(loadStore)
   const [filter, setFilter] = useState<Filter>('all')
   const [prompt, setPrompt] = useState<string | null>(null)
+  const [width, setWidth] = useState<number>(() => {
+    const v = Number(localStorage.getItem(KEY + '.w'))
+    return v >= 280 && v <= 720 ? v : 380
+  })
 
   useEffect(() => {
     try {
@@ -86,6 +90,12 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
     }
   }, [store])
 
+  // 閉じたらアプリ側の余白も戻す
+  useEffect(() => {
+    return () => {
+      document.documentElement.style.removeProperty('--qa-w')
+    }
+  }, [])
   const rec = (id: string): Rec => store[id] ?? { s: '', note: '' }
   const setRec = (id: string, patch: Partial<Rec>): void =>
     setStore((prev) => {
@@ -139,10 +149,38 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
     return out.join('\n')
   }
 
+  // 幅はドラッグで変えられる。アプリ本体は marginRight で縮むので、
+  // パネルがアプリを覆い隠さない（検証しながらチェックを付けるため）。
+  useEffect(() => {
+    document.documentElement.style.setProperty('--qa-w', width + 'px')
+    try {
+      localStorage.setItem(KEY + '.w', String(width))
+    } catch {
+      /* 無視 */
+    }
+  }, [width])
+
+  function startResize(e: React.PointerEvent): void {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = width
+    const onMove = (ev: PointerEvent): void => {
+      // 左へドラッグすると広がる（パネルは右端に固定されているため）
+      setWidth(Math.min(720, Math.max(280, startW + (startX - ev.clientX))))
+    }
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   return (
-    <div className="qa-veil" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+    <>
       <style>{QA_CSS}</style>
-      <section className="qa" onPointerDown={(e) => e.stopPropagation()}>
+      <aside className="qa" style={{ width }}>
+        <div className="qa-grip" onPointerDown={startResize} title="ドラッグで幅を変える" />
         <header className="qa-head">
           <div>
             <div className="qa-eyebrow">開発中のみ表示 / 配布ビルドには入りません</div>
@@ -264,8 +302,9 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
             )
           })}
         </div>
-      </section>
+      </aside>
 
+      {/* 生成したプロンプトはパネル内に重ねて出す（アプリ本体は隠さない） */}
       {prompt !== null && (
         <div className="qa-veil qa-veil-2" onPointerDown={() => setPrompt(null)}>
           <section className="qa qa-sm" onPointerDown={(e) => e.stopPropagation()}>
@@ -295,70 +334,74 @@ export default function QaPanel({ onClose }: { onClose: () => void }): JSX.Eleme
           </section>
         </div>
       )}
-    </div>
+    </>
   )
 }
 
 // スタイルはこのファイルに閉じ込める（配布ビルドから丸ごと消えるように）
 const QA_CSS = `
-.qa-veil{position:fixed;inset:0;background:rgba(8,10,14,.62);display:grid;place-items:center;z-index:9000;padding:24px}
-.qa-veil-2{z-index:9010;background:rgba(8,10,14,.5)}
-.qa{background:#171b21;color:#e6e9ef;border:1px solid #2a3038;border-radius:10px;
-  width:min(880px,100%);max-height:88vh;display:flex;flex-direction:column;
-  box-shadow:0 24px 60px rgba(0,0,0,.5);font-size:14px}
-.qa-sm{width:min(700px,100%)}
-.qa-head{display:flex;align-items:flex-start;gap:12px;padding:14px 18px 10px;border-bottom:1px solid #21262d}
-.qa-head h2{margin:0;font-size:16px;flex:1}
-.qa-eyebrow{font-size:10.5px;letter-spacing:.1em;color:#e0a94a;margin-bottom:3px}
-.qa-x{background:none;border:0;color:#737b8a;font-size:16px;cursor:pointer;padding:2px 6px;line-height:1}
+/* 右端にドッキングする。アプリ本体は marginRight で縮むので隠れない。 */
+.qa{position:fixed;top:0;right:0;bottom:0;z-index:8500;display:flex;flex-direction:column;
+  background:#171b21;color:#e6e9ef;border-left:1px solid #2a3038;font-size:14px;
+  box-shadow:-8px 0 24px rgba(0,0,0,.35)}
+.qa-grip{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:ew-resize;z-index:1}
+.qa-grip:hover{background:#7ea2ff}
+.qa-head{display:flex;align-items:flex-start;gap:10px;padding:12px 14px 9px;border-bottom:1px solid #21262d}
+.qa-head h2{margin:0;font-size:15px;flex:1}
+.qa-eyebrow{font-size:10px;letter-spacing:.08em;color:#e0a94a;margin-bottom:3px}
+.qa-x{background:none;border:0;color:#737b8a;font-size:15px;cursor:pointer;padding:2px 5px;line-height:1}
 .qa-x:hover{color:#e6e9ef}
-.qa-bar{padding:12px 18px;border-bottom:1px solid #21262d;display:flex;flex-direction:column;gap:10px}
-.qa-meter{display:flex;height:8px;border-radius:99px;overflow:hidden;background:#21262d}
+.qa-bar{padding:10px 14px;border-bottom:1px solid #21262d;display:flex;flex-direction:column;gap:9px}
+.qa-meter{display:flex;height:7px;border-radius:99px;overflow:hidden;background:#21262d}
 .qa-meter span{display:block;transition:width .2s}
 .qa-m-ok{background:#5cc98e}.qa-m-ng{background:#ff8a7e}
-.qa-tally{display:flex;align-items:baseline;gap:6px;font-variant-numeric:tabular-nums}
-.qa-tally b{font-size:18px;font-weight:600}
+.qa-tally{display:flex;align-items:baseline;gap:5px;font-variant-numeric:tabular-nums}
+.qa-tally b{font-size:17px;font-weight:600}
 .qa-tally b.ok{color:#5cc98e}.qa-tally b.ng{color:#ff8a7e}.qa-tally b.rest{color:#737b8a}
-.qa-tally small{font-size:11px;color:#737b8a;margin-right:10px}
-.qa-filters{display:flex;gap:6px;flex-wrap:wrap}
+.qa-tally small{font-size:10.5px;color:#737b8a;margin-right:9px}
+.qa-filters{display:flex;gap:5px;flex-wrap:wrap}
 .qa-chip{border:1px solid #2a3038;background:none;color:#a7aebc;border-radius:99px;
-  padding:3px 11px;font-size:12.5px;cursor:pointer}
+  padding:2px 10px;font-size:12px;cursor:pointer}
 .qa-chip:hover{border-color:#7ea2ff;color:#7ea2ff}
 .qa-chip.on{background:#1c2740;border-color:#7ea2ff;color:#7ea2ff;font-weight:600}
-.qa-actions{display:flex;gap:8px;flex-wrap:wrap}
+.qa-actions{display:flex;gap:6px;flex-wrap:wrap}
 .qa-btn{border:1px solid #2a3038;background:none;color:#e6e9ef;border-radius:6px;
-  padding:7px 14px;font-size:13px;cursor:pointer}
+  padding:6px 12px;font-size:12.5px;cursor:pointer}
 .qa-btn:hover{border-color:#7ea2ff;color:#7ea2ff}
 .qa-btn.primary{background:#7ea2ff;border-color:#7ea2ff;color:#0f1216;font-weight:600}
 .qa-btn.primary:hover{filter:brightness(1.08);color:#0f1216}
-.qa-body{overflow:auto;flex:1;min-height:0;padding:14px 18px}
-.qa-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid #21262d}
-.qa-empty{color:#737b8a;text-align:center;padding:30px 0}
-.qa-sec{border:1px solid #2a3038;border-radius:8px;margin-bottom:12px;overflow:hidden}
-.qa-sec-head{display:flex;align-items:baseline;gap:10px;padding:9px 13px;background:#1b2027;
-  border-bottom:1px solid #21262d;position:sticky;top:0}
-.qa-sec-head h3{margin:0;font-size:13.5px;flex:1}
-.qa-count{font-size:11.5px;color:#737b8a;font-variant-numeric:tabular-nums}
+.qa-body{overflow:auto;flex:1;min-height:0;padding:12px 14px}
+.qa-foot{display:flex;justify-content:flex-end;gap:8px;padding:10px 14px;border-top:1px solid #21262d}
+.qa-empty{color:#737b8a;text-align:center;padding:26px 0}
+.qa-sec{border:1px solid #2a3038;border-radius:8px;margin-bottom:10px;overflow:hidden}
+.qa-sec-head{display:flex;align-items:baseline;gap:8px;padding:8px 11px;background:#1b2027;
+  border-bottom:1px solid #21262d;position:sticky;top:0;z-index:1}
+.qa-sec-head h3{margin:0;font-size:13px;flex:1}
+.qa-count{font-size:11px;color:#737b8a;font-variant-numeric:tabular-nums}
 .qa-count.done{color:#5cc98e;font-weight:600}.qa-count.has-ng{color:#ff8a7e;font-weight:600}
-.qa-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:11px;padding:8px 13px;
+.qa-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;padding:7px 11px;
   border-bottom:1px solid #21262d;align-items:start}
 .qa-row:last-child{border-bottom:0}
 .qa-row.is-ok{background:rgba(92,201,142,.07)}
 .qa-row.is-ng{background:rgba(255,138,126,.09)}
-.qa-mark{display:flex;gap:4px}
-.qa-mark button{width:28px;height:24px;border:1px solid #2a3038;background:none;border-radius:5px;
-  color:#737b8a;cursor:pointer;font-size:12px;line-height:1}
+.qa-mark{display:flex;gap:3px}
+.qa-mark button{width:26px;height:23px;border:1px solid #2a3038;background:none;border-radius:5px;
+  color:#737b8a;cursor:pointer;font-size:11.5px;line-height:1}
 .qa-ok:hover,.qa-ok.on{border-color:#5cc98e;color:#5cc98e}
 .qa-ok.on{background:#5cc98e;color:#0f1216}
 .qa-ng:hover,.qa-ng.on{border-color:#ff8a7e;color:#ff8a7e}
 .qa-ng.on{background:#ff8a7e;color:#0f1216}
-.qa-txt{margin:0;line-height:1.6;font-size:13.5px}
+.qa-txt{margin:0;line-height:1.55;font-size:13px}
 .qa-row.is-ok .qa-txt{color:#a7aebc}
-.qa-star{display:inline-block;font-size:10px;font-weight:700;color:#e0a94a;background:#322611;
-  border-radius:4px;padding:1px 5px;margin-right:6px;vertical-align:1px}
-.qa-note{width:100%;margin-top:7px;border:1px solid #ff8a7e;border-radius:6px;background:#0f1216;
-  color:#e6e9ef;padding:7px 9px;font:inherit;font-size:13px;min-height:58px;resize:vertical}
-.qa-out{width:100%;min-height:320px;background:#0f1216;color:#e6e9ef;border:1px solid #2a3038;
-  border-radius:6px;padding:12px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;
-  line-height:1.65;resize:vertical}
+.qa-star{display:inline-block;font-size:9.5px;font-weight:700;color:#e0a94a;background:#322611;
+  border-radius:4px;padding:1px 4px;margin-right:5px;vertical-align:1px}
+.qa-note{width:100%;margin-top:6px;border:1px solid #ff8a7e;border-radius:6px;background:#0f1216;
+  color:#e6e9ef;padding:6px 8px;font:inherit;font-size:12.5px;min-height:54px;resize:vertical}
+/* 生成したプロンプトはパネルの中だけを覆う（アプリ本体は操作できたまま） */
+.qa-veil-2{position:absolute;inset:0;background:rgba(8,10,14,.7);display:flex;
+  flex-direction:column;padding:12px;z-index:2}
+.qa-sm{position:static;box-shadow:none;border:1px solid #2a3038;border-radius:8px;width:auto;flex:1;min-height:0}
+.qa-out{width:100%;height:100%;min-height:180px;background:#0f1216;color:#e6e9ef;
+  border:1px solid #2a3038;border-radius:6px;padding:10px;
+  font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.6;resize:none}
 `
