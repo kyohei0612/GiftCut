@@ -2446,6 +2446,21 @@ try {
     assert(a !== c, `押した所へ飛んでいない（${a} / ${c}）`)
   })
 
+  await check('押した所と、つまみの位置がぴったり合う', async () => {
+    // 外枠で位置を測ると、左右の余白ぶんつまみが右へずれる（実際にずれていた）
+    const track = page.locator('.preview-scrub-track')
+    const head = page.locator('.preview-scrub-head')
+    const tb = await track.boundingBox()
+    for (const ratio of [0.15, 0.5, 0.85]) {
+      const cx = tb.x + tb.width * ratio
+      await page.mouse.click(cx, tb.y + tb.height / 2)
+      await page.waitForTimeout(400)
+      const hb = await head.boundingBox()
+      const center = hb.x + hb.width / 2
+      near(center, cx, 3, `押した所とつまみがずれている（${Math.round(ratio * 100)}%の位置）`)
+    }
+  })
+
   await check('掴んだまま動かすと、早送り・巻き戻しできる', async () => {
     const bar = page.locator('.preview-scrub')
     const b = await bar.boundingBox()

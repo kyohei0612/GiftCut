@@ -10696,8 +10696,10 @@ export default function App(): JSX.Element {
               onPointerDown={(e) => {
                 if (e.button !== 0) return
                 e.preventDefault()
-                const el = e.currentTarget
-                const rect = el.getBoundingClientRect()
+                // 位置は「バー本体」で測る。外枠には左右の余白があるので、
+                // 外枠で測るとつまみが余白ぶん右へずれる（押した所と合わなくなる）。
+                const track = e.currentTarget.querySelector('.preview-scrub-track')
+                const rect = (track ?? e.currentTarget).getBoundingClientRect()
                 const total = Math.max(0.001, duration)
                 const seekAt = (cx: number): void => {
                   seekTo(clamp(((cx - rect.left) / rect.width) * total, 0, total))
