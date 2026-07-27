@@ -111,6 +111,7 @@ async function makeFixture() {
   mkdirSync(userData, { recursive: true })
   const video = join(dir, 'test_video.mp4')
   const image = join(dir, 'test_image.png')
+  const spare = join(dir, 'spare_image.png') // タイムラインでは使わない素材（削除の確認用）
   const sound = join(dir, 'test_sound.wav')
 
   // 本物の素材があればそこから20秒だけ切り出して使う。
@@ -176,6 +177,7 @@ async function makeFixture() {
     r = await sh('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'color=c=red:s=200x200:d=1', '-frames:v', '1', image])
   }
   if (r.code !== 0) throw new Error('テスト用の画像を作れませんでした')
+  await sh('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'color=c=blue:s=160x160:d=1', '-frames:v', '1', spare])
   r = await sh('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'sine=frequency=880:duration=2', sound])
   if (r.code !== 0) throw new Error('テスト用の音声を作れませんでした')
 
@@ -218,6 +220,7 @@ async function makeFixture() {
     mediaItems: [
       { path: video, name: 'test_video.mp4', kind: 'video' },
       { path: image, name: 'test_image.png', kind: 'image' },
+      { path: spare, name: 'spare_image.png', kind: 'image' },
       { path: sound, name: 'test_sound.wav', kind: 'audio' }
     ],
     iconSide: 'l',
@@ -257,7 +260,7 @@ ${t}
   // （実際に、後の確認が2件それで落ちた）。リセットのたびに書き戻す。
   const gcprojOrig = join(dir, 'fixture.orig.gcproj')
   writeFileSync(gcprojOrig, JSON.stringify(project), 'utf-8')
-  return { dir, userData, video, image, sound, srt, gcproj, gcprojOrig }
+  return { dir, userData, video, image, spare, sound, srt, gcproj, gcprojOrig }
 }
 
 // ---------------------------------------------------------------------------
@@ -1612,6 +1615,218 @@ try {
   })
 
   // =========================================================================
+  section('4-5. 編集の残り')
+  await resetProject()
+
+  await check('W で、次の編集点まで削って詰められる', async () => {
+    await seekTo(11) // 3つ目のクリップの中（文字や効果音が無い所）
+    const before = (await clipLayout()).reduce((a, c) => a + c.w, 0)
+    await page.keyboard.press('w')
+    await page.waitForTimeout(500)
+    const after = (await clipLayout()).reduce((a, c) => a + c.w, 0)
+    assert(after < before - 3, `詰まっていない（${before} → ${after}）`)
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  })
+
+  await check('クリップを消すと、文字・効果音・画像も一緒にずれる', async () => {
+    await resetProject()
+    const cue0 = await page.locator('.telop-clip').last().boundingBox()
+    const se0 = await page.locator('.se-clip').first().boundingBox()
+    const img0 = await page.locator('.img-clip:not(.se-ghost)').first().boundingBox()
+    await v1Clips().nth(0).click()
+    await page.keyboard.press('f') // 消して詰める
+    await page.waitForTimeout(600)
+    const cue1 = await page.locator('.telop-clip').last().boundingBox()
+    const se1 = await page.locator('.se-clip').first().boundingBox()
+    const img1 = await page.locator('.img-clip:not(.se-ghost)').first().boundingBox()
+    assert(cue1.x < cue0.x - 5, '文字が一緒にずれていない')
+    assert(se1.x < se0.x - 5, '効果音が一緒にずれていない')
+    assert(img1.x < img0.x - 5, '画像が一緒にずれていない')
+  })
+
+  await check('掴んだ後で Alt を押すと「複製」に切り替わる', async () => {
+    await resetProject()
+    const box = await v1Clips().nth(0).boundingBox()
+    const W2 = await clipW()
+    await page.mouse.move(box.x + 20, box.y + box.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 4; i++)
+      await page.mouse.move(box.x + 20 + (W2 * 0.5 * i) / 4, box.y + box.height / 2)
+    await page.waitForTimeout(250)
+    const moving = await page.locator('.se-ghost .clip-text').first().textContent()
+    assert(moving.includes('移動'), `最初が「移動」になっていない: ${moving}`)
+    await page.keyboard.down('Alt')
+    await page.mouse.move(box.x + 20 + W2 * 0.55, box.y + box.height / 2)
+    await page.waitForTimeout(250)
+    const copying = await page.locator('.se-ghost .clip-text').first().textContent()
+    assert(copying.includes('複製'), `Alt で「複製」に変わらない: ${copying}`)
+    await page.keyboard.down('Control')
+    await page.keyboard.up('Alt')
+    await page.mouse.move(box.x + 20 + W2 * 0.6, box.y + box.height / 2)
+    await page.waitForTimeout(250)
+    const inserting = await page.locator('.se-ghost .clip-text').first().textContent()
+    assert(inserting.includes('割り込み'), `Ctrl で「割り込み」に変わらない: ${inserting}`)
+    await page.keyboard.up('Control')
+    await page.mouse.move(box.x + 20, box.y + box.height / 2)
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+  })
+
+  await check('Ctrl を押して動かさずクリックすると、複数選びになる', async () => {
+    await resetProject()
+    await v1Clips().nth(0).click()
+    await v1Clips().nth(1).click({ modifiers: ['Control'] })
+    await page.waitForTimeout(300)
+    const sel = await page.locator('[data-tid="V1"] .video-clip.clip-selected').count()
+    assert(sel === 2, `2つ選ばれていない（${sel}）`)
+    await v1Clips().nth(1).click({ modifiers: ['Control'] })
+    await page.waitForTimeout(300)
+    assert(
+      (await page.locator('[data-tid="V1"] .video-clip.clip-selected').count()) === 1,
+      'もう一度 Ctrl クリックしても選択が外れない'
+    )
+  })
+
+  await check('Ctrl+A で全部選んで動かすと、文字も効果音も一緒に動く', async () => {
+    await resetProject()
+    const cue0 = await page.locator('.telop-clip').first().boundingBox()
+    const se0 = await page.locator('.se-clip').first().boundingBox()
+    await page.keyboard.press('Control+a')
+    await page.waitForTimeout(300)
+    await dragBy(v1Clips().nth(0), (await clipW()) * 0.4)
+    await page.waitForTimeout(500)
+    const cue1 = await page.locator('.telop-clip').first().boundingBox()
+    const se1 = await page.locator('.se-clip').first().boundingBox()
+    assert(cue1.x > cue0.x + 5, '文字が一緒に動いていない')
+    assert(se1.x > se0.x + 5, '効果音が一緒に動いていない')
+  })
+
+  await check('全部選んで動かす途中で Alt を押すと、文字が元の位置に戻る', async () => {
+    await resetProject()
+    const cue0 = await page.locator('.telop-clip').first().boundingBox()
+    await page.keyboard.press('Control+a')
+    await page.waitForTimeout(300)
+    const box = await v1Clips().nth(0).boundingBox()
+    const W2 = await clipW()
+    await page.mouse.move(box.x + 20, box.y + box.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 4; i++)
+      await page.mouse.move(box.x + 20 + (W2 * 0.4 * i) / 4, box.y + box.height / 2)
+    await page.waitForTimeout(300)
+    const cueMoved = await page.locator('.telop-clip').first().boundingBox()
+    assert(cueMoved.x > cue0.x + 5, '掴んでいる間に文字が動いていない')
+    await page.keyboard.down('Alt')
+    await page.mouse.move(box.x + 20 + W2 * 0.42, box.y + box.height / 2)
+    await page.waitForTimeout(350)
+    const cueBack = await page.locator('.telop-clip').first().boundingBox()
+    near(cueBack.x, cue0.x, 4, 'Alt を押しても文字が元の位置に戻らない')
+    await page.keyboard.up('Alt')
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+  })
+
+  await check('空きにマウスを乗せると、触れる場所だと分かる枠が出る', async () => {
+    await resetProject()
+    await dragBy(v1Clips().nth(0), (await clipW()) * 0.6)
+    const gap = page.locator('[data-tid="V1"] .gap-clip').first()
+    assert(await gap.count(), '空きができていない')
+    const plain = await gap.evaluate((el) => getComputedStyle(el).borderColor)
+    await gap.hover()
+    await page.waitForTimeout(250)
+    const hovered = await gap.evaluate((el) => getComputedStyle(el).borderColor)
+    assert(hovered !== plain, `乗せても見た目が変わらない（${plain}）`)
+  })
+
+  await check('詰めきれない空きは、理由を教えてくれる', async () => {
+    await resetProject()
+    await dragBy(v1Clips().nth(0), (await clipW()) * 2.2)
+    const gap = page.locator('[data-tid="V1"] .gap-clip').first()
+    await gap.click()
+    await page.keyboard.press('d')
+    await page.waitForTimeout(500)
+    await page.locator('[data-tid="V1"] .gap-clip').first().click()
+    await page.keyboard.press('d')
+    await page.waitForTimeout(500)
+    const toast = await page.locator('.toast').allTextContents()
+    assert(
+      toast.some((t) => t.includes('別のクリップ')),
+      `理由が出ていない: ${toast.join(' / ')}`
+    )
+  })
+
+  await check('空きを含んだまま保存して開き直すと、空きが残っている', async () => {
+    await resetProject()
+    await dragBy(v1Clips().nth(0), (await clipW()) * 0.6)
+    const gaps0 = await page.locator('[data-tid="V1"] .gap-clip').count()
+    assert(gaps0 > 0, '空きができていない')
+    const saved = join(outDir, 'with-gap.gcproj')
+    await setDialogFiles([saved], saved)
+    await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
+    await page.locator('.menu-drop-item', { hasText: '別名で保存' }).first().click()
+    await page.waitForTimeout(1500)
+    await page.keyboard.press('Control+o')
+    await page.waitForTimeout(500)
+    const cont = page.locator('.modal-btn', { hasText: 'このまま続ける' })
+    if (await cont.count()) await cont.click()
+    await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 15000 })
+    await page.waitForTimeout(800)
+    assert(
+      (await page.locator('[data-tid="V1"] .gap-clip').count()) === gaps0,
+      '開き直したら空きが消えた'
+    )
+  })
+
+  await check('効果音を複数選ぶと、まとめて動かせる', async () => {
+    await resetProject()
+    // 2つ目の効果音を作る（複製）
+    await page.locator('.se-clip').first().click()
+    await page.keyboard.press('Control+d')
+    await page.waitForTimeout(500)
+    const n = await page.locator('.se-clip').count()
+    assert(n >= 2, `効果音が2つにならない（${n}）`)
+    const xs0 = await page.locator('.se-clip').evaluateAll((els) =>
+      els.map((e) => Math.round(e.getBoundingClientRect().x))
+    )
+    await page.locator('.se-clip').nth(0).click()
+    await page.locator('.se-clip').nth(1).click({ modifiers: ['Control'] })
+    await dragBy(page.locator('.se-clip').nth(0), 60)
+    await page.waitForTimeout(400)
+    const xs1 = await page.locator('.se-clip').evaluateAll((els) =>
+      els.map((e) => Math.round(e.getBoundingClientRect().x))
+    )
+    assert(
+      xs1.every((x, i) => x > xs0[i] + 5),
+      `まとめて動いていない（${xs0.join(',')} → ${xs1.join(',')}）`
+    )
+  })
+
+  await check('タイムラインで使っている素材は、置き場から消せず理由が出る', async () => {
+    await resetProject()
+    const card = await binCardReady('test_image')
+    await card.click()
+    await page.waitForTimeout(300)
+    const bin0 = await page.locator('.media-card').count()
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(500)
+    assert((await page.locator('.media-card').count()) === bin0, '使用中なのに消えた')
+    const toast = await page.locator('.toast').allTextContents()
+    assert(toast.some((t) => t.includes('使用中')), `理由が出ていない: ${toast.join(' / ')}`)
+  })
+
+  await check('使っていない素材は、置き場から Delete で消える', async () => {
+    const n0 = await v1Clips().count()
+    const card = await binCardReady('spare_image')
+    await card.click()
+    await page.waitForTimeout(300)
+    const bin0 = await page.locator('.media-card').count()
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(500)
+    assert((await page.locator('.media-card').count()) === bin0 - 1, '置き場の素材が消えていない')
+    assert((await v1Clips().count()) === n0, 'タイムラインのクリップが消えてしまった')
+  })
+
+  // =========================================================================
   section('11-12. トラックと元に戻す')
   await resetProject()
 
@@ -1709,6 +1924,127 @@ try {
     )
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(400)
+  })
+
+  // =========================================================================
+  section('6-8. プレビュー操作・文字・重ねた動画')
+  await resetProject()
+
+  /** 重ねた動画を V2 に1つ用意する（無いと章8が確認できない） */
+  async function placePiP() {
+    const r = await dndFromBin('test_video', '[data-tid="V2"]', { x: 150, y: 10 })
+    assert(r.ghost, '掴んだ動画の影が出なかった')
+    await page.waitForTimeout(1800)
+    const n = await page.locator('[data-tid="V2"] .clip:not(.se-ghost)').count()
+    assert(n > 0, 'V2 に重ねた動画を置けなかった')
+  }
+
+  await check('プレビューで、画像も重ねた動画も無い所を掴むと本編の映像が動く', async () => {
+    await seekTo(12) // 画像は 1〜5秒。そこを外す
+    const vid = page.locator('.screen-video').first()
+    const before = await vid.evaluate((el) => el.style.transform)
+    const box = await vid.boundingBox()
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 + 40, { steps: 5 })
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const after = await vid.evaluate((el) => el.style.transform)
+    assert(after !== before, `本編の映像が動いていない（${before}）`)
+  })
+
+  await check('掴めるものにマウスを乗せると、名前が吹き出しで出る', async () => {
+    await seekTo(3) // 画像が映っている時刻
+    const img = page.locator('.screen-img').first()
+    assert(await img.count(), 'プレビューに画像が出ていない')
+    const title = await img.getAttribute('title')
+    assert(title && title.includes('test_image'), `名前が出ていない: ${title}`)
+  })
+
+  await check('文字を分割すると、左右それぞれが残る', async () => {
+    await resetProject()
+    const n0 = await page.locator('.telop-clip').count()
+    await page.locator('.telop-clip').first().click()
+    await page.keyboard.press('c') // カッター
+    await page.locator('.telop-clip').first().click({ position: { x: 20, y: 8 } })
+    await page.waitForTimeout(500)
+    await page.keyboard.press('v')
+    assert((await page.locator('.telop-clip').count()) === n0 + 1, '文字が分割されていない')
+    const widths = await page.locator('.telop-clip').evaluateAll((els) =>
+      els.map((e) => e.getBoundingClientRect().width)
+    )
+    assert(widths.every((w) => w > 2), `幅0の文字ができた（${widths.map(Math.round).join(',')}）`)
+  })
+
+  await check('プレビューの文字をダブルクリックすると、その場で打ち直せる', async () => {
+    await resetProject()
+    await seekTo(2)
+    const tel = page.locator('.telop-overlay > *').first()
+    assert(await tel.count(), 'プレビューに文字が出ていない')
+    await tel.dblclick()
+    await page.waitForTimeout(500)
+    const editor = page.locator('.telop-editor textarea, .telop-editor input')
+    assert(await editor.count(), 'その場で打ち直す欄が出ない')
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+  })
+
+  await check('重ねた動画に、拡大・不透明度・回転・色調整・切り抜きが全部ある', async () => {
+    await resetProject()
+    await placePiP()
+    await page.locator('[data-tid="V2"] .clip:not(.se-ghost)').first().click()
+    await page.waitForTimeout(500)
+    const panel = await page.locator('.panel').first().textContent()
+    for (const label of ['拡大', '不透明度', '回転', '色調整', 'クロップ']) {
+      assert(panel.includes(label), `右パネルに「${label}」が無い: ${panel.slice(0, 120)}`)
+    }
+  })
+
+  await check('拡大のつまみを右端まで動かすと 800% まで行く', async () => {
+    const sliders = page.locator('.sp-row input[type="range"]')
+    const n = await sliders.count()
+    assert(n > 0, 'つまみが出ていない')
+    let max = null
+    for (let i = 0; i < n; i++) {
+      const m = await sliders.nth(i).getAttribute('max')
+      if (m && Number(m) >= 8) {
+        max = Number(m)
+        break
+      }
+    }
+    assert(max !== null, `拡大のつまみが見つからない（上限が8以上のものが無い）`)
+    assert(max >= 8, `上限が 800% になっていない（${max * 100}%）`)
+  })
+
+  await check('「変形・調整をリセット」で設定が元に戻る', async () => {
+    const clip = page.locator('[data-tid="V2"] .clip:not(.se-ghost)').first()
+    await clip.click()
+    await page.waitForTimeout(400)
+    // プレビューで動かして変形を付ける
+    await seekTo(1)
+    const pip = page.locator('.screen-vclip').first()
+    if (await pip.count()) {
+      const b = await pip.boundingBox()
+      if (b) {
+        await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+        await page.mouse.down()
+        await page.mouse.move(b.x + b.width / 2 + 70, b.y + b.height / 2, { steps: 5 })
+        await page.mouse.up()
+        await page.waitForTimeout(400)
+      }
+    }
+    const moved = await page.locator('.screen-vclip').first().evaluate((el) => el.style.transform)
+    const reset = page.locator('button', { hasText: 'リセット' }).first()
+    assert(await reset.count(), '「リセット」のボタンが無い')
+    await reset.click()
+    await page.waitForTimeout(500)
+    const after = await page.locator('.screen-vclip').first().evaluate((el) => el.style.transform)
+    assert(after !== moved, `リセットしても変形が残っている（${after}）`)
+  })
+
+  await check('重ねた動画の音が、対の音声段に波形として並ぶ', async () => {
+    const wave = await page.locator('[data-tid="A2"] canvas').count()
+    assert(wave > 0, '対の音声段に波形が出ていない')
   })
 
   // =========================================================================
@@ -1870,6 +2206,146 @@ try {
     // 読み込んだ字幕の1つ目が、実際に画面に出ていること
     const txt = await page.locator('.telop-clip').first().textContent()
     assert(txt.trim().length > 0, '文字の中身が空になっている')
+  })
+
+  // =========================================================================
+  section('9-10-13. 音・リップル削除・書き出し')
+  await resetProject()
+
+  await check('ミキサーの数字に「dB」が付いている', async () => {
+    const tab = page.locator('.panel-tabs *', { hasText: 'オーディオミキサー' }).first()
+    if (await tab.count()) {
+      await tab.click()
+      await page.waitForTimeout(500)
+    }
+    const txt = await page.locator('.panel.monitor').first().textContent()
+    assert(txt.includes('dB'), `ミキサーに dB が出ていない: ${txt.slice(0, 120)}`)
+    const back = page.locator('.panel-tabs *', { hasText: 'プログラム' }).first()
+    if (await back.count()) await back.click()
+    await page.waitForTimeout(400)
+  })
+
+  await check('画像をリップル削除すると、同じ段の後ろだけが詰まる', async () => {
+    await resetProject()
+    // V3 に2つ目の画像を置いて、後ろが詰まるか見る
+    // 1つ目の画像は 1〜5秒。詰まるのを見るには、その**外**に置く必要がある
+    const pps = (await clipW()) / 5
+    const r = await dndFromBin('spare_image', '[data-tid="V3"]', { x: Math.round(pps * 9), y: 10 })
+    assert(r.ghost, '掴んだ画像の影が出なかった')
+    await page.waitForTimeout(600)
+    const imgs = page.locator('[data-tid="V3"] .img-clip:not(.se-ghost)')
+    assert((await imgs.count()) >= 2, '画像が2つになっていない')
+    const xs = await imgs.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)))
+    const cueX0 = await page.locator('.telop-clip').first().boundingBox()
+    await imgs.nth(0).click()
+    await imgs.nth(0).click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    await page.locator('.ctx-item', { hasText: 'リップル削除' }).first().click()
+    await page.waitForTimeout(600)
+    const xs2 = await imgs.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)))
+    assert(xs2.length === xs.length - 1, '画像が1つ減っていない')
+    assert(xs2[0] < xs[1] - 5, `同じ段の後ろが詰まっていない（${xs[1]} → ${xs2[0]}）`)
+    const cueX1 = await page.locator('.telop-clip').first().boundingBox()
+    near(cueX1.x, cueX0.x, 3, '別の段の文字まで動いてしまった')
+  })
+
+  await check('鍵をかけた段のクリップが混ざっていると、リップル削除は実行されない', async () => {
+    await resetProject()
+    const lock = trackHead('V2').locator('button[title="ロック"]').first()
+    await lock.click()
+    await page.waitForTimeout(300)
+    const n0 = await page.locator('.telop-clip').count()
+    await page.locator('.telop-clip').first().click()
+    await page.locator('.telop-clip').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const item = page.locator('.ctx-item', { hasText: 'リップル削除' })
+    if (await item.count()) {
+      await item.first().click()
+      await page.waitForTimeout(500)
+    } else {
+      await page.keyboard.press('Escape')
+    }
+    assert((await page.locator('.telop-clip').count()) === n0, '鍵をかけたのに消えた')
+    await lock.click()
+    await page.waitForTimeout(300)
+  })
+
+  await check('書き出しの設定画面が出て、いきなり始まらない', async () => {
+    await resetProject()
+    await page.locator('.mode-tab', { hasText: '書き出し' }).first().click()
+    await page.waitForSelector('.export-overlay', { timeout: 8000 })
+    const txt = await page.locator('.export-overlay').textContent()
+    assert(txt.includes('書き出し設定'), `設定画面が出ていない: ${txt.slice(0, 80)}`)
+    await page.locator('.export-overlay').click({ position: { x: 5, y: 5 } })
+    await page.waitForTimeout(400)
+  })
+
+  await check('フレームレート「素材と同じ」で、素材と同じなめらかさになる', async () => {
+    const out = join(outDir, 'fps-same.mp4')
+    await setDialogFiles(null, out)
+    await page.keyboard.press('Control+m')
+    await page.waitForSelector('.export-overlay')
+    // 「素材と同じ」の選択肢を持つプルダウンを、文言から探して選ぶ
+    const sels = page.locator('.export-overlay .pq-select')
+    const n = await sels.count()
+    let picked = false
+    for (let i = 0; i < n; i++) {
+      const opts = await sels.nth(i).locator('option').allTextContents()
+      const hit = opts.find((t) => t.includes('素材'))
+      if (!hit) continue
+      await sels.nth(i).selectOption({ label: hit })
+      picked = true
+      break
+    }
+    assert(picked, '「素材と同じ」の選択肢が見つからない')
+    await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
+    await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
+    assert(existsSync(out), '書き出しファイルができていない')
+    const fpsOf = async (f) => {
+      const p = spawn('ffprobe', [
+        '-v', 'error', '-select_streams', 'v:0',
+        '-show_entries', 'stream=r_frame_rate', '-of', 'csv=p=0', f
+      ])
+      let o = ''
+      p.stdout.on('data', (d) => (o += d))
+      await new Promise((res) => p.on('close', res))
+      const [a, b] = o.trim().split('/')
+      return Number(a) / Number(b || 1)
+    }
+    const src = await fpsOf(fx.video)
+    const got = await fpsOf(out)
+    assert(Math.abs(src - got) < 0.5, `素材 ${src.toFixed(2)}fps に対し ${got.toFixed(2)}fps`)
+  })
+
+  await check('書き出した動画に、文字と画像が焼き込まれている', async () => {
+    // 文字も画像も無い時刻と、両方ある時刻のコマを抜き出して見比べる
+    const out = join(outDir, 'fps-same.mp4')
+    const frame = async (t, name) => {
+      const f = join(shotDir, name)
+      const p = spawn('ffmpeg', ['-y', '-ss', String(t), '-i', out, '-frames:v', '1', f])
+      await new Promise((res) => p.on('close', res))
+      return f
+    }
+    const withStuff = await frame(2, 'exp-with.png') // 文字1〜3秒・画像1〜5秒
+    const without = await frame(12, 'exp-without.png') // 何も乗っていない
+    assert(existsSync(withStuff) && existsSync(without), 'コマを抜き出せなかった')
+    const sim = await similarity(withStuff, without)
+    assert(sim < 0.9, `文字や画像が焼き込まれていない疑い（一致度 ${sim.toFixed(3)}）`)
+  })
+
+  await check('書き出しの途中でやめられて、中途半端なファイルが残らない', async () => {
+    const out = join(outDir, 'cancelled.mp4')
+    await setDialogFiles(null, out)
+    await page.keyboard.press('Control+m')
+    await page.waitForSelector('.export-overlay')
+    await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
+    await page.waitForTimeout(1200)
+    const cancel = page.locator('.export-overlay button', { hasText: /中止|キャンセル|やめる/ })
+    assert(await cancel.count(), '書き出し中に中止できるボタンが無い')
+    await cancel.first().click()
+    await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 60000 })
+    await page.waitForTimeout(800)
+    assert(!existsSync(out), '中止したのにファイルが残っている')
   })
 
   // =========================================================================

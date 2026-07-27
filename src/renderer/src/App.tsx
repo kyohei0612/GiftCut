@@ -7200,7 +7200,23 @@ export default function App(): JSX.Element {
     const segs = segsRef.current
     const L = layoutSegs(segs).find((x) => x.seg.id === segId && x.seg.gap)
     if (!L) return false
-    const to = rippleEnd(L.tStart, L.tEnd, allContentEdges())
+    // 空きの上に重なっているもの（テロップ・効果音・画像・重ねた動画）を見る。
+    // 「編集点」ではなく**区間**で見るのが要点。編集点だけだと、空きの先頭に
+    // ちょうど重なっているクリップを飛び越えて、その中身を突き抜けて詰めてしまう。
+    const spans = [
+      ...cuesRef.current.map((c) => ({ start: c.start, end: c.end })),
+      ...seClipsRef.current.map((c) => ({ start: c.tStart, end: c.tStart + c.duration })),
+      ...imgClipsRef.current.map((c) => ({ start: c.tStart, end: c.tStart + c.duration })),
+      ...vClipsRef.current.map((c) => ({ start: c.tStart, end: c.tStart + vcLen(c) }))
+    ]
+    if (spans.some((s) => s.start <= L.tStart + 1e-6 && s.end > L.tStart + 1e-6)) {
+      showToast('この空きの先頭には別のクリップが重なっています。')
+      return true
+    }
+    const nextStart = spans
+      .map((s) => s.start)
+      .filter((t) => t > L.tStart + 1e-6 && t < L.tEnd - 1e-6)
+    const to = nextStart.length ? Math.min(...nextStart) : L.tEnd
     const len = to - L.tStart
     if (len <= 1e-3) {
       showToast('この空きの先頭には別のクリップが来ています。')
