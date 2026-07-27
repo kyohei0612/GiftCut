@@ -252,7 +252,12 @@ ${t}
   }
   const gcproj = join(dir, 'fixture.gcproj')
   writeFileSync(gcproj, JSON.stringify(project), 'utf-8')
-  return { dir, userData, video, image, sound, srt, gcproj }
+  // 手つかずの控え。保存のテストは開いているファイルへ上書き保存するので、
+  // これが無いと以降のリセットが「編集後の状態」から始まってしまう
+  // （実際に、後の確認が2件それで落ちた）。リセットのたびに書き戻す。
+  const gcprojOrig = join(dir, 'fixture.orig.gcproj')
+  writeFileSync(gcprojOrig, JSON.stringify(project), 'utf-8')
+  return { dir, userData, video, image, sound, srt, gcproj, gcprojOrig }
 }
 
 // ---------------------------------------------------------------------------
@@ -505,6 +510,17 @@ try {
    * 「前の章の後始末漏れ」なのか分からなくなる。
    */
   async function resetProject() {
+    // これは確認そのものではなく「次の確認のための片付け」。
+    // 何も出さないと、同じ確認を繰り返しているように見えてしまう。
+    await banner({
+      status: 'run',
+      name: '状態を元に戻しています（確認ではありません）',
+      section: esc(curSection),
+      done: results.filter((r) => !r.skipped).length,
+      total: Math.max(TOTAL_HINT, results.length)
+    })
+    // 毎回まっさらな内容に書き戻してから開く（前の確認の保存を持ち越さない）
+    copyFileSync(fx.gcprojOrig, fx.gcproj)
     await setDialogFiles([fx.gcproj], null)
     await page.keyboard.press('Control+o')
     await page.waitForTimeout(400)
@@ -1410,6 +1426,272 @@ try {
   })
 
   // =========================================================================
+  section('2. 保存とプロジェクトの切り替え')
+  await resetProject()
+
+  await check('保存するとタイトルの「＊」が消える', async () => {
+    // 見た目で確実に分かる編集をする（クリップを動かす）
+    const before = await clipLayout()
+    await dragBy(v1Clips().nth(0), (await clipW()) * 0.4)
+    await page.waitForTimeout(600)
+    const after = await clipLayout()
+    assert(after[0].x > before[0].x + 5, '編集（クリップの移動）ができていない')
+    // 「＊」の判定は一定間隔で更新されるので、少し待ってから見る
+    await page.waitForTimeout(1100)
+    const dirty = await page.locator('.modebar-title').first().textContent()
+    assert(dirty.includes('*'), `編集したのに「＊」が出ていない: ${dirty.slice(0, 60)}`)
+    // 開いているファイルへ上書き保存される（別名保存のダイアログは出ない）
+    await page.keyboard.press('Control+s')
+    await page.waitForTimeout(1600)
+    const clean = await page.locator('.modebar-title').first().textContent()
+    assert(!clean.includes('*'), `保存したのに「＊」が残っている: ${clean.slice(0, 60)}`)
+  })
+
+  await check('保存すると「最近使ったプロジェクト」に増える', async () => {
+    const fileMenu = page.locator('.menu-item', { hasText: 'ファイル' }).first()
+    await fileMenu.click()
+    await page.waitForTimeout(300)
+    const items = await page.locator('.menu-drop-recent').allTextContents()
+    assert(
+      items.some((t) => t.includes('fixture.gcproj')),
+      `開いて保存したファイルが一覧に出ていない: ${items.join(', ')}`
+    )
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(200)
+  })
+
+  await check('取り消せない操作の実行ボタンが赤い', async () => {
+    await setDialogFiles([fx.srt], null)
+    await page.locator('button', { hasText: 'SRT読込' }).first().click()
+    await page.waitForSelector('.modal-box')
+    const danger = await page.locator('.modal-btn.danger').count()
+    assert(danger > 0, '置き換えのボタンが赤（danger）になっていない')
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+    assert((await page.locator('.modal-box').count()) === 0, 'Escape で確認を中止できない')
+  })
+
+  // =========================================================================
+  section('4-5. 編集とキー操作')
+  await resetProject()
+
+  await check('Q で、ひとつ前の編集点まで詰めて削除できる', async () => {
+    await seekTo(12) // 3つ目のクリップの中
+    const before = (await clipLayout()).reduce((a, c) => a + c.w, 0)
+    await page.keyboard.press('q')
+    await page.waitForTimeout(500)
+    const after = (await clipLayout()).reduce((a, c) => a + c.w, 0)
+    assert(after < before - 5, `詰まっていない（${before} → ${after}）`)
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  })
+
+  await check('文字が乗っている所で Q を押すと、文字の手前で止まる', async () => {
+    // 文字は 1〜3秒 と 6〜8秒。7.5秒から Q を押すと 6秒（文字の頭）で止まるはず。
+    await seekTo(7.5)
+    const n0 = await page.locator('.telop-clip').count()
+    await page.keyboard.press('q')
+    await page.waitForTimeout(500)
+    assert((await page.locator('.telop-clip').count()) === n0, '文字が巻き添えで消えた')
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  })
+
+  await check('波形の帯（A1）を掴んでも、映像と一緒に動く', async () => {
+    const before = await clipLayout()
+    const audio = page.locator('[data-tid="A1"] .audio-clip:not(.se-ghost)').first()
+    assert(await audio.count(), 'A1 に波形の帯が出ていない')
+    await dragBy(audio, (await clipW()) * 0.5)
+    const after = await clipLayout()
+    assert(after[0].x > before[0].x + 5, '音声側を掴んでも映像が動かない')
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  })
+
+  await check('目印を選んだあと本編をクリックして Delete → 本編が消える', async () => {
+    const marker = page.locator('.marker, .ruler-marker, [class*="marker"]').first()
+    if (await marker.count()) {
+      await marker.click()
+      await page.waitForTimeout(250)
+    }
+    const n0 = await v1Clips().count()
+    await v1Clips().nth(0).click()
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(500)
+    assert((await v1Clips().count()) === n0 - 1, '本編が消えていない（目印だけ消えた疑い）')
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  })
+
+  await check('スペースキーで再生が始まり、もう一度で止まる', async () => {
+    const headX = async () =>
+      page.locator('.playhead').first().evaluate((el) => el.getBoundingClientRect().x)
+    await seekTo(2)
+    const x0 = await headX()
+    await page.keyboard.press('Space')
+    await page.waitForTimeout(900)
+    const x1 = await headX()
+    await page.keyboard.press('Space')
+    await page.waitForTimeout(300)
+    const x2 = await headX()
+    await page.waitForTimeout(600)
+    const x3 = await headX()
+    assert(x1 > x0 + 2, '再生が始まらない')
+    assert(Math.abs(x3 - x2) < 3, 'もう一度押しても止まらない')
+  })
+
+  // =========================================================================
+  section('11-12. トラックと元に戻す')
+  await resetProject()
+
+  await check('中身が入っているトラックは削除できず、理由が出る', async () => {
+    const n0 = await page.locator('[data-tid]').count()
+    await trackHead('V1').locator('.th-name').click()
+    await page.waitForTimeout(250)
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(500)
+    assert((await page.locator('[data-tid]').count()) === n0, '中身があるのにトラックが消えた')
+  })
+
+  await check('トラックを追加すると、番号順の正しい位置に入る', async () => {
+    await page.locator('.th-add').first().click() // 映像トラックを追加
+    await page.waitForTimeout(500)
+    const ids = await page.locator('[data-tid]').evaluateAll((els) =>
+      els.map((e) => e.getAttribute('data-tid') ?? '')
+    )
+    const vs = ids.filter((i) => i.startsWith('V')).map((i) => Number(i.slice(1)))
+    assert(
+      JSON.stringify(vs) === JSON.stringify([...vs].sort((a, b) => b - a)),
+      `映像トラックの並びが番号順でない: ${vs.join(',')}`
+    )
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  })
+
+  // =========================================================================
+  section('設定のコピーと貼り付け（プレミアの属性ペースト相当）')
+  await resetProject()
+
+  await check('テロップの位置をコピーして、他のテロップにも貼れる', async () => {
+    // プレビュー上で1つ目のテロップを動かし、その位置を他へ写す
+    await seekTo(2)
+    const tel = page.locator('.telop-overlay > *').first()
+    assert(await tel.count(), 'プレビューにテロップが出ていない')
+    const b0 = await tel.boundingBox()
+    await page.mouse.move(b0.x + b0.width / 2, b0.y + b0.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(b0.x + b0.width / 2 - 120, b0.y + b0.height / 2 - 90, { steps: 6 })
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const moved = await page.locator('.telop-overlay > *').first().boundingBox()
+
+    await page.locator('.telop-clip').first().click()
+    await page.keyboard.press('Control+Alt+c')
+    await page.waitForTimeout(300)
+    await page.locator('.telop-clip').nth(1).click()
+    await page.keyboard.press('Control+Alt+v')
+    await page.waitForTimeout(500)
+
+    await seekTo(7) // 2つ目のテロップが映る時刻
+    const b1 = await page.locator('.telop-overlay > *').first().boundingBox()
+    assert(b1, '2つ目のテロップがプレビューに出ていない')
+    near(b1.x, moved.x, 8, '貼り付けたのに位置が揃っていない')
+    near(b1.y, moved.y, 8, '貼り付けたのに位置が揃っていない')
+  })
+
+  await check('テロップの設定を全部選んで貼っても、動画クリップは壊れない', async () => {
+    const n0 = await v1Clips().count()
+    await page.locator('.telop-clip').first().click()
+    await page.keyboard.press('Control+Alt+c')
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Control+a')
+    await page.keyboard.press('Control+Alt+v')
+    await page.waitForTimeout(600)
+    assert((await v1Clips().count()) === n0, '動画クリップの数が変わった')
+  })
+
+  await check('動画クリップの設定をコピーして、別の動画クリップに貼れる', async () => {
+    await resetProject()
+    await v1Clips().nth(0).click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const sw = page.locator('.ctx-swatch:not(.ctx-swatch-none)').first()
+    const want = await sw.evaluate((e) => getComputedStyle(e).backgroundColor)
+    await sw.click()
+    await page.waitForTimeout(400)
+    await v1Clips().nth(0).click()
+    await page.keyboard.press('Control+Alt+c')
+    await page.waitForTimeout(300)
+    await v1Clips().nth(2).click()
+    await page.keyboard.press('Control+Alt+v')
+    await page.waitForTimeout(500)
+    const got = await v1Clips().nth(2).evaluate((el) => getComputedStyle(el).backgroundColor)
+    assert(got === want, `貼り付いていない（${got} / 期待 ${want}）`)
+  })
+
+  await check('右クリックからも、コピーと「何が貼れるか」が分かる形で貼れる', async () => {
+    await v1Clips().nth(0).click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const copy = page.locator('.ctx-item', { hasText: '設定をコピー' })
+    assert(await copy.count(), 'メニューに「設定をコピー」が無い')
+    await copy.first().click()
+    await page.waitForTimeout(300)
+    await v1Clips().nth(1).click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const paste = page.locator('.ctx-item', { hasText: '設定を貼り付け' })
+    assert(await paste.count(), 'メニューに「設定を貼り付け」が無い')
+    const label = await paste.first().textContent()
+    assert(/色|変形|音量|切り抜き|不透明度/.test(label), `何が貼れるか出ていない: ${label}`)
+    await page.keyboard.press('Escape')
+  })
+
+  // =========================================================================
+  section('15. クリップの色分け（種類ごと）')
+  await resetProject()
+
+  await check('本編に色を付けると、映像と音声の両方に付く', async () => {
+    await v1Clips().nth(0).click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    await page.locator('.ctx-swatch:not(.ctx-swatch-none)').first().click()
+    await page.waitForTimeout(400)
+    const vBg = await v1Clips().nth(0).evaluate((el) => getComputedStyle(el).backgroundColor)
+    const aBg = await page
+      .locator('[data-tid="A1"] .audio-clip:not(.se-ghost)')
+      .first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor)
+    assert(vBg === aBg, `映像と音声で色が違う（${vBg} / ${aBg}）`)
+  })
+
+  await check('「色なし」を選ぶと元の色に戻る', async () => {
+    const colored = await v1Clips().nth(0).evaluate((el) => getComputedStyle(el).backgroundColor)
+    await v1Clips().nth(0).click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    await page.locator('.ctx-swatch-none').first().click()
+    await page.waitForTimeout(400)
+    const plain = await v1Clips().nth(0).evaluate((el) => getComputedStyle(el).backgroundColor)
+    assert(plain !== colored, '色なしにしても色が残っている')
+  })
+
+  await check('文字・効果音・画像にも色を付けられる', async () => {
+    let i = 0
+    for (const [name, sel] of [
+      ['文字', '.telop-clip'],
+      ['効果音', '.se-clip'],
+      ['画像', '.img-clip:not(.se-ghost)']
+    ]) {
+      const el = page.locator(sel).first()
+      await el.click({ button: 'right' })
+      await page.waitForSelector('.ctx-menu')
+      const sw = page.locator('.ctx-swatch:not(.ctx-swatch-none)').nth(i++ % 3)
+      assert(await sw.count(), `${name} のメニューに色の選択肢が無い`)
+      const want = await sw.evaluate((e) => getComputedStyle(e).backgroundColor)
+      await sw.click()
+      await page.waitForTimeout(400)
+      const after = await el.evaluate((e) => getComputedStyle(e).backgroundColor)
+      assert(after === want, `${name} に選んだ色が付いていない（${after} / 選んだ色 ${want}）`)
+    }
+  })
+
+  // =========================================================================
   section('字幕ファイル（SRT）の読み込み')
   await resetProject()
 
@@ -1468,10 +1750,18 @@ try {
     const a = join(shotDir, 'cmp-before.png')
     const b = join(shotDir, 'cmp-after.png')
     await page.screenshot({ path: a, clip: rect })
+    const beforeLayout = await clipLayout()
     const W2 = await clipW()
     await dragBy(v1Clips().nth(0), W2 * 0.6)
     await page.waitForTimeout(300)
     await page.screenshot({ path: b, clip: rect })
+    // 画像を比べる前に、そもそも動いたかを数値で確かめる
+    // （動いていないのに「見た目が変わらない」と言われても原因が分からない）
+    const moved = await clipLayout()
+    assert(
+      moved[0].x > beforeLayout[0].x + 5,
+      `クリップが動いていない（${beforeLayout[0].x} → ${moved[0].x}）`
+    )
     const sim = await similarity(a, b)
     assert(sim < 0.95, `動かしたのに見た目が変わっていない（一致度 ${sim.toFixed(3)}）`)
     const after = await avgColor(b)
@@ -1483,6 +1773,43 @@ try {
     )
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(400)
+  })
+
+  await check('再生中、カットのつなぎ目で画面が一瞬抜けない（ちらつき）', async () => {
+    // 以前「別動画の境界で一度背景が見えてから次が始まる」という症状があった。
+    // 抜けた瞬間は絵が消えて平坦になるので、カット付近を連写して
+    // 「模様が消えたコマ」が無いかで判定する。
+    await resetProject()
+    const screen = page.locator('.screen, .monitor .screen, .panel.monitor').first()
+    const box = await screen.boundingBox()
+    const clip = {
+      x: Math.round(box.x + box.width * 0.3),
+      y: Math.round(box.y + box.height * 0.3),
+      width: Math.round(box.width * 0.4),
+      height: Math.round(box.height * 0.4)
+    }
+    await seekTo(4.2) // 1つ目と2つ目のカット（5秒）の少し手前
+    await page.keyboard.press('Space')
+    const frames = []
+    for (let i = 0; i < 14; i++) {
+      const f = join(shotDir, `flick-${String(i).padStart(2, '0')}.png`)
+      await page.screenshot({ path: f, clip })
+      frames.push(f)
+      await page.waitForTimeout(90)
+    }
+    await page.keyboard.press('Space')
+    await page.waitForTimeout(300)
+    const stats = []
+    for (const f of frames) stats.push(await avgColor(f))
+    const ranges = stats.map((s) => s.range ?? 0)
+    const median = [...ranges].sort((a, b) => a - b)[Math.floor(ranges.length / 2)]
+    assert(median > 15, `再生中の絵がそもそも出ていない（模様の幅の中央値 ${median}）`)
+    // 抜けたコマは模様がほぼ消える。中央値の3割を下回るコマがあれば怪しい。
+    const dropped = ranges.filter((r) => r < median * 0.3).length
+    assert(
+      dropped === 0,
+      `つなぎ目で画面が抜けたコマがある（${dropped}/${ranges.length}コマ・模様の幅 ${ranges.map((r) => Math.round(r)).join(',')}）`
+    )
   })
 
   await check('上書きされるクリップが、見た目にはっきり赤くなる', async () => {
@@ -1521,11 +1848,16 @@ try {
     assert(existsSync(out), '書き出しファイルができていない')
     const vol = await meanVolume(out)
     assert(vol !== null && vol > -60, `全体が無音になっている（${vol} dB）`)
-    // 0.6秒以上の無音が続いていたら、音が抜けている疑い
+    // 0.6秒以上の無音が続いていたら音が抜けている疑い。ただし**素材そのものが
+    // 無音の所**（実素材の頭など）は問題ではないので、素材側の無音は差し引く。
     const gaps = await silences(out, -50, 0.6)
+    const srcGaps = await silences(fx.video, -50, 0.6)
+    const explained = (g) =>
+      srcGaps.some((s) => g.start >= s.start - 1.2 && g.start <= s.start + s.dur + 1.2)
+    const bad = gaps.filter((g) => !explained(g))
     assert(
-      gaps.length === 0,
-      `音が途切れている所がある: ${gaps.map((g) => `${g.start.toFixed(1)}秒から${g.dur.toFixed(1)}秒`).join(' / ')}`
+      bad.length === 0,
+      `素材には無い無音ができている: ${bad.map((g) => `${g.start.toFixed(1)}秒から${g.dur.toFixed(1)}秒`).join(' / ')}`
     )
   })
 

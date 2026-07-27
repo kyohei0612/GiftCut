@@ -276,6 +276,8 @@ const DEFAULT_SHORTCUTS = {
   frameFwd5: 'shift+arrowright',
   del: 'd',
   rippleDel: 'f',
+  attrCopy: 'ctrl+alt+c',
+  attrPaste: 'ctrl+alt+v',
   // Premiere 準拠: Q=リップルトリム前方 / W=リップルトリム後方。
   // 以前は A / F だったが、Premiere の A は非破壊のトラック選択ツールなので
   // 「押したら映像が削られる」事故になっていた。
@@ -317,6 +319,8 @@ const ACTION_LIST: { id: ShortcutId; label: string; group: string }[] = [
   { id: 'frameBack5', label: '5フレーム戻る', group: '再生' },
   { id: 'frameFwd5', label: '5フレーム進む', group: '再生' },
   { id: 'split', label: '再生ヘッドで分割', group: '編集' },
+  { id: 'attrCopy', label: '設定をコピー（位置・変形・色など）', group: '編集' },
+  { id: 'attrPaste', label: '設定を貼り付け（選んだクリップ全部へ）', group: '編集' },
   { id: 'del', label: '削除（詰めない。Delete / Backspace も同じ）', group: '編集' },
   { id: 'rippleDel', label: '削除して詰める（Shift+Delete も同じ）', group: '編集' },
   { id: 'rippleToPrevCut', label: '前の編集点まで詰めて削除（リップルトリム前方）', group: '編集' },
@@ -1915,6 +1919,296 @@ export default function App(): JSX.Element {
   function askText(title: string, defaultValue: string, onOk: (v: string) => void): void {
     setPromptState({ title, value: defaultValue, onOk })
   }
+  /**
+   * 右クリックメニューを画面の中に収める。
+   *
+   * メニューは押した場所にそのまま出していたので、画面の下や右の端で押すと
+   * 項目がはみ出して選べなかった（項目を増やしたときに実際に起きた）。
+   * 出したあとに位置を測って、はみ出していたら内側へ寄せる。
+   */
+  const clampMenu = (el: HTMLDivElement | null): void => {
+    if (!el) return
+    const pad = 8
+    const r = el.getBoundingClientRect()
+    if (r.bottom > window.innerHeight - pad)
+      el.style.top = `${Math.max(pad, window.innerHeight - pad - r.height)}px`
+    if (r.right > window.innerWidth - pad)
+      el.style.left = `${Math.max(pad, window.innerWidth - pad - r.width)}px`
+  }
+  // ---- 属性のコピー／貼り付け（プレミアの「属性のペースト」相当）----
+  //
+  // 1つのクリップで整えた見た目を、他のクリップにまとめて写す。
+  // 位置や拡大を1つずつ揃え直すのは現実的でないので、コピー元の設定を
+  // まとめて持ち回れるようにする。
+  //
+  // 種類をまたいで写せるもの（変形・色調整・クロップ・不透明度・ラベル）と、
+  // その種類にしか無いもの（テロップの見た目や位置、音量やフェード）がある。
+  // 混ざった選択に貼っても壊れないよう、**貼れるものだけ貼る**。
+  interface CopiedAttrs {
+    from: 'telop' | 'seg' | 'img' | 'vclip' | 'se'
+    fromName: string
+    // 種類をまたいで写せるもの
+    zoom?: { scale: number; x: number; y: number }
+    rotate?: number
+    flipH?: boolean
+    flipV?: boolean
+    opacity?: number
+    adjust?: { b: number; c: number; s: number }
+    crop?: { l: number; t: number; r: number; b: number }
+    label?: string
+    // 音まわり（音を持つものだけ）
+    vol?: number
+    afadeIn?: number
+    afadeOut?: number
+    // テロップだけ
+    telopPos?: { x: number; y: number }
+    telopScale?: number
+    telopStyle?: Cue['style']
+  }
+  const [copiedAttrs, setCopiedAttrs] = useState<CopiedAttrs | null>(null)
+  /** 何を写せるかの一覧（人に見せる文言） */
+  function attrSummary(a: CopiedAttrs): string {
+    const parts: string[] = []
+    if (a.telopPos || a.telopScale != null) parts.push('位置と大きさ')
+    if (a.telopStyle) parts.push('見た目')
+    if (a.zoom || a.rotate != null || a.flipH || a.flipV) parts.push('変形')
+    if (a.adjust) parts.push('色調整')
+    if (a.crop) parts.push('切り抜き')
+    if (a.opacity != null) parts.push('不透明度')
+    if (a.vol != null || a.afadeIn != null || a.afadeOut != null) parts.push('音量')
+    if (a.label) parts.push('色')
+    return parts.length ? parts.join('・') : '設定なし'
+  }
+  /** 選んでいるクリップ1つから属性をコピーする */
+  function copyAttributes(): void {
+    const cue = cues.find((c) => selectedIds.includes(c.id))
+    if (cue) {
+      setCopiedAttrs({
+        from: 'telop',
+        fromName: cue.text.slice(0, 10) || 'テロップ',
+        telopPos: { ...cue.pos },
+        telopScale: cue.scale,
+        telopStyle: cue.style,
+        label: cue.label || undefined
+      })
+      showToast('テロップの「位置と大きさ・見た目・色」をコピーしました。')
+      return
+    }
+    const seg = segments.find((s) => selectedVideoIds.includes(s.id) && !s.gap)
+    if (seg) {
+      setCopiedAttrs({
+        from: 'seg',
+        fromName: srcOfSeg(seg)?.name ?? '動画',
+        zoom: seg.zoom,
+        rotate: seg.rotate,
+        flipH: seg.flipH,
+        flipV: seg.flipV,
+        adjust: seg.adjust,
+        crop: seg.crop,
+        vol: seg.vol,
+        afadeIn: seg.afadeIn,
+        afadeOut: seg.afadeOut,
+        label: seg.label
+      })
+      showToast('動画クリップの設定をコピーしました。')
+      return
+    }
+    const vc = vClips.find((c) => selectedVClipIds.includes(c.id))
+    if (vc) {
+      setCopiedAttrs({
+        from: 'vclip',
+        fromName: vc.name,
+        zoom: vc.zoom,
+        rotate: vc.rotate,
+        flipH: vc.flipH,
+        flipV: vc.flipV,
+        opacity: vc.opacity,
+        adjust: vc.adjust,
+        crop: vc.crop,
+        vol: vc.vol,
+        afadeIn: vc.afadeIn,
+        afadeOut: vc.afadeOut,
+        label: vc.label
+      })
+      showToast('重ねた動画の設定をコピーしました。')
+      return
+    }
+    const img = imgClips.find((c) => selectedImgIds.includes(c.id))
+    if (img) {
+      setCopiedAttrs({
+        from: 'img',
+        fromName: img.name,
+        zoom: img.zoom,
+        rotate: img.rotate,
+        flipH: img.flipH,
+        flipV: img.flipV,
+        opacity: img.opacity,
+        adjust: img.adjust,
+        crop: img.crop,
+        label: img.label
+      })
+      showToast('画像の設定をコピーしました。')
+      return
+    }
+    const se = seClips.find((c) => selectedSeIds.includes(c.id))
+    if (se) {
+      setCopiedAttrs({
+        from: 'se',
+        fromName: se.name,
+        vol: se.volume,
+        afadeIn: se.fadeIn,
+        afadeOut: se.fadeOut,
+        label: se.label
+      })
+      showToast('効果音の設定をコピーしました。')
+      return
+    }
+    showToast('コピーするクリップを選んでください。')
+  }
+  /**
+   * コピーした属性を、選んでいるクリップすべてに貼り付ける。
+   *
+   * テロップの見た目をコピーして全部選んで貼っても、動画や画像には
+   * 貼らずテロップにだけ貼る。全部に貼ろうとして何も起きないより、
+   * 貼れるものにだけ貼って「何件に貼ったか」を伝えるほうが親切。
+   */
+  function pasteAttributes(): void {
+    const a = copiedAttrs
+    if (!a) {
+      showToast('先にコピーしてください。')
+      return
+    }
+    const hits: string[] = []
+    const common = <
+      T extends {
+        zoom?: unknown
+        rotate?: number
+        flipH?: boolean
+        flipV?: boolean
+        adjust?: unknown
+        crop?: unknown
+        label?: string
+      }
+    >(
+      c: T
+    ): T => ({
+      ...c,
+      ...(a.zoom !== undefined ? { zoom: a.zoom } : {}),
+      ...(a.rotate !== undefined ? { rotate: a.rotate } : {}),
+      ...(a.flipH !== undefined ? { flipH: a.flipH } : {}),
+      ...(a.flipV !== undefined ? { flipV: a.flipV } : {}),
+      ...(a.adjust !== undefined ? { adjust: a.adjust } : {}),
+      ...(a.crop !== undefined ? { crop: a.crop } : {}),
+      ...(a.label !== undefined ? { label: a.label } : {})
+    })
+    // テロップ（見た目・位置はテロップ同士でしか写せない）
+    if (selectedIds.length) {
+      const isTelopSource = a.from === 'telop'
+      setCues((prev) =>
+        prev.map((c) => {
+          if (!selectedIds.includes(c.id) || telopLocked(c)) return c
+          let n = { ...c }
+          if (isTelopSource) {
+            if (a.telopPos) n = { ...n, pos: { ...a.telopPos } }
+            if (a.telopScale !== undefined) n = { ...n, scale: a.telopScale }
+            if (a.telopStyle) n = { ...n, style: a.telopStyle }
+          }
+          if (a.label !== undefined) n = { ...n, label: a.label }
+          return n
+        })
+      )
+      const n = cues.filter((c) => selectedIds.includes(c.id) && !telopLocked(c)).length
+      if (n) hits.push(`テロップ ${n}件`)
+    }
+    if (selectedVideoIds.length) {
+      const targets = segments.filter((s) => selectedVideoIds.includes(s.id) && !s.gap)
+      if (targets.length && !mainLocked()) {
+        setSegments((prev) =>
+          prev.map((s) =>
+            selectedVideoIds.includes(s.id) && !s.gap
+              ? {
+                  ...common(s),
+                  ...(a.vol !== undefined ? { vol: a.vol } : {}),
+                  ...(a.afadeIn !== undefined ? { afadeIn: a.afadeIn } : {}),
+                  ...(a.afadeOut !== undefined ? { afadeOut: a.afadeOut } : {})
+                }
+              : s
+          )
+        )
+        hits.push(`動画クリップ ${targets.length}件`)
+      }
+    }
+    if (selectedVClipIds.length) {
+      const targets = vClips.filter(
+        (c) => selectedVClipIds.includes(c.id) && !trackStates[c.track]?.locked
+      )
+      if (targets.length) {
+        setVClips((prev) =>
+          prev.map((c) =>
+            selectedVClipIds.includes(c.id) && !trackStates[c.track]?.locked
+              ? {
+                  ...common(c),
+                  ...(a.opacity !== undefined ? { opacity: a.opacity } : {}),
+                  ...(a.vol !== undefined ? { vol: a.vol } : {}),
+                  ...(a.afadeIn !== undefined ? { afadeIn: a.afadeIn } : {}),
+                  ...(a.afadeOut !== undefined ? { afadeOut: a.afadeOut } : {})
+                }
+              : c
+          )
+        )
+        hits.push(`重ねた動画 ${targets.length}件`)
+      }
+    }
+    if (selectedImgIds.length) {
+      const targets = imgClips.filter(
+        (c) => selectedImgIds.includes(c.id) && !trackStates[c.track]?.locked
+      )
+      if (targets.length) {
+        setImgClips((prev) =>
+          prev.map((c) =>
+            selectedImgIds.includes(c.id) && !trackStates[c.track]?.locked
+              ? { ...common(c), ...(a.opacity !== undefined ? { opacity: a.opacity } : {}) }
+              : c
+          )
+        )
+        hits.push(`画像 ${targets.length}件`)
+      }
+    }
+    if (selectedSeIds.length) {
+      const targets = seClips.filter(
+        (c) => selectedSeIds.includes(c.id) && !trackStates[c.track]?.locked
+      )
+      if (targets.length) {
+        setSeClips((prev) =>
+          prev.map((c) =>
+            selectedSeIds.includes(c.id) && !trackStates[c.track]?.locked
+              ? {
+                  ...c,
+                  ...(a.vol !== undefined ? { volume: a.vol } : {}),
+                  ...(a.afadeIn !== undefined ? { fadeIn: a.afadeIn } : {}),
+                  ...(a.afadeOut !== undefined ? { fadeOut: a.afadeOut } : {}),
+                  ...(a.label !== undefined ? { label: a.label } : {})
+                }
+              : c
+          )
+        )
+        hits.push(`効果音 ${targets.length}件`)
+      }
+    }
+    if (!hits.length) {
+      showToast('貼り付けられるクリップが選ばれていません。')
+      return
+    }
+    const skipped =
+      a.from === 'telop' &&
+      (selectedVideoIds.length || selectedImgIds.length || selectedVClipIds.length)
+    showToast(
+      `${hits.join(' / ')} に貼り付けました。` +
+        (skipped ? 'テロップの見た目はテロップにだけ貼っています。' : ''),
+      'success'
+    )
+  }
+
   // ---- 最近使ったプロジェクト ----
   // 保存先を自分で覚えていないと開けない（＝どこに置いたか分からなくなる）ので、
   // 保存・読み込みのたびに覚えて、ファイルメニューからそのまま開けるようにする。
@@ -2797,6 +3091,9 @@ export default function App(): JSX.Element {
     setCurrentTime(t)
   }
 
+  // 保存していない変更があるか（タイトルの「＊」用）。
+  // 重いので毎レンダーではなく、下の一定間隔の判定でだけ更新する。
+  const [unsaved, setUnsaved] = useState(false)
   const isDirty = (): boolean =>
     cuesRef.current !== baselineRef.current.cues ||
     segsRef.current !== baselineRef.current.segments ||
@@ -4566,6 +4863,7 @@ export default function App(): JSX.Element {
       savedJsonRef.current = saved // ここを「保存済み」の基準にする
       baselineRef.current = snapNow() // 保存時点を「未編集」の基準にする
       rememberProject(res.path) // ファイルメニューの「最近使ったプロジェクト」に出す
+      markUnsavedRef.current() // タイトルの「＊」を待たずに消す
       showToast('プロジェクトを保存しました:\n' + res.path, 'success')
     } else if (res?.error && res.error !== 'キャンセル')
       showToast('保存失敗: ' + res.error, 'error')
@@ -5252,20 +5550,26 @@ export default function App(): JSX.Element {
     }, 30000)
     return () => window.clearInterval(id)
   }, [])
-  // 未保存かどうかをメインプロセスへ通知（×ボタンで閉じるときの確認ダイアログに使う）
+  // 未保存かどうかをメインプロセスへ通知（×ボタンで閉じるときの確認ダイアログに使う）。
+  // ついでに画面のタイトルに出す「＊」もここで決める。
+  //
+  // 以前タイトルは isDirty()（Undo履歴の基準との比較）を見ていたが、あれは
+  // 編集の450ms後に false へ戻るので、未保存でも「＊」が消えていた。
+  // ＝「＊が無い＝保存済み」と思って閉じると編集が飛ぶ。保存済みの内容と
+  // 今の内容を直接比べたこの判定を、閉じる確認とタイトルで共通に使う。
+  const markUnsaved = (): void => {
+    try {
+      const dirty = hasContentRef.current() ? savedJsonRef.current !== projectJsonRef.current() : false
+      setUnsaved(dirty)
+      window.giftcut?.setDirty?.(dirty)
+    } catch {
+      /* noop */
+    }
+  }
+  const markUnsavedRef = useRef(markUnsaved)
+  markUnsavedRef.current = markUnsaved
   useEffect(() => {
-    const id = window.setInterval(() => {
-      try {
-        if (!hasContentRef.current()) {
-          window.giftcut?.setDirty?.(false)
-          return
-        }
-        const cur = projectJsonRef.current()
-        window.giftcut?.setDirty?.(savedJsonRef.current !== cur)
-      } catch {
-        /* noop */
-      }
-    }, 1500)
+    const id = window.setInterval(() => markUnsavedRef.current(), 800)
     return () => window.clearInterval(id)
   }, [])
   // 終了/リロード直前に、その時点の内容を自動保存へ流し込む。
@@ -7329,6 +7633,8 @@ export default function App(): JSX.Element {
         stopPlayback()
         seekTo(currentTimeRef.current + 5 / fpsRef.current)
       },
+      attrCopy: () => copyAttributes(),
+      attrPaste: () => pasteAttributes(),
       del: () => {
         // D は「削除」。以前は動画=映像なし化・音声=消音 だったが、
         // ユーザーの期待どおり“残さず消す”に統一した（Undo で戻せる）。
@@ -8778,7 +9084,7 @@ export default function App(): JSX.Element {
         <div className="modebar-title" title={projectPath ?? '未保存のプロジェクト'}>
           {/* タイトルはプロジェクトファイル名。SRTのファイル名を出すと保存先を誤認させる */}
           {projectPath ? projectPath.split(/[\\/]/).pop() : 'GiftCut - 無題プロジェクト'}
-          {isDirty() ? ' *' : ''}
+          {unsaved ? ' *' : ''}
         </div>
         <div className="modebar-right">
           <button className="btn btn-primary" onClick={handleImportSrt}>
@@ -11832,7 +12138,13 @@ export default function App(): JSX.Element {
                         <div
                           key={clip.id}
                           className={`clip se-clip ${selectedSeIds.includes(clip.id) ? 'clip-selected' : ''}`}
-                          style={{ left: clip.tStart * zoom, width: Math.max(clip.duration * zoom - 1, 12) }}
+                          style={{
+                            left: clip.tStart * zoom,
+                            width: Math.max(clip.duration * zoom - 1, 12),
+                            // ラベルカラーはクリップ全体を塗る（他の種類と同じ扱い）。
+                            // ここだけ抜けていて、色を選んでも見た目が変わらなかった。
+                            background: clip.label || undefined
+                          }}
                           title={`${clip.name}（ドラッグで移動・左右端で長さ変更・Deleteで削除）`}
                           onPointerDown={(e) => onSePointerDown(clip, e)}
                           onContextMenu={(e) => {
@@ -12414,6 +12726,7 @@ export default function App(): JSX.Element {
       {menu && (
         <div
           className="ctx-menu"
+          ref={clampMenu}
           style={{ left: menu.x, top: menu.y }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -12446,6 +12759,28 @@ export default function App(): JSX.Element {
           >
             同じ色をまとめて選択
           </button>
+          <div className="ctx-sep" />
+          <button
+            className="ctx-item"
+            onClick={() => {
+              copyAttributes()
+              setMenu(null)
+            }}
+          >
+            設定をコピー（位置・大きさ・見た目）（{formatCombo(shortcuts.attrCopy)}）
+          </button>
+          {copiedAttrs && (
+            <button
+              className="ctx-item"
+              onClick={() => {
+                pasteAttributes()
+                setMenu(null)
+              }}
+            >
+              設定を貼り付け: {attrSummary(copiedAttrs)}（{formatCombo(shortcuts.attrPaste)}）
+            </button>
+          )}
+          <div className="ctx-sep" />
           <button
             className="ctx-item"
             onClick={() => {
@@ -12470,6 +12805,7 @@ export default function App(): JSX.Element {
       {clipMenu && (
         <div
           className="ctx-menu"
+          ref={clampMenu}
           style={{ left: clipMenu.x, top: clipMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -12566,6 +12902,27 @@ export default function App(): JSX.Element {
             </>
           )}
           <div className="ctx-sep" />
+          <button
+            className="ctx-item"
+            onClick={() => {
+              copyAttributes()
+              setClipMenu(null)
+            }}
+          >
+            設定をコピー（{formatCombo(shortcuts.attrCopy)}）
+          </button>
+          {copiedAttrs && (
+            <button
+              className="ctx-item"
+              onClick={() => {
+                pasteAttributes()
+                setClipMenu(null)
+              }}
+            >
+              設定を貼り付け: {attrSummary(copiedAttrs)}（{formatCombo(shortcuts.attrPaste)}）
+            </button>
+          )}
+          <div className="ctx-sep" />
           {/* 本編以外は「消して同じトラックの後続を詰める」も選べる
               （本編の削除は元から詰める動作なので出さない） */}
           {clipMenu.kind !== 'seg' && (
@@ -12611,6 +12968,7 @@ export default function App(): JSX.Element {
       {tplMenu && (
         <div
           className="ctx-menu"
+          ref={clampMenu}
           style={{ left: tplMenu.x, top: tplMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -12645,6 +13003,7 @@ export default function App(): JSX.Element {
       {orgMenu && (
         <div
           className="ctx-menu"
+          ref={clampMenu}
           style={{ left: orgMenu.x, top: orgMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
