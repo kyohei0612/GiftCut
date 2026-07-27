@@ -518,6 +518,67 @@ body {
   color: var(--text);
   background: #ffffff12;
 }
+/* 並べ替えで掴んでいるタブ。どれを動かしているか分かるようにする */
+/* 切り離したパネル。画面から浮かせるので、残りのパネルが自動で広がる。 */
+.pane-float {
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px #000a;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.float-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px 5px 12px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  cursor: move;
+  user-select: none;
+  flex: 0 0 auto;
+}
+.float-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted, #9aa3b2);
+}
+.float-dock {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.float-dock:hover {
+  background: #26313f;
+}
+/* 右下のつまみ。ここを掴んで大きさを変える */
+.float-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, var(--line) 50%);
+}
+/* メニュー内の説明文。押せる項目と見分けが付くよう控えめにする */
+.ctx-note {
+  padding: 4px 10px 8px;
+  font-size: 11px;
+  color: var(--muted, #8d97a3);
+  max-width: 220px;
+  line-height: 1.5;
+}
+.tab-dragging {
+  opacity: 0.55;
+  background: #ffffff1f;
+}
 .tab-more {
   width: 24px;
   font-size: 12px;
@@ -1231,14 +1292,6 @@ body {
   width: 100%;
   border-radius: 3px;
   background: #ffffff14;
-  overflow: hidden;
-}
-.preview-scrub-done {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  background: #2b8fef55;
 }
 .preview-scrub-tick {
   position: absolute;
@@ -1247,26 +1300,32 @@ body {
   width: 1px;
   background: #ffffff1f;
 }
-/* 再生位置。掴みやすいよう、線より少し大きい印を付ける */
+/* 頭と尻。目盛りより背を高くして、始まりと終わりが一目で分かるようにする */
+.preview-scrub-edge {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: #ffffff40;
+  border-radius: 1px;
+}
+.preview-scrub-edge-l {
+  left: 0;
+}
+.preview-scrub-edge-r {
+  right: 0;
+}
+/* 再生位置のつまみ。中心を位置に合わせるので、両端でもバーからはみ出さない */
 .preview-scrub-head {
   position: absolute;
-  top: 2px;
-  bottom: 2px;
-  width: 2px;
-  margin-left: -1px;
-  background: var(--accent);
-  box-shadow: 0 0 0 1px #0006;
-  pointer-events: none;
-}
-.preview-scrub-head::before {
-  content: '';
-  position: absolute;
-  top: -2px;
-  left: -4px;
-  width: 10px;
-  height: 6px;
+  top: -4px;
+  height: 14px;
+  width: 9px;
+  margin-left: -4.5px;
   background: var(--accent);
   border-radius: 2px 2px 4px 4px;
+  box-shadow: 0 0 0 1px #0008;
+  pointer-events: none;
 }
 /* プレビュー下は2段。1段目＝状態、2段目＝操作（再生ボタンは中央）。
    1段に詰めると、一番よく使う再生ボタンが端に寄って毎回探すことになる。 */

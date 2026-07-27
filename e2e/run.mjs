@@ -273,6 +273,8 @@ ${t}
 // 結果の集計
 // ---------------------------------------------------------------------------
 const results = []
+// 前のリセット以降に確認を実行したか（実行していれば状態が変わっている可能性がある）
+const touchedRef = { dirty: true }
 let curSection = ''
 let pageRef = null
 const TOTAL_HINT = 46 // だいたいの件数（進み具合の表示用。増減しても表示が崩れないだけ）
@@ -338,6 +340,7 @@ async function check(name, fn, opts = {}) {
   // 何を確認しているか読めるだけの間を置く（--slow ならもっと長く）
   if (pageRef) await pageRef.waitForTimeout(SLOW ? 900 : 320)
   try {
+    touchedRef.dirty = true
     await fn()
     results.push({ name, ok: true })
     console.log(`  \x1b[32m✓\x1b[0m ${name}`)
@@ -525,6 +528,10 @@ try {
    */
   async function resetProject() {
     if (SHOT_ONLY) return
+    // 前のリセット以降に何も実行していなければ、戻す必要が無い。
+    // 毎回戻すと、同じ画面を何度も作り直すだけで時間を食う。
+    if (!touchedRef.dirty) return
+    touchedRef.dirty = false
     // これは確認そのものではなく「次の確認のための片付け」。
     // 何も出さないと、同じ確認を繰り返しているように見えてしまう。
     await banner({
@@ -2361,6 +2368,56 @@ try {
   })
 
   // =========================================================================
+  section('パネルの切り離し（ドッキング解除）')
+  await resetProject()
+
+  await check('タブを右クリックして、パネルを切り離せる', async () => {
+    const monitorW = async () =>
+      page.locator('.panel.monitor').boundingBox().then((b) => b.width)
+    const w0 = await monitorW()
+    await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const item = page.locator('.ctx-item', { hasText: 'を切り離す' }).first()
+    assert(await item.count(), 'メニューに切り離しが無い')
+    await item.click()
+    await page.waitForTimeout(600)
+    assert((await page.locator('.pane-float').count()) > 0, '切り離されていない')
+    const w1 = await monitorW()
+    assert(w1 > w0 + 20, `切り離してもプレビューが広がらない（${Math.round(w0)} → ${Math.round(w1)}）`)
+  })
+
+  await check('切り離したパネルは掴んで動かせて、大きさも変えられる', async () => {
+    const pane = page.locator('.pane-float').first()
+    const b0 = await pane.boundingBox()
+    const head = pane.locator('.float-head')
+    const hb = await head.boundingBox()
+    await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(hb.x + hb.width / 2 - 120, hb.y + hb.height / 2 + 60, { steps: 6 })
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const b1 = await pane.boundingBox()
+    assert(Math.abs(b1.x - b0.x) > 40, `動かせていない（${Math.round(b0.x)} → ${Math.round(b1.x)}）`)
+    const grip = pane.locator('.float-resize')
+    const gb = await grip.boundingBox()
+    await page.mouse.move(gb.x + gb.width / 2, gb.y + gb.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(gb.x + 90, gb.y + 60, { steps: 6 })
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const b2 = await pane.boundingBox()
+    assert(b2.width > b1.width + 30, `大きさを変えられない（${Math.round(b1.width)} → ${Math.round(b2.width)}）`)
+  })
+
+  await check('「戻す」で元の場所に戻り、切り離した状態は覚えている', async () => {
+    await page.locator('.float-dock').first().click()
+    await page.waitForTimeout(600)
+    assert((await page.locator('.pane-float').count()) === 0, '元に戻っていない')
+    const saved = await page.evaluate(() => localStorage.getItem('giftcut.floatPanes'))
+    assert(saved !== null, '切り離しの状態が保存されていない')
+  })
+
+  // =========================================================================
   section('プレビューの再生バー')
   await resetProject()
 
@@ -2442,6 +2499,9 @@ try {
   })
 
   await check('一覧（≫）から、見えていないタブへ移動できる', async () => {
+    // 送りボタンで流れたままだと「隠れているタブ」が変わるので、先頭に戻す
+    await page.locator('.panel-tabs-strip').last().evaluate((el) => (el.scrollLeft = 0))
+    await page.waitForTimeout(300)
     await page.locator('.tab-more').last().click()
     await page.waitForSelector('.ctx-menu')
     const item = page.locator('.ctx-item', { hasText: 'トランジション' })
@@ -2450,46 +2510,83 @@ try {
     await page.waitForTimeout(600)
     const on = await page.locator('.panel-tabs-strip .tab.tab-on').last().textContent()
     assert(on.includes('トランジション'), `切り替わっていない: ${on}`)
+    await page.mouse.click(5, 5) // メニューを閉じる
+    await page.waitForTimeout(200)
   })
 
-  await check('タブを掴んで横に引っぱると流れる', async () => {
+  await check('一覧（≫）には、いま見えていないタブだけが出る', async () => {
     const strip = page.locator('.panel-tabs-strip').last()
     await strip.evaluate((el) => (el.scrollLeft = 0))
-    await page.waitForTimeout(200)
-    const b = await strip.boundingBox()
-    await page.mouse.move(b.x + b.width - 20, b.y + b.height / 2)
-    await page.mouse.down()
-    for (let i = 1; i <= 6; i++)
-      await page.mouse.move(b.x + b.width - 20 - i * 12, b.y + b.height / 2)
-    await page.mouse.up()
     await page.waitForTimeout(300)
-    const x = await strip.evaluate((el) => el.scrollLeft)
-    assert(x > 5, `引っぱっても流れない（${x}）`)
+    const visible = await strip.evaluate((el) => {
+      const box = el.getBoundingClientRect()
+      return [...el.querySelectorAll('.tab')]
+        .filter((t) => {
+          const r = t.getBoundingClientRect()
+          return r.left >= box.left - 1 && r.right <= box.right + 1
+        })
+        .map((t) => t.textContent.trim())
+    })
+    await page.locator('.tab-more').last().click()
+    await page.waitForSelector('.ctx-menu')
+    const listed = await page.locator('.ctx-menu .ctx-item').allTextContents()
+    assert(listed.length > 0, '一覧が空')
+    assert(
+      listed.every((t) => !visible.includes(t.trim())),
+      `見えているタブまで出ている（見えている: ${visible.join(',')} / 一覧: ${listed.join(',')}）`
+    )
+    await page.mouse.click(5, 5)
+    await page.waitForTimeout(200)
   })
 
-  await check('タブを右クリックすると、並び順を変えられる', async () => {
+  await check('タブを掴んで動かすと、並び順を変えられる', async () => {
     const strip = page.locator('.panel-tabs-strip').last()
     await strip.evaluate((el) => (el.scrollLeft = 0))
-    await page.waitForTimeout(200)
+    await page.waitForTimeout(300)
     const before = await strip.locator('.tab').allTextContents()
-    await strip.locator('.tab').nth(1).click({ button: 'right' })
-    await page.waitForSelector('.ctx-menu')
-    const head = page.locator('.ctx-item', { hasText: '先頭へ' })
-    assert(await head.count(), 'メニューに「先頭へ」が無い')
-    await head.first().click()
-    await page.waitForTimeout(500)
+    const a = await strip.locator('.tab').nth(0).boundingBox()
+    const b = await strip.locator('.tab').nth(1).boundingBox()
+    // 1つ目を2つ目より右へ運ぶ
+    const goal = b.x + b.width + 6 // 2つ目の右端を越える所まで運ぶ
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 8; i++)
+      await page.mouse.move(
+        a.x + a.width / 2 + ((goal - (a.x + a.width / 2)) * i) / 8,
+        a.y + a.height / 2
+      )
+    await page.mouse.up()
+    await page.waitForTimeout(400)
     const after = await strip.locator('.tab').allTextContents()
-    assert(after[0] === before[1], `先頭に来ていない（${before.join(',')} → ${after.join(',')}）`)
-    // 元に戻す
+    assert(after[0] === before[1], `入れ替わっていない（${before.join(',')} → ${after.join(',')}）`)
+  })
+
+  await check('掴んで動かしただけでは、タブが切り替わらない', async () => {
+    const strip = page.locator('.panel-tabs-strip').last()
+    const on = await strip.locator('.tab.tab-on').textContent()
+    const t = strip.locator('.tab').nth(1)
+    const b = await t.boundingBox()
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 5; i++) await page.mouse.move(b.x + b.width / 2 - i * 8, b.y + b.height / 2)
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const on2 = await strip.locator('.tab.tab-on').textContent()
+    assert(on === on2, `並べ替えただけでタブが切り替わった（${on} → ${on2}）`)
+  })
+
+  await check('タブを右クリックすると、並び順を元に戻せる', async () => {
+    const strip = page.locator('.panel-tabs-strip').last()
+    const before = await strip.locator('.tab').allTextContents()
     await strip.locator('.tab').nth(0).click({ button: 'right' })
     await page.waitForSelector('.ctx-menu')
+    const note = await page.locator('.ctx-note').textContent()
+    assert(note.includes('掴んで'), `並べ替え方の案内が出ていない: ${note}`)
     await page.locator('.ctx-item', { hasText: '並び順を元に戻す' }).first().click()
     await page.waitForTimeout(500)
-    const reset = await strip.locator('.tab').allTextContents()
-    assert(
-      JSON.stringify(reset) === JSON.stringify(before),
-      `元に戻っていない（${reset.join(',')}）`
-    )
+    const after = await strip.locator('.tab').allTextContents()
+    assert(after[0] === 'プロジェクト', `既定の並びに戻っていない（${after.join(',')}）`)
+    void before
   })
 
   // =========================================================================
@@ -2996,14 +3093,18 @@ try {
   // =========================================================================
   section('画面の記録')
 
-  await check(
-    '最後の画面をスクリーンショットに残す',
-    async () => {
-      await page.screenshot({ path: join(ROOT, 'e2e', 'last-run.png') })
-      if (SHOT_ONLY) console.log('  → e2e/last-run.png に撮りました')
-    },
-    { setup: true }
-  )
+  // 画面の記録は「通しで回したとき」と「撮るだけのとき」だけ。
+  // 絞って回すたびに同じ画面を撮っても、前のものと変わらず意味が無い。
+  if (!ONLY || SHOT_ONLY) {
+    await check(
+      '最後の画面をスクリーンショットに残す',
+      async () => {
+        await page.screenshot({ path: join(ROOT, 'e2e', 'last-run.png') })
+        if (SHOT_ONLY) console.log('  → e2e/last-run.png に撮りました')
+      },
+      { setup: true }
+    )
+  }
 } catch (e) {
   console.error('\n\x1b[31m実行そのものに失敗しました:\x1b[0m', e?.message ?? e)
   results.push({ name: '（実行）', ok: false, err: String(e?.message ?? e) })

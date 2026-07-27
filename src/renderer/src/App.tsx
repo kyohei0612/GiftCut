@@ -525,17 +525,35 @@ function PanelTabs({
   active,
   onPick,
   onTabMenu,
-  onOverflow
+  onOverflow,
+  onReorder
 }: {
   group: string
   tabs: { id: string; label: string }[]
   active: string
   onPick: (id: string) => void
   onTabMenu: (e: React.MouseEvent, group: string, id: string, label: string) => void
-  onOverflow: (e: React.MouseEvent, group: string) => void
+  onOverflow: (e: React.MouseEvent, group: string, hidden: string[]) => void
+  onReorder: (ids: string[]) => void
 }): JSX.Element {
   const stripRef = useRef<HTMLDivElement | null>(null)
   const [over, setOver] = useState(false) // 端が切れているか
+  const [dragId, setDragId] = useState<string | null>(null)
+  const didDragRef = useRef(false) // 並べ替えた直後にタブが切り替わらないように
+  /** いま帯からはみ出して見えていないタブ。「≫」はこれを出す。 */
+  const hiddenIds = (): string[] => {
+    const strip = stripRef.current
+    if (!strip) return []
+    const box = strip.getBoundingClientRect()
+    return [...strip.querySelectorAll<HTMLElement>('.tab')]
+      .map((el, i) => ({ el, id: tabs[i]?.id }))
+      .filter(({ el }) => {
+        const r = el.getBoundingClientRect()
+        return r.left < box.left - 1 || r.right > box.right + 1
+      })
+      .map(({ id }) => id)
+      .filter((id): id is string => !!id)
+  }
   const measure = (): void => {
     const el = stripRef.current
     if (el) setOver(el.scrollWidth > el.clientWidth + 2)
@@ -596,10 +614,52 @@ function PanelTabs({
         {tabs.map((t) => (
           <span
             key={t.id}
-            className={`tab ${active === t.id ? 'tab-on' : ''}`}
-            onClick={() => onPick(t.id)}
+            className={`tab ${active === t.id ? 'tab-on' : ''} ${dragId === t.id ? 'tab-dragging' : ''}`}
+            onClick={() => {
+              // 並べ替えた直後は、タブが切り替わらないようにする
+              if (didDragRef.current) {
+                didDragRef.current = false
+                return
+              }
+              onPick(t.id)
+            }}
             onContextMenu={(e) => onTabMenu(e, group, t.id, t.label)}
-            title={`${t.label}（右クリックで並び順を変える）`}
+            title={`${t.label}（掴んで左右に動かすと並び順を変えられます）`}
+            // 掴んで動かす＝並べ替え。押しただけならタブの切り替え。
+            onPointerDown={(e) => {
+              if (e.button !== 0) return
+              e.stopPropagation() // 帯の横スクロールと取り合わない
+              const sx = e.clientX
+              let dragging = false
+              const move = (ev: PointerEvent): void => {
+                if (!dragging && Math.abs(ev.clientX - sx) < 5) return
+                dragging = true
+                didDragRef.current = true
+                setDragId(t.id)
+                const strip = stripRef.current
+                if (!strip) return
+                const rects = [...strip.querySelectorAll('.tab')].map((el) =>
+                  el.getBoundingClientRect()
+                )
+                const ids = tabs.map((x) => x.id)
+                const from = ids.indexOf(t.id)
+                let to = rects.findIndex((r) => ev.clientX < r.left + r.width / 2)
+                if (to < 0) to = ids.length - 1
+                if (to !== from) {
+                  const next = [...ids]
+                  next.splice(from, 1)
+                  next.splice(to, 0, t.id)
+                  onReorder(next)
+                }
+              }
+              const up = (): void => {
+                window.removeEventListener('pointermove', move)
+                window.removeEventListener('pointerup', up)
+                setDragId(null)
+              }
+              window.addEventListener('pointermove', move)
+              window.addEventListener('pointerup', up)
+            }}
           >
             {t.label}
           </span>
@@ -611,7 +671,11 @@ function PanelTabs({
         </button>
       )}
       {over && (
-        <button className="tab-nav tab-more" title="ほかのタブを一覧から選ぶ" onClick={(e) => onOverflow(e, group)}>
+        <button
+          className="tab-nav tab-more"
+          title="いま見えていないタブを一覧から選ぶ"
+          onClick={(e) => onOverflow(e, group, hiddenIds())}
+        >
           ≫
         </button>
       )}
@@ -2034,16 +2098,9 @@ export default function App(): JSX.Element {
   // ---- パネルの切り離し（ドッキング解除）----
   //
   // 切り抜きは「絵を見る作業」なので、プレビューを大きく取れることが要る。
-  // 使っていないパネルを切り離すと、その枠が畳まれて残りが自動で広がる。
-  // 切り離したものは浮いた窓として残り、掴んで動かす／右下で大きさを変える。
-  // 「⇤ 戻す」で元の場所へ戻る。位置と大きさは覚えておく。
+  // 使わないパネルを切り離すと、そのぶん残りが自動で広がる（切り離したものは
+  // 画面から浮くので、並びの計算から外れる）。掴んで動かし、右下で大きさを変える。
   type PaneId = 'left' | 'right' | 'preview' | 'timeline'
-  interface FloatRect {
-    x: number
-    y: number
-    w: number
-    h: number
-  }
   const PANE_LABEL: Record<PaneId, string> = {
     left: 'プロパティ',
     right: 'プロジェクト',
@@ -2051,7 +2108,9 @@ export default function App(): JSX.Element {
     timeline: 'タイムライン'
   }
   const FLOAT_KEY = 'giftcut.floatPanes'
-  const [floating, setFloating] = useState<Partial<Record<PaneId, FloatRect>>>(() => {
+  const [floating, setFloating] = useState<
+    Partial<Record<PaneId, { x: number; y: number; w: number; h: number }>>
+  >(() => {
     try {
       const v = JSON.parse(localStorage.getItem(FLOAT_KEY) || '{}')
       return v && typeof v === 'object' ? v : {}
@@ -2068,16 +2127,16 @@ export default function App(): JSX.Element {
   }, [floating])
   const isFloating = (id: PaneId): boolean => !!floating[id]
   function undockPane(id: PaneId): void {
-    const w = Math.min(520, Math.max(320, window.innerWidth * 0.3))
-    const h = Math.min(560, Math.max(260, window.innerHeight * 0.45))
-    // 元あった側の近くに出す（画面の真ん中に出すと、どれが出たのか分からなくなる）
-    const pos: Record<PaneId, { x: number; y: number }> = {
-      left: { x: 24, y: 96 },
-      right: { x: Math.max(24, window.innerWidth - w - 24), y: 96 },
-      preview: { x: Math.max(24, (window.innerWidth - w) / 2), y: 80 },
-      timeline: { x: 24, y: Math.max(80, window.innerHeight - h - 24) }
+    const w = Math.min(560, Math.max(320, window.innerWidth * 0.32))
+    const h = Math.min(560, Math.max(240, window.innerHeight * 0.45))
+    // 元あった側の近くに出す（真ん中に出すと、どれが出たのか分からなくなる）
+    const at: Record<PaneId, { x: number; y: number }> = {
+      left: { x: 24, y: 100 },
+      right: { x: Math.max(24, window.innerWidth - w - 24), y: 100 },
+      preview: { x: Math.max(24, (window.innerWidth - w) / 2), y: 90 },
+      timeline: { x: 24, y: Math.max(90, window.innerHeight - h - 24) }
     }
-    setFloating((p) => ({ ...p, [id]: { ...pos[id], w, h } }))
+    setFloating((p) => ({ ...p, [id]: { ...at[id], w, h } }))
     showToast(`${PANE_LABEL[id]} を切り離しました。「⇤ 戻す」で元に戻せます。`)
   }
   function dockPane(id: PaneId): void {
@@ -2108,7 +2167,7 @@ export default function App(): JSX.Element {
               mode === 'move'
                 ? {
                     ...cur,
-                    x: clamp(r0.x + dx, -cur.w + 120, window.innerWidth - 120),
+                    x: clamp(r0.x + dx, -cur.w + 140, window.innerWidth - 140),
                     y: clamp(r0.y + dy, 0, window.innerHeight - 40)
                   }
                 : {
@@ -2127,18 +2186,22 @@ export default function App(): JSX.Element {
       window.addEventListener('pointerup', onUp)
     }
   }
-  /** 切り離しボタン。各パネルのタブ帯の右端に置く。 */
-  const undockBtn = (id: PaneId): JSX.Element => (
-    <button
-      className="tab-nav pane-undock"
-      title={`${PANE_LABEL[id]} を切り離す（残りが広がります）`}
-      onClick={(e) => {
-        e.stopPropagation()
-        undockPane(id)
-      }}
-    >
-      ⇱
-    </button>
+  /** 切り離したパネルの見た目（画面から浮かせて、並びの計算から外す） */
+  const floatStyle = (id: PaneId): React.CSSProperties => {
+    const r = floating[id]!
+    return { position: 'fixed', left: r.x, top: r.y, width: r.w, height: r.h, zIndex: 900 }
+  }
+  /** 切り離したパネルの上に付く、掴む所と「戻す」 */
+  const floatHead = (id: PaneId): JSX.Element => (
+    <>
+      <div className="float-head" onPointerDown={floatDrag(id, 'move')}>
+        <span className="float-title">{PANE_LABEL[id]}</span>
+        <button className="float-dock" title="元の場所に戻す" onClick={() => dockPane(id)}>
+          ⇤ 戻す
+        </button>
+      </div>
+      <div className="float-resize" onPointerDown={floatDrag(id, 'resize')} title="大きさを変える" />
+    </>
   )
 
   // ---- パネルのタブ帯（見切れ対策と並べ替え）----
@@ -2191,17 +2254,28 @@ export default function App(): JSX.Element {
     id: string
     label: string
   } | null>(null)
-  const [tabOverflow, setTabOverflow] = useState<{ x: number; y: number; group: string } | null>(
-    null
-  )
+  const [tabOverflow, setTabOverflow] = useState<{
+    x: number
+    y: number
+    group: string
+    hidden: string[]
+  } | null>(null)
   useEffect(() => {
     if (!tabMenu && !tabOverflow) return
     const close = (): void => {
       setTabMenu(null)
       setTabOverflow(null)
     }
+    // Escape でも閉じる。閉じられないと、裏のタブが押せなくなる
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close()
+    }
     window.addEventListener('click', close)
-    return () => window.removeEventListener('click', close)
+    window.addEventListener('keydown', onEsc)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('keydown', onEsc)
+    }
   }, [tabMenu, tabOverflow])
 
   /** タブの一覧（≫）とその並び順メニューで使う、グループごとのタブ定義 */
@@ -9492,7 +9566,11 @@ export default function App(): JSX.Element {
       <div className="workspace">
         <div className="upper">
           {/* --- 左: プロパティ --- */}
-          <section className="panel" style={{ width: leftW, flex: '0 0 auto' }}>
+          <section
+            className={`panel ${isFloating('left') ? 'pane-float' : ''}`}
+            style={isFloating('left') ? floatStyle('left') : { width: leftW, flex: '0 0 auto' }}
+          >
+            {isFloating('left') && floatHead('left')}
             <div className="panel-tabs">
               <span className="tab tab-on">プロパティ</span>
             </div>
@@ -10167,7 +10245,11 @@ export default function App(): JSX.Element {
           <div className="resizer resizer-v" onPointerDown={(e) => startResize('left', e)} />
 
           {/* --- 中央: プログラムモニター / オーディオミキサー --- */}
-          <section className="panel monitor" style={{ flex: '1 1 0', minWidth: 0 }}>
+          <section
+            className={`panel monitor ${isFloating('preview') ? 'pane-float' : ''}`}
+            style={isFloating('preview') ? floatStyle('preview') : { flex: '1 1 0', minWidth: 0 }}
+          >
+            {isFloating('preview') && floatHead('preview')}
             <PanelTabs
               group="monitor"
               tabs={orderedTabs('monitor', TAB_DEFS.monitor)}
@@ -10179,11 +10261,12 @@ export default function App(): JSX.Element {
                 setTabOverflow(null)
                 setTabMenu({ x: e.clientX, y: e.clientY, group: grp, id, label })
               }}
-              onOverflow={(e, grp) => {
+              onOverflow={(e, grp, hidden) => {
                 e.stopPropagation()
                 setTabMenu(null)
-                setTabOverflow({ x: e.clientX, y: e.clientY, group: grp })
+                setTabOverflow({ x: e.clientX, y: e.clientY, group: grp, hidden })
               }}
+              onReorder={(ids) => setTabOrder((p) => ({ ...p, monitor: ids }))}
             />
             {/* ミキサー表示中も video は破棄せず隠すだけ（再生を止めないため） */}
             <div
@@ -10621,19 +10704,21 @@ export default function App(): JSX.Element {
               title="押した所へ飛びます（掴んだまま動かすと早送り・巻き戻し）"
             >
               <div className="preview-scrub-track">
-                {/* 目盛り。10等分の薄い線で、だいたいの位置をつかめるようにする */}
+                {/* 頭と尻は長めの印にする。どこが始まりでどこが終わりか一目で分かる */}
+                <span className="preview-scrub-edge preview-scrub-edge-l" />
+                <span className="preview-scrub-edge preview-scrub-edge-r" />
+                {/* だいたいの位置をつかむための目盛り */}
                 {Array.from({ length: 9 }, (_, i) => (
                   <span key={i} className="preview-scrub-tick" style={{ left: `${(i + 1) * 10}%` }} />
                 ))}
+                {/* 再生位置。塗りつぶしはせず、つまみだけ出す */}
                 <div
-                  className="preview-scrub-done"
-                  style={{ width: `${clamp((currentTime / Math.max(0.001, duration)) * 100, 0, 100)}%` }}
+                  className="preview-scrub-head"
+                  style={{
+                    left: `${clamp((currentTime / Math.max(0.001, duration)) * 100, 0, 100)}%`
+                  }}
                 />
               </div>
-              <div
-                className="preview-scrub-head"
-                style={{ left: `${clamp((currentTime / Math.max(0.001, duration)) * 100, 0, 100)}%` }}
-              />
             </div>
             {/* プレビューの下は2段に分ける（プレミアと同じ考え方）。
                 1段目＝いま何秒か・どの画質か といった「状態」。
@@ -10693,7 +10778,11 @@ export default function App(): JSX.Element {
           <div className="resizer resizer-v" onPointerDown={(e) => startResize('right', e)} />
 
           {/* --- 右: プロジェクト --- */}
-          <section className="panel" style={{ width: rightW, flex: '0 0 auto' }}>
+          <section
+            className={`panel ${isFloating('right') ? 'pane-float' : ''}`}
+            style={isFloating('right') ? floatStyle('right') : { width: rightW, flex: '0 0 auto' }}
+          >
+            {isFloating('right') && floatHead('right')}
             <PanelTabs
               group="right"
               tabs={orderedTabs('right', TAB_DEFS.right)}
@@ -10705,11 +10794,12 @@ export default function App(): JSX.Element {
                 setTabOverflow(null)
                 setTabMenu({ x: e.clientX, y: e.clientY, group: grp, id, label })
               }}
-              onOverflow={(e, grp) => {
+              onOverflow={(e, grp, hidden) => {
                 e.stopPropagation()
                 setTabMenu(null)
-                setTabOverflow({ x: e.clientX, y: e.clientY, group: grp })
+                setTabOverflow({ x: e.clientX, y: e.clientY, group: grp, hidden })
               }}
+              onReorder={(ids) => setTabOrder((p) => ({ ...p, right: ids }))}
             />
             {rightTab === 'project' && (
             <div className="panel-body" ref={rightBodyRef} onDoubleClick={addFilesToProject}>
@@ -11473,7 +11563,13 @@ export default function App(): JSX.Element {
         <div className="resizer resizer-h" onPointerDown={(e) => startResize('timeline', e)} />
 
         {/* ===== タイムライン ===== */}
-        <section className="timeline" style={{ height: timelineH, flex: '0 0 auto' }}>
+        <section
+          className={`timeline ${isFloating('timeline') ? 'pane-float' : ''}`}
+          style={
+            isFloating('timeline') ? floatStyle('timeline') : { height: timelineH, flex: '0 0 auto' }
+          }
+        >
+          {isFloating('timeline') && floatHead('timeline')}
           <div className="tl-toolbar">
             <button
               className={`tool ${tool === 'select' ? 'tool-on' : ''}`}
@@ -13119,40 +13215,40 @@ export default function App(): JSX.Element {
           style={{ left: tabMenu.x, top: tabMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="ctx-title">{tabMenu.label} の並び順</div>
-          {(
-            [
-              ['head', '先頭へ'],
-              [-1, '左へ'],
-              [1, '右へ'],
-              ['tail', '末尾へ']
-            ] as const
-          ).map(([dir, label]) => (
-            <button
-              key={String(dir)}
-              className="ctx-item"
-              onClick={() => {
-                moveTab(tabMenu.group, TAB_DEFS[tabMenu.group] ?? [], tabMenu.id, dir)
-                setTabMenu(null)
-              }}
-            >
-              {label}
-            </button>
-          ))}
-          <div className="ctx-sep" />
-          <button
-            className="ctx-item"
-            onClick={() => {
-              setTabOrder((p) => {
-                const n = { ...p }
-                delete n[tabMenu.group]
-                return n
-              })
-              setTabMenu(null)
-            }}
-          >
-            並び順を元に戻す
-          </button>
+          {(() => {
+            const pane: PaneId = tabMenu.group === 'monitor' ? 'preview' : 'right'
+            return (
+              <>
+                <div className="ctx-title">{PANE_LABEL[pane]}</div>
+                <button
+                  className="ctx-item"
+                  onClick={() => {
+                    if (isFloating(pane)) dockPane(pane)
+                    else undockPane(pane)
+                    setTabMenu(null)
+                  }}
+                >
+                  {isFloating(pane) ? '⇤ 元の場所に戻す' : '⇱ このパネルを切り離す'}
+                </button>
+                <div className="ctx-sep" />
+                {(['left', 'preview', 'right', 'timeline'] as PaneId[])
+                  .filter((id) => id !== pane)
+                  .map((id) => (
+                    <button
+                      key={id}
+                      className="ctx-item"
+                      onClick={() => {
+                        if (isFloating(id)) dockPane(id)
+                        else undockPane(id)
+                        setTabMenu(null)
+                      }}
+                    >
+                      {isFloating(id) ? `⇤ ${PANE_LABEL[id]} を戻す` : `⇱ ${PANE_LABEL[id]} を切り離す`}
+                    </button>
+                  ))}
+              </>
+            )
+          })()}
         </div>
       )}
 
@@ -13164,8 +13260,12 @@ export default function App(): JSX.Element {
           style={{ left: tabOverflow.x, top: tabOverflow.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="ctx-title">タブを選ぶ</div>
-          {orderedTabs(tabOverflow.group, TAB_DEFS[tabOverflow.group] ?? []).map((t) => (
+          <div className="ctx-title">
+            {tabOverflow.hidden.length ? '見えていないタブ' : 'タブを選ぶ'}
+          </div>
+          {orderedTabs(tabOverflow.group, TAB_DEFS[tabOverflow.group] ?? [])
+            .filter((t) => !tabOverflow.hidden.length || tabOverflow.hidden.includes(t.id))
+            .map((t) => (
             <button
               key={t.id}
               className="ctx-item"
