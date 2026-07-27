@@ -37,6 +37,44 @@ describe('正常なグラフ', () => {
     expect(p).toEqual([])
   })
 
+  it('空白（クリップ移動でできる隙間）を含む形も通る — 元動画より長い空白でも成立する', () => {
+    // クリップを後ろへ動かすと、元の位置に「映像なし・無音」の空白切片ができる。
+    // 空白は元動画を trim せず color/anullsrc から作るので、元素材(5秒)より
+    // ずっと長い空白(300秒)でも入力の尺に縛られない。ここが崩れると、
+    // 遠くへ動かした瞬間に書き出しが破綻する。
+    const withGap = [
+      'color=c=black:s=1920x1080:d=300.000:r=30,setsar=1[sv0]',
+      'anullsrc=r=48000:cl=stereo,atrim=duration=300.000,asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo[sa0]',
+      '[0:v]trim=start=0.000:end=5.000,setpts=(PTS-STARTPTS)/1,scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1[sv1]',
+      '[0:a]atrim=start=0.000:end=5.000,asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo[sa1]',
+      '[sv0][sv1]concat=n=2:v=1:a=0[vcat]',
+      '[sa0][sa1]concat=n=2:v=0:a=1[acat]',
+      '[acat]volume=1.000[abase]',
+      '[abase]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]',
+      '[vcat]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1[base]',
+      '[base]null[v]'
+    ].join(';')
+    const p = validateFilterGraph(withGap, { inputs: [AV], maps: MAPS })
+    expect(formatGraphProblems(p)).toBe('')
+  })
+
+  it('音声の無い素材の切片を空白で挟んでも、無音側から音声を引かない', () => {
+    // 空白は anullsrc から作るので、音声トラックの無い入力を参照しない。
+    const g = [
+      '[0:v]trim=start=0.000:end=3.000,setpts=(PTS-STARTPTS)/1[sv0]',
+      'color=c=black:s=1920x1080:d=2.000:r=30,setsar=1[sv1]',
+      'anullsrc=r=48000:cl=stereo,atrim=duration=2.000,asetpts=PTS-STARTPTS[sa1]',
+      '[sv0][sv1]concat=n=2:v=1:a=0[vcat]',
+      '[sa1]anull[acat]',
+      '[acat]volume=1.000[abase]',
+      '[abase]aresample=48000[aout]',
+      '[vcat]null[base]',
+      '[base]null[v]'
+    ].join(';')
+    const p = validateFilterGraph(g, { inputs: [VIDEO_ONLY], maps: MAPS })
+    expect(hasGraphError(p)).toBe(false)
+  })
+
   it('末尾のセミコロンや空チェーンがあっても通る', () => {
     const p = validateFilterGraph(MINIMAL + ';', { inputs: [AV], maps: MAPS })
     expect(p).toEqual([])

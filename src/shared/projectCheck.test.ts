@@ -60,6 +60,20 @@ describe('正常なプロジェクト', () => {
     expect(formatProjectProblems(p)).toBe('不整合は見つかりませんでした。')
   })
 
+  it('空白（クリップ移動でできる隙間）を含んでいても指摘ゼロ', () => {
+    // クリップを後ろへ動かすと、元の位置に空白切片ができる。空白は
+    // srcId を持たず、長さも元動画の尺と無関係（元素材より長いこともある）。
+    // これを「壊れた切片」と誤検知すると、動かすたびに警告が出て
+    // 本物の不整合が埋もれる。
+    const d = validProject()
+    d.segments = [
+      { id: 10, srcStart: 0, srcEnd: 120, videoBlank: true, muted: true, gap: true },
+      { id: 1, srcId: 1, srcStart: 0, srcEnd: 10 }
+    ]
+    const p = checkProject(d)
+    expect(formatProjectProblems(p)).toBe('不整合は見つかりませんでした。')
+  })
+
   it('空のプロジェクト（新規状態）でも指摘ゼロ', () => {
     const p = checkProject({
       version: 1,

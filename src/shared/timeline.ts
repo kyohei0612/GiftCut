@@ -173,6 +173,164 @@ export function sourceToT(layout: readonly Layout[], index: number, srcTime: num
 }
 
 // ---------------------------------------------------------------------------
+// 切片の配置・移動（プレミアの「上書き」）
+// ---------------------------------------------------------------------------
+
+/**
+ * 切片を分割したときの断片を作るコールバック。
+ *
+ * 「どのフィールドを引き継ぎ、どれを捨てるか」（id の採番、トランジションや
+ * 音声フェードの扱い）は VSeg 側の都合なので、ここでは知らないままにする。
+ */
+export type SplitSeg<S> = (s: S, part: 'head' | 'tail', srcStart: number, srcEnd: number) => S
+
+/** 移動・配置に必要な、切片の作り方（VSeg の具体的な形はここでは知らない） */
+export interface SegOps<S extends TimeSeg> {
+  split: SplitSeg<S>
+  /** 指定した長さの空白切片（映像なし・無音）を作る */
+  makeGap: (len: number) => S
+  /** その切片が空白か */
+  isGap: (s: S) => boolean
+}
+
+/**
+ * タイムライン範囲 [tA, tB) を切り出して除去した切片配列を返す。
+ * insertAt = 除去した所へ新しい切片を挿す配列 index。
+ * 端にかかる切片は速度を考慮してトリムする（倍速クリップで切り口がズレないように）。
+ */
+export function cutRange<S extends TimeSeg>(
+  segs: readonly S[],
+  tA: number,
+  tB: number,
+  split: SplitSeg<S>
+): { out: S[]; insertAt: number } {
+  const out: S[] = []
+  let insertAt = -1
+  for (const L of layoutSegs(segs)) {
+    const s = L.seg
+    const sp = segSpeed(s)
+    if (L.tEnd <= tA + EPS) {
+      out.push(s) // 完全に範囲より前
+      continue
+    }
+    if (L.tStart >= tB - EPS) {
+      if (insertAt < 0) insertAt = out.length
+      out.push(s) // 完全に範囲より後
+      continue
+    }
+    if (L.tStart < tA - EPS) out.push(split(s, 'head', s.srcStart, s.srcStart + (tA - L.tStart) * sp))
+    if (insertAt < 0) insertAt = out.length
+    if (L.tEnd > tB + EPS) out.push(split(s, 'tail', s.srcStart + (tB - L.tStart) * sp, s.srcEnd))
+  }
+  if (insertAt < 0) insertAt = out.length
+  return { out, insertAt }
+}
+
+/**
+ * 末尾の空白を落とし、隣り合う空白を1つにまとめ、長さ0の切片を捨てる。
+ *
+ * 移動のたびに空白が積み上がると、配列がいくらでも伸びて
+ * タイムラインの尺が実際の中身より長いまま戻らなくなる。
+ */
+export function tidyGaps<S extends TimeSeg>(segs: readonly S[], ops: SegOps<S>): S[] {
+  const out: S[] = []
+  for (const s of segs) {
+    if (segTLen(s) <= EPS) continue
+    const prev = out[out.length - 1]
+    if (ops.isGap(s) && prev && ops.isGap(prev)) {
+      out[out.length - 1] = ops.makeGap(segTLen(prev) + segTLen(s))
+      continue
+    }
+    out.push(s)
+  }
+  while (out.length && ops.isGap(out[out.length - 1])) out.pop()
+  return out
+}
+
+/**
+ * 切片を「時間方向に」移動する（プレミアのクリップドラッグ＝上書き配置）。
+ *
+ * 元いた場所は同じ長さの空白に置き換えるので、**他のクリップの位置は動かない**。
+ * 置いた先に既にクリップがあれば、その区間は上書きされる（端にかかる分はトリム）。
+ * 末尾より先に置いた場合は手前を空白で埋める。
+ *
+ * 以前この操作は「配列の並べ替え」として実装されていて、少し掴んだだけで切片の
+ * 順序が入れ替わり、再生時に巨大シークを起こしていた。そのため長らく無効化されて
+ * いたが、無効化のままでは置いたクリップを一切動かせない。時間方向の移動として
+ * 定義し直せば並びは時間順のまま保たれる。
+ */
+export function moveSegTo<S extends TimeSeg>(
+  segs: readonly S[],
+  segIndex: number,
+  newTStart: number,
+  ops: SegOps<S>
+): S[] {
+  const lay = layoutSegs(segs)
+  const L = lay[segIndex]
+  if (!L || L.len <= EPS) return segs as S[]
+  const t = Math.max(0, newTStart)
+  if (Math.abs(t - L.tStart) < 1e-4) return segs as S[]
+  // 元の位置を同じ長さの空白へ差し替える（周りの位置を保つ）
+  const withGap = segs.map((s, i) => (i === segIndex ? ops.makeGap(L.len) : s))
+  const total = totalSegLen(withGap)
+  if (t >= total - 1e-3) {
+    const out = [...withGap]
+    if (t - total > EPS) out.push(ops.makeGap(t - total))
+    out.push(L.seg)
+    return tidyGaps(out, ops)
+  }
+  const { out, insertAt } = cutRange(withGap, t, Math.min(t + L.len, total), ops.split)
+  out.splice(insertAt, 0, L.seg)
+  return tidyGaps(out, ops)
+}
+
+/**
+ * 複数の切片を、まとめて同じ量だけ時間方向にずらす（相対位置は保つ）。
+ *
+ * 全部いっぺんに空白へ差し替えてから置き直すのが要点。1つずつ moveSegTo を
+ * 繰り返すと、1つ動かすたびに他の切片の index と位置が変わってしまい、
+ * 2つ目以降が狙いと違う場所へ飛ぶ。
+ *
+ * 置き直しは前から順に上書き。上書きは配列全体の長さを変えないので、
+ * 先に置いたものが後の目標位置をずらすことはない。
+ */
+export function moveSegsTo<S extends TimeSeg>(
+  segs: readonly S[],
+  segIndices: readonly number[],
+  shift: number,
+  ops: SegOps<S>
+): S[] {
+  const lay = layoutSegs(segs)
+  // 元の位置の昇順で処理する（重なったときに前のものが先に置かれる＝見た目と一致）
+  const picked = [...new Set(segIndices)]
+    .filter((i) => lay[i] && lay[i].len > EPS)
+    .sort((a, b) => lay[a].tStart - lay[b].tStart)
+  if (!picked.length) return segs as S[]
+  if (picked.length === 1) return moveSegTo(segs, picked[0], lay[picked[0]].tStart + shift, ops)
+  // 端に当たって潰れないよう、実際にずらせる量へ丸める（相対位置を保つため全員同じ量）
+  const minStart = Math.min(...picked.map((i) => lay[i].tStart))
+  const d = Math.max(shift, -minStart)
+  if (Math.abs(d) < 1e-4) return segs as S[]
+  // 選んだ切片を一斉に空白へ（周りの位置は動かない）
+  const set = new Set(picked)
+  let out: S[] = segs.map((s, i) => (set.has(i) ? ops.makeGap(lay[i].len) : s))
+  for (const i of picked) {
+    const L = lay[i]
+    const t = Math.max(0, L.tStart + d)
+    const total = totalSegLen(out)
+    if (t >= total - 1e-3) {
+      if (t - total > EPS) out.push(ops.makeGap(t - total))
+      out.push(L.seg)
+      continue
+    }
+    const r = cutRange(out, t, Math.min(t + L.len, total), ops.split)
+    r.out.splice(r.insertAt, 0, L.seg)
+    out = r.out
+  }
+  return tidyGaps(out, ops)
+}
+
+// ---------------------------------------------------------------------------
 // リップルトリム（前の編集点／次の編集点まで詰めて削除）
 // ---------------------------------------------------------------------------
 
@@ -212,6 +370,34 @@ export function rippleStart(
 export function rippleEnd(playhead: number, segEnd: number, edges: readonly number[]): number {
   const inner = edgesBetween(edges, playhead, segEnd)
   return inner.length ? Math.min(...inner) : segEnd
+}
+
+// ---------------------------------------------------------------------------
+// リップル削除（消して、同じトラックの後続を詰める）
+// ---------------------------------------------------------------------------
+
+/** リップル削除で消した区間（どのトラックの、どこからどこまで） */
+export interface RippleHole {
+  track: string
+  start: number
+  end: number
+}
+
+/**
+ * リップル削除したあとの位置を返す。
+ *
+ * 詰まるのは「**同じトラック**の、消した区間より後ろにあるもの」だけ。
+ * トラックを見ずに詰めると、V2 のテロップを消したのに V3 のテロップまでずれる。
+ *
+ * 複数消したときは、後ろの穴から順に見ないと「詰めたあとの座標」と
+ * 「元の座標」を比べることになり、詰め量が壊れる。
+ */
+export function rippleShifted(holes: readonly RippleHole[], track: string, t: number): number {
+  let v = t
+  for (const h of [...holes].sort((a, b) => b.start - a.start)) {
+    if (h.track === track && v >= h.end - EPS) v -= h.end - h.start
+  }
+  return Math.max(0, v)
 }
 
 // ---------------------------------------------------------------------------
