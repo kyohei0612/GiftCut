@@ -9121,6 +9121,47 @@ export default function App(): JSX.Element {
 
   const monitorAspect = ratio === '16:9' ? '16 / 9' : ratio === '9:16' ? '9 / 16' : '1 / 1'
 
+  // プレビュー下の1段目に出す「状態」（画質・fps・全体の長さ）。
+  // 操作ボタンと同じ行に混ぜると、よく使う再生ボタンが端に押しやられる。
+  const transportInfo = (
+    <>
+    {/* プレビュー解像度: 実際に再生する映像の解像度を切り替える（ラベル＝実挙動）。
+        書き出し設定にも同じ見た目の選択肢があり、実際に取り違えが起きたので、
+        「見るときの画質」だと分かる印を付けて別物にする。 */}
+    <span className="pq-tag" title="再生して見るときの画質（書き出しには影響しません）">
+      👁 プレビュー
+    </span>
+    <select
+      className="pq-select pq-preview"
+      value={String(previewRes)}
+      onChange={(e) => {
+        const v = e.target.value
+        setPreviewRes(v === 'orig' ? 'orig' : v === '720' ? 720 : 360)
+      }}
+      title={
+        'プレビューの解像度\n' +
+        '・原本＝元動画をそのまま再生。最高画質だがシークは重い\n' +
+        '・720p / 360p＝編集用に軽くした映像（プロキシ）で再生。360pは再描画も間引いて最軽量\n' +
+        '書き出しは常に原本のフル画質です（この設定は完成品の画質に影響しません）'
+      }
+    >
+      <option value="orig">プレビュー 原本（最高画質）</option>
+      <option value="720">プレビュー 720p（標準）</option>
+      <option value="360">プレビュー 360p（最軽量）</option>
+    </select>
+    {videoSrc && (
+      <span className="tc tc-fps" title="素材の実フレームレート（フレーム送り・タイムコードに反映）">
+        {Number.isInteger(fps) ? fps : fps.toFixed(2)}fps
+      </span>
+    )}
+    <span className="tc">
+      {playRateUI !== 0 && Math.abs(playRateUI) !== 1
+        ? `${playRateUI > 0 ? '' : '-'}${Math.abs(playRateUI)}x / `
+        : ''}
+      {formatTime(duration)}
+    </span>
+    </>
+  )
   return (
     <div
       className="app"
@@ -10444,8 +10485,15 @@ export default function App(): JSX.Element {
                 </div>
               </div>
             )}
+            {/* プレビューの下は2段に分ける（プレミアと同じ考え方）。
+                1段目＝いま何秒か・どの画質か といった「状態」。
+                2段目＝再生などの「操作」で、再生ボタンを中央に置く。
+                1段に詰め込むと、一番よく使う再生ボタンが端に寄って毎回探すことになる。 */}
             <div className="transport">
-              <span className="tc">{formatTimecode(currentTime, fps)}</span>
+              <div className="transport-info">
+                <span className="tc tc-cur">{formatTimecode(currentTime, fps)}</span>
+                <div className="transport-info-right">{transportInfo}</div>
+              </div>
               <div className="transport-btns">
                 <button className="tbtn" onClick={() => skipSec(-10)} title="10秒戻る">
                   «10
@@ -10488,43 +10536,6 @@ export default function App(): JSX.Element {
                 <button className="tbtn" onClick={() => jumpMarker(1)} title="次のマーカーへ">
                   🚩⟩
                 </button>
-              </div>
-              <div className="transport-right">
-                {/* プレビュー解像度: 実際に再生する映像の解像度を切り替える（ラベル＝実挙動）。
-                    書き出し設定にも同じ見た目の選択肢があり、実際に取り違えが起きたので、
-                    「見るときの画質」だと分かる印を付けて別物にする。 */}
-                <span className="pq-tag" title="再生して見るときの画質（書き出しには影響しません）">
-                  👁 プレビュー
-                </span>
-                <select
-                  className="pq-select pq-preview"
-                  value={String(previewRes)}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    setPreviewRes(v === 'orig' ? 'orig' : v === '720' ? 720 : 360)
-                  }}
-                  title={
-                    'プレビューの解像度\n' +
-                    '・原本＝元動画をそのまま再生。最高画質だがシークは重い\n' +
-                    '・720p / 360p＝編集用に軽くした映像（プロキシ）で再生。360pは再描画も間引いて最軽量\n' +
-                    '書き出しは常に原本のフル画質です（この設定は完成品の画質に影響しません）'
-                  }
-                >
-                  <option value="orig">プレビュー 原本（最高画質）</option>
-                  <option value="720">プレビュー 720p（標準）</option>
-                  <option value="360">プレビュー 360p（最軽量）</option>
-                </select>
-                {videoSrc && (
-                  <span className="tc tc-fps" title="素材の実フレームレート（フレーム送り・タイムコードに反映）">
-                    {Number.isInteger(fps) ? fps : fps.toFixed(2)}fps
-                  </span>
-                )}
-                <span className="tc">
-                  {playRateUI !== 0 && Math.abs(playRateUI) !== 1
-                    ? `${playRateUI > 0 ? '' : '-'}${Math.abs(playRateUI)}x / `
-                    : ''}
-                  {formatTime(duration)}
-                </span>
               </div>
             </div>
           </section>

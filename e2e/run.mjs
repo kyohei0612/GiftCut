@@ -49,6 +49,9 @@ const argAfter = (flag) => {
 }
 const ONLY =
   (process.argv.find((a) => a.startsWith('--only=')) ?? '').slice(7) || argAfter('--only') || ''
+// 見た目を見たいだけのとき用。確認は一切せず、起動して復元して1枚撮って終わる。
+// これが無いと、画面を見るためだけにテストを回すことになる。
+const SHOT_ONLY = process.argv.includes('--shot')
 const STEP = SLOW ? 600 : 0
 
 const sh = (cmd, args) =>
@@ -85,11 +88,14 @@ function cleanLeftovers() {
   } catch {
     /* temp が読めない環境では何もしない */
   }
-  // 前回のスクリーンショットは消す（今回の結果と混ざると読み違える）
-  try {
-    rmSync(join(ROOT, 'e2e', 'shots'), { recursive: true, force: true })
-  } catch {
-    /* 無ければ何もしない */
+  // 前回のスクリーンショットは消す（今回の結果と混ざると読み違える）。
+  // ただし撮るだけのときは、前の記録を残しておく。
+  if (!SHOT_ONLY) {
+    try {
+      rmSync(join(ROOT, 'e2e', 'shots'), { recursive: true, force: true })
+    } catch {
+      /* 無ければ何もしない */
+    }
   }
   // 切り出しキャッシュは新しい2つだけ残す（素材を替えるたびに増えていくため）
   try {
@@ -318,6 +324,11 @@ async function section(name) {
 async function check(name, fn, opts = {}) {
   // setup:true の項目は「絞っても必ず通す」。ここを飛ばすと編集中の状態が
   // 作られず、以降が全部こけて何を見ているのか分からなくなる。
+  // --shot は「今の画面を見たいだけ」。確認は全部飛ばす。
+  if (SHOT_ONLY && !opts.setup) {
+    results.push({ name, skipped: true })
+    return
+  }
   if (ONLY && !opts.setup && !name.includes(ONLY) && !curSection.includes(ONLY)) {
     results.push({ name, skipped: true })
     return
@@ -513,6 +524,7 @@ try {
    * 「前の章の後始末漏れ」なのか分からなくなる。
    */
   async function resetProject() {
+    if (SHOT_ONLY) return
     // これは確認そのものではなく「次の確認のための片付け」。
     // 何も出さないと、同じ確認を繰り返しているように見えてしまう。
     await banner({
@@ -2941,9 +2953,14 @@ try {
   // =========================================================================
   section('画面の記録')
 
-  await check('最後の画面をスクリーンショットに残す', async () => {
-    await page.screenshot({ path: join(ROOT, 'e2e', 'last-run.png') })
-  })
+  await check(
+    '最後の画面をスクリーンショットに残す',
+    async () => {
+      await page.screenshot({ path: join(ROOT, 'e2e', 'last-run.png') })
+      if (SHOT_ONLY) console.log('  → e2e/last-run.png に撮りました')
+    },
+    { setup: true }
+  )
 } catch (e) {
   console.error('\n\x1b[31m実行そのものに失敗しました:\x1b[0m', e?.message ?? e)
   results.push({ name: '（実行）', ok: false, err: String(e?.message ?? e) })

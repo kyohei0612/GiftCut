@@ -1213,15 +1213,35 @@ body {
   border-color: var(--accent-2);
   background: #23252d;
 }
+/* プレビュー下は2段。1段目＝状態、2段目＝操作（再生ボタンは中央）。
+   1段に詰めると、一番よく使う再生ボタンが端に寄って毎回探すことになる。 */
 .transport {
-  height: 40px;
   background: var(--head);
   border-top: 1px solid var(--line);
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 14px 8px;
+  flex: 0 0 auto;
+}
+.transport-info {
+  display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 14px;
-  flex: 0 0 auto;
+  gap: 10px;
+  min-height: 22px;
+}
+.transport-info-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.tc-cur {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
 }
 .tc {
   font-size: 12px;
@@ -1235,9 +1255,12 @@ body {
   border-radius: 3px;
   padding: 0 5px;
 }
+/* 操作は中央に置く。左右に伸びる余白で挟んで、幅が変わっても中心が動かない。 */
 .transport-btns {
   display: flex;
   gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 .tbtn {
   background: var(--panel-2);
