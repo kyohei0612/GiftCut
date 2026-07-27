@@ -108,6 +108,12 @@ const toGcUrl = (p: string): string =>
 const FPS = FPS_FALLBACK // 既定フレームレート（素材fps未取得時のフォールバック）
 const XF_GRACE = 0.08 // クロスディゾルブのカット通過後、mainがBへシークし終わるまでvideoBを保持する猶予(秒)
 const RULER_H = 24
+// タイムラインの上下に持たせる余白（テロップ3段ぶん）。
+// 端に貼り付いていると、上や下に足す余地が見えず窮屈に感じる。
+// ※位置の計算はすべて RULER_H + TRACK_PAD_TOP を起点にすること。
+//   ここだけ足して他を直し忘れると、掴んだ場所と実際の段がずれる。
+const TRACK_PAD_ROWS = 2
+
 // トラック高さ（映像/音声グループごとにまとめて可変）。デフォはプレミア風に少し狭め
 const TRACK_H_MIN = 26
 const TRACK_H_MAX = 160
@@ -2030,9 +2036,11 @@ export default function App(): JSX.Element {
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
   }
+  // 上の余白。テロップ3段ぶん。段の高さを変えたら一緒に変わる。
+  const padTop = TRACK_PAD_ROWS * videoTrackH
   // 左端グリップの配置Y。映像=映像/音声の境目、音声=音声グループの下端
   const groupGrips = useMemo(() => {
-    const divider = RULER_H + nVideoTracks * videoTrackH
+    const divider = RULER_H + padTop + nVideoTracks * videoTrackH
     const bottom = divider + nAudioTracks * audioTrackH
     return [
       { kind: 'video' as const, y: divider },
@@ -3400,7 +3408,7 @@ export default function App(): JSX.Element {
   const [rightW, setRightW] = useState(() => loadLS('gc.rightW', 300))
   // タイムラインの高さ。段を太らせるのではなく、領域そのものに余裕を持たせる
   // （プレミアも行は細く、下に余白がある形）。段が増えても足りなくならない。
-  const [timelineH, setTimelineH] = useState(() => loadLS('gc.timelineH', 340))
+  const [timelineH, setTimelineH] = useState(() => loadLS('gc.timelineH', 380))
   useEffect(() => {
     saveLS('gc.leftW', leftW)
     saveLS('gc.rightW', rightW)
@@ -8721,7 +8729,7 @@ export default function App(): JSX.Element {
   // ---- トラック選択ツール（プレミア準拠: クリック位置から左/右を全選択）----
   /** 各トラック行の縦位置（trackInner の上端からの相対 px） */
   function trackRows(): { id: string; kind: 'video' | 'audio'; top: number; h: number }[] {
-    let top = RULER_H
+    let top = RULER_H + padTop
     return tracks.map((t) => {
       const h = t.kind === 'video' ? videoTrackHRef.current : audioTrackHRef.current
       const row = { id: t.id, kind: t.kind, top, h }
@@ -8846,7 +8854,7 @@ export default function App(): JSX.Element {
         t.kind === 'video' ? videoTrackHRef.current : audioTrackHRef.current
       )
       const overRow = (idx: number): boolean => {
-        let top = RULER_H
+        let top = RULER_H + padTop
         for (let i = 0; i < idx; i++) top += heights[i]
         return my1 >= top && my0 <= top + heights[idx]
       }
@@ -8980,7 +8988,7 @@ export default function App(): JSX.Element {
       // （追加レーンでテロップ行の位置がずれても、実際の行番号に最も近いテロップ行へ吸着）
       let trackShift = 0
       if (innerRect) {
-        const yRel = ev.clientY - innerRect.top - RULER_H
+        const yRel = ev.clientY - innerRect.top - RULER_H - padTop
         const row = Math.floor(yRel / videoTrackHRef.current)
         let ti = grabbedIdx
         let best = Infinity
@@ -11687,6 +11695,8 @@ export default function App(): JSX.Element {
                   ＋
                 </button>
               </div>
+              {/* トラック側と同じ余白。ここがずれると、押した段と実際の段が食い違う */}
+              <div className="track-pad" style={{ height: padTop }} />
               {tracks.map((tr) => {
                 // 状態が無いトラックがあっても落ちないようにする。
                 // トラックを足したのに状態を作り忘れると、ここで画面全体が落ちる。
@@ -11780,6 +11790,7 @@ export default function App(): JSX.Element {
               <button className="th-add th-add-audio" title="音声トラックを追加" onClick={addAudioTrack}>
                 ＋
               </button>
+              <div className="track-pad" style={{ height: padTop }} />
             </div>
 
             {/* トラック領域 */}
@@ -11963,6 +11974,8 @@ export default function App(): JSX.Element {
                   <div className="playhead-handle" onPointerDown={startScrub} />
                 </div>
 
+                {/* 上の余白。端に貼り付いていると足す余地が見えず窮屈に感じる */}
+                <div className="track-pad" style={{ height: padTop }} />
                 {/* 各トラック */}
                 {tracks.map((tr) => (
                   <div

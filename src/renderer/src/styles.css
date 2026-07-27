@@ -1811,6 +1811,12 @@ body {
   background: var(--accent-2);
   border-color: var(--accent-2);
 }
+/* タイムラインの上下に持たせる余白。段が端に貼り付いていると窮屈に見え、
+   上や下に足せることも伝わらない。トラック側とヘッダー側で同じ高さにすること。 */
+.track-pad {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
 .th-spacer {
   height: 24px;
   border-bottom: 1px solid var(--line);
