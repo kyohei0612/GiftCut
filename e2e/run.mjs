@@ -63,7 +63,49 @@ const sh = (cmd, args) =>
 // ---------------------------------------------------------------------------
 // 使い捨ての素材とプロジェクトを用意する
 // ---------------------------------------------------------------------------
+/**
+ * 前回までの置き土産を片付ける。
+ *
+ * 途中で落ちたり --keep で終わった回の一時フォルダが temp に残り続ける。
+ * 1回あたりは小さくても、回すたびに増えるので毎回まとめて消す。
+ * 撮ったスクリーンショットも「最後に回した1回ぶん」だけ残す。
+ */
+function cleanLeftovers() {
+  let n = 0
+  try {
+    for (const f of readdirSync(tmpdir())) {
+      if (!f.startsWith('giftcut-e2e-')) continue
+      try {
+        rmSync(join(tmpdir(), f), { recursive: true, force: true })
+        n++
+      } catch {
+        /* 使用中なら次回に回す */
+      }
+    }
+  } catch {
+    /* temp が読めない環境では何もしない */
+  }
+  // 前回のスクリーンショットは消す（今回の結果と混ざると読み違える）
+  try {
+    rmSync(join(ROOT, 'e2e', 'shots'), { recursive: true, force: true })
+  } catch {
+    /* 無ければ何もしない */
+  }
+  // 切り出しキャッシュは新しい2つだけ残す（素材を替えるたびに増えていくため）
+  try {
+    const cd = join(ROOT, 'e2e', '.cache')
+    const files = readdirSync(cd)
+      .map((f) => ({ f: join(cd, f), t: statSync(join(cd, f)).mtimeMs }))
+      .sort((a, b) => b.t - a.t)
+    for (const x of files.slice(2)) rmSync(x.f, { force: true })
+  } catch {
+    /* まだ無い */
+  }
+  if (n) console.log(`前回までの一時フォルダを ${n} 件片付けました`)
+}
+
 async function makeFixture() {
+  cleanLeftovers()
   const dir = mkdtempSync(join(tmpdir(), 'giftcut-e2e-'))
   const userData = join(dir, 'userData')
   mkdirSync(userData, { recursive: true })
