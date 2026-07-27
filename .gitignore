@@ -12,3 +12,4 @@ telop-presets/
 
 # TypeScript のビルド情報（生成物）
 *.tsbuildinfo
+e2e/last-run.png
