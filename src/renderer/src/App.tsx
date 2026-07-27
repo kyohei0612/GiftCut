@@ -5126,6 +5126,9 @@ export default function App(): JSX.Element {
             !isNeutralCrop(s.crop)
               ? { l: s.crop.l, t: s.crop.t, r: s.crop.r, b: s.crop.b }
               : undefined,
+          // ラベルカラー。ここに書き忘れていたため、色を付けて保存しても
+          // 開き直すと消えていた（他の種類は保存されるので余計に分かりにくい）。
+          label: typeof s.label === 'string' && s.label ? s.label : undefined,
           gap: s.gap === true ? true : undefined
         }))
       : []
