@@ -2036,8 +2036,11 @@ export default function App(): JSX.Element {
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
   }
-  // 上の余白。テロップ3段ぶん。段の高さを変えたら一緒に変わる。
+  // 上下の余白。段の高さを変えたら一緒に変わる。
+  // 上はゆったり、下は1段ぶん。下も同じだけ取ると、その分だけ段が画面から
+  // はみ出して「下がかつかつ」になる（実際にそうなった）。
   const padTop = TRACK_PAD_ROWS * videoTrackH
+  const padBottom = videoTrackH
   // 左端グリップの配置Y。映像=映像/音声の境目、音声=音声グループの下端
   const groupGrips = useMemo(() => {
     const divider = RULER_H + padTop + nVideoTracks * videoTrackH
@@ -3408,7 +3411,7 @@ export default function App(): JSX.Element {
   const [rightW, setRightW] = useState(() => loadLS('gc.rightW', 300))
   // タイムラインの高さ。段を太らせるのではなく、領域そのものに余裕を持たせる
   // （プレミアも行は細く、下に余白がある形）。段が増えても足りなくならない。
-  const [timelineH, setTimelineH] = useState(() => loadLS('gc.timelineH', 380))
+  const [timelineH, setTimelineH] = useState(() => loadLS('gc.timelineH', 420))
   useEffect(() => {
     saveLS('gc.leftW', leftW)
     saveLS('gc.rightW', rightW)
@@ -11790,7 +11793,7 @@ export default function App(): JSX.Element {
               <button className="th-add th-add-audio" title="音声トラックを追加" onClick={addAudioTrack}>
                 ＋
               </button>
-              <div className="track-pad" style={{ height: padTop }} />
+              <div className="track-pad" style={{ height: padBottom }} />
             </div>
 
             {/* トラック領域 */}
@@ -12717,6 +12720,8 @@ export default function App(): JSX.Element {
                     )}
                   </div>
                 ))}
+                {/* 下の余白。位置の計算には効かないので、上と同じ高さでなくてよい */}
+                <div className="track-pad" style={{ height: padBottom }} />
               </div>
             </div>
           </div>
