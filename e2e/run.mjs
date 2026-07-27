@@ -2361,6 +2361,49 @@ try {
   })
 
   // =========================================================================
+  section('プレビューの再生バー')
+  await resetProject()
+
+  await check('全体のどこを見ているかが、プレビューの下のバーで分かる', async () => {
+    const head = page.locator('.preview-scrub-head')
+    assert(await head.count(), '再生バーが無い')
+    const pos = async () =>
+      head.evaluate((el) => parseFloat(getComputedStyle(el).left))
+    const p0 = await pos()
+    await seekTo(10)
+    await page.waitForTimeout(400)
+    const p1 = await pos()
+    assert(p1 > p0 + 5, `再生位置に付いてこない（${p0} → ${p1}）`)
+  })
+
+  await check('バーを押すと、その位置へ飛べる', async () => {
+    const bar = page.locator('.preview-scrub')
+    const b = await bar.boundingBox()
+    const tcOf = async () => page.locator('.tc-cur').first().textContent()
+    await page.mouse.click(b.x + b.width * 0.2, b.y + b.height / 2)
+    await page.waitForTimeout(500)
+    const a = await tcOf()
+    await page.mouse.click(b.x + b.width * 0.75, b.y + b.height / 2)
+    await page.waitForTimeout(500)
+    const c = await tcOf()
+    assert(a !== c, `押した所へ飛んでいない（${a} / ${c}）`)
+  })
+
+  await check('掴んだまま動かすと、早送り・巻き戻しできる', async () => {
+    const bar = page.locator('.preview-scrub')
+    const b = await bar.boundingBox()
+    await page.mouse.move(b.x + b.width * 0.2, b.y + b.height / 2)
+    await page.mouse.down()
+    const t0 = await page.locator('.tc-cur').first().textContent()
+    for (let i = 1; i <= 5; i++)
+      await page.mouse.move(b.x + b.width * (0.2 + 0.1 * i), b.y + b.height / 2)
+    await page.waitForTimeout(300)
+    const t1 = await page.locator('.tc-cur').first().textContent()
+    await page.mouse.up()
+    assert(t0 !== t1, `掴んで動かしても進まない（${t0} / ${t1}）`)
+  })
+
+  // =========================================================================
   section('パネルのタブ（見切れ対策と並び順）')
   await resetProject()
 

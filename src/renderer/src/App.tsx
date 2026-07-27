@@ -2031,6 +2031,116 @@ export default function App(): JSX.Element {
   function askText(title: string, defaultValue: string, onOk: (v: string) => void): void {
     setPromptState({ title, value: defaultValue, onOk })
   }
+  // ---- パネルの切り離し（ドッキング解除）----
+  //
+  // 切り抜きは「絵を見る作業」なので、プレビューを大きく取れることが要る。
+  // 使っていないパネルを切り離すと、その枠が畳まれて残りが自動で広がる。
+  // 切り離したものは浮いた窓として残り、掴んで動かす／右下で大きさを変える。
+  // 「⇤ 戻す」で元の場所へ戻る。位置と大きさは覚えておく。
+  type PaneId = 'left' | 'right' | 'preview' | 'timeline'
+  interface FloatRect {
+    x: number
+    y: number
+    w: number
+    h: number
+  }
+  const PANE_LABEL: Record<PaneId, string> = {
+    left: 'プロパティ',
+    right: 'プロジェクト',
+    preview: 'プレビュー',
+    timeline: 'タイムライン'
+  }
+  const FLOAT_KEY = 'giftcut.floatPanes'
+  const [floating, setFloating] = useState<Partial<Record<PaneId, FloatRect>>>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(FLOAT_KEY) || '{}')
+      return v && typeof v === 'object' ? v : {}
+    } catch {
+      return {}
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(FLOAT_KEY, JSON.stringify(floating))
+    } catch {
+      /* 保存できなくても動作には影響しない */
+    }
+  }, [floating])
+  const isFloating = (id: PaneId): boolean => !!floating[id]
+  function undockPane(id: PaneId): void {
+    const w = Math.min(520, Math.max(320, window.innerWidth * 0.3))
+    const h = Math.min(560, Math.max(260, window.innerHeight * 0.45))
+    // 元あった側の近くに出す（画面の真ん中に出すと、どれが出たのか分からなくなる）
+    const pos: Record<PaneId, { x: number; y: number }> = {
+      left: { x: 24, y: 96 },
+      right: { x: Math.max(24, window.innerWidth - w - 24), y: 96 },
+      preview: { x: Math.max(24, (window.innerWidth - w) / 2), y: 80 },
+      timeline: { x: 24, y: Math.max(80, window.innerHeight - h - 24) }
+    }
+    setFloating((p) => ({ ...p, [id]: { ...pos[id], w, h } }))
+    showToast(`${PANE_LABEL[id]} を切り離しました。「⇤ 戻す」で元に戻せます。`)
+  }
+  function dockPane(id: PaneId): void {
+    setFloating((p) => {
+      const n = { ...p }
+      delete n[id]
+      return n
+    })
+  }
+  function floatDrag(id: PaneId, mode: 'move' | 'resize') {
+    return (e: React.PointerEvent): void => {
+      if (e.button !== 0) return
+      e.preventDefault()
+      e.stopPropagation()
+      const r0 = floating[id]
+      if (!r0) return
+      const sx = e.clientX
+      const sy = e.clientY
+      const onMove = (ev: PointerEvent): void => {
+        const dx = ev.clientX - sx
+        const dy = ev.clientY - sy
+        setFloating((p) => {
+          const cur = p[id]
+          if (!cur) return p
+          return {
+            ...p,
+            [id]:
+              mode === 'move'
+                ? {
+                    ...cur,
+                    x: clamp(r0.x + dx, -cur.w + 120, window.innerWidth - 120),
+                    y: clamp(r0.y + dy, 0, window.innerHeight - 40)
+                  }
+                : {
+                    ...cur,
+                    w: clamp(r0.w + dx, 280, window.innerWidth),
+                    h: clamp(r0.h + dy, 160, window.innerHeight)
+                  }
+          }
+        })
+      }
+      const onUp = (): void => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    }
+  }
+  /** 切り離しボタン。各パネルのタブ帯の右端に置く。 */
+  const undockBtn = (id: PaneId): JSX.Element => (
+    <button
+      className="tab-nav pane-undock"
+      title={`${PANE_LABEL[id]} を切り離す（残りが広がります）`}
+      onClick={(e) => {
+        e.stopPropagation()
+        undockPane(id)
+      }}
+    >
+      ⇱
+    </button>
+  )
+
   // ---- パネルのタブ帯（見切れ対策と並べ替え）----
   //
   // パネルを狭めるとタブが端から切れて、奥のタブへ一生たどり着けなかった。
@@ -10485,6 +10595,46 @@ export default function App(): JSX.Element {
                 </div>
               </div>
             )}
+            {/* 全体のどこを見ているかを示すバー（プレミアと同じ役割）。
+                タイムラインを見に行かなくても位置が分かり、押した所へ飛べる。 */}
+            <div
+              className="preview-scrub"
+              onPointerDown={(e) => {
+                if (e.button !== 0) return
+                e.preventDefault()
+                const el = e.currentTarget
+                const rect = el.getBoundingClientRect()
+                const total = Math.max(0.001, duration)
+                const seekAt = (cx: number): void => {
+                  seekTo(clamp(((cx - rect.left) / rect.width) * total, 0, total))
+                }
+                stopPlayback()
+                seekAt(e.clientX)
+                const mv = (ev: PointerEvent): void => seekAt(ev.clientX)
+                const up = (): void => {
+                  window.removeEventListener('pointermove', mv)
+                  window.removeEventListener('pointerup', up)
+                }
+                window.addEventListener('pointermove', mv)
+                window.addEventListener('pointerup', up)
+              }}
+              title="押した所へ飛びます（掴んだまま動かすと早送り・巻き戻し）"
+            >
+              <div className="preview-scrub-track">
+                {/* 目盛り。10等分の薄い線で、だいたいの位置をつかめるようにする */}
+                {Array.from({ length: 9 }, (_, i) => (
+                  <span key={i} className="preview-scrub-tick" style={{ left: `${(i + 1) * 10}%` }} />
+                ))}
+                <div
+                  className="preview-scrub-done"
+                  style={{ width: `${clamp((currentTime / Math.max(0.001, duration)) * 100, 0, 100)}%` }}
+                />
+              </div>
+              <div
+                className="preview-scrub-head"
+                style={{ left: `${clamp((currentTime / Math.max(0.001, duration)) * 100, 0, 100)}%` }}
+              />
+            </div>
             {/* プレビューの下は2段に分ける（プレミアと同じ考え方）。
                 1段目＝いま何秒か・どの画質か といった「状態」。
                 2段目＝再生などの「操作」で、再生ボタンを中央に置く。

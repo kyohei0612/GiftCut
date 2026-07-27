@@ -1213,6 +1213,61 @@ body {
   border-color: var(--accent-2);
   background: #23252d;
 }
+/* プレビュー下の再生バー。全体のどこを見ているかを示し、押した所へ飛べる。
+   タイムラインを見に行かなくても位置が分かるようにするためのもの。 */
+.preview-scrub {
+  position: relative;
+  height: 18px;
+  padding: 0 14px;
+  background: var(--head);
+  cursor: pointer;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+.preview-scrub-track {
+  position: relative;
+  height: 6px;
+  width: 100%;
+  border-radius: 3px;
+  background: #ffffff14;
+  overflow: hidden;
+}
+.preview-scrub-done {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: #2b8fef55;
+}
+.preview-scrub-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #ffffff1f;
+}
+/* 再生位置。掴みやすいよう、線より少し大きい印を付ける */
+.preview-scrub-head {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px #0006;
+  pointer-events: none;
+}
+.preview-scrub-head::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -4px;
+  width: 10px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 2px 2px 4px 4px;
+}
 /* プレビュー下は2段。1段目＝状態、2段目＝操作（再生ボタンは中央）。
    1段に詰めると、一番よく使う再生ボタンが端に寄って毎回探すことになる。 */
 .transport {
