@@ -476,11 +476,51 @@ body {
 }
 .panel-tabs {
   display: flex;
+  align-items: stretch;
   gap: 2px;
   background: var(--head);
   border-bottom: 1px solid var(--line);
   padding: 0 4px;
   flex: 0 0 auto;
+  min-width: 0;
+}
+/* タブ本体。パネルを狭めても端が切れて行き止まりにならないよう、
+   ここだけ横に流れるようにして、送りボタンと一覧（≫）で必ず届くようにする。 */
+.panel-tabs-strip {
+  display: flex;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-behavior: auto;
+}
+.panel-tabs-strip::-webkit-scrollbar {
+  display: none;
+}
+.panel-tabs-strip .tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  user-select: none;
+}
+/* 端の送りと一覧。狭いときだけ出る */
+.tab-nav {
+  flex: 0 0 auto;
+  width: 20px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+.tab-nav:hover {
+  color: var(--text);
+  background: #ffffff12;
+}
+.tab-more {
+  width: 24px;
+  font-size: 12px;
 }
 .tab {
   font-size: 12px;
@@ -2099,6 +2139,30 @@ body {
   will-change: transform;
   backface-visibility: hidden;
   transform-origin: center center;
+}
+/* モード切替（ホーム/編集/書き出し）と、その右の操作・設定を見分ける区切り。
+   性質の違うものが同じ高さに並んでいて、どれがモード切替か分かりにくかった。 */
+.modebar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 6px 10px;
+  background: var(--line);
+  flex: 0 0 auto;
+}
+/* 映像トラックの M/S の位置に置く空き。列を揃えるためだけのもの */
+.th-ms-blank {
+  visibility: hidden;
+  pointer-events: none;
+}
+/* プレビュー画質だと分かる印。書き出し設定の解像度と取り違えないため */
+.pq-tag {
+  font-size: 10px;
+  color: var(--muted, #9aa3b2);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.pq-preview {
+  border-color: #3f6f8f;
 }
 /* トラックへの音声クイック追加ボタン（トラックヘッダ） */
 .th-bgm-add {

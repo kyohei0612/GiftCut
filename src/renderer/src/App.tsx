@@ -507,6 +507,118 @@ function TemplateCard({
   )
 }
 
+/**
+ * 見切れないタブ帯。
+ *
+ * パネルを狭めるとタブが端から切れて、奥のタブへ一生たどり着けなかった。
+ * 3つの逃げ道を用意する:
+ *   1. 端の「送り」ボタン（押しっぱなしで送り続ける）
+ *   2. 「≫」から、いま見えていないタブを一覧で選ぶ
+ *   3. 掴んで横に引っぱる
+ *
+ * ※ App の中で定義してはいけない。毎レンダーで別物として作り直され、
+ *   ref も横スクロール位置も失われて、引っぱっても戻ってしまう（実際に起きた）。
+ */
+function PanelTabs({
+  group,
+  tabs,
+  active,
+  onPick,
+  onTabMenu,
+  onOverflow
+}: {
+  group: string
+  tabs: { id: string; label: string }[]
+  active: string
+  onPick: (id: string) => void
+  onTabMenu: (e: React.MouseEvent, group: string, id: string, label: string) => void
+  onOverflow: (e: React.MouseEvent, group: string) => void
+}): JSX.Element {
+  const stripRef = useRef<HTMLDivElement | null>(null)
+  const [over, setOver] = useState(false) // 端が切れているか
+  const measure = (): void => {
+    const el = stripRef.current
+    if (el) setOver(el.scrollWidth > el.clientWidth + 2)
+  }
+  useEffect(() => {
+    measure()
+    const ro = new ResizeObserver(measure)
+    if (stripRef.current) ro.observe(stripRef.current)
+    return () => ro.disconnect()
+  }, [tabs.length])
+  const hold = (dir: -1 | 1) => (e: React.PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const step = (): void => {
+      stripRef.current?.scrollBy({ left: dir * 18 })
+    }
+    step()
+    const iv = window.setInterval(step, 40)
+    const stop = (): void => {
+      window.clearInterval(iv)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+  }
+  return (
+    <div className="panel-tabs">
+      {over && (
+        <button className="tab-nav" title="左へ送る（押しっぱなしで続けて送る）" onPointerDown={hold(-1)}>
+          ‹
+        </button>
+      )}
+      <div
+        className="panel-tabs-strip"
+        ref={stripRef}
+        onScroll={measure}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return
+          const el = stripRef.current
+          if (!el) return
+          const sx = e.clientX
+          const s0 = el.scrollLeft
+          let moved = false
+          const mv = (ev: PointerEvent): void => {
+            if (!moved && Math.abs(ev.clientX - sx) < 4) return
+            moved = true
+            el.scrollLeft = s0 - (ev.clientX - sx)
+          }
+          const up = (): void => {
+            window.removeEventListener('pointermove', mv)
+            window.removeEventListener('pointerup', up)
+          }
+          window.addEventListener('pointermove', mv)
+          window.addEventListener('pointerup', up)
+        }}
+      >
+        {tabs.map((t) => (
+          <span
+            key={t.id}
+            className={`tab ${active === t.id ? 'tab-on' : ''}`}
+            onClick={() => onPick(t.id)}
+            onContextMenu={(e) => onTabMenu(e, group, t.id, t.label)}
+            title={`${t.label}（右クリックで並び順を変える）`}
+          >
+            {t.label}
+          </span>
+        ))}
+      </div>
+      {over && (
+        <button className="tab-nav" title="右へ送る（押しっぱなしで続けて送る）" onPointerDown={hold(1)}>
+          ›
+        </button>
+      )}
+      {over && (
+        <button className="tab-nav tab-more" title="ほかのタブを一覧から選ぶ" onClick={(e) => onOverflow(e, group)}>
+          ≫
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function App(): JSX.Element {
   // ---- データ ----
   const [cues, setCues] = useState<Cue[]>([])
@@ -1783,8 +1895,8 @@ export default function App(): JSX.Element {
     const v = Number(localStorage.getItem(key))
     return v >= TRACK_H_MIN && v <= TRACK_H_MAX ? v : def
   }
-  const [videoTrackH, setVideoTrackH] = useState<number>(() => loadGroupH('gc.videoTrackH', 38))
-  const [audioTrackH, setAudioTrackH] = useState<number>(() => loadGroupH('gc.audioTrackH', 44))
+  const [videoTrackH, setVideoTrackH] = useState<number>(() => loadGroupH('gc.videoTrackH', 34))
+  const [audioTrackH, setAudioTrackH] = useState<number>(() => loadGroupH('gc.audioTrackH', 52))
   const videoTrackHRef = useRef(videoTrackH)
   const audioTrackHRef = useRef(audioTrackH)
   useEffect(() => {
@@ -1919,6 +2031,88 @@ export default function App(): JSX.Element {
   function askText(title: string, defaultValue: string, onOk: (v: string) => void): void {
     setPromptState({ title, value: defaultValue, onOk })
   }
+  // ---- パネルのタブ帯（見切れ対策と並べ替え）----
+  //
+  // パネルを狭めるとタブが端から切れて、奥のタブへ一生たどり着けなかった。
+  // 3つの逃げ道を用意する:
+  //   1. 端の「送り」ボタン（押しっぱなしで送り続ける）
+  //   2. 「≫」から、いま見えていないタブを一覧で選ぶ
+  //   3. 掴んで横に引っぱる
+  // 並び順は勝手に変わらないよう固定。変えたいときだけ右クリックから動かす。
+  const TAB_ORDER_KEY = 'giftcut.tabOrder'
+  const [tabOrder, setTabOrder] = useState<Record<string, string[]>>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(TAB_ORDER_KEY) || '{}')
+      return v && typeof v === 'object' ? v : {}
+    } catch {
+      return {}
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(tabOrder))
+    } catch {
+      /* 保存できなくても動作には影響しない */
+    }
+  }, [tabOrder])
+  /** 保存した並び順を当てる。知らないタブは後ろに残す（項目が増えても消えない） */
+  function orderedTabs<T extends { id: string }>(group: string, tabs: T[]): T[] {
+    const saved = tabOrder[group]
+    if (!saved?.length) return tabs
+    const byId = new Map(tabs.map((t) => [t.id, t]))
+    const out = saved.map((id) => byId.get(id)).filter((t): t is T => !!t)
+    for (const t of tabs) if (!out.includes(t)) out.push(t)
+    return out
+  }
+  function moveTab(group: string, tabs: { id: string }[], id: string, dir: -1 | 1 | 'head' | 'tail'): void {
+    const cur = orderedTabs(group, tabs).map((t) => t.id)
+    const i = cur.indexOf(id)
+    if (i < 0) return
+    cur.splice(i, 1)
+    const at =
+      dir === 'head' ? 0 : dir === 'tail' ? cur.length : Math.max(0, Math.min(cur.length, i + dir))
+    cur.splice(at, 0, id)
+    setTabOrder((p) => ({ ...p, [group]: cur }))
+  }
+  const [tabMenu, setTabMenu] = useState<{
+    x: number
+    y: number
+    group: string
+    id: string
+    label: string
+  } | null>(null)
+  const [tabOverflow, setTabOverflow] = useState<{ x: number; y: number; group: string } | null>(
+    null
+  )
+  useEffect(() => {
+    if (!tabMenu && !tabOverflow) return
+    const close = (): void => {
+      setTabMenu(null)
+      setTabOverflow(null)
+    }
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [tabMenu, tabOverflow])
+
+  /** タブの一覧（≫）とその並び順メニューで使う、グループごとのタブ定義 */
+  const TAB_DEFS: Record<string, { id: string; label: string }[]> = {
+    right: [
+      { id: 'project', label: 'プロジェクト' },
+      { id: 'telop', label: 'テロップ' },
+      { id: 'icon', label: 'アイコン' },
+      { id: 'se', label: 'SE' },
+      { id: 'transition', label: 'トランジション' }
+    ],
+    monitor: [
+      { id: 'program', label: 'プログラム' },
+      { id: 'mixer', label: 'オーディオミキサー' }
+    ]
+  }
+  const pickTab = (group: string, id: string): void => {
+    if (group === 'right') setRightTab(id as typeof rightTab)
+    else if (group === 'monitor') setMonitorTab(id as typeof monitorTab)
+  }
+
   /**
    * 右クリックメニューを画面の中に収める。
    *
@@ -3020,7 +3214,9 @@ export default function App(): JSX.Element {
   // パネルのレイアウトは記憶する（毎起動で同じドラッグをやり直さないように）
   const [leftW, setLeftW] = useState(() => loadLS('gc.leftW', 250))
   const [rightW, setRightW] = useState(() => loadLS('gc.rightW', 300))
-  const [timelineH, setTimelineH] = useState(() => loadLS('gc.timelineH', 280))
+  // タイムラインの高さ。段を太らせるのではなく、領域そのものに余裕を持たせる
+  // （プレミアも行は細く、下に余白がある形）。段が増えても足りなくならない。
+  const [timelineH, setTimelineH] = useState(() => loadLS('gc.timelineH', 340))
   useEffect(() => {
     saveLS('gc.leftW', leftW)
     saveLS('gc.rightW', rightW)
@@ -9100,6 +9296,7 @@ export default function App(): JSX.Element {
             書き出し
           </button>
         </div>
+        <div className="modebar-sep" />
         <div className="modebar-title" title={projectPath ?? '未保存のプロジェクト'}>
           {/* タイトルはプロジェクトファイル名。SRTのファイル名を出すと保存先を誤認させる */}
           {projectPath ? projectPath.split(/[\\/]/).pop() : 'GiftCut - 無題プロジェクト'}
@@ -9820,20 +10017,23 @@ export default function App(): JSX.Element {
 
           {/* --- 中央: プログラムモニター / オーディオミキサー --- */}
           <section className="panel monitor" style={{ flex: '1 1 0', minWidth: 0 }}>
-            <div className="panel-tabs">
-              <span
-                className={`tab ${monitorTab === 'program' ? 'tab-on' : ''}`}
-                onClick={() => setMonitorTab('program')}
-              >
-                プログラム
-              </span>
-              <span
-                className={`tab ${monitorTab === 'mixer' ? 'tab-on' : ''}`}
-                onClick={() => setMonitorTab('mixer')}
-              >
-                オーディオミキサー
-              </span>
-            </div>
+            <PanelTabs
+              group="monitor"
+              tabs={orderedTabs('monitor', TAB_DEFS.monitor)}
+              active={monitorTab}
+              onPick={(id) => pickTab('monitor', id)}
+              onTabMenu={(e, grp, id, label) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setTabOverflow(null)
+                setTabMenu({ x: e.clientX, y: e.clientY, group: grp, id, label })
+              }}
+              onOverflow={(e, grp) => {
+                e.stopPropagation()
+                setTabMenu(null)
+                setTabOverflow({ x: e.clientX, y: e.clientY, group: grp })
+              }}
+            />
             {/* ミキサー表示中も video は破棄せず隠すだけ（再生を止めないため） */}
             <div
               className="monitor-stage"
@@ -10290,9 +10490,14 @@ export default function App(): JSX.Element {
                 </button>
               </div>
               <div className="transport-right">
-                {/* プレビュー解像度: 実際に再生する映像の解像度を切り替える（ラベル＝実挙動） */}
+                {/* プレビュー解像度: 実際に再生する映像の解像度を切り替える（ラベル＝実挙動）。
+                    書き出し設定にも同じ見た目の選択肢があり、実際に取り違えが起きたので、
+                    「見るときの画質」だと分かる印を付けて別物にする。 */}
+                <span className="pq-tag" title="再生して見るときの画質（書き出しには影響しません）">
+                  👁 プレビュー
+                </span>
                 <select
-                  className="pq-select"
+                  className="pq-select pq-preview"
                   value={String(previewRes)}
                   onChange={(e) => {
                     const v = e.target.value
@@ -10328,25 +10533,23 @@ export default function App(): JSX.Element {
 
           {/* --- 右: プロジェクト --- */}
           <section className="panel" style={{ width: rightW, flex: '0 0 auto' }}>
-            <div className="panel-tabs">
-              {(
-                [
-                  ['project', 'プロジェクト'],
-                  ['telop', 'テロップ'],
-                  ['icon', 'アイコン'],
-                  ['se', 'SE'],
-                  ['transition', 'トランジション']
-                ] as const
-              ).map(([id, label]) => (
-                <span
-                  key={id}
-                  className={`tab ${rightTab === id ? 'tab-on' : ''}`}
-                  onClick={() => setRightTab(id)}
-                >
-                  {label}
-                </span>
-              ))}
-            </div>
+            <PanelTabs
+              group="right"
+              tabs={orderedTabs('right', TAB_DEFS.right)}
+              active={rightTab}
+              onPick={(id) => pickTab('right', id)}
+              onTabMenu={(e, grp, id, label) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setTabOverflow(null)
+                setTabMenu({ x: e.clientX, y: e.clientY, group: grp, id, label })
+              }}
+              onOverflow={(e, grp) => {
+                e.stopPropagation()
+                setTabMenu(null)
+                setTabOverflow({ x: e.clientX, y: e.clientY, group: grp })
+              }}
+            />
             {rightTab === 'project' && (
             <div className="panel-body" ref={rightBodyRef} onDoubleClick={addFilesToProject}>
               <div className="bin-toolbar">
@@ -11273,13 +11476,19 @@ export default function App(): JSX.Element {
                         {st.locked ? '🔒' : '🔓'}
                       </button>
                       {tr.kind === 'video' ? (
-                        <button
-                          className={`th-btn ${st.hidden ? 'th-off' : ''}`}
-                          title="表示/非表示"
-                          onClick={() => toggleTrack(tr.id, 'hidden')}
-                        >
-                          {st.hidden ? '🙈' : '👁'}
-                        </button>
+                        <>
+                          <button
+                            className={`th-btn ${st.hidden ? 'th-off' : ''}`}
+                            title="表示/非表示"
+                            onClick={() => toggleTrack(tr.id, 'hidden')}
+                          >
+                            {st.hidden ? '🙈' : '👁'}
+                          </button>
+                          {/* 映像には M/S が無いが、空きを置いて列を揃える。
+                              揃っていないと、段によってボタンの位置がずれて毎回探すことになる。 */}
+                          <span className="th-ms th-ms-blank" aria-hidden="true" />
+                          <span className="th-ms th-ms-blank" aria-hidden="true" />
+                        </>
                       ) : (
                         <>
                           <button
@@ -12296,9 +12505,9 @@ export default function App(): JSX.Element {
           <div className="restore-box" onPointerDown={(e) => e.stopPropagation()}>
             <div className="restore-title">書き出し設定</div>
             <div className="sp-row">
-              <span className="sp-label">解像度</span>
+              <span className="sp-label">📤 書き出す解像度</span>
               <select
-                className="pq-select"
+                className="pq-select pq-export"
                 value={exportOpts.resP}
                 onChange={(e) =>
                   setExportOpts((o) => ({ ...o, resP: Number(e.target.value) as 2160 | 1080 | 720 | 480 }))
@@ -12738,6 +12947,75 @@ export default function App(): JSX.Element {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ===== タブの並び順（タブを右クリック）===== */}
+      {tabMenu && (
+        <div
+          className="ctx-menu"
+          ref={clampMenu}
+          style={{ left: tabMenu.x, top: tabMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="ctx-title">{tabMenu.label} の並び順</div>
+          {(
+            [
+              ['head', '先頭へ'],
+              [-1, '左へ'],
+              [1, '右へ'],
+              ['tail', '末尾へ']
+            ] as const
+          ).map(([dir, label]) => (
+            <button
+              key={String(dir)}
+              className="ctx-item"
+              onClick={() => {
+                moveTab(tabMenu.group, TAB_DEFS[tabMenu.group] ?? [], tabMenu.id, dir)
+                setTabMenu(null)
+              }}
+            >
+              {label}
+            </button>
+          ))}
+          <div className="ctx-sep" />
+          <button
+            className="ctx-item"
+            onClick={() => {
+              setTabOrder((p) => {
+                const n = { ...p }
+                delete n[tabMenu.group]
+                return n
+              })
+              setTabMenu(null)
+            }}
+          >
+            並び順を元に戻す
+          </button>
+        </div>
+      )}
+
+      {/* ===== 見えていないタブの一覧（≫）===== */}
+      {tabOverflow && (
+        <div
+          className="ctx-menu"
+          ref={clampMenu}
+          style={{ left: tabOverflow.x, top: tabOverflow.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="ctx-title">タブを選ぶ</div>
+          {orderedTabs(tabOverflow.group, TAB_DEFS[tabOverflow.group] ?? []).map((t) => (
+            <button
+              key={t.id}
+              className="ctx-item"
+              onClick={() => {
+                pickTab(tabOverflow.group, t.id)
+                setTabOverflow(null)
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
       )}
 

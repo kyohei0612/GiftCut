@@ -1384,7 +1384,7 @@ try {
     await page.waitForSelector('.export-overlay')
     // .pq-select はプレビュー解像度の選択にも使われているので、
     // 書き出しダイアログの中に限定して選ぶ
-    await page.locator('.export-overlay .pq-select').first().selectOption('720')
+    await page.locator('.pq-export').first().selectOption('720')
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
     assert(existsSync(out), '書き出しファイルができていない')
@@ -1433,7 +1433,7 @@ try {
   await resetProject()
 
   await check('起動直後の画質設定が「原本（最高画質）」になっている', async () => {
-    const v = await page.locator('.transport-right .pq-select').first().inputValue()
+    const v = await page.locator('.pq-preview').first().inputValue()
     assert(v === 'orig', `画質設定が原本になっていない（${v}）`)
   })
 
@@ -2346,6 +2346,95 @@ try {
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 60000 })
     await page.waitForTimeout(800)
     assert(!existsSync(out), '中止したのにファイルが残っている')
+  })
+
+  // =========================================================================
+  section('パネルのタブ（見切れ対策と並び順）')
+  await resetProject()
+
+  /** 右パネルを狭めて、タブがはみ出す状態を作る */
+  async function narrowRightPanel() {
+    const handle = page.locator('.resizer-v').last()
+    const b = await handle.boundingBox()
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(b.x + 260, b.y + b.height / 2, { steps: 8 })
+    await page.mouse.up()
+    await page.waitForTimeout(500)
+  }
+
+  await check('パネルを狭めてタブが入りきらないと、送りと一覧のボタンが出る', async () => {
+    await narrowRightPanel()
+    const strip = page.locator('.panel-tabs-strip').last()
+    const over = await strip.evaluate((el) => el.scrollWidth > el.clientWidth + 2)
+    assert(over, 'タブがはみ出す状態を作れなかった')
+    assert((await page.locator('.tab-more').count()) > 0, '一覧（≫）のボタンが出ていない')
+    assert((await page.locator('.tab-nav').count()) >= 2, '送りのボタンが出ていない')
+  })
+
+  await check('送りボタンを押しっぱなしにすると、タブが横に流れる', async () => {
+    const strip = page.locator('.panel-tabs-strip').last()
+    const x0 = await strip.evaluate((el) => el.scrollLeft)
+    const next = page.locator('.tab-nav', { hasText: '›' }).last()
+    const b = await next.boundingBox()
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    await page.waitForTimeout(600) // 押しっぱなし
+    await page.mouse.up()
+    await page.waitForTimeout(200)
+    const x1 = await strip.evaluate((el) => el.scrollLeft)
+    assert(x1 > x0 + 5, `押しっぱなしで流れていない（${x0} → ${x1}）`)
+  })
+
+  await check('一覧（≫）から、見えていないタブへ移動できる', async () => {
+    await page.locator('.tab-more').last().click()
+    await page.waitForSelector('.ctx-menu')
+    const item = page.locator('.ctx-item', { hasText: 'トランジション' })
+    assert(await item.count(), '一覧に「トランジション」が無い')
+    await item.first().click()
+    await page.waitForTimeout(600)
+    const on = await page.locator('.panel-tabs-strip .tab.tab-on').last().textContent()
+    assert(on.includes('トランジション'), `切り替わっていない: ${on}`)
+  })
+
+  await check('タブを掴んで横に引っぱると流れる', async () => {
+    const strip = page.locator('.panel-tabs-strip').last()
+    await strip.evaluate((el) => (el.scrollLeft = 0))
+    await page.waitForTimeout(200)
+    const b = await strip.boundingBox()
+    await page.mouse.move(b.x + b.width - 20, b.y + b.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 6; i++)
+      await page.mouse.move(b.x + b.width - 20 - i * 12, b.y + b.height / 2)
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+    const x = await strip.evaluate((el) => el.scrollLeft)
+    assert(x > 5, `引っぱっても流れない（${x}）`)
+  })
+
+  await check('タブを右クリックすると、並び順を変えられる', async () => {
+    const strip = page.locator('.panel-tabs-strip').last()
+    await strip.evaluate((el) => (el.scrollLeft = 0))
+    await page.waitForTimeout(200)
+    const before = await strip.locator('.tab').allTextContents()
+    await strip.locator('.tab').nth(1).click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const head = page.locator('.ctx-item', { hasText: '先頭へ' })
+    assert(await head.count(), 'メニューに「先頭へ」が無い')
+    await head.first().click()
+    await page.waitForTimeout(500)
+    const after = await strip.locator('.tab').allTextContents()
+    assert(after[0] === before[1], `先頭に来ていない（${before.join(',')} → ${after.join(',')}）`)
+    // 元に戻す
+    await strip.locator('.tab').nth(0).click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    await page.locator('.ctx-item', { hasText: '並び順を元に戻す' }).first().click()
+    await page.waitForTimeout(500)
+    const reset = await strip.locator('.tab').allTextContents()
+    assert(
+      JSON.stringify(reset) === JSON.stringify(before),
+      `元に戻っていない（${reset.join(',')}）`
+    )
   })
 
   // =========================================================================
