@@ -7568,6 +7568,58 @@ export default function App(): JSX.Element {
     return () => window.clearTimeout(t)
   }, [videoPath, videoDuration])
 
+  // 素材のドラッグはウィンドウ全体で受け取る。
+  //
+  // 以前はアプリのルート div にだけ付けていたが、ウィンドウの最下部に div の外側の
+  // 帯が数px あり、そこだけ受け皿が無くて 🚫（駐禁）が出ていた。1pxでも取りこぼすと
+  // 「置けない場所」に見えるので、window で受けきる。
+  // 最新の state を見る必要があるので、実体は毎レンダー ref に入れ替える。
+  const winDragRef = useRef({
+    over: (_e: DragEvent): void => {},
+    drop: (_e: DragEvent): void => {},
+    end: (): void => {}
+  })
+  winDragRef.current = {
+    over: (e) => {
+      const m = draggingMediaRef.current
+      if (!m) return
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+      // タイムラインの外にいても、置き先の影を出し続ける
+      updateDropGhost(m, e.clientX, e.clientY, e.ctrlKey, e.target)
+    },
+    drop: (e) => {
+      const m = draggingMediaRef.current
+      if (!m) return
+      // タイムライン・プレビュー・ビンなど、ちゃんとした受け皿が処理した場合は
+      // そちらが preventDefault 済み。二重に置かないよう、ここでは影を消すだけ。
+      if (e.defaultPrevented) {
+        clearDropGhosts()
+        return
+      }
+      e.preventDefault()
+      clearDropGhosts()
+      // 左右のパネル（素材ビン・テロップ一覧など）の中で離したのは「やめた」扱い。
+      // ビンから掴んで同じビンへ戻しただけでタイムラインに置かれると事故になる。
+      if ((e.target as HTMLElement | null)?.closest?.('.panel:not(.monitor)')) return
+      dropMediaNearest(m, e.clientX, e.clientY)
+    },
+    end: () => clearDropGhosts()
+  }
+  useEffect(() => {
+    const over = (e: DragEvent): void => winDragRef.current.over(e)
+    const drop = (e: DragEvent): void => winDragRef.current.drop(e)
+    const end = (): void => winDragRef.current.end()
+    window.addEventListener('dragover', over)
+    window.addEventListener('drop', drop)
+    window.addEventListener('dragend', end)
+    return () => {
+      window.removeEventListener('dragover', over)
+      window.removeEventListener('drop', drop)
+      window.removeEventListener('dragend', end)
+    }
+  }, [])
+
   // ✕ で閉じようとしたときの確認。メイン側は閉じるのを止めてここへ聞きに来るので、
   // アプリ内のモーダルで答えて、了承なら confirmClose で閉じ直してもらう。
   useEffect(() => {
@@ -8526,32 +8578,6 @@ export default function App(): JSX.Element {
       style={QaPanel && qaOpen ? { marginRight: 'var(--qa-w, 380px)' } : undefined}
       // 素材をドラッグしている間は、アプリのどこにいても受け付ける。
       // 受け付けない場所があると、そこだけ 🚫（駐禁）が出て「置けない場所」に見える。
-      onDragOver={(e) => {
-        const m = draggingMediaRef.current
-        if (!m) return
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'copy'
-        // タイムラインの外にいても、置き先の影を出し続ける
-        updateDropGhost(m, e.clientX, e.clientY, e.ctrlKey, e.target)
-      }}
-      // 途中でやめた（Escや枠の外で離した）ときに影が残らないようにする
-      onDragEnd={clearDropGhosts}
-      // タイムライン・プレビュー・ビンなど、ちゃんとした受け皿が処理した場合は
-      // そちらが preventDefault 済みなので何もしない。どこも拾わなかったときだけ、
-      // タイムラインの一番近い位置に置く（掴んだものが消えて終わらないように）。
-      onDrop={(e) => {
-        const m = draggingMediaRef.current
-        if (!m || e.defaultPrevented) return
-        e.preventDefault()
-        // 左右のパネル（素材ビン・テロップ一覧など）の中で離したのは「やめた」扱い。
-        // ビンから掴んで同じビンへ戻しただけでタイムラインに置かれると事故になる。
-        // プレビューとタイムラインの側は最寄りへ置く。
-        const inSidePanel = (e.target as HTMLElement | null)?.closest?.(
-          '.panel:not(.monitor)'
-        )
-        if (inSidePanel) return
-        dropMediaNearest(m, e.clientX, e.clientY)
-      }}
     >
       {/* ===== メニューバー ===== */}
       <div className="menubar">

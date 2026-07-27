@@ -775,6 +775,51 @@ try {
     await page.waitForTimeout(300)
   })
 
+  await check('タイムライン内のどの高さでも「置けません」にならない（段の境目を含む）', async () => {
+    // 段と段の境目・グループの切れ目など、1pxでも受け付けない帯があると
+    // そこだけ 🚫 が出て「置けない場所」に見える。全部の高さを刻んで確かめる。
+    await binCardReady('test_video')
+    await page.evaluate((name) => {
+      const card = [...document.querySelectorAll('.media-card')].find((e) =>
+        (e.textContent ?? '').includes(name)
+      )
+      window.__dt = new DataTransfer()
+      card.dispatchEvent(
+        new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: window.__dt })
+      )
+    }, 'test_video')
+    const bad = await page.evaluate(() => {
+      const out = []
+      // ウィンドウ全体を粗く網羅する。タイムラインの中だけでなく、
+      // パネルの境目やトラック名の列も含めて「どこでも置ける」ことを確かめる。
+      for (let y = 2; y < window.innerHeight; y += 6) {
+        for (let x = 4; x < window.innerWidth; x += 40) {
+          const el = document.elementFromPoint(x, y)
+          if (!el) continue
+          const ev = new DragEvent('dragover', {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            dataTransfer: window.__dt
+          })
+          el.dispatchEvent(ev)
+          if (!ev.defaultPrevented) {
+            out.push({ x, y, tag: (el.className || el.tagName).toString().slice(0, 40) })
+          }
+        }
+      }
+      return out
+    })
+    await page.evaluate(() => {
+      document.querySelector('.app').dispatchEvent(new DragEvent('dragend', { bubbles: true }))
+    })
+    assert(
+      bad.length === 0,
+      `受け付けない場所がある(${bad.length}点): ${bad.slice(0, 6).map((b) => `(${b.x},${b.y}) ${b.tag}`).join(" / ")}`
+    )
+  })
+
   await check('タイムラインの外へ出ても、置き先の影が消えない', async () => {
     // 外れた瞬間に影が消えると、置けないのか場所が悪いのか分からなくなる
     for (const [where, sel, off] of [
