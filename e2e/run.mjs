@@ -13,13 +13,25 @@
 //   --user-data-dir を一時フォルダに向けるので、**普段の自動保存や設定には
 //   一切触らない**。素材も毎回 ffmpeg で作った使い捨てを使う。
 //
-//   npm run e2e            通しで実行
-//   npm run e2e -- --slow  1操作ごとに間を置いて、目で追えるようにする
-//   npm run e2e -- --keep  終わってもウィンドウを閉じない
+//   npm run e2e                 通しで実行（最終確認はこれ）
+//   npm run e2e -- --slow       1操作ごとに間を置いて、目で追えるようにする
+//   npm run e2e -- --keep       終わってもウィンドウを閉じない
+//   npm run e2e -- --only=空き  名前か章にその言葉を含むものだけ実行（開発中用）
+//   （項目名の一覧は `grep "await check(" e2e/run.mjs` で見られる）
 // ============================================================================
 import { _electron as electron } from 'playwright'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  copyFileSync,
+  readdirSync,
+  statSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,6 +41,14 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
 const SLOW = process.argv.includes('--slow')
 const KEEP = process.argv.includes('--keep')
+// 開発中は追加した項目だけ回したい。--only=キーワード で名前か章を絞る。
+// ただし前の項目の状態を引き継ぐ確認もあるので、**最終確認は必ず絞らずに通す**。
+const argAfter = (flag) => {
+  const i = process.argv.indexOf(flag)
+  return i >= 0 ? process.argv[i + 1] : null
+}
+const ONLY =
+  (process.argv.find((a) => a.startsWith('--only=')) ?? '').slice(7) || argAfter('--only') || ''
 const STEP = SLOW ? 600 : 0
 
 const sh = (cmd, args) =>
@@ -51,13 +71,68 @@ async function makeFixture() {
   const image = join(dir, 'test_image.png')
   const sound = join(dir, 'test_sound.wav')
 
-  let r = await sh('ffmpeg', [
-    '-y', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=30:duration=20',
-    '-f', 'lavfi', '-i', 'sine=frequency=440:duration=20',
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', video
-  ])
+  // 本物の素材があればそこから20秒だけ切り出して使う。
+  // 作り物（カラーバー＋サイン波）だと、実際のコーデック・実際の音・実際の絵で
+  // しか出ない問題を見逃す。ただし元ファイルは数百MB〜数GBあるので、
+  // 冒頭を切り出して軽くしてから使う。無ければ作り物にする（他の環境でも動くように）。
+  const DL = 'C:/Users/kyohei/Downloads'
+  const pick = (re, maxBytes) => {
+    try {
+      return readdirSync(DL)
+        .filter((f) => re.test(f))
+        .map((f) => ({ f: join(DL, f), size: statSync(join(DL, f)).size }))
+        .filter((x) => x.size > 0 && x.size < maxBytes)
+        .sort((a, b) => a.size - b.size)[0]?.f
+    } catch {
+      return undefined
+    }
+  }
+  const realVideo = pick(/\.(mp4|mov|mkv)$/i, 4e9)
+  const realImage = pick(/\.(png|jpe?g)$/i, 5e6)
+
+  // 切り出しは重いので、一度作ったら使い回す（毎回1から作り直さない）。
+  // 元ファイルが変わったら作り直せるよう、名前とサイズをキャッシュ名に入れる。
+  const cacheDir = join(ROOT, 'e2e', '.cache')
+  mkdirSync(cacheDir, { recursive: true })
+  const cached = realVideo
+    ? join(cacheDir, `src-${realVideo.split(/[\\/]/).pop().replace(/[^\w.]/g, '_')}-${statSync(realVideo).size}.mp4`)
+    : null
+
+  let r = { code: 1 }
+  if (realVideo && cached && existsSync(cached)) {
+    console.log(`実素材（作成済みを再利用）: ${realVideo.split(/[\\/]/).pop()}`)
+    copyFileSync(cached, video)
+    r = { code: 0 }
+  } else if (realVideo) {
+    console.log(`実素材を使用: ${realVideo.split(/[\\/]/).pop()}（冒頭20秒を切り出し。次回からは再利用）`)
+    r = await sh('ffmpeg', [
+      '-y', '-t', '20', '-i', realVideo,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
+      '-vf', 'scale=640:-2', '-c:a', 'aac', '-ac', '2', '-ar', '48000', video
+    ])
+    if (r.code === 0 && cached) {
+      try {
+        copyFileSync(video, cached)
+      } catch {
+        /* 保存できなくても動作には影響しない */
+      }
+    }
+  }
+  if (!realVideo || r.code !== 0) {
+    r = await sh('ffmpeg', [
+      '-y', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=30:duration=20',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:duration=20',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', video
+    ])
+  }
   if (r.code !== 0) throw new Error('テスト用の動画を作れませんでした（ffmpeg が必要）: ' + r.err.slice(-300))
-  r = await sh('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'color=c=red:s=200x200:d=1', '-frames:v', '1', image])
+
+  r = realImage
+    ? await sh('ffmpeg', ['-y', '-i', realImage, '-vf', 'scale=320:-2', '-frames:v', '1', image])
+    : { code: 1 }
+  if (r.code !== 0) {
+    r = await sh('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'color=c=red:s=200x200:d=1', '-frames:v', '1', image])
+  }
   if (r.code !== 0) throw new Error('テスト用の画像を作れませんでした')
   r = await sh('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'sine=frequency=880:duration=2', sound])
   if (r.code !== 0) throw new Error('テスト用の音声を作れませんでした')
@@ -110,30 +185,117 @@ async function makeFixture() {
   writeFileSync(join(userData, 'giftcut-autosave.json'), JSON.stringify(project), 'utf-8')
   // 同じ内容をプロジェクトファイルにも書いておく。各章の前にこれを開き直して、
   // どの確認も「同じ状態から始める」ようにする（前の章の操作を引きずらない）。
+  // 字幕ファイル。本物があればそれを使う（実際の改行や記号が入っているので、
+  // 自分で作ったきれいなものでは出ない問題が見つかる）。
+  const srt = join(dir, 'test.srt')
+  const realSrt = pick(/\.srt$/i, 2e6)
+  if (realSrt) {
+    try {
+      writeFileSync(srt, readFileSync(realSrt, 'utf-8'), 'utf-8')
+    } catch {
+      /* 読めなければ作り物にする */
+    }
+  }
+  if (!existsSync(srt)) {
+    const cue = (n, a, b, t) => `${n}
+00:00:0${a},000 --> 00:00:0${b},000
+${t}
+
+`
+    writeFileSync(
+      srt,
+      cue(1, 1, 3, 'よみこんだ字幕1') + cue(2, 4, 6, 'よみこんだ字幕2') + cue(3, 7, 9, 'よみこんだ字幕3'),
+      'utf-8'
+    )
+  }
   const gcproj = join(dir, 'fixture.gcproj')
   writeFileSync(gcproj, JSON.stringify(project), 'utf-8')
-  return { dir, userData, video, image, sound, gcproj }
+  return { dir, userData, video, image, sound, srt, gcproj }
 }
 
 // ---------------------------------------------------------------------------
 // 結果の集計
 // ---------------------------------------------------------------------------
 const results = []
-let current = null
-function section(name) {
+let curSection = ''
+let pageRef = null
+const TOTAL_HINT = 46 // だいたいの件数（進み具合の表示用。増減しても表示が崩れないだけ）
+
+/**
+ * アプリの画面に「今なにを確認しているか」を出す。
+ *
+ * 操作が速すぎて何のテストか分からない、という声を受けて足した。
+ * アプリのコードには一切触らず、テスト側から画面に札を貼るだけ。
+ * pointer-events: none なので、テストのクリック判定には影響しない。
+ */
+async function banner(state) {
+  if (!pageRef) return
+  try {
+    await pageRef.evaluate((s) => {
+      let el = document.getElementById('__e2e_banner')
+      if (!el) {
+        el = document.createElement('div')
+        el.id = '__e2e_banner'
+        el.style.cssText = [
+          'position:fixed', 'left:50%', 'top:14px', 'transform:translateX(-50%)',
+          'z-index:2147483647', 'pointer-events:none',
+          'font:13px/1.5 system-ui,sans-serif', 'color:#fff',
+          'background:#0b1220f2', 'border:1px solid #ffffff26', 'border-radius:12px',
+          'padding:10px 16px', 'min-width:420px', 'max-width:78vw',
+          'box-shadow:0 8px 30px #0009', 'text-align:center'
+        ].join(';')
+        document.body.appendChild(el)
+      }
+      const color = s.status === 'ok' ? '#4ade80' : s.status === 'ng' ? '#f87171' : '#7dd3fc'
+      const mark = s.status === 'ok' ? '✓' : s.status === 'ng' ? '✗' : '▶'
+      el.innerHTML =
+        `<div style="font-size:11px;opacity:.6;letter-spacing:.06em">${s.section} ・ ${s.done}/${s.total}</div>` +
+        `<div style="margin-top:3px;font-size:14px;font-weight:700;color:${color}">${mark} ${s.name}</div>` +
+        (s.err ? `<div style="margin-top:4px;font-size:11px;color:#fca5a5">${s.err}</div>` : '') +
+        `<div style="margin-top:8px;height:3px;background:#ffffff1a;border-radius:2px;overflow:hidden">` +
+        `<div style="height:100%;width:${Math.round((s.done / Math.max(1, s.total)) * 100)}%;background:${color}"></div></div>`
+    }, state)
+  } catch {
+    /* 画面が入れ替わった直後などは無視 */
+  }
+}
+const esc = (t) => String(t).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c])
+
+async function section(name) {
+  curSection = name
   console.log(`\n\x1b[1m${name}\x1b[0m`)
 }
-async function check(name, fn) {
-  current = name
+async function check(name, fn, opts = {}) {
+  // setup:true の項目は「絞っても必ず通す」。ここを飛ばすと編集中の状態が
+  // 作られず、以降が全部こけて何を見ているのか分からなくなる。
+  if (ONLY && !opts.setup && !name.includes(ONLY) && !curSection.includes(ONLY)) {
+    results.push({ name, skipped: true })
+    return
+  }
+  const total = Math.max(TOTAL_HINT, results.length + 1)
+  await banner({ status: 'run', name: esc(name), section: esc(curSection), done: results.length, total })
+  // 何を確認しているか読めるだけの間を置く（--slow ならもっと長く）
+  if (pageRef) await pageRef.waitForTimeout(SLOW ? 900 : 320)
   try {
     await fn()
     results.push({ name, ok: true })
     console.log(`  \x1b[32m✓\x1b[0m ${name}`)
+    await banner({ status: 'ok', name: esc(name), section: esc(curSection), done: results.length, total })
   } catch (e) {
+    const msg = String(e?.message ?? e).split('\n')[0]
     results.push({ name, ok: false, err: String(e?.message ?? e) })
-    console.log(`  \x1b[31m✗\x1b[0m ${name}\n      ${String(e?.message ?? e).split('\n')[0]}`)
+    console.log(`  \x1b[31m✗\x1b[0m ${name}\n      ${msg}`)
+    await banner({
+      status: 'ng',
+      name: esc(name),
+      section: esc(curSection),
+      done: results.length,
+      total,
+      err: esc(msg)
+    })
+    if (pageRef) await pageRef.waitForTimeout(1200) // 失敗は読む時間を長めに
   }
-  current = null
+  if (pageRef) await pageRef.waitForTimeout(SLOW ? 500 : 180)
 }
 function assert(cond, msg) {
   if (!cond) throw new Error(msg)
@@ -160,6 +322,7 @@ try {
     cwd: ROOT
   })
   page = await app.firstWindow()
+  pageRef = page
   await page.waitForSelector('.app', { timeout: 20000 })
   page.setDefaultTimeout(8000)
 
@@ -190,6 +353,86 @@ try {
       },
       { open, save }
     )
+
+  // -------------------------------------------------------------------------
+  // 目で見る確認（スクリーンショットを撮って ffmpeg で中身を測る）
+  // -------------------------------------------------------------------------
+  const shotDir = join(ROOT, 'e2e', 'shots')
+  mkdirSync(shotDir, { recursive: true })
+  let shotNo = 0
+  /** 画面（または一部）を撮って保存する。あとから目で見返せる記録にもなる。 */
+  async function shot(label, locator) {
+    const f = join(shotDir, `${String(++shotNo).padStart(2, '0')}-${label.replace(/[^\w一-龥ぁ-んァ-ヶー]/g, '_').slice(0, 40)}.png`)
+    if (locator) await locator.screenshot({ path: f })
+    else await page.screenshot({ path: f })
+    return f
+  }
+  /**
+   * 2枚の画像がどれくらい同じか（1.0 = 完全に同じ）。
+   * 「帯が出ていない＝空いている所と同じに見える」のような、
+   * 数値では確かめられない見た目の判定に使う。
+   */
+  async function similarity(a, b) {
+    const p = spawn('ffmpeg', ['-i', a, '-i', b, '-filter_complex', 'ssim', '-f', 'null', '-'])
+    let err = ''
+    p.stderr.on('data', (d) => (err += d))
+    await new Promise((res) => p.on('close', res))
+    const m = /All:([\d.]+)/.exec(err)
+    assert(m, `見た目を比べられなかった:\n${err.slice(-300)}`)
+    return parseFloat(m[1])
+  }
+  /** 画像の平均色（0〜255）。赤くなったか、暗くなったかを測る。 */
+  async function avgColor(f) {
+    const p = spawn('ffmpeg', ['-i', f, '-vf', 'signalstats,metadata=print', '-f', 'null', '-'])
+    let err = ''
+    p.stderr.on('data', (d) => (err += d))
+    await new Promise((res) => p.on('close', res))
+    const g = (k) => {
+      const m = new RegExp(`lavfi\\.signalstats\\.${k}=([\\d.]+)`).exec(err)
+      return m ? parseFloat(m[1]) : null
+    }
+    const min = g('YMIN')
+    const max = g('YMAX')
+    // V が大きいほど赤寄り。range は明暗の幅＝「模様があるか（帯や文字が乗っているか）」
+    return {
+      y: g('YAVG'),
+      u: g('UAVG'),
+      v: g('VAVG'),
+      range: min != null && max != null ? max - min : null
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 耳で聴く確認（書き出した音を ffmpeg で測る）
+  // -------------------------------------------------------------------------
+  const ffAudio = async (file, filter, re) => {
+    const p = spawn('ffmpeg', ['-i', file, '-af', filter, '-f', 'null', '-'])
+    let err = ''
+    p.stderr.on('data', (d) => (err += d))
+    await new Promise((res) => p.on('close', res))
+    return { err, m: re ? err.match(re) : null }
+  }
+  /** 平均音量(dB)。無音なら -91 付近になる。 */
+  async function meanVolume(file) {
+    const { err } = await ffAudio(file, 'volumedetect')
+    const m = /mean_volume:\s*(-?[\d.]+) dB/.exec(err)
+    return m ? parseFloat(m[1]) : null
+  }
+  /** 無音が続いた区間（秒）の一覧。音の途切れを見つける。 */
+  async function silences(file, thresholdDb = -50, minSec = 0.4) {
+    const { err } = await ffAudio(file, `silencedetect=noise=${thresholdDb}dB:d=${minSec}`)
+    const out = []
+    const re = /silence_start:\s*(-?[\d.]+)[\s\S]*?silence_duration:\s*([\d.]+)/g
+    let m
+    while ((m = re.exec(err))) out.push({ start: parseFloat(m[1]), dur: parseFloat(m[2]) })
+    return out
+  }
+  /** 全体のラウドネス(LUFS)。「音量が揃っているか」の判定に使う。 */
+  async function loudness(file) {
+    const { err } = await ffAudio(file, 'ebur128=framelog=quiet')
+    const m = /I:\s*(-?[\d.]+) LUFS/.exec(err)
+    return m ? parseFloat(m[1]) : null
+  }
 
   const pause = async () => {
     if (STEP) await page.waitForTimeout(STEP)
@@ -261,21 +504,29 @@ try {
   // =========================================================================
   section('1. 起動と、前回の続きから始める')
 
-  await check('前回の続きを復元するか聞かれる', async () => {
+  await check(
+    '前回の続きを復元するか聞かれる',
+    async () => {
     await page.waitForSelector('.restore-box', { timeout: 15000 })
-    const t = await page.locator('.restore-title').textContent()
-    assert(t.includes('前回の作業'), `見出しが違う: ${t}`)
-  })
+      const t = await page.locator('.restore-title').textContent()
+      assert(t.includes('前回の作業'), `見出しが違う: ${t}`)
+    },
+    { setup: true }
+  )
 
-  await check('「復元する」でクリップ・文字・効果音・画像が全部戻る', async () => {
+  await check(
+    '「復元する」でクリップ・文字・効果音・画像が全部戻る',
+    async () => {
     await page.locator('.restore-btns button', { hasText: '復元' }).first().click()
     await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 15000 })
     await pause()
     assert((await v1Clips().count()) === 3, `本編のクリップが3つでない（${await v1Clips().count()}）`)
     assert((await page.locator('.telop-clip').count()) === 2, '文字が2つ出ていない')
     assert((await page.locator('.se-clip').count()) === 1, '効果音が出ていない')
-    assert((await page.locator('.img-clip:not(.se-ghost)').count()) === 1, '画像が出ていない')
-  })
+      assert((await page.locator('.img-clip:not(.se-ghost)').count()) === 1, '画像が出ていない')
+    },
+    { setup: true }
+  )
 
   // =========================================================================
   section('4. クリップを掴んで動かす')
@@ -790,22 +1041,38 @@ try {
     }, 'test_video')
     const bad = await page.evaluate(() => {
       const out = []
-      // ウィンドウ全体を粗く網羅する。タイムラインの中だけでなく、
+      // ウィンドウ全体を細かく網羅する。タイムラインの中だけでなく、
       // パネルの境目やトラック名の列も含めて「どこでも置ける」ことを確かめる。
-      for (let y = 2; y < window.innerHeight; y += 6) {
-        for (let x = 4; x < window.innerWidth; x += 40) {
+      //
+      // dragenter も見るのが要点。HTML5 のドラッグは dragenter と dragover の
+      // 両方で受け入れを宣言しないと、要素をまたぐ一瞬だけ 🚫 が出る。
+      // dragover だけ見ていると、この「行き来すると出る」型を見逃す。
+      let prev = null
+      for (let y = 2; y < window.innerHeight; y += 3) {
+        for (let x = 4; x < window.innerWidth; x += 20) {
           const el = document.elementFromPoint(x, y)
           if (!el) continue
-          const ev = new DragEvent('dragover', {
-            bubbles: true,
-            cancelable: true,
-            clientX: x,
-            clientY: y,
-            dataTransfer: window.__dt
-          })
-          el.dispatchEvent(ev)
-          if (!ev.defaultPrevented) {
-            out.push({ x, y, tag: (el.className || el.tagName).toString().slice(0, 40) })
+          const mk = (type) =>
+            new DragEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              clientX: x,
+              clientY: y,
+              dataTransfer: window.__dt
+            })
+          // 要素が変わった＝またいだ瞬間。ここで dragenter が飛ぶ。
+          if (el !== prev) {
+            const enter = mk('dragenter')
+            el.dispatchEvent(enter)
+            if (!enter.defaultPrevented) {
+              out.push({ x, y, ev: 'dragenter', tag: (el.className || el.tagName).toString().slice(0, 34) })
+            }
+            prev = el
+          }
+          const over = mk('dragover')
+          el.dispatchEvent(over)
+          if (!over.defaultPrevented) {
+            out.push({ x, y, ev: 'dragover', tag: (el.className || el.tagName).toString().slice(0, 34) })
           }
         }
       }
@@ -816,7 +1083,7 @@ try {
     })
     assert(
       bad.length === 0,
-      `受け付けない場所がある(${bad.length}点): ${bad.slice(0, 6).map((b) => `(${b.x},${b.y}) ${b.tag}`).join(" / ")}`
+      `受け付けない場所がある(${bad.length}点): ${bad.slice(0, 6).map((b) => `(${b.x},${b.y}) ${b.ev} ${b.tag}`).join(" / ")}`
     )
   })
 
@@ -1101,6 +1368,134 @@ try {
   })
 
   // =========================================================================
+  section('字幕ファイル（SRT）の読み込み')
+  await resetProject()
+
+  await check('文字がある状態でSRTを読むと、件数つきで確認が出る', async () => {
+    await setDialogFiles([fx.srt], null)
+    const n0 = await page.locator('.telop-clip').count()
+    assert(n0 > 0, '文字が無い状態から始まっている')
+    await page.locator('button', { hasText: 'SRT読込' }).first().click()
+    await page.waitForSelector('.modal-box', { timeout: 8000 })
+    const title = await page.locator('.modal-title').textContent()
+    assert(
+      title.includes(String(n0)) && title.includes('置き換え'),
+      `件数つきの確認になっていない: ${title}`
+    )
+  })
+
+  await check('その確認で「中止」を押すと、今ある文字が消えない', async () => {
+    const n0 = await page.locator('.telop-clip').count()
+    await page.locator('.modal-btn', { hasText: '中止' }).first().click()
+    await page.waitForTimeout(400)
+    assert((await page.locator('.modal-box').count()) === 0, '確認が閉じていない')
+    assert((await page.locator('.telop-clip').count()) === n0, '中止したのに文字が消えた')
+  })
+
+  await check('「置き換える」を選ぶと、SRTの中身に入れ替わる', async () => {
+    await setDialogFiles([fx.srt], null)
+    await page.locator('button', { hasText: 'SRT読込' }).first().click()
+    await page.waitForSelector('.modal-box', { timeout: 8000 })
+    await page.locator('.modal-btn', { hasText: '置き換える' }).first().click()
+    await page.waitForTimeout(900)
+    const n1 = await page.locator('.telop-clip').count()
+    assert(n1 > 0, '読み込んだ文字が1つも出ていない')
+    // 読み込んだ字幕の1つ目が、実際に画面に出ていること
+    const txt = await page.locator('.telop-clip').first().textContent()
+    assert(txt.trim().length > 0, '文字の中身が空になっている')
+  })
+
+  // =========================================================================
+  section('目で見る確認（画面を撮って中身を測る）')
+  await resetProject()
+
+  await check('動かした跡が、本当に「何も無い」ように見えている', async () => {
+    // 「帯が残っていない」は数値では確かめられないので、画面を撮って見比べる。
+    // 同じ場所を動かす前と後で撮り、(1) 見た目が変わったこと（クリップが消えた）
+    // (2) 後の絵が平坦なこと（模様＝帯や文字が無い）の2つで判定する。
+    const rect = await page.evaluate(() => {
+      const row = document.querySelector('[data-tid="V1"]')
+      const b = row.getBoundingClientRect()
+      return {
+        x: Math.round(b.x + 8),
+        y: Math.round(b.y + 5),
+        width: 40,
+        height: Math.round(b.height - 10)
+      }
+    })
+    const a = join(shotDir, 'cmp-before.png')
+    const b = join(shotDir, 'cmp-after.png')
+    await page.screenshot({ path: a, clip: rect })
+    const W2 = await clipW()
+    await dragBy(v1Clips().nth(0), W2 * 0.6)
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: b, clip: rect })
+    const sim = await similarity(a, b)
+    assert(sim < 0.95, `動かしたのに見た目が変わっていない（一致度 ${sim.toFixed(3)}）`)
+    const after = await avgColor(b)
+    assert(after.range != null, '明暗の幅を測れなかった')
+    // クリップにはサムネや文字があるので明暗の幅が大きい。跡は平坦なはず。
+    assert(
+      after.range < 40,
+      `跡に模様が残っている（明暗の幅 ${after.range}）。帯やサムネが残っている疑い`
+    )
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  })
+
+  await check('上書きされるクリップが、見た目にはっきり赤くなる', async () => {
+    const target = v1Clips().nth(1)
+    const before = join(shotDir, 'ov-before.png')
+    const after = join(shotDir, 'ov-after.png')
+    await target.screenshot({ path: before })
+    const box = await v1Clips().nth(0).boundingBox()
+    const w = box.width
+    await page.mouse.move(box.x + 20, box.y + box.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 6; i++) await page.mouse.move(box.x + 20 + (w * i) / 6, box.y + box.height / 2)
+    await page.waitForTimeout(350)
+    await target.screenshot({ path: after })
+    await page.mouse.move(box.x + 20, box.y + box.height / 2)
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+    const c0 = await avgColor(before)
+    const c1 = await avgColor(after)
+    assert(c0.v != null && c1.v != null, '色を測れなかった')
+    // V が大きいほど赤寄り。警告中は赤縁が乗るので上がるはず。
+    assert(c1.v > c0.v + 1, `赤くなっていない（V: ${c0.v?.toFixed(1)} → ${c1.v?.toFixed(1)}）`)
+  })
+
+  // =========================================================================
+  section('耳で聴く確認（書き出した音を測る）')
+  await resetProject()
+
+  await check('書き出した動画に、途中で音が途切れる所が無い', async () => {
+    const out = join(outDir, 'audio-check.mp4')
+    await setDialogFiles(null, out)
+    await page.keyboard.press('Control+m')
+    await page.waitForSelector('.export-overlay')
+    await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
+    await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
+    assert(existsSync(out), '書き出しファイルができていない')
+    const vol = await meanVolume(out)
+    assert(vol !== null && vol > -60, `全体が無音になっている（${vol} dB）`)
+    // 0.6秒以上の無音が続いていたら、音が抜けている疑い
+    const gaps = await silences(out, -50, 0.6)
+    assert(
+      gaps.length === 0,
+      `音が途切れている所がある: ${gaps.map((g) => `${g.start.toFixed(1)}秒から${g.dur.toFixed(1)}秒`).join(' / ')}`
+    )
+  })
+
+  await check('書き出した動画の音量が、狙った大きさに揃っている', async () => {
+    const out = join(outDir, 'audio-check.mp4')
+    const lufs = await loudness(out)
+    assert(lufs !== null, 'ラウドネスを測れなかった')
+    // 画面の設定は -14 LUFS。実測がそこから大きく外れていたら揃っていない。
+    assert(Math.abs(lufs + 14) < 3, `狙いの -14 LUFS から離れている（実測 ${lufs} LUFS）`)
+  })
+
+  // =========================================================================
   section('画面の記録')
 
   await check('最後の画面をスクリーンショットに残す', async () => {
@@ -1111,7 +1506,8 @@ try {
   results.push({ name: '（実行）', ok: false, err: String(e?.message ?? e) })
 } finally {
   const ok = results.filter((r) => r.ok).length
-  const ng = results.filter((r) => !r.ok)
+  const skipped = results.filter((r) => r.skipped).length
+  const ng = results.filter((r) => !r.ok && !r.skipped)
   console.log(`\n\x1b[1m結果: ${ok} / ${results.length} 件が期待どおり\x1b[0m`)
   if (ng.length) {
     console.log('\n直すべきもの:')

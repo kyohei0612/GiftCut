@@ -2036,16 +2036,28 @@ export default function App(): JSX.Element {
   const toggleTplSec = (k: string): void => setOpenTplSec((p) => (p === k ? null : k))
   // 右パネル他タブ（プロジェクト/アイコン/SE/トランジション）のセクション開閉。
   // テロップタブのフォルダUIと同じ動作＝1タブにつき1つだけ開く・開いたら見出しへ自動スクロール（UI統一）。
-  const [openAccSec, setOpenAccSec] = useState<Record<string, string | null>>({
-    project: 'video', // メディアビンは動画を初期展開（追加直後に見えるように）
-    icon: 'lib',
-    transition: 'video'
+  // 開いている折りたたみ。値は「開いているキーの配列」。
+  // テロップ一覧のように点数が多いタブは1つだけ開く（全部開くと探せない）が、
+  // 素材ビン（プロジェクト）は種類が3つだけなので、最初から全部開けておく。
+  // 毎回3回クリックして開くのは手間なだけで、隠す意味がない。
+  const ALWAYS_OPEN_TABS = ['project']
+  const [openAccSec, setOpenAccSec] = useState<Record<string, string[]>>({
+    project: ['video', 'audio', 'image'],
+    icon: ['lib'],
+    transition: ['video']
   })
   const accSecRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const toggleAccSec = (tab: string, k: string): void =>
     setOpenAccSec((p) => {
-      const next = p[tab] === k ? null : k
-      if (next)
+      const cur = p[tab] ?? []
+      const isOpen = cur.includes(k)
+      // 全部開けておくタブは複数同時に開ける。それ以外は従来どおり1つだけ。
+      const next = isOpen
+        ? cur.filter((x) => x !== k)
+        : ALWAYS_OPEN_TABS.includes(tab)
+          ? [...cur, k]
+          : [k]
+      if (!isOpen)
         requestAnimationFrame(() =>
           requestAnimationFrame(() =>
             accSecRefs.current[`${tab}:${k}`]?.scrollIntoView({ block: 'start', behavior: 'smooth' })
@@ -2062,7 +2074,7 @@ export default function App(): JSX.Element {
     body: JSX.Element,
     onDelete?: () => void
   ): JSX.Element => {
-    const open = openAccSec[tab] === key
+    const open = (openAccSec[tab] ?? []).includes(key)
     return (
       <div key={key} ref={(el) => (accSecRefs.current[`${tab}:${key}`] = el)}>
         <button className={`tpl-acc ${open ? 'open' : ''}`} onClick={() => toggleAccSec(tab, key)}>
@@ -2206,7 +2218,7 @@ export default function App(): JSX.Element {
       const next = [...seFolders, { key, label: key }]
       setSeFolders(next)
       saveLS('giftcut.seFolders', next)
-      setOpenAccSec((p) => ({ ...p, se: key }))
+      setOpenAccSec((p) => ({ ...p, se: [key] }))
     })
   const deleteSeFolder = (key: string): void => {
     const next = seFolders.filter((f) => f.key !== key)
@@ -2217,7 +2229,7 @@ export default function App(): JSX.Element {
       saveLS('giftcut.seOverrides', n)
       return n
     })
-    setOpenAccSec((p) => (p.se === key ? { ...p, se: null } : p))
+    setOpenAccSec((p) => ({ ...p, se: (p.se ?? []).filter((x) => x !== key) }))
   }
   const addIconFolder = (): void =>
     askText('フォルダ名', '新しいフォルダ', (name) => {
@@ -2226,7 +2238,7 @@ export default function App(): JSX.Element {
       const next = [...iconFolders, { key, label: key }]
       setIconFolders(next)
       saveLS('giftcut.iconFolders', next)
-      setOpenAccSec((p) => ({ ...p, icon: key }))
+      setOpenAccSec((p) => ({ ...p, icon: [key] }))
     })
   const deleteIconFolder = (key: string): void => {
     const next = iconFolders.filter((f) => f.key !== key)
@@ -2237,7 +2249,7 @@ export default function App(): JSX.Element {
       saveLS('giftcut.iconOverrides', n)
       return n
     })
-    setOpenAccSec((p) => (p.icon === key ? { ...p, icon: null } : p))
+    setOpenAccSec((p) => ({ ...p, icon: (p.icon ?? []).filter((x) => x !== key) }))
   }
   // SE/アイコン共用の右クリックメニュー（テロップの「フォルダへ移動」と同じ見た目・動作）
   const [orgMenu, setOrgMenu] = useState<{
@@ -2611,7 +2623,7 @@ export default function App(): JSX.Element {
         'アイコンを保存できませんでした（保存容量の上限）。\n不要なアイコンを削除してください。',
         'error'
       )
-    setOpenAccSec((p) => ({ ...p, icon: 'lib' })) // 追加したら開いて見せる（各タブ共通の動作）
+    setOpenAccSec((p) => ({ ...p, icon: ['lib'] })) // 追加したら開いて見せる（各タブ共通の動作）
   }
   // ライブラリに画像を追加（ファイル選択 → 円形クロップ → 保存）
   async function addIconImages(): Promise<void> {
@@ -4422,7 +4434,12 @@ export default function App(): JSX.Element {
     if (!add.length) return
     setMediaItems((prev) => [...prev, ...add])
     // 追加した種類のフォルダを自動で開く（テロップタブと同じ「開いて見せる」動作＝追加が迷子にならない）
-    setOpenAccSec((p) => ({ ...p, project: add[0].kind }))
+    // 追加した種類は必ず開いた状態にする（追加が迷子にならない）。
+    // プロジェクトタブは複数同時に開けるので、他を閉じずに足すだけでよい。
+    setOpenAccSec((p) => ({
+      ...p,
+      project: [...new Set([...(p.project ?? []), add[0].kind])]
+    }))
     // 動画のサムネを生成
     add.filter((m) => m.kind === 'video').forEach((m) => genThumbFor(m.id, m.path))
     // 取り込み時に尺と音声波形も用意する（配置前から波形が見える＝映像と音がリンクした状態）
@@ -7575,11 +7592,20 @@ export default function App(): JSX.Element {
   // 「置けない場所」に見えるので、window で受けきる。
   // 最新の state を見る必要があるので、実体は毎レンダー ref に入れ替える。
   const winDragRef = useRef({
+    enter: (_e: DragEvent): void => {},
     over: (_e: DragEvent): void => {},
     drop: (_e: DragEvent): void => {},
     end: (): void => {}
   })
   winDragRef.current = {
+    // 要素をまたぐ瞬間に飛ぶ。dragover だけ受けて dragenter を受けないと、
+    // またいだ一瞬だけ 🚫 が出る（段から段へ動かすとチラチラする原因）。
+    // HTML5 のドラッグは両方で受け入れを宣言して初めて「置ける」扱いになる。
+    enter: (e) => {
+      if (!draggingMediaRef.current) return
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    },
     over: (e) => {
       const m = draggingMediaRef.current
       if (!m) return
@@ -7607,13 +7633,16 @@ export default function App(): JSX.Element {
     end: () => clearDropGhosts()
   }
   useEffect(() => {
+    const enter = (e: DragEvent): void => winDragRef.current.enter(e)
     const over = (e: DragEvent): void => winDragRef.current.over(e)
     const drop = (e: DragEvent): void => winDragRef.current.drop(e)
     const end = (): void => winDragRef.current.end()
+    window.addEventListener('dragenter', enter)
     window.addEventListener('dragover', over)
     window.addEventListener('drop', drop)
     window.addEventListener('dragend', end)
     return () => {
+      window.removeEventListener('dragenter', enter)
       window.removeEventListener('dragover', over)
       window.removeEventListener('drop', drop)
       window.removeEventListener('dragend', end)
