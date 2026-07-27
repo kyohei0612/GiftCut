@@ -135,13 +135,16 @@ const api = {
     ipcRenderer.invoke('project:save', json, curPath, asNew),
   saveImage: (dataUrl: string): Promise<{ ok: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke('image:save', dataUrl),
-  openProject: (): Promise<{
+  // path 省略=ダイアログで選ぶ / path 指定=そのファイルを直接開く（最近使ったプロジェクト）
+  openProject: (
+    path?: string
+  ): Promise<{
     ok: boolean
     path?: string
     data?: unknown
     videoExists?: boolean
     error?: string
-  } | null> => ipcRenderer.invoke('project:open'),
+  } | null> => ipcRenderer.invoke('project:open', path),
   // ---- プロジェクトテンプレート ----
   listTemplates: (): Promise<{ ok: boolean; items: { name: string; path: string }[]; error?: string }> =>
     ipcRenderer.invoke('template:list'),
@@ -170,7 +173,14 @@ const api = {
   }> => ipcRenderer.invoke('project:autosaveCheck'),
   autosaveClear: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('project:autosaveClear'),
   // 未保存の変更があるかをメインへ通知（ウィンドウを閉じるときの確認に使う）
-  setDirty: (dirty: boolean): void => ipcRenderer.send('project:dirty', dirty)
+  setDirty: (dirty: boolean): void => ipcRenderer.send('project:dirty', dirty),
+  // 閉じる要求。確認はアプリ内のモーダルで行い、了承したら confirmClose を返す。
+  onCloseRequest: (fn: () => void): (() => void) => {
+    const h = (): void => fn()
+    ipcRenderer.on('app:close-request', h)
+    return () => ipcRenderer.removeListener('app:close-request', h)
+  },
+  confirmClose: (): void => ipcRenderer.send('app:close-confirmed')
 }
 
 contextBridge.exposeInMainWorld('giftcut', api)

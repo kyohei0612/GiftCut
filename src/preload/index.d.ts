@@ -110,7 +110,7 @@ export interface GiftcutApi {
     asNew?: boolean
   ) => Promise<{ ok: boolean; path?: string; error?: string }>
   saveImage: (dataUrl: string) => Promise<{ ok: boolean; path?: string; error?: string }>
-  openProject: () => Promise<{
+  openProject: (path?: string) => Promise<{
     ok: boolean
     path?: string
     data?: unknown
@@ -139,6 +139,9 @@ export interface GiftcutApi {
   }>
   autosaveClear: () => Promise<{ ok: boolean }>
   setDirty: (dirty: boolean) => void
+  /** ウィンドウを閉じる要求。戻り値は購読解除。確認後は confirmClose を呼ぶ。 */
+  onCloseRequest: (fn: () => void) => () => void
+  confirmClose: () => void
 }
 
 declare global {

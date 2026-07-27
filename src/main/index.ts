@@ -238,26 +238,20 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => mainWindow.show())
 
   // 未保存の変更があるまま閉じようとしたら確認する（無警告で編集内容を失わないため）。
-  // allowClose を立ててから閉じ直すので、2回目は素通りする。
+  //
+  // 確認そのものはレンダラ側のモーダルに任せる。OS のメッセージボックスは
+  // 見た目も文言の作法もアプリと揃わず、「Windows のダイアログが出てきた」という
+  // 見え方になるため。ここは「閉じるのを止めて、レンダラに聞きに行く」だけ。
+  // レンダラが app:close-confirmed を返したら allowClose を立てて閉じ直す。
   let allowClose = false
   mainWindow.on('close', (e) => {
     if (allowClose || !projectDirty) return
     e.preventDefault()
-    const r = dialog.showMessageBoxSync(mainWindow, {
-      type: 'warning',
-      buttons: ['閉じる', 'キャンセル'],
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true,
-      title: 'GiftCut',
-      message: '保存していない変更があります',
-      detail:
-        '閉じると、最後の保存以降の変更は自動保存の下書きにだけ残ります。\n次回の起動時に復元できます。'
-    })
-    if (r === 0) {
-      allowClose = true
-      mainWindow.close()
-    }
+    mainWindow.webContents.send('app:close-request')
+  })
+  ipcMain.on('app:close-confirmed', () => {
+    allowClose = true
+    mainWindow.close()
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -668,18 +662,26 @@ app.whenReady().then(() => {
   })
 
   // プロジェクトを開く（動画パスが生きていれば gcfile 配信を許可）
-  ipcMain.handle('project:open', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      title: 'プロジェクトを開く',
-      filters: [{ name: 'GiftCut Project', extensions: ['gcproj', 'json'] }],
-      properties: ['openFile']
-    })
-    if (canceled || filePaths.length === 0) return null
+  // path を渡すとダイアログを出さずにそのファイルを開く（「最近使ったプロジェクト」用）。
+  ipcMain.handle('project:open', async (_e, path?: string) => {
+    let target = path
+    if (!target) {
+      const { canceled, filePaths } = await dialog.showOpenDialog({
+        title: 'プロジェクトを開く',
+        filters: [{ name: 'GiftCut Project', extensions: ['gcproj', 'json'] }],
+        properties: ['openFile']
+      })
+      if (canceled || filePaths.length === 0) return null
+      target = filePaths[0]
+    } else if (!existsSync(target)) {
+      // 最近使った一覧から消えたファイルを開こうとした場合
+      return { ok: false, error: 'ファイルが見つかりません: ' + target }
+    }
     try {
-      const data = JSON.parse(readFileSync(filePaths[0], 'utf-8'))
+      const data = JSON.parse(readFileSync(target, 'utf-8'))
       // 動画/追加ソース/SE/画像のパスを拡張子チェック付きで配信許可（allowProjectMedia と共通）
       const videoExists = allowProjectMedia(data)
-      return { ok: true, path: filePaths[0], data, videoExists }
+      return { ok: true, path: target, data, videoExists }
     } catch (e) {
       return { ok: false, error: String(e) }
     }

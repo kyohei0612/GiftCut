@@ -162,6 +162,11 @@ describe('マウントと後片付け', () => {
 
     const app = await mountApp()
     await app.unmount()
+    // 後片付けが次のタスクに回ることがあるので、1回分だけ待ってから数える。
+    // 待たずに数えると、片付いているのに「漏れている」と誤報が出る（実際に出た）。
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
 
     // window に張った購読は、同じ種類の数だけ外れているはず
     const added = addSpy.mock.calls.map((c) => c[0])

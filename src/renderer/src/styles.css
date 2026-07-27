@@ -126,6 +126,22 @@ body {
   background: var(--line);
   margin: 5px 4px;
 }
+/* メニュー内の小見出し（「最近使ったプロジェクト」など） */
+.menu-drop-label {
+  padding: 8px 10px 3px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim, #8d97a3);
+  cursor: default;
+}
+/* ファイル名だけを出す。長いパスでメニューが横に伸びないよう省略する。 */
+.menu-drop-recent {
+  padding-left: 20px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* 環境設定モーダル */
 .prefs-overlay {
@@ -1971,6 +1987,46 @@ body {
   display: flex;
   align-items: center;
 }
+/* クリップを動かしてできた「空き」。見た目は何も無いが、クリックはできる。
+   触れる場所だと分かるように、マウスを乗せた時と選んだ時だけ薄く出す。 */
+.gap-clip {
+  background: transparent;
+  border: 1px dashed transparent;
+  box-shadow: none;
+}
+.gap-clip:hover {
+  background: #ffffff08;
+  border-color: #ffffff33;
+}
+.gap-clip.clip-selected {
+  background: #2b8fef1f;
+  border-color: var(--accent);
+  border-style: dashed;
+}
+/* クリップに出す「元動画のどこを使っているか」。名前が同じ断片を見分けるための補助
+   なので、控えめにして名前の邪魔をしない。 */
+.clip-in {
+  margin-left: 6px;
+  font-size: 10px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* 掴んで動かしている間、「離すと丸ごと上書きされる」クリップを赤く縁取る。
+   黙って消えると事故になるので、離す前に気づけるようにする。 */
+.clip-overwrite {
+  outline: 2px solid #e0574d;
+  outline-offset: -2px;
+  filter: saturate(0.6) brightness(0.75);
+}
+/* クリップを掴んで動かすとき、ブラウザ標準の画像/テキストドラッグが同時に始まって
+   半透明の影と 🚫（駐禁）カーソルが出ていた。移動はこちらのポインタ処理で行うので、
+   標準のドラッグは要素ごと殺す。 */
+.clip,
+.clip * {
+  -webkit-user-drag: none;
+  user-select: none;
+}
 .telop-clip {
   z-index: 2;
 }
@@ -2036,7 +2092,9 @@ body {
   height: 100%;
   object-fit: contain;
   z-index: 1;
-  pointer-events: none;
+  /* プレビュー上で直接掴めるようにする。none にすると、画面に出ているのに
+     押しても下の本編映像へクリックが抜けて「動画のパンが始まる」だけになる。 */
+  cursor: move;
   background: transparent;
   will-change: transform;
   backface-visibility: hidden;
@@ -2067,7 +2125,8 @@ body {
   height: 100%;
   object-fit: contain;
   z-index: 1;
-  pointer-events: none;
+  /* 画面に出ている画像はそのまま掴んで動かせる（下の動画にクリックを抜けさせない） */
+  cursor: move;
 }
 /* リフレーム枠の操作対象表示（動画 or 画像）: 誤って別要素を拡大しないための明示 */
 .reframe-target {
@@ -3313,5 +3372,26 @@ body {
 }
 .modal-btn.primary:hover {
   filter: brightness(1.1);
+}
+/* 元に戻せない操作の実行ボタン。「続ける」を押しにくい色で見分ける */
+.modal-btn.danger {
+  background: #c2453c;
+  color: #fff;
+  border: none;
+  font-weight: 700;
+}
+.modal-btn.danger:hover {
+  filter: brightness(1.12);
+}
+.modal-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* 確認モーダルの本文。改行はそのまま出す（文面を組み立てる側で整形できるように） */
+.modal-body {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-dim, #b9c2cc);
+  white-space: pre-wrap;
 }
 

@@ -49,7 +49,17 @@ function parseChecklist(md: string): { title: string; items: Item[] } {
       continue
     }
     const mI = /^\s*-\s*\[[ xX]?\]\s*(.*)$/.exec(line)
-    if (!mI) continue
+    if (!mI) {
+      // 項目の続き（字下げした行）は前の項目にくっつける。
+      // これが無いと折り返して書いた項目が1行目だけになり、
+      // 画面では文章が途中で切れて読めなくなる。
+      const prev = items[items.length - 1]
+      if (prev && /^\s+\S/.test(line) && !/^\s*[-#]/.test(line)) {
+        prev.text += ' ' + line.trim()
+        prev.id = prev.section + '||' + prev.text
+      }
+      continue
+    }
     let text = mI[1].trim()
     if (!text) continue
     let star = false

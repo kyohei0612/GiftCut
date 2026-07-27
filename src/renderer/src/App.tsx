@@ -49,19 +49,26 @@ const QaPanel = import.meta.env.DEV ? lazy(() => import('./dev/QaPanel')) : null
 // ここに同じ計算を書き直さないこと。不変条件は timeline.test.ts が守っている。
 import {
   clamp,
+  cutRange,
   FPS_FALLBACK,
   fadeGain,
   formatTimecode,
   layoutSegs,
+  moveSegTo,
+  moveSegsTo,
   qFrame,
   rippleEnd,
+  rippleShifted,
   rippleStart,
   segSpeed,
   segTLen,
+  tidyGaps,
   tToSource,
   totalSegLen,
   xfadeDurAt,
-  type Layout
+  type Layout,
+  type SegOps,
+  type SplitSeg
 } from '../../shared/timeline'
 
 type Tool = 'select' | 'razor' | 'trackFwd' | 'trackBack'
@@ -268,7 +275,7 @@ const DEFAULT_SHORTCUTS = {
   frameBack5: 'shift+arrowleft',
   frameFwd5: 'shift+arrowright',
   del: 'd',
-  rippleDel: 'shift+delete',
+  rippleDel: 'f',
   // Premiere 準拠: Q=リップルトリム前方 / W=リップルトリム後方。
   // 以前は A / F だったが、Premiere の A は非破壊のトラック選択ツールなので
   // 「押したら映像が削られる」事故になっていた。
@@ -310,8 +317,8 @@ const ACTION_LIST: { id: ShortcutId; label: string; group: string }[] = [
   { id: 'frameBack5', label: '5フレーム戻る', group: '再生' },
   { id: 'frameFwd5', label: '5フレーム進む', group: '再生' },
   { id: 'split', label: '再生ヘッドで分割', group: '編集' },
-  { id: 'del', label: '削除して詰める（Delete / Backspace も同じ）', group: '編集' },
-  { id: 'rippleDel', label: '削除して詰める（もう1つの割り当て）', group: '編集' },
+  { id: 'del', label: '削除（詰めない。Delete / Backspace も同じ）', group: '編集' },
+  { id: 'rippleDel', label: '削除して詰める（Shift+Delete も同じ）', group: '編集' },
   { id: 'rippleToPrevCut', label: '前の編集点まで詰めて削除（リップルトリム前方）', group: '編集' },
   { id: 'rippleToNextCut', label: '次の編集点まで詰めて削除（リップルトリム後方）', group: '編集' },
   { id: 'selectAll', label: '全選択', group: '編集' },
@@ -697,6 +704,11 @@ export default function App(): JSX.Element {
     path: string
   } | null>(null)
   // タイムラインへ動画配置中のゴースト（V1）。insert=Ctrl押下（挿入モード）
+  // 本編クリップを掴んで動かすときの動作（プレミア準拠）。
+  //   move   = そのまま動かす（置き先を上書き。元の位置は空白になる）
+  //   copy   = Alt: 複製（元はその場に残る）
+  //   insert = Ctrl: 割り込み（置き先で分割して差し込み、後続は後ろへずれる）
+  type SegDropMode = 'move' | 'copy' | 'insert'
   const [videoGhost, setVideoGhost] = useState<{
     t: number
     name: string
@@ -704,7 +716,15 @@ export default function App(): JSX.Element {
     insert: boolean
     path: string
     track: string // 置き先の映像トラック（'V1'=本編のカット列 / それ以外=映像レイヤー）
+    moving?: boolean // 既にある本編クリップを掴んで動かしている（新規配置ではない）
+    mode?: SegDropMode // 掴んで動かしているときの動作（そのまま/Alt=複製/Ctrl=割り込み）
   } | null>(null)
+  // 本編クリップをドラッグ中の移動先（タイムライン秒）。指を離した時に確定する。
+  // state だと onUp のクロージャが古い値を見るので ref で持つ。
+  const segMoveToRef = useRef<number | null>(null)
+  const segDropModeRef = useRef<SegDropMode>('move')
+  // 今このまま離すと「丸ごと」上書きされてしまうクリップ。赤く縁取って警告する。
+  const [overwriteIds, setOverwriteIds] = useState<number[]>([])
   // タイムラインへ画像配置中のゴースト（V2/V3等の映像トラック）
   const [imgGhost, setImgGhost] = useState<{
     t: number
@@ -746,6 +766,9 @@ export default function App(): JSX.Element {
   function beginMediaDrag(m: MediaItem, e: React.DragEvent): void {
     // カーソルに付く既定のドラッグ画像を透明化（位置はタイムラインのゴーストで示す）
     if (EMPTY_DRAG_IMG) e.dataTransfer.setDragImage(EMPTY_DRAG_IMG, 0, 0)
+    // 許可する操作を宣言しておく。これが無いと、受け取る側で「コピー」と言っても
+    // ブラウザ側が弾いて 🚫（駐禁）カーソルに戻ってしまう。
+    e.dataTransfer.effectAllowed = 'copy'
     draggingMediaRef.current = m
     // 取り込み時に用意した尺があれば即使う（無ければ既定値→getDurationで後追い）
     const known = mediaMetaRef.current[m.path]?.dur
@@ -1133,6 +1156,14 @@ export default function App(): JSX.Element {
       showToast(vTrack + ' に置くため、上のレーンを1つずつ繰り上げました。')
     }
 
+    // 映像側のレーンが無ければ作る。無いとクリップがどこにも描かれず、選択も削除も
+    // できないのにプレビューと書き出しには出る（置いたのに消えたように見える）。
+    setTracks((prev) =>
+      prev.some((t) => t.id === vTrack)
+        ? prev
+        : insertTrackOrdered(prev, { id: vTrack, name: vTrack, kind: 'video' })
+    )
+    setTrackStates((prev) => (prev[vTrack] ? prev : { ...prev, [vTrack]: newTrackState(vTrack) }))
     // 対の音声トラックが無ければ作る（無いと映像レイヤーの音が鳴らない）
     setTracks((prev) =>
       prev.some((t) => t.id === aTrack)
@@ -1141,6 +1172,93 @@ export default function App(): JSX.Element {
     )
     setTrackStates((prev) => (prev[aTrack] ? prev : { ...prev, [aTrack]: newTrackState(aTrack) }))
     return vTrack
+  }
+  /**
+   * 動画のドロップ先レーンを決める。
+   *
+   * トラックの行の外（下の余白、音声トラックの上など）に落ちたとき、以前は V1 ＝
+   * 本編の上書きに倒れていた。置いたつもりが本編を壊す。行の外でも駐禁を出さずに
+   * 置けるようにしたいので、**縦位置が一番近い映像トラック**に寄せる。
+   * どうしても決まらないときだけ1つ上の新しいレーンを作る
+   * （V{n}/A{n} は reserveTrackPairForVideo が作る）。
+   */
+  /**
+   * タイムラインの外（トラックヘッダー列・パネルの上など）で離された素材を、
+   * 一番近い位置に置く。どこも受け取らずに掴んだものが消えるのを防ぐための最終受け皿。
+   */
+  /**
+   * ドラッグ中の「ここに置きます」の影を更新する。
+   *
+   * タイムラインの外へカーソルが出ても出し続ける。消してしまうと、少し外れた
+   * だけで行き先が分からなくなり、置けないのか場所が悪いのか判断できない。
+   * 位置はタイムラインの表示範囲へ丸めるので、外にいても一番近い場所を指す。
+   */
+  function updateDropGhost(
+    m: MediaItem,
+    clientX: number,
+    clientY: number,
+    insert: boolean,
+    target?: EventTarget | null
+  ): void {
+    const inner = trackInnerRef.current
+    const scroll = scrollRef.current
+    if (!inner || !scroll) return
+    const rect = inner.getBoundingClientRect()
+    const view = scroll.getBoundingClientRect()
+    const raw = Math.max(0, (clamp(clientX, view.left, view.right) - rect.left) / zoomRef.current)
+    const t = snapClipStart(raw, dragSeDurRef.current)
+    const yRel = clamp(clientY, view.top, view.bottom) - rect.top
+    const dur = dragSeDurRef.current
+    if (m.kind === 'audio') {
+      setSeGhost({ t, name: m.name, dur, track: dropLaneAt(yRel, 'audio', true) ?? 'A2', path: m.path })
+      setVideoGhost(null)
+      setImgGhost(null)
+    } else if (m.kind === 'video') {
+      setVideoGhost({ t, name: m.name, dur, insert, path: m.path, track: videoDropLane({ target: target ?? null }, yRel) })
+      setSeGhost(null)
+      setImgGhost(null)
+    } else {
+      setImgGhost({ t, name: m.name, dur, track: fallbackTrack(dropLaneAt(yRel, 'video', true) ?? 'V3', 'video') })
+      setSeGhost(null)
+      setVideoGhost(null)
+    }
+  }
+  /** ドラッグが終わったら影を全部消す */
+  function clearDropGhosts(): void {
+    setSeGhost(null)
+    setVideoGhost(null)
+    setImgGhost(null)
+    setSnapLineX(null)
+  }
+  function dropMediaNearest(m: MediaItem, clientX: number, clientY: number): void {
+    const inner = trackInnerRef.current
+    const scroll = scrollRef.current
+    if (!inner || !scroll) return
+    const rect = inner.getBoundingClientRect()
+    const view = scroll.getBoundingClientRect()
+    // タイムラインの表示範囲へ丸めてから秒とレーンに直す（外に出ていても端に寄る）
+    const raw = Math.max(0, (clamp(clientX, view.left, view.right) - rect.left) / zoomRef.current)
+    const t = snapClipStart(raw, dragSeDurRef.current)
+    const yRel = clamp(clientY, view.top, view.bottom) - rect.top
+    if (m.kind === 'video') {
+      const vt = dropLaneAt(yRel, 'video') ?? 'V1'
+      if (vt !== 'V1') void placeVClip(m, t, vt)
+      else void placeVideoAtDrop(m.path, t, false)
+    } else if (m.kind === 'audio') {
+      void placeSE(m, t, dropLaneAt(yRel, 'audio', true) ?? 'A2')
+    } else {
+      placeImage(m, t, fallbackTrack(dropLaneAt(yRel, 'video', true) ?? 'V3', 'video'))
+    }
+  }
+  function videoDropLane(e: { target: EventTarget | null }, yRel?: number): string {
+    const tid = trackFromEvent(e, 'video')
+    if (tid) return tid
+    if (yRel !== undefined) {
+      const near = dropLaneAt(yRel, 'video')
+      if (near) return near
+    }
+    const vMax = Math.max(1, ...tracks.filter((t) => t.kind === 'video').map((t) => trackNum(t.id)))
+    return 'V' + (vMax + 1)
   }
   // 映像レイヤーに動画クリップを置く
   async function placeVClip(m: MediaItem, t: number, track: string): Promise<void> {
@@ -1775,10 +1893,18 @@ export default function App(): JSX.Element {
   // ---- トースト通知（OS標準alertの置き換え。右下にふわっと出て自動で消える）----
   const [toasts, setToasts] = useState<{ id: number; msg: string; type: 'success' | 'error' | 'info' }[]>([])
   const toastIdRef = useRef(1)
+  // お知らせは「積み上げない・すぐ消える」を守る。
+  // 以前は4秒×無制限だったので、続けて操作すると3つ4つと積み上がって
+  // タイムラインの右側が隠れ、肝心の失敗メッセージも埋もれていた。
+  const TOAST_MAX = 2
   function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
     const id = toastIdRef.current++
-    setToasts((t) => [...t, { id, msg, type }])
-    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000)
+    setToasts((t) => [...t, { id, msg, type }].slice(-TOAST_MAX))
+    // 失敗は読む時間が要るので少し長く出す
+    window.setTimeout(
+      () => setToasts((t) => t.filter((x) => x.id !== id)),
+      type === 'error' ? 5000 : 3000
+    )
   }
   // ---- テキスト入力モーダル（OS標準promptの置き換え）----
   const [promptState, setPromptState] = useState<{
@@ -1788,6 +1914,80 @@ export default function App(): JSX.Element {
   } | null>(null)
   function askText(title: string, defaultValue: string, onOk: (v: string) => void): void {
     setPromptState({ title, value: defaultValue, onOk })
+  }
+  // ---- 最近使ったプロジェクト ----
+  // 保存先を自分で覚えていないと開けない（＝どこに置いたか分からなくなる）ので、
+  // 保存・読み込みのたびに覚えて、ファイルメニューからそのまま開けるようにする。
+  interface RecentProject {
+    path: string
+    name: string
+    at: number
+  }
+  const RECENT_KEY = 'giftcut.recentProjects'
+  const RECENT_MAX = 8
+  const [recentProjects, setRecentProjects] = useState<RecentProject[]>(() => {
+    try {
+      const raw = localStorage.getItem(RECENT_KEY)
+      const arr = raw ? JSON.parse(raw) : []
+      return Array.isArray(arr)
+        ? arr
+            .filter(
+              (r): r is RecentProject => !!r && typeof r.path === 'string' && !!r.path
+            )
+            .slice(0, RECENT_MAX)
+        : []
+    } catch {
+      return []
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(recentProjects))
+    } catch {
+      /* 保存できなくても動作には影響しない */
+    }
+  }, [recentProjects])
+  function rememberProject(path: string): void {
+    const name = path.split(/[\\/]/).pop() ?? path
+    setRecentProjects((prev) =>
+      [{ path, name, at: Date.now() }, ...prev.filter((r) => r.path !== path)].slice(0, RECENT_MAX)
+    )
+  }
+  // ---- 確認モーダル（OS標準 confirm / メッセージボックスの置き換え）----
+  // OS のダイアログは見た目も文言の作法もアプリと揃わないうえ、
+  // window.confirm はレンダラを丸ごと止めるので再生や書き出しの進行も巻き添えになる。
+  const [confirmState, setConfirmState] = useState<{
+    title: string
+    body: string
+    okLabel: string
+    cancelLabel: string
+    danger: boolean
+    resolve: (ok: boolean) => void
+  } | null>(null)
+  function askConfirm(o: {
+    title: string
+    body: string
+    okLabel?: string
+    cancelLabel?: string
+    danger?: boolean
+  }): Promise<boolean> {
+    return new Promise((resolve) =>
+      setConfirmState({
+        title: o.title,
+        body: o.body,
+        okLabel: o.okLabel ?? '続ける',
+        cancelLabel: o.cancelLabel ?? 'キャンセル',
+        danger: !!o.danger,
+        resolve
+      })
+    )
+  }
+  // 開いたまま握りつぶされないよう、閉じる経路は必ずここを通す
+  function closeConfirm(ok: boolean): void {
+    setConfirmState((s) => {
+      s?.resolve(ok)
+      return null
+    })
   }
   // ラウドネス正規化の目標LUFS（null=OFF）。既定はYouTube最適の -14
   const [loudnormLUFS, setLoudnormLUFS] = useState<number | null>(-14)
@@ -3138,14 +3338,16 @@ export default function App(): JSX.Element {
   // リフレーム枠（プレビューの拡大/移動/回転）の操作対象。
   // 画像を1つ選択中なら画像、そうでなければ再生ヘッド位置の動画切片を対象にする。
   // ＝「画像を選んだのに動画が拡大される」を防ぐ。
-  const reframeTarget: {
+  // リフレーム（拡大/パン/回転）の操作対象。動画切片・画像・映像レイヤーのどれか1つ。
+  interface ReframeTarget {
     kind: 'video' | 'img' | 'vclip'
     id: number
     zoom: { scale: number; x: number; y: number }
     rotate: number
     track: string
     name: string
-  } | null = (() => {
+  }
+  const reframeTarget: ReframeTarget | null = (() => {
     // 映像レイヤーを1つ選択中ならそれを最優先（画像より手前の操作対象）
     const vc =
       selectedVClipIds.length === 1
@@ -3613,9 +3815,17 @@ export default function App(): JSX.Element {
   }
   // リフレーム操作: corner=null で本体ドラッグ=パン、cornerあり=四隅ドラッグで拡大縮小（中心基準）。
   // 対象は「画像を選択中なら画像、それ以外は再生ヘッド位置の動画切片」（reframeTarget）。
-  function onVideoReframeStart(e: React.PointerEvent, corner: number | null): void {
+  //
+  // override: プレビュー上の画像／映像レイヤーを直接掴んだときの対象。選択の state 更新は
+  // 次の描画までは reframeTargetRef に反映されないので、掴んだ瞬間に対象を渡す必要がある
+  // （渡さないと「押した画像ではなく下の動画が動く」ことになる）。
+  function onVideoReframeStart(
+    e: React.PointerEvent,
+    corner: number | null,
+    override?: ReframeTarget
+  ): void {
     if (e.button !== 0) return
-    const tgt = reframeTargetRef.current
+    const tgt = override ?? reframeTargetRef.current
     if (!tgt) return
     if (tgt.kind === 'video' ? trackStates['V1']?.locked : trackStates[tgt.track]?.locked) return
     e.stopPropagation()
@@ -3654,6 +3864,39 @@ export default function App(): JSX.Element {
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
+  }
+  /**
+   * プレビュー上の画像／映像レイヤーを直接掴む。
+   *
+   * 以前はこれらが pointer-events: none で、画面に出ている画像を押しても
+   * クリックが下の動画へ抜け、動画のパンが始まるだけだった（画像に触れなかった）。
+   * 押した本人を選択してから、その対象でリフレームのドラッグを始める。
+   */
+  function selectPreviewOverlay(
+    e: React.PointerEvent,
+    o: { kind: 'img'; clip: ImgClip } | { kind: 'vclip'; clip: VClip }
+  ): void {
+    if (e.button !== 0) return
+    if (trackStates[o.clip.track]?.locked) {
+      showToast('このトラックはロックされています。')
+      return
+    }
+    e.stopPropagation()
+    // 他の選択を解除してから自分を選ぶ（Delete の行き先が曖昧にならないように）
+    clearAllSelections()
+    setVideoSelected(false)
+    const tgt: ReframeTarget = {
+      kind: o.kind,
+      id: o.clip.id,
+      zoom: o.clip.zoom ?? DEFAULT_ZOOM,
+      rotate: o.clip.rotate ?? 0,
+      track: o.clip.track,
+      name: o.clip.name
+    }
+    if (o.kind === 'img') setSelectedImgIds([o.clip.id])
+    else setSelectedVClipIds([o.clip.id])
+    // 選択の state はまだ反映されていないので、対象を明示的に渡す
+    onVideoReframeStart(e, null, tgt)
   }
   function resetVideoZoom(): void {
     const tgt = reframeTargetRef.current
@@ -3796,13 +4039,13 @@ export default function App(): JSX.Element {
     // 既存テロップを全置換するので、消える前に確認する（動画差し替えには確認が
     // あるのに、こちらは無確認でスタイル済みテロップが全部消え、Undoも効かなかった）
     if (cuesRef.current.length) {
-      const okToReplace = window.confirm(
-        '現在のテロップ ' +
-          cuesRef.current.length +
-          ' 件をすべて置き換えます。\n' +
-          'スタイルや位置の調整も失われ、この操作は元に戻せません。\n\n' +
-          'OK: 置き換える / キャンセル: 中止'
-      )
+      const okToReplace = await askConfirm({
+        title: `現在のテロップ ${cuesRef.current.length} 件をすべて置き換えます`,
+        body: 'スタイルや位置の調整も失われます。この操作は元に戻せません。',
+        okLabel: '置き換える',
+        cancelLabel: '中止',
+        danger: true
+      })
       if (!okToReplace) return
     }
     idCounter.current = parsed.length + 1
@@ -3814,7 +4057,8 @@ export default function App(): JSX.Element {
   }
 
   // 指定パスの動画をアクティブ動画として読み込む（差し替え）
-  async function loadVideo(path: string): Promise<void> {
+  // placed=true: 切片は呼び出し側が置くので、読み込み時の自動配置（先頭に全長1本）はしない。
+  async function loadVideo(path: string, opts?: { placed?: boolean }): Promise<void> {
     stopPlayback()
     // 動画差し替え: 履歴を破棄し、segsRef も同期リセット（onLoadedMetadata の初期化レース対策）
     if (pendingTimerRef.current) {
@@ -3840,7 +4084,9 @@ export default function App(): JSX.Element {
     curSourceIdRef.current = srcId
     setActiveSrcId(srcId)
     videoElsRef.current.clear() // 旧ソースの要素は破棄される
-    initializedForPathRef.current = null // 新しい動画なので初期切片を1度だけ作る
+    // 新しい動画なので初期切片を1度だけ作る。ただし呼び出し側が位置を決めて置く場合は、
+    // 「もう初期化済み」にしておいて自動配置（先頭に全長1本）を止める。
+    initializedForPathRef.current = opts?.placed ? path : null
     setSources([
       {
         id: srcId,
@@ -3908,10 +4154,12 @@ export default function App(): JSX.Element {
     const res = await window.giftcut.openVideo()
     if (!res) return
     if (segsRef.current.length > 0) {
-      const okToGo = window.confirm(
-        '現在のカット（動画クリップ）を破棄して動画を差し替えます。\n' +
-          'テロップ・SE・画像・マーカーはそのまま残ります。\n続けますか？'
-      )
+      const okToGo = await askConfirm({
+        title: '現在のカットを破棄して動画を差し替えます',
+        body: 'タイムラインの動画クリップは作り直しになります。テロップ・SE・画像・マーカーはそのまま残ります。',
+        okLabel: '差し替える',
+        danger: true
+      })
       if (!okToGo) return
     }
     void loadVideo(res.path)
@@ -3977,46 +4225,86 @@ export default function App(): JSX.Element {
 
   // タイムライン範囲 [tA, tB) を切り出して除去した切片配列を返す（プレミアの「上書き」の下ごしらえ）。
   // 端にかかる切片は速度を考慮してトリムし、insertAt = 新クリップを挿す位置（配列index）を返す。
-  function cutRangeFromSegs(segs: VSeg[], tA: number, tB: number): { out: VSeg[]; insertAt: number } {
-    const lay = layoutSegs(segs)
-    const out: VSeg[] = []
-    let insertAt = -1
-    for (const L of lay) {
-      const s = L.seg
-      const sp = segSpeed(s)
-      if (L.tEnd <= tA + 1e-6) {
-        out.push(s) // 完全に範囲より前
-        continue
-      }
-      if (L.tStart >= tB - 1e-6) {
-        if (insertAt < 0) insertAt = out.length
-        out.push(s) // 完全に範囲より後（位置はtB-tA詰まる＝呼び出し側が同じ長さを挿すと元の位置に戻る）
-        continue
-      }
-      // 範囲にかかる: 左の残り（頭側）
-      if (L.tStart < tA - 1e-6) {
-        out.push({
-          ...s,
-          srcEnd: s.srcStart + (tA - L.tStart) * sp,
-          transOut: undefined,
-          xfade: undefined,
-          afadeOut: undefined
-        })
-      }
-      if (insertAt < 0) insertAt = out.length
-      // 右の残り（尻側）
-      if (L.tEnd > tB + 1e-6) {
-        out.push({
+  // 切片を切ったときの断片の作り方。頭側は「尻に付いていたもの」、尻側は
+  // 「頭に付いていたもの」を落とす（切り口にトランジションやフェードが残らないように）。
+  // 尻側は別クリップになるので id を振り直す。
+  const segSplit: SplitSeg<VSeg> = (s, part, srcStart, srcEnd) =>
+    part === 'head'
+      ? { ...s, srcStart, srcEnd, transOut: undefined, xfade: undefined, afadeOut: undefined }
+      : {
           ...s,
           id: segIdCounter.current++,
-          srcStart: s.srcStart + (tB - L.tStart) * sp,
+          srcStart,
+          srcEnd,
           transIn: undefined,
           afadeIn: undefined
-        })
-      }
+        }
+  // 空白切片（映像なし・無音）。位置を指定した配置・移動で空いた所を埋める。
+  const makeGapSeg = (len: number): VSeg => ({
+    id: segIdCounter.current++,
+    srcStart: 0,
+    srcEnd: len,
+    videoBlank: true,
+    muted: true,
+    gap: true
+  })
+  const segOps: SegOps<VSeg> = { split: segSplit, makeGap: makeGapSeg, isGap: (s) => !!s.gap }
+  function cutRangeFromSegs(segs: VSeg[], tA: number, tB: number): { out: VSeg[]; insertAt: number } {
+    return cutRange(segs, tA, tB, segSplit)
+  }
+  /**
+   * 本編の切片をドラッグで動かしたときの確定処理（プレミア準拠）。
+   *
+   * - move  : 置き先を上書きし、元の位置は空白になる。他のクリップの位置は動かない。
+   * - copy  : Alt。元はその場に残し、複製を置き先へ上書き配置する。
+   * - insert: Ctrl。元の位置を詰めてから置き先で割り込む。後続はテロップ/SE/
+   *           マーカー/画像ごと後ろへずれる。
+   *
+   * 位置の計算そのものは shared/timeline 側（moveSegTo）。
+   */
+  function moveSegmentTo(
+    segId: number,
+    t: number,
+    mode: SegDropMode = 'move',
+    alsoIds: number[] = []
+  ): void {
+    if (mainLocked()) return
+    const segs = segsRef.current
+    const idx = segs.findIndex((s) => s.id === segId)
+    if (idx < 0) return
+    const L = layoutSegs(segs)[idx]
+    if (!L) return
+    const tt = Math.max(0, t)
+    // 複数の切片を選んで掴んだ場合は、相対位置を保ったまままとめて動かす。
+    // 複製・割り込みは「1本を差し込む」操作なので、掴んだ1本だけを対象にする。
+    const groupIdx = [...new Set([segId, ...alsoIds])]
+      .map((id) => segs.findIndex((s) => s.id === id))
+      .filter((i) => i >= 0)
+    if (mode === 'move' && groupIdx.length > 1) {
+      const out = moveSegsTo(segs, groupIdx, tt - L.tStart, segOps)
+      if (out === segs) return
+      setSegments(out)
+      showToast(`${groupIdx.length} 個のクリップを移動しました。`, 'success')
+      return
     }
-    if (insertAt < 0) insertAt = out.length
-    return { out, insertAt }
+    if (mode === 'copy') {
+      placeSegAt({ ...L.seg, id: segIdCounter.current++ }, tt, false)
+      return
+    }
+    if (mode === 'insert') {
+      // 元の位置を詰める（後続のテロップ/SE/マーカー/画像も一緒に前へ）。
+      // 詰めたぶん、元より後ろへ置く場合は目標位置も同じだけ手前に寄る。
+      const target = tt > L.tStart ? Math.max(0, tt - L.len) : tt
+      const rest = segs.filter((_, i) => i !== idx)
+      shiftAfter(L.tEnd, -L.len)
+      setSegments(rest)
+      segsRef.current = rest // placeSegAt は segsRef を見るので先に反映させる
+      placeSegAt(L.seg, target, true)
+      return
+    }
+    const out = moveSegTo(segs, idx, tt, segOps)
+    if (out === segs) return // 動いていない＝履歴を汚さない
+    setSegments(out)
   }
   // 新しい切片をタイムライン位置 t へ配置（プレミア準拠）。
   // 既定=上書き: [t, t+len) の既存内容を置き換え、後続クリップの位置は変えない。
@@ -4074,9 +4362,18 @@ export default function App(): JSX.Element {
       return
     }
     if (!sourcesRef.current.length) {
-      // 最初の1本は主ソースとして通常ロード（先頭配置）
-      void loadVideo(path)
-      if (t > 0.5) showToast('最初の動画は先頭に配置されます。')
+      // 最初の1本も「落とした位置」に置く。以前はここだけ先頭固定だったため、
+      // 1本目にかぎってドロップ位置が無視され、勝手に頭から始まっていた。
+      // 尺を先に取ってから読み込み、loadVideo 側の自動配置は止める。
+      const d = await window.giftcut.getDuration(path)
+      const dur = d?.ok && d.duration ? d.duration : 0
+      if (dur <= 0) {
+        showToast('動画の長さを取得できませんでした。', 'error')
+        return
+      }
+      void loadVideo(path, { placed: true })
+      // segIdCounter は loadVideo が同期的に 1 へ戻すので、採番はその後で行う
+      placeSegAt({ id: segIdCounter.current++, srcStart: 0, srcEnd: dur }, Math.max(0, t), insert)
       return
     }
     const reg = await registerSource(path)
@@ -4222,14 +4519,15 @@ export default function App(): JSX.Element {
     }
   }
   // 作業内容を捨てる操作の前に確認する。true=進めてよい
-  function confirmDiscard(what: string): boolean {
+  async function confirmDiscard(what: string): Promise<boolean> {
     if (!hasUnsavedChanges()) return true
-    return window.confirm(
-      '保存していない変更があります。\n' +
-        what +
-        'と、その変更は失われます。\n\n' +
-        'OK: このまま続ける / キャンセル: 中止して保存する'
-    )
+    return askConfirm({
+      title: '保存していない変更があります',
+      body: `${what}と、その変更は失われます。`,
+      okLabel: 'このまま続ける',
+      cancelLabel: '中止して保存する',
+      danger: true
+    })
   }
   async function saveProjectFn(asNew = false): Promise<void> {
     if (!hasProjectContent()) {
@@ -4250,23 +4548,28 @@ export default function App(): JSX.Element {
       lastAutosaveRef.current = saved
       savedJsonRef.current = saved // ここを「保存済み」の基準にする
       baselineRef.current = snapNow() // 保存時点を「未編集」の基準にする
+      rememberProject(res.path) // ファイルメニューの「最近使ったプロジェクト」に出す
       showToast('プロジェクトを保存しました:\n' + res.path, 'success')
     } else if (res?.error && res.error !== 'キャンセル')
       showToast('保存失敗: ' + res.error, 'error')
   }
 
-  async function openProjectFn(): Promise<void> {
+  // path 省略=ダイアログで選ぶ / path 指定=最近使ったプロジェクトを直接開く
+  async function openProjectFn(path?: string): Promise<void> {
     // 閉じるときは確認するのに開くときはしない、という非対称を解消する
     // （確認なしだと30分の作業が警告なしに消え、しかも自動保存の下書きも
     //   30秒後に新しいプロジェクトで上書きされて復元不能になる）
-    if (!confirmDiscard('別のプロジェクトを開く')) return
-    const res = await window.giftcut.openProject()
+    if (!(await confirmDiscard('別のプロジェクトを開く'))) return
+    const res = await window.giftcut.openProject(path)
     if (!res) return
     if (!res.ok || !res.data) {
       showToast('プロジェクトを開けませんでした:\n' + (res.error ?? '不明なエラー'), 'error')
+      // 見つからなくなったファイルは一覧から外す（毎回同じエラーを踏まないように）
+      if (path) setRecentProjects((prev) => prev.filter((r) => r.path !== path))
       return
     }
     await applyProjectData(res.data, !!res.videoExists, res.path ?? null)
+    if (res.path) rememberProject(res.path)
   }
 
   // テンプレJSON＝プロジェクトタブ(メディアビン)＋テロップ設定(フォルダ/お気に入り/カテゴリ)＋比率/アイコン。
@@ -5423,22 +5726,84 @@ export default function App(): JSX.Element {
     setCues((prev) => prev.filter((c) => !isSelected(c.id) || telopLocked(c)))
     setSelectedIds([])
   }
+  /**
+   * リップル削除（詰める）。選択中のテロップ・SE/BGM・画像・映像レイヤーを消し、
+   * **消したクリップと同じトラックの後続だけ**を、その長さぶん前へ詰める。
+   *
+   * 以前はテロップ専用で、しかもトラックを見ずに全テロップを詰めていた。
+   * SE や画像を消しても後続が詰まらず、V2 のテロップを消すと V3 のテロップまで
+   * ずれる、という2つの食い違いがあった。
+   *
+   * 本編（V1/A1）の切片は別物（rippleDeleteVideoSegments が全レーン同期で詰める）。
+   */
   function rippleDeleteSelected(): void {
-    if (!selectedIds.length) return
-    if (cues.some((c) => isSelected(c.id) && telopLocked(c))) return // ロック中を含むなら中止
-    setCues((prev) => {
-      // 降順で処理: 昇順だとシフト済み座標と元座標の比較になり詰め量が壊れる
-      const removed = prev.filter((c) => isSelected(c.id)).sort((a, b) => b.start - a.start)
-      let remaining = prev.filter((c) => !isSelected(c.id))
-      for (const r of removed) {
-        const gap = r.end - r.start
-        remaining = remaining.map((c) =>
-          c.start >= r.end ? { ...c, start: c.start - gap, end: c.end - gap } : c
-        )
-      }
-      return remaining
-    })
+    const hasAny =
+      selectedIds.length || selectedSeIds.length || selectedImgIds.length || selectedVClipIds.length
+    if (!hasAny) return
+    // ロック中トラックのものが1つでも含まれていたら中止（部分的に消えると分かりにくい）
+    const locked =
+      cues.some((c) => isSelected(c.id) && telopLocked(c)) ||
+      seClips.some((c) => selectedSeIds.includes(c.id) && trackStates[c.track]?.locked) ||
+      imgClips.some((c) => selectedImgIds.includes(c.id) && trackStates[c.track]?.locked) ||
+      vClips.some((c) => selectedVClipIds.includes(c.id) && trackStates[c.track]?.locked)
+    if (locked) {
+      showToast('ロックされたトラックのクリップが含まれています。')
+      return
+    }
+    // 消した区間（トラックごと）。同じトラックの後続だけを詰めるために使う。
+    const holes: { track: string; start: number; end: number }[] = []
+    const collect = (track: string, start: number, end: number): void => {
+      if (end > start) holes.push({ track, start, end })
+    }
+    cues.filter((c) => isSelected(c.id)).forEach((c) => collect(cueTrack(c), c.start, c.end))
+    seClips
+      .filter((c) => selectedSeIds.includes(c.id))
+      .forEach((c) => collect(c.track, c.tStart, c.tStart + c.duration))
+    imgClips
+      .filter((c) => selectedImgIds.includes(c.id))
+      .forEach((c) => collect(c.track, c.tStart, c.tStart + c.duration))
+    vClips
+      .filter((c) => selectedVClipIds.includes(c.id))
+      .forEach((c) => collect(c.track, c.tStart, c.tStart + vcLen(c)))
+    if (!holes.length) return
+    // 詰めた後の位置は shared/timeline の rippleShifted に集約（同じ計算を書き直さない）
+    const shifted = (track: string, t: number): number => rippleShifted(holes, track, t)
+    setCues((prev) =>
+      prev
+        .filter((c) => !isSelected(c.id))
+        .map((c) => {
+          const ns = shifted(cueTrack(c), c.start)
+          return ns === c.start ? c : { ...c, start: ns, end: ns + (c.end - c.start) }
+        })
+    )
+    setSeClips((prev) =>
+      prev
+        .filter((c) => !selectedSeIds.includes(c.id))
+        .map((c) => {
+          const ns = shifted(c.track, c.tStart)
+          return ns === c.tStart ? c : { ...c, tStart: ns }
+        })
+    )
+    setImgClips((prev) =>
+      prev
+        .filter((c) => !selectedImgIds.includes(c.id))
+        .map((c) => {
+          const ns = shifted(c.track, c.tStart)
+          return ns === c.tStart ? c : { ...c, tStart: ns }
+        })
+    )
+    setVClips((prev) =>
+      prev
+        .filter((c) => !selectedVClipIds.includes(c.id))
+        .map((c) => {
+          const ns = shifted(c.track, c.tStart)
+          return ns === c.tStart ? c : { ...c, tStart: ns }
+        })
+    )
     setSelectedIds([])
+    setSelectedSeIds([])
+    setSelectedImgIds([])
+    setSelectedVClipIds([])
   }
 
   // ---- 基本編集操作（コピー/カット/貼付/複製/分割）----
@@ -5715,27 +6080,180 @@ export default function App(): JSX.Element {
       razorSegment(L.seg, L.seg.srcStart + (t - L.tStart) * segSpeed(L.seg))
       return
     }
+    // 掴んだ切片が既に選択に入っていたら「選択ごと動かす」。全選択して動かしたときに
+    // テロップ・SE・画像・映像レイヤー・マーカーが取り残されないようにする。
+    // その場合だけは他種の選択を消さない。
+    const grabbedInSel =
+      selectedVideoIds.includes(L.seg.id) || selectedAudioIds.includes(L.seg.id)
+    // 一緒に動かす他の切片（複数選択して掴んだとき）。掴んだ本人は含めない。
+    const segGroupIds = grabbedInSel
+      ? [...new Set([...selectedVideoIds, ...selectedAudioIds])].filter((id) => id !== L.seg.id)
+      : []
+    const groupBase = grabbedInSel
+      ? {
+          cues: cues.filter((c) => selectedIds.includes(c.id)).map((c) => ({ id: c.id, t: c.start })),
+          se: seClips.filter((c) => selectedSeIds.includes(c.id)).map((c) => ({ id: c.id, t: c.tStart })),
+          img: imgClips.filter((c) => selectedImgIds.includes(c.id)).map((c) => ({ id: c.id, t: c.tStart })),
+          vc: vClips.filter((c) => selectedVClipIds.includes(c.id)).map((c) => ({ id: c.id, t: c.tStart })),
+          mk: markers.filter((m) => m.id === selectedMarkerId).map((m) => ({ id: m.id, t: m.t }))
+        }
+      : null
+    const hasGroup =
+      !!groupBase &&
+      groupBase.cues.length +
+        groupBase.se.length +
+        groupBase.img.length +
+        groupBase.vc.length +
+        groupBase.mk.length >
+        0
     // 他種の選択を全部解除してから自分を選ぶ（巻き添え削除と、Delete が
     // マーカー削除へ横取りされるのを防ぐ）。個別に列挙すると必ず取りこぼす。
-    clearAllSelections()
+    if (!hasGroup) clearAllSelections()
     // クリックは独立: 動画クリックは動画のみ、音声クリックは音声のみ選択（他方は解除）
     const setThis = track === 'video' ? setSelectedVideoIds : setSelectedAudioIds
     const clearOther = track === 'video' ? setSelectedAudioIds : setSelectedVideoIds
     const selThis = track === 'video' ? selectedVideoIds : selectedAudioIds
-    clearOther([])
-    if (e.ctrlKey || e.metaKey) {
-      setThis(
-        selThis.includes(L.seg.id)
-          ? selThis.filter((id) => id !== L.seg.id)
-          : [...selThis, L.seg.id]
+    if (!hasGroup) clearOther([])
+    // ブラウザ標準の画像/テキストドラッグ（半透明の影＋🚫カーソル）が同時に始まるのを止める
+    e.preventDefault()
+    const ctrlDown = e.ctrlKey || e.metaKey
+    if (!ctrlDown && !hasGroup) setThis([L.seg.id])
+    // ドラッグ＝時間方向に移動（プレミア準拠）。修飾キーで動作が変わる:
+    //   そのまま = 上書き移動 / Alt = 複製 / Ctrl = 割り込み（後続が後ろへずれる）
+    //
+    // 以前はここが「配列の並べ替え」で、少し掴んだだけで切片の順序が入れ替わり
+    // 再生時に巨大シークを起こしていたため丸ごと無効化されていた。無効のままだと
+    // 置いたクリップを一切動かせないので、時間方向の移動として作り直してある
+    // （並びは時間順のまま保たれるので、あの事故は起きない）。
+    //
+    // Ctrl はクリックだけなら従来どおり複数選択のトグル。動かしたときだけ割り込みに
+    // なるので、押した瞬間には選択を変えず pointerup まで判定を遅らせている。
+    if (mainLocked()) return
+    // 空きは「選ぶ／消す」だけ。穴そのものを動かしても意味がないうえ、
+    // 動かせると空きが増殖して収拾がつかなくなる。
+    if (L.seg.gap) return
+    const sx = e.clientX
+    const t0 = L.tStart
+    const len = L.tEnd - L.tStart
+    const src = srcOfSeg(L.seg)
+    let moved = false
+    const modeOf = (ev: { altKey: boolean; ctrlKey: boolean; metaKey: boolean }): SegDropMode =>
+      ev.altKey ? 'copy' : ev.ctrlKey || ev.metaKey ? 'insert' : 'move'
+    const onMove = (ev: PointerEvent): void => {
+      // 数px の震えで動かさない（クリック＝選択のままにする）
+      if (!moved && Math.abs(ev.clientX - sx) < 4) return
+      if (!moved) {
+        moved = true
+        stopPlayback()
+        // Ctrl で掴んでいた場合もここで単独選択に切り替える（選択ごと動かす時は保つ）
+        if (!hasGroup) setThis([L.seg.id])
+      }
+      const nt = snapClipStart(Math.max(0, t0 + (ev.clientX - sx) / zoomRef.current), len)
+      const mode = modeOf(ev)
+      // 選択ごと動かす: 同じ量だけテロップ/SE/画像/映像レイヤー/マーカーもずらす。
+      //
+      // 複製(Alt)と割り込み(Ctrl)は「掴んだ1本を差し込む」操作なので、他の選択は
+      // 動かさない。ドラッグ中にキーを押し替えたときに置いてきぼりにならないよう、
+      // ずらさない場合も「元の位置」を書き戻す（0 でシフトし直す）。
+      if (groupBase && hasGroup) {
+        const shift = mode === 'move' ? nt - t0 : 0
+        const at = (base: { id: number; t: number }[], id: number): number | undefined =>
+          base.find((b) => b.id === id)?.t
+        if (groupBase.cues.length)
+          setCues((prev) =>
+            prev.map((c) => {
+              const b = at(groupBase.cues, c.id)
+              return b === undefined
+                ? c
+                : { ...c, start: Math.max(0, b + shift), end: Math.max(0, b + shift) + (c.end - c.start) }
+            })
+          )
+        if (groupBase.se.length)
+          setSeClips((prev) =>
+            prev.map((c) => {
+              const b = at(groupBase.se, c.id)
+              return b === undefined ? c : { ...c, tStart: Math.max(0, b + shift) }
+            })
+          )
+        if (groupBase.img.length)
+          setImgClips((prev) =>
+            prev.map((c) => {
+              const b = at(groupBase.img, c.id)
+              return b === undefined ? c : { ...c, tStart: Math.max(0, b + shift) }
+            })
+          )
+        if (groupBase.vc.length)
+          setVClips((prev) =>
+            prev.map((c) => {
+              const b = at(groupBase.vc, c.id)
+              return b === undefined ? c : { ...c, tStart: Math.max(0, b + shift) }
+            })
+          )
+        if (groupBase.mk.length)
+          setMarkers((prev) =>
+            prev.map((m) => {
+              const b = at(groupBase.mk, m.id)
+              return b === undefined ? m : { ...m, t: Math.max(0, b + shift) }
+            })
+          )
+      }
+      segMoveToRef.current = nt
+      segDropModeRef.current = mode
+      setVideoGhost({
+        t: nt,
+        name: src?.name ?? videoName ?? '',
+        dur: len,
+        insert: mode === 'insert',
+        path: src?.path ?? videoPath ?? '',
+        track: 'V1',
+        moving: true,
+        mode
+      })
+      setDragTip({
+        x: ev.clientX,
+        y: ev.clientY,
+        text:
+          (mode === 'copy' ? '複製 ' : mode === 'insert' ? '割り込み ' : '') + formatTime(nt)
+      })
+      // このまま離すと丸ごと消えるクリップに印を付ける（割り込みは押し出すので対象外）
+      setOverwriteIds(
+        mode === 'insert'
+          ? []
+          : layoutSegs(segsRef.current)
+              .filter(
+                (o) =>
+                  o.seg.id !== L.seg.id &&
+                  !o.seg.gap &&
+                  o.tStart >= nt - 1e-6 &&
+                  o.tEnd <= nt + len + 1e-6
+              )
+              .map((o) => o.seg.id)
       )
-      return
     }
-    // クリック＝選択のみ（動画・音声とも）。
-    // 以前は動画クリップを少しドラッグすると「並べ替え」が誤爆し、切片がソース順的に
-    // 入れ替わって再生時に巨大シーク（＝カット点で一瞬止まる）を起こしていた。切り抜き用途では
-    // 並べ替えは不要かつ有害なので無効化。移動が必要になったら明示的な操作として別途用意する。
-    setThis([L.seg.id])
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      const nt = segMoveToRef.current
+      const mode = segDropModeRef.current
+      segMoveToRef.current = null
+      segDropModeRef.current = 'move'
+      setVideoGhost(null)
+      setDragTip(null)
+      setSnapLineX(null)
+      setOverwriteIds([])
+      if (moved && nt !== null) moveSegmentTo(L.seg.id, nt, mode, segGroupIds)
+      // 動かさずに離した＝ただのクリック。Ctrl のときだけ複数選択のトグルにする
+      else if (!moved && ctrlDown)
+        setThis(
+          selThis.includes(L.seg.id)
+            ? selThis.filter((id) => id !== L.seg.id)
+            : [...selThis, L.seg.id]
+        )
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
   // 切片の端をドラッグしてソース範囲をトリム（左端=イン点、右端=アウト点。縮めた分は復元も可能）
   function onSegTrimStart(L: SegLayout, edge: 'l' | 'r', e: React.PointerEvent): void {
@@ -6309,6 +6827,78 @@ export default function App(): JSX.Element {
   // 前にある場合にテロップごと巻き添えで消えていた。
   // どこで止めるかの判定は shared/timeline の rippleStart / rippleEnd 側にある
   // （テストで固定してあるので、ここに同じ判定を書き足さないこと）。
+  /**
+   * 再生ヘッドが「空き」の上にあるなら、その空きを詰める（本編＝V1 だけ）。
+   *
+   * クリップを動かしてできた空きは帯を描いていないので、掴んで消すことができない。
+   * 再生ヘッドを置いて Delete で閉じられるようにする。
+   *
+   * 途中にテロップ・効果音・画像・重ねた動画が入っている場合は、**その手前で止める**。
+   * 空き全部を一度に詰めると、間にあったテロップが巻き添えでずれてしまうため。
+   * どこで止めるかの判定は shared/timeline の rippleEnd（テストで固定済み）。
+   *
+   * 戻り値: 詰めたら true。空きの上でなければ false（呼び出し側は通常の削除へ）。
+   */
+  function closeGapAtPlayhead(): boolean {
+    const t = currentTimeRef.current
+    const L = layoutSegs(segsRef.current).find(
+      (x) => x.seg.gap && t >= x.tStart - 1e-6 && t < x.tEnd - 1e-6
+    )
+    return L ? closeGap(L.seg.id) : false
+  }
+  /**
+   * 選んでいる本編クリップを消して、そこを「空き」として残す（詰めない）。
+   *
+   * 後ろのクリップもテロップも位置が動かないので、全体のタイミングを崩さずに
+   * 一部だけ抜ける。詰めたいときは F（削除して詰める）を使う。
+   */
+  function deleteVideoSegmentsLeavingGap(): void {
+    if (mainLocked()) return
+    const ids = new Set([...selectedVideoIds, ...selectedAudioIds])
+    if (!ids.size) return
+    const lay = layoutSegs(segsRef.current)
+    if (!lay.some((L) => ids.has(L.seg.id))) return
+    const next = tidyGaps(
+      lay.map((L) => (ids.has(L.seg.id) ? makeGapSeg(L.len) : L.seg)),
+      segOps
+    )
+    setSegments(next)
+    clearSegSel()
+  }
+  /** 選んでいる空きを詰める。選択に空きが1つも無ければ false。 */
+  function closeSelectedGaps(): boolean {
+    const ids = new Set([...selectedVideoIds, ...selectedAudioIds])
+    const gap = segsRef.current.find((s) => s.gap && ids.has(s.id))
+    if (!gap) return false
+    clearSegSel()
+    return closeGap(gap.id)
+  }
+  /** 空き1つを詰める。途中に別のクリップがあればその手前で止める。 */
+  function closeGap(segId: number): boolean {
+    if (mainLocked()) return false
+    const segs = segsRef.current
+    const L = layoutSegs(segs).find((x) => x.seg.id === segId && x.seg.gap)
+    if (!L) return false
+    const to = rippleEnd(L.tStart, L.tEnd, allContentEdges())
+    const len = to - L.tStart
+    if (len <= 1e-3) {
+      showToast('この空きの先頭には別のクリップが来ています。')
+      return true
+    }
+    // 空きを縮める（丸ごと無くなるなら切片ごと外す）
+    const next = segs.flatMap((s) =>
+      s.id !== L.seg.id
+        ? [s]
+        : segTLen(s) - len > 1e-3
+          ? [{ ...s, srcEnd: s.srcEnd - len }]
+          : []
+    )
+    setSegments(next)
+    shiftAfter(to, -len) // 詰めた分だけ、後ろのテロップ/SE/画像/マーカーも前へ
+    seekTo(L.tStart)
+    if (to < L.tEnd - 1e-3) showToast('次のクリップの手前まで詰めました。')
+    return true
+  }
   function allContentEdges(): number[] {
     const out: number[] = []
     for (const c of cuesRef.current) out.push(c.start, c.end)
@@ -6645,8 +7235,16 @@ export default function App(): JSX.Element {
   // ================= キーボード（refで常に最新のハンドラを呼ぶ）=================
   const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {})
   keyHandlerRef.current = (e: KeyboardEvent): void => {
-    const tag = (e.target as HTMLElement)?.tagName
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+    const el = e.target as HTMLElement | null
+    const tag = el?.tagName
+    // 文字を打つ欄にフォーカスがあるときは、ショートカットを通さない。
+    //
+    // ただし **つまみ（input[type=range]）は文字を打つ欄ではない**。ここで一律に
+    // 止めていたため、音量つまみを触った直後に矢印キーを押すと、再生ヘッドではなく
+    // つまみの値が動いていた（スペースキーも再生に効かなかった）。
+    // つまみのときはショートカットを優先し、下で明示的にフォーカスを外す。
+    const isSlider = tag === 'INPUT' && (el as HTMLInputElement).type === 'range'
+    if ((tag === 'INPUT' && !isSlider) || tag === 'TEXTAREA' || tag === 'SELECT') return
     if (capturingId) return // 環境設定でキー割当中は通常処理しない
     if (exportStatus) return // 書き出し中は編集操作を受け付けない（進行中の処理と混線するため）
     // モーダル表示中は Esc 以外を通さない（裏のタイムラインが勝手に動くのを防ぐ）
@@ -6657,6 +7255,7 @@ export default function App(): JSX.Element {
         showExportDialog ||
         prefsOpen ||
         promptState ||
+        confirmState ||
         iconSettingsOpen) &&
       e.key !== 'Escape'
     )
@@ -6668,15 +7267,18 @@ export default function App(): JSX.Element {
     let id = (Object.keys(shortcuts) as ShortcutId[]).find(
       (k) => shortcuts[k] === combo || shortcuts[k] === norm
     )
-    // D / Delete / Backspace / Shift+Delete はすべて同じ「削除して詰める」。
-    // 以前は del と rippleDel という2つの割り当てに分かれていたが処理は同一で、
-    // 環境設定のラベルだけが別物のように見えていた。
+    // 削除は2種類（プレミアと同じ考え方）:
+    //   D / Delete / Backspace = 消すだけ。そこは空きになり、後ろは動かない。
+    //   F / Shift+Delete       = 消して詰める。後ろが前へ寄る。
     if (!id && norm === 'delete') id = 'del'
+    if (!id && (combo === 'shift+delete' || combo === 'shift+backspace')) id = 'rippleDel'
     // Ctrl+Shift+Z も「やり直し」の別名として受ける（Premiere/一般的な慣習）
     if (!id && combo === 'ctrl+shift+z') id = 'redo'
     if (!id) return
     e.preventDefault()
-    if (tag === 'BUTTON') (e.target as HTMLElement).blur()
+    // ショートカットとして処理すると決めた時点でフォーカスを手放す。
+    // 残したままだと、次のキーもボタンやつまみに吸われ続ける。
+    if (tag === 'BUTTON' || isSlider) el?.blur()
 
     const dispatch: Record<ShortcutId, () => void> = {
       toolSelect: () => setTool('select'),
@@ -6735,8 +7337,13 @@ export default function App(): JSX.Element {
           deleteTrack(selectedTrackId)
           return
         }
+        // 空きを選んでいるなら、D でも詰まる。
+        // 「消す」＝その空きが無くなるということなので、詰まるのが自然な結果になる
+        // （クリップを消したときに空きが残るのとは、意味が逆になる）。
+        if (closeSelectedGaps()) return
         if (selectedIds.length) deleteSelected()
-        if (anySegSelected()) rippleDeleteVideoSegments() // 動画/音声クリップも消して後ろを詰める
+        // 本編は消すだけ＝そこは空きになり、後ろのクリップもテロップも動かない
+        if (anySegSelected()) deleteVideoSegmentsLeavingGap()
         if (selectedSeIds.length) deleteSelectedSE()
         if (selectedImgIds.length) deleteSelectedImg()
         if (selectedVClipIds.length) deleteSelectedVClip()
@@ -6758,6 +7365,9 @@ export default function App(): JSX.Element {
           deleteTrack(selectedTrackId)
           return
         }
+        // 空きを選んでいるなら、まずそれを詰める（途中に別のクリップがあれば手前で止まる）
+        if (closeSelectedGaps()) return
+        if (closeGapAtPlayhead()) return
         // Delete/Shift+Delete: テロップ削除＋動画切片はリップル削除(後続を詰める・テロップ/SEも同期シフト)＋SE/画像削除。
         // 詰めは動画切片のみが駆動（テロップを独立リップルすると映像とズレるため）。
         if (selectedIds.length) deleteSelected()
@@ -6935,6 +7545,45 @@ export default function App(): JSX.Element {
       window.removeEventListener('keydown', onEsc)
     }
   }, [menu])
+
+  // タイムラインの拡大率を「中身がちょうど収まる」ところに合わせる。
+  function fitTimelineZoom(): void {
+    const vw = scrollRef.current?.clientWidth ?? 800
+    const end = Math.max(contentEndRef.current, 10)
+    setZoom(clamp((vw - 40) / end, 6, 120))
+    requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollLeft = 0
+    })
+  }
+  // 素材を読み込んだ直後に一度だけ全体表示にする。
+  // 既定の拡大率のままだと、15秒の素材に対して目盛りが50秒まで伸びていて、
+  // クリップが左端の小さな塊に見える。開いた瞬間から作業できる状態にする。
+  const didFitForRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!videoPath || videoDuration <= 0) return
+    if (didFitForRef.current === videoPath) return
+    didFitForRef.current = videoPath
+    // 切片のレイアウトが確定してから測る
+    const t = window.setTimeout(fitTimelineZoom, 60)
+    return () => window.clearTimeout(t)
+  }, [videoPath, videoDuration])
+
+  // ✕ で閉じようとしたときの確認。メイン側は閉じるのを止めてここへ聞きに来るので、
+  // アプリ内のモーダルで答えて、了承なら confirmClose で閉じ直してもらう。
+  useEffect(() => {
+    if (!window.giftcut?.onCloseRequest) return
+    return window.giftcut.onCloseRequest(() => {
+      void askConfirm({
+        title: '保存していない変更があります',
+        body: '閉じると、最後の保存以降の変更は自動保存の下書きにだけ残ります。次回の起動時に復元できます。',
+        okLabel: '保存せずに閉じる',
+        cancelLabel: '閉じない',
+        danger: true
+      }).then((ok) => {
+        if (ok) window.giftcut.confirmClose()
+      })
+    })
+  }, [])
 
   // ホイール: 素=横スクロール / Ctrl・Alt=カーソル位置を中心にズーム（プレミア準拠）
   useEffect(() => {
@@ -7284,14 +7933,42 @@ export default function App(): JSX.Element {
   }
 
   // ---- トラック選択ツール（プレミア準拠: クリック位置から左/右を全選択）----
-  function laneAtY(yRel: number): string | null {
+  /** 各トラック行の縦位置（trackInner の上端からの相対 px） */
+  function trackRows(): { id: string; kind: 'video' | 'audio'; top: number; h: number }[] {
     let top = RULER_H
-    for (const t of tracks) {
+    return tracks.map((t) => {
       const h = t.kind === 'video' ? videoTrackHRef.current : audioTrackHRef.current
-      if (yRel >= top && yRel < top + h) return t.id
+      const row = { id: t.id, kind: t.kind, top, h }
       top += h
-    }
-    return null
+      return row
+    })
+  }
+  function laneAtY(yRel: number): string | null {
+    const row = trackRows().find((r) => yRel >= r.top && yRel < r.top + r.h)
+    return row?.id ?? null
+  }
+  /**
+   * ドロップ先のレーンを「一番近い行」に寄せて必ず返す。
+   *
+   * 行の外（ルーラーの上、一番下の余白、別の種類のトラックの上）に来たときに
+   * null を返すと、そこだけ駐禁マークが出て置けなくなる。距離で一番近い行に
+   * 寄せてしまえば、狙いが外れても最短距離の行へ置ける。
+   * forVideoLayer=true のときは V1（本編）を候補から外す（画像・映像レイヤー用）。
+   */
+  function dropLaneAt(yRel: number, kind: 'video' | 'audio', forVideoLayer = false): string | null {
+    const main = kind === 'video' ? 'V1' : 'A1'
+    const rows = trackRows().filter((r) => r.kind === kind)
+    const cands = rows.filter((r) => !(forVideoLayer && r.id === main))
+    if (!cands.length) return null
+    // 行の上に乗っているならそこ。本編の行を狙っているなら本編でよい。
+    const hit = cands.find((r) => yRel >= r.top && yRel < r.top + r.h)
+    if (hit) return hit.id
+    // 行の外（上下の余白）に落ちた＝狙いが外れている。ここで本編を選ぶと、
+    // 置いたつもりが本編を上書きして消してしまう。本編以外の中から一番近い行に寄せる。
+    const safe = cands.filter((r) => r.id !== main)
+    const pool = safe.length ? safe : cands
+    const dist = (r: { top: number; h: number }): number => Math.abs(yRel - (r.top + r.h / 2))
+    return pool.reduce((a, b) => (dist(b) < dist(a) ? b : a)).id
   }
   function trackSelect(e: React.PointerEvent, dir: number): void {
     const inner = trackInnerRef.current
@@ -7847,6 +8524,34 @@ export default function App(): JSX.Element {
       className="app"
       // 検査票を開いている間はアプリ本体を縮める（パネルに隠れないように）
       style={QaPanel && qaOpen ? { marginRight: 'var(--qa-w, 380px)' } : undefined}
+      // 素材をドラッグしている間は、アプリのどこにいても受け付ける。
+      // 受け付けない場所があると、そこだけ 🚫（駐禁）が出て「置けない場所」に見える。
+      onDragOver={(e) => {
+        const m = draggingMediaRef.current
+        if (!m) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+        // タイムラインの外にいても、置き先の影を出し続ける
+        updateDropGhost(m, e.clientX, e.clientY, e.ctrlKey, e.target)
+      }}
+      // 途中でやめた（Escや枠の外で離した）ときに影が残らないようにする
+      onDragEnd={clearDropGhosts}
+      // タイムライン・プレビュー・ビンなど、ちゃんとした受け皿が処理した場合は
+      // そちらが preventDefault 済みなので何もしない。どこも拾わなかったときだけ、
+      // タイムラインの一番近い位置に置く（掴んだものが消えて終わらないように）。
+      onDrop={(e) => {
+        const m = draggingMediaRef.current
+        if (!m || e.defaultPrevented) return
+        e.preventDefault()
+        // 左右のパネル（素材ビン・テロップ一覧など）の中で離したのは「やめた」扱い。
+        // ビンから掴んで同じビンへ戻しただけでタイムラインに置かれると事故になる。
+        // プレビューとタイムラインの側は最寄りへ置く。
+        const inSidePanel = (e.target as HTMLElement | null)?.closest?.(
+          '.panel:not(.monitor)'
+        )
+        if (inSidePanel) return
+        dropMediaNearest(m, e.clientX, e.clientY)
+      }}
     >
       {/* ===== メニューバー ===== */}
       <div className="menubar">
@@ -7871,6 +8576,26 @@ export default function App(): JSX.Element {
               >
                 プロジェクトを開く…　(Ctrl+O)
               </button>
+              {/* 最近使ったプロジェクト。保存先を覚えていなくてもここから開ける。 */}
+              {recentProjects.length > 0 && (
+                <>
+                  <div className="menu-drop-label">最近使ったプロジェクト</div>
+                  {recentProjects.map((r) => (
+                    <button
+                      key={r.path}
+                      className="menu-drop-item menu-drop-recent"
+                      title={r.path}
+                      onClick={() => {
+                        setFileMenuOpen(false)
+                        void openProjectFn(r.path)
+                      }}
+                    >
+                      {r.name}
+                    </button>
+                  ))}
+                  <div className="menu-drop-sep" />
+                </>
+              )}
               <button
                 className="menu-drop-item"
                 onClick={() => {
@@ -8764,9 +9489,11 @@ export default function App(): JSX.Element {
                   if (draggingMediaRef.current?.kind === 'video') e.preventDefault()
                 }}
                 onDrop={(e) => {
-                  e.preventDefault()
                   const m = draggingMediaRef.current
+                  // 動画以外はここでは受け取らない。preventDefault を先に呼ぶと
+                  // 「処理済み」と見なされ、画像や音声を落としたときに何も起きず消える。
                   if (m?.kind !== 'video') return
+                  e.preventDefault()
                   if (!videoPath) void loadVideo(m.path)
                   else showToast('タイムラインへドロップすると、その位置に配置できます。')
                 }}
@@ -8886,8 +9613,12 @@ export default function App(): JSX.Element {
                         clipPath: cropInset(c.crop),
                         // 👁非表示は「映像だけ消す」（音は鳴り続ける＝V1のvideoBlankと同じ扱い）
                         opacity: !inRange || trackStates[c.track]?.hidden ? 0 : (c.opacity ?? 1),
-                        pointerEvents: inRange ? undefined : 'none'
+                        // 区間外・非表示のものはクリックを拾わない（見えていないものを掴まない）
+                        pointerEvents:
+                          inRange && !trackStates[c.track]?.hidden ? undefined : 'none'
                       }}
+                      title={`${c.name}（ドラッグで移動・四隅で拡大）`}
+                      onPointerDown={(e) => selectPreviewOverlay(e, { kind: 'vclip', clip: c })}
                     />
                   )
                 })}
@@ -8913,12 +9644,17 @@ export default function App(): JSX.Element {
                       className="screen-img"
                       src={toGcUrl(c.path)}
                       alt=""
+                      title={`${c.name}（ドラッグで移動・四隅で拡大）`}
                       style={{
                         transform: imgXform(c),
                         filter: adjustCss(c.adjust),
                         clipPath: cropInset(c.crop),
                         opacity: c.opacity ?? 1
                       }}
+                      // プレビュー上で画像を直接掴めるようにする。以前はここが
+                      // pointer-events: none だったため、画面に出ている画像を押しても
+                      // クリックが下の動画へ抜けて「動画のパンが始まる」だけだった。
+                      onPointerDown={(e) => selectPreviewOverlay(e, { kind: 'img', clip: c })}
                     />
                   ))}
                 <div className="telop-overlay">
@@ -10062,12 +10798,7 @@ export default function App(): JSX.Element {
                 className="tool tool-sm"
                 title="タイムライン全体を表示（フィット）"
                 onClick={() => {
-                  const vw = scrollRef.current?.clientWidth ?? 800
-                  const end = Math.max(contentEndRef.current, 10)
-                  setZoom(clamp((vw - 40) / end, 6, 120))
-                  requestAnimationFrame(() => {
-                    if (scrollRef.current) scrollRef.current.scrollLeft = 0
-                  })
+                  fitTimelineZoom()
                 }}
               >
                 ↔
@@ -10085,8 +10816,10 @@ export default function App(): JSX.Element {
             <span className="tl-hint">
               {tool === 'razor'
                 ? 'クリップをクリックで分割'
-                : videoGhost
-                  ? 'ドロップで上書き配置 / Ctrl押しながらで挿入（後続がシフト）'
+                : videoGhost?.moving
+                  ? 'ドラッグで移動 / Alt=複製 / Ctrl=割り込み（後続が後ろへずれる）'
+                  : videoGhost
+                    ? 'ドロップで上書き配置 / Ctrl押しながらで挿入（後続がシフト）'
                   : `${formatCombo(shortcuts.undo)} 元に戻す / ${formatCombo(shortcuts.copy)}・${formatCombo(shortcuts.paste)} コピー貼付 / ${formatCombo(shortcuts.duplicate)} 複製 / ${formatCombo(shortcuts.split)} 分割 / ${formatCombo(shortcuts.addMarker)} マーカー`}
             </span>
           </div>
@@ -10208,8 +10941,14 @@ export default function App(): JSX.Element {
               className="track-scroll"
               ref={scrollRef}
               onDragEnter={(e) => {
-                // ターゲット要素が切り替わる瞬間も許可し続ける（カット上で駐禁がチラつくのを防ぐ）
-                if (draggingTransRef.current || draggingTelopAnimRef.current) {
+                // ターゲット要素が切り替わる瞬間も許可し続ける（カット上で駐禁がチラつくのを防ぐ）。
+                // 素材のドラッグもここで許可しないと、行と行の境目や余白に入った瞬間に
+                // 駐禁マークが出て置けなくなる。
+                if (
+                  draggingTransRef.current ||
+                  draggingTelopAnimRef.current ||
+                  draggingMediaRef.current
+                ) {
                   e.preventDefault()
                   e.dataTransfer.dropEffect = 'copy'
                 }
@@ -10236,44 +10975,16 @@ export default function App(): JSX.Element {
                 const m = draggingMediaRef.current
                 if (m?.kind !== 'video' && m?.kind !== 'audio' && m?.kind !== 'image') return
                 e.preventDefault()
-                const rect = trackInnerRef.current?.getBoundingClientRect()
-                const raw = rect ? Math.max(0, (e.clientX - rect.left) / zoomRef.current) : 0
-                if (m.kind === 'audio') {
-                  // SE/BGM配置予定位置に半透明ゴーストを表示（プレミア風）＋マグネット。
-                  // ポインタ直下の音声トラック(A2 SE / A3 BGM 等)に振り分け。
-                  const t = snapClipStart(raw, dragSeDurRef.current)
-                  const track = audioTrackFromEvent(e) ?? 'A2'
-                  setSeGhost({ t, name: m.name, dur: dragSeDurRef.current, track, path: m.path })
-                } else if (m.kind === 'video') {
-                  // 動画: ドロップ位置のゴースト。V1=本編（Ctrl=挿入/通常=上書き）、
-                  // V2以降=映像レイヤー（音声は対の音声トラックへ連動）
-                  const t = snapClipStart(raw, dragSeDurRef.current)
-                  const vt = trackFromEvent(e, 'video')
-                  setVideoGhost({
-                    t,
-                    name: m.name,
-                    dur: dragSeDurRef.current,
-                    insert: e.ctrlKey,
-                    path: m.path,
-                    track: vt && vt !== 'V1' ? vt : 'V1'
-                  })
-                } else {
-                  // 画像: ポインタ直下の映像トラック（V1以外）に配置ゴースト。既定はテロップ上段
-                  const t = snapClipStart(raw, dragSeDurRef.current)
-                  const tid = trackFromEvent(e, 'video')
-                  // 'V3' 決め打ちだと、V3 を削除したあとに存在しないトラックを指す
-                  // クリップが生まれる（タイムラインに出ないのに書き出しには出る）
-                  const track = fallbackTrack(tid && tid !== 'V1' ? tid : 'V3', 'video')
-                  setImgGhost({ t, name: m.name, dur: dragSeDurRef.current, track })
-                }
+                e.dataTransfer.dropEffect = 'copy'
+                // 置き先の判定と影づくりはアプリ全体で同じ関数を通す
+                // （ここだけ別実装にすると、外へ出た瞬間に行き先が変わって見える）
+                updateDropGhost(m, e.clientX, e.clientY, e.ctrlKey, e.target)
               }}
               onDragLeave={(e) => {
-                // 子要素間の移動では消さない（track-scroll の外に出たときだけ）
+                // 素材の影はここでは消さない。外へ出ても「一番近い場所」を
+                // 指し続けるほうが、行き先が分からなくならない。
+                // 消すのは離した時か、途中でやめた時（onDragEnd）。
                 if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  setSeGhost(null)
-                  setVideoGhost(null)
-                  setImgGhost(null)
-                  setSnapLineX(null)
                   setTransDrop(null)
                   setTelopDrop(null)
                 }
@@ -10286,30 +10997,26 @@ export default function App(): JSX.Element {
                   return
                 }
                 const m = draggingMediaRef.current
-                setSeGhost(null)
-                setVideoGhost(null)
-                setImgGhost(null)
-                setSnapLineX(null)
+                clearDropGhosts()
                 if (!m) return
                 const rect = trackInnerRef.current?.getBoundingClientRect()
                 const raw = rect ? Math.max(0, (e.clientX - rect.left) / zoomRef.current) : 0
+                const yRel = rect ? e.clientY - rect.top : 0
                 const t = snapClipStart(raw, dragSeDurRef.current)
                 if (m.kind === 'video') {
-                  const vt = trackFromEvent(e, 'video')
-                  if (vt && vt !== 'V1') {
+                  const vt = videoDropLane(e, yRel)
+                  if (vt !== 'V1') {
                     // V2以降 = 映像レイヤー（重ねる/差し込む）。音声は対の音声トラックに連動。
+                    // レーンがまだ無ければ placeVClip 側で作られる。
                     void placeVClip(m, t, vt)
                   } else {
                     // V1 = 本編のカット列。ドロップ位置に配置（通常=上書き / Ctrl=挿入）
                     void placeVideoAtDrop(m.path, t, e.ctrlKey)
                   }
                 } else if (m.kind === 'audio') {
-                  const track = audioTrackFromEvent(e) ?? 'A2'
-                  void placeSE(m, t, track)
+                  void placeSE(m, t, dropLaneAt(yRel, 'audio', true) ?? 'A2')
                 } else if (m.kind === 'image') {
-                  const tid = trackFromEvent(e, 'video')
-                  const track = fallbackTrack(tid && tid !== 'V1' ? tid : 'V3', 'video')
-                  placeImage(m, t, track)
+                  placeImage(m, t, fallbackTrack(dropLaneAt(yRel, 'video', true) ?? 'V3', 'video'))
                 }
               }}
             >
@@ -10755,19 +11462,43 @@ export default function App(): JSX.Element {
                       })()}
                     {tr.id === 'V1' &&
                       videoSrc &&
-                      segLayout.map((L) => (
-                        // 映像を消した区間(videoBlank)も帯は残す（点線＋バッジ）。
+                      segLayout.map((L) =>
+                        // クリップを動かしてできた空きは「帯」を描かない（動かした跡が
+                        // 残って見えるため）。ただし当たり判定は残して、クリックで選べて
+                        // Delete で詰められるようにする＝見た目は空き、操作は普通のクリップ。
+                        L.seg.gap ? (
+                          <div
+                            key={L.seg.id}
+                            className={`clip gap-clip ${isVideoSel(L.seg.id) ? 'clip-selected' : ''}`}
+                            style={{ left: L.tStart * zoom, width: Math.max(L.len * zoom - 1, 6) }}
+                            title="空き（クリックして Delete で詰める）"
+                            onPointerDown={(e) => onSegPointerDown(L, e, 'video')}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setSelectedVideoIds([L.seg.id])
+                              setSelectedImgIds([])
+                              setMenu(null)
+                              setClipMenu({ x: e.clientX, y: e.clientY, kind: 'seg', id: L.seg.id, name: '空き' })
+                            }}
+                          />
+                        ) : (
+                        // 映像を消した区間(videoBlank)は帯を残す（点線＋バッジ）。
                         // 帯を消すと選択できず「戻す」導線に到達できないため、消音と同じ扱いにする。
                         <div
                           key={L.seg.id}
-                          className={`clip video-clip ${L.seg.videoBlank ? 'clip-blank' : ''} ${isVideoSel(L.seg.id) ? 'clip-selected' : ''}`}
+                          className={`clip video-clip ${L.seg.videoBlank ? 'clip-blank' : ''} ${isVideoSel(L.seg.id) ? 'clip-selected' : ''} ${overwriteIds.includes(L.seg.id) ? 'clip-overwrite' : ''}`}
                           style={{
                             left: L.tStart * zoom,
                             width: Math.max(L.len * zoom - 1, 10),
                             // ラベルカラーはクリップ全体を塗る（種類ごとの色より優先）。線だと見つけにくい。
                             background: L.seg.label || undefined
                           }}
-                          title={srcOfSeg(L.seg)?.name ?? videoName ?? ''}
+                          title={
+                            L.seg.gap
+                              ? '空白（映像なし・無音）'
+                              : (srcOfSeg(L.seg)?.name ?? videoName ?? '')
+                          }
                           onPointerDown={(e) => onSegPointerDown(L, e, 'video')}
                           onContextMenu={(e) => {
                             e.preventDefault()
@@ -10799,10 +11530,18 @@ export default function App(): JSX.Element {
                             ) : null
                           })()}
                           <span className="clip-text">
-                            {L.seg.videoBlank
-                              ? '🚫 映像なし'
-                              : `🎬 ${srcOfSeg(L.seg)?.name ?? videoName ?? '動画'}`}
-                            {segLayout.length > 1 ? ` (${L.index + 1})` : ''}
+                            {/* 空白（移動や位置指定配置でできた隙間）と、
+                                「映像だけ消した」区間は別物なので言葉を分ける */}
+                            {L.seg.gap
+                              ? '⬛ 空白'
+                              : L.seg.videoBlank
+                                ? '🚫 映像なし'
+                                : `🎬 ${srcOfSeg(L.seg)?.name ?? videoName ?? '動画'}`}
+                            {/* 同じ素材を切った断片は名前が全部同じで見分けがつかない。
+                                元動画のどこを使っているか（イン点）を出して区別する。 */}
+                            {segLayout.length > 1 && !L.seg.gap && !L.seg.videoBlank && (
+                              <span className="clip-in">{formatTime(L.seg.srcStart)}〜</span>
+                            )}
                             {segSpeed(L.seg) !== 1 && (
                               <span className="clip-speed">{segSpeed(L.seg)}x</span>
                             )}
@@ -10812,7 +11551,8 @@ export default function App(): JSX.Element {
                             onPointerDown={(e) => onSegTrimStart(L, 'r', e)}
                           />
                         </div>
-                      ))}
+                        )
+                      )}
                     {/* 動画ドロップの配置ゴースト（V1）: 上書き=青 / Ctrl挿入=緑。
                         音声(A1)にも同じ位置・同じ長さでゴーストを出して「映像と音はセット」を示す。 */}
                     {tr.id === videoGhost?.track && videoGhost && (
@@ -10825,11 +11565,17 @@ export default function App(): JSX.Element {
                       >
                         <span className="clip-text">
                           🎬 {videoGhost.name}
-                          {videoGhost.track !== 'V1'
-                            ? '（重ねる）'
-                            : videoGhost.insert
-                              ? '（挿入）'
-                              : '（上書き）'}
+                          {videoGhost.moving
+                            ? videoGhost.mode === 'copy'
+                              ? '（複製）'
+                              : videoGhost.mode === 'insert'
+                                ? '（割り込み）'
+                                : '（移動）'
+                            : videoGhost.track !== 'V1'
+                              ? '（重ねる）'
+                              : videoGhost.insert
+                                ? '（挿入）'
+                                : '（上書き）'}
                         </span>
                       </div>
                     )}
@@ -11579,6 +12325,36 @@ export default function App(): JSX.Element {
         </div>
       )}
 
+      {/* ===== 確認モーダル（OS標準ダイアログの置き換え）===== */}
+      {confirmState && (
+        <div className="modal-overlay" onClick={() => closeConfirm(false)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">{confirmState.title}</div>
+            <div className="modal-body">{confirmState.body}</div>
+            <div className="modal-actions">
+              <button className="modal-btn ghost" onClick={() => closeConfirm(false)}>
+                {confirmState.cancelLabel}
+              </button>
+              <button
+                className={`modal-btn ${confirmState.danger ? 'danger' : 'primary'}`}
+                autoFocus
+                onClick={() => closeConfirm(true)}
+                // Enter=実行 / Escape=中止。ボタンにフォーカスがあるので
+                // キーだけで閉じられる（OS ダイアログと同じ操作感）。
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.stopPropagation() // 裏のタイムラインの Esc 処理まで走らせない
+                    closeConfirm(false)
+                  }
+                }}
+              >
+                {confirmState.okLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ===== 右クリックメニュー ===== */}
       {menu && (
         <div
@@ -11735,18 +12511,44 @@ export default function App(): JSX.Element {
             </>
           )}
           <div className="ctx-sep" />
+          {/* 本編以外は「消して同じトラックの後続を詰める」も選べる
+              （本編の削除は元から詰める動作なので出さない） */}
+          {clipMenu.kind !== 'seg' && (
+            <button
+              className="ctx-item"
+              onClick={() => {
+                rippleDeleteSelected()
+                setClipMenu(null)
+              }}
+            >
+              リップル削除（このトラックの後続を詰める）
+            </button>
+          )}
+          {/* 本編は「消すだけ（空きが残る）」と「消して詰める」の2つを出す。
+              どちらになるか分からないまま押すと、後ろのタイミングが崩れて事故になる。 */}
+          {clipMenu.kind === 'seg' && (
+            <button
+              className="ctx-item"
+              onClick={() => {
+                rippleDeleteVideoSegments()
+                setClipMenu(null)
+              }}
+            >
+              削除して詰める（{formatCombo(shortcuts.rippleDel)}）
+            </button>
+          )}
           <button
             className="ctx-item ctx-danger"
             onClick={() => {
               if (clipMenu.kind === 'vclip') deleteSelectedVClip()
-              else if (clipMenu.kind === 'seg') rippleDeleteVideoSegments()
+              else if (clipMenu.kind === 'seg') deleteVideoSegmentsLeavingGap()
               else if (clipMenu.kind === 'se') deleteSelectedSE()
               else deleteSelectedImg()
               setClipMenu(null)
             }}
           >
-            {clipMenu.kind === 'seg' ? '削除して詰める' : '削除'}（
-            {formatCombo(shortcuts.rippleDel)}）
+            {clipMenu.kind === 'seg' ? '削除（詰めない）' : '削除'}（
+            {formatCombo(shortcuts.del)}）
           </button>
         </div>
       )}
