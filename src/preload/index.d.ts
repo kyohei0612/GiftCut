@@ -136,6 +136,10 @@ export interface GiftcutApi {
     data?: unknown
     videoExists?: boolean
     mtime?: number
+    /** 1つ前の下書き（あれば）。落ちる直前の状態を選びたくないときの逃げ道。 */
+    prev?: { data: unknown; videoExists: boolean; mtime: number }
+    /** 最新が壊れていて、1つ前だけが読めた場合 */
+    onlyPrev?: boolean
   }>
   autosaveClear: () => Promise<{ ok: boolean }>
   setDirty: (dirty: boolean) => void

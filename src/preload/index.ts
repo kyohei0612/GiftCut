@@ -170,6 +170,8 @@ const api = {
     data?: unknown
     videoExists?: boolean
     mtime?: number
+    prev?: { data: unknown; videoExists: boolean; mtime: number }
+    onlyPrev?: boolean
   }> => ipcRenderer.invoke('project:autosaveCheck'),
   autosaveClear: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('project:autosaveClear'),
   // 未保存の変更があるかをメインへ通知（ウィンドウを閉じるときの確認に使う）

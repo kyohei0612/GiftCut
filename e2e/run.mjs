@@ -2637,6 +2637,31 @@ try {
     await page.waitForTimeout(600)
   })
 
+  await check('落ちたときに「1つ前の状態」でも復元できる', async () => {
+    // 落ちる原因になった操作ごと戻ってきてしまうと逃げ場が無いので、
+    // 下書きは1世代前も残している。実際に読み込み直して確かめる。
+    await resetProject()
+    // 見分けのつく内容を「最後の自動保存」として置く（クリップ7個）
+    const older = JSON.parse(readFileSync(fx.gcprojOrig, 'utf-8'))
+    older.segments = Array.from({ length: 7 }, (_, i) => ({
+      id: i + 1,
+      srcId: 1,
+      srcStart: i * 2,
+      srcEnd: (i + 1) * 2
+    }))
+    writeFileSync(join(fx.userData, 'giftcut-autosave.json'), JSON.stringify(older), 'utf-8')
+    // 開き直すと、閉じる直前の内容が新しい下書きになり、いま置いた方が1つ前へ回る
+    await page.reload()
+    await page.waitForSelector('.restore-btns', { timeout: 30000 })
+    const prevBtn = page.locator('.restore-btns button', { hasText: '1つ前' })
+    assert(await prevBtn.count(), '「1つ前の状態で復元」が出ていない')
+    await prevBtn.first().click()
+    await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 30000 })
+    await page.waitForTimeout(1000)
+    const n = await v1Clips().count()
+    assert(n === 7, `1つ前の内容が戻っていない（クリップ ${n} 個。7個のはず）`)
+  })
+
   await check('未保存で「プロジェクトを開く」→「中止して保存する」で何も変わらない', async () => {
     await resetProject()
     await dragBy(v1Clips().nth(0), (await clipW()) * 0.4)

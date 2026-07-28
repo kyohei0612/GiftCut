@@ -5937,6 +5937,11 @@ export default function App(): JSX.Element {
   const [restorePrompt, setRestorePrompt] = useState<{
     data: unknown
     videoExists: boolean
+    savedAt?: string
+    /** 1つ前の下書き。落ちる原因になった操作ごと戻ってこないための逃げ道。 */
+    prev?: { data: unknown; videoExists: boolean; savedAt?: string }
+    /** 最後の自動保存が読めず、1つ前だけが残っていた場合 */
+    onlyPrev?: boolean
   } | null>(null)
   // ★依存配列を空にしてタイマーを一度だけ作る（毎レンダー再生成だと再生/編集中に一度も発火しないバグ）。
   //   最新state参照は ref 経由（projectJson/hasProjectContent は毎レンダー再代入）。
@@ -6075,7 +6080,17 @@ export default function App(): JSX.Element {
   useEffect(() => {
     void window.giftcut?.autosaveCheck?.()?.then(async (r) => {
       if (r?.exists && r.data) {
-        setRestorePrompt({ data: r.data, videoExists: !!r.videoExists })
+        const when = (ms?: number): string | undefined =>
+          ms ? new Date(ms).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' }) : undefined
+        setRestorePrompt({
+          data: r.data,
+          videoExists: !!r.videoExists,
+          savedAt: when(r.mtime),
+          onlyPrev: !!r.onlyPrev,
+          prev: r.prev
+            ? { data: r.prev.data, videoExists: !!r.prev.videoExists, savedAt: when(r.prev.mtime) }
+            : undefined
+        })
         return
       }
       // 自動保存の復元が無い時だけ、テンプレート選択を出す（あれば）
@@ -12969,7 +12984,12 @@ export default function App(): JSX.Element {
           <div className="restore-box">
             <div className="restore-title">前回の作業が残っています</div>
             <div className="restore-msg">
-              自動保存された編集内容が見つかりました。復元しますか？
+              {restorePrompt.onlyPrev
+                ? '最後の自動保存が読めませんでした。その1つ前なら残っています。'
+                : '自動保存された編集内容が見つかりました。復元しますか？'}
+              {restorePrompt.savedAt && (
+                <div className="restore-when">最後に自動保存: {restorePrompt.savedAt}</div>
+              )}
               {!restorePrompt.videoExists && (
                 <div className="restore-warn">
                   ※ 元の動画ファイルが見つからないため、テロップ/カット情報のみ復元されます。
@@ -12986,6 +13006,25 @@ export default function App(): JSX.Element {
               >
                 破棄して新規
               </button>
+              {/* 落ちる原因になった操作ごと戻ってきてしまうと逃げ場が無い。
+                  1世代前も選べるようにしておく。 */}
+              {restorePrompt.prev && (
+                <button
+                  className="btn"
+                  title={
+                    restorePrompt.prev.savedAt
+                      ? `${restorePrompt.prev.savedAt} の内容に戻します`
+                      : undefined
+                  }
+                  onClick={() => {
+                    const p = restorePrompt.prev!
+                    setRestorePrompt(null)
+                    void applyProjectData(p.data, p.videoExists, null)
+                  }}
+                >
+                  1つ前の状態で復元
+                </button>
+              )}
               <button
                 className="btn btn-primary"
                 onClick={() => {

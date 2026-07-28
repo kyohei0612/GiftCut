@@ -586,6 +586,10 @@ app.whenReady().then(() => {
 
   // ---- 自動保存 / クラッシュ復帰 ----
   const autosavePath = (): string => join(app.getPath('userData'), 'giftcut-autosave.json')
+  // 1つ前の下書き。落ちる直前の状態そのものが壊れていたり、
+  // 「落ちる原因になった操作」ごと復元してしまうと逃げ場が無くなるので、
+  // 1世代だけ前も残して選べるようにする。
+  const autosavePrevPath = (): string => join(app.getPath('userData'), 'giftcut-autosave.prev.json')
 
   // 保存のたびにプロジェクトの整合性を検査する。
   // 「壊れたプロジェクトを保存してしまい、開き直して初めて気づく」を無くすため、
@@ -626,6 +630,15 @@ app.whenReady().then(() => {
       const dst = autosavePath()
       const tmpFile = dst + '.tmp'
       await writeFileAsync(tmpFile, json, 'utf-8')
+      // 今の下書きを1つ前へ送ってから、新しいものを置く。
+      // コピーではなく改名なので、途中で落ちてもどちらかは必ず読める。
+      if (existsSync(dst)) {
+        try {
+          renameSync(dst, autosavePrevPath())
+        } catch {
+          /* 送れなくても新しい方の保存は続ける */
+        }
+      }
       renameSync(tmpFile, dst)
       inspectProject(json, 'autosave')
       return { ok: true }
@@ -635,18 +648,26 @@ app.whenReady().then(() => {
   })
   // 起動時: 自動保存の有無・内容・動画の生存を返す（復元プロンプト用）
   ipcMain.handle('project:autosaveCheck', async () => {
-    const p = autosavePath()
-    if (!existsSync(p)) return { exists: false }
-    try {
-      const raw = readFileSync(p, 'utf-8')
-      const data = JSON.parse(raw)
-      const mtime = statSync(p).mtimeMs
-      // 他ハンドラと同様、拡張子ホワイトリスト＋存在チェックでのみ配信許可（任意ファイルを載せない）
-      const videoExists = allowProjectMedia(data)
-      return { exists: true, data, videoExists, mtime }
-    } catch {
-      return { exists: false }
+    const read = (
+      p: string
+    ): { data: unknown; videoExists: boolean; mtime: number } | null => {
+      if (!existsSync(p)) return null
+      try {
+        const data = JSON.parse(readFileSync(p, 'utf-8'))
+        // 他ハンドラと同様、拡張子ホワイトリスト＋存在チェックでのみ配信許可（任意ファイルを載せない）
+        return { data, videoExists: allowProjectMedia(data), mtime: statSync(p).mtimeMs }
+      } catch {
+        return null
+      }
     }
+    const cur = read(autosavePath())
+    const prev = read(autosavePrevPath())
+    // 最新が壊れていても、1つ前が読めるなら復帰の道を残す
+    if (!cur) {
+      if (!prev) return { exists: false }
+      return { exists: true, ...prev, onlyPrev: true }
+    }
+    return { exists: true, ...cur, prev: prev ?? undefined }
   })
   // renderer から未保存状態を受け取る（×ボタンで閉じるときの確認に使う）
   ipcMain.on('project:dirty', (_e, v: boolean) => {
@@ -655,6 +676,7 @@ app.whenReady().then(() => {
   ipcMain.handle('project:autosaveClear', async () => {
     try {
       rmSync(autosavePath(), { force: true })
+      rmSync(autosavePrevPath(), { force: true })
     } catch {
       /* 無視 */
     }
