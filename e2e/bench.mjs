@@ -44,6 +44,11 @@ const KEEP = process.argv.includes('--keep')
 const DO_EXPORT = !process.argv.includes('--no-export')
 const DO_LIMITS = !process.argv.includes('--no-limits')
 const MINUTES = Number((process.argv.find((a) => a.startsWith('--min=')) ?? '').slice(6)) || 60
+// 測定そのものが機能しているかを確かめるモード。
+// わざと間違った操作をして、ちゃんと「できていない」と落ちるかを見る。
+// これが無いと「何も起きていない＝軽い」を良い結果として読んでしまう
+// （実際、拡大していない・掴めていないのに合格していた項目が5つあった）。
+const SELFCHECK = process.argv.includes('--selfcheck')
 const TELOPS = 200
 const EDITS = 50
 
@@ -140,7 +145,43 @@ async function makeLongVideo(minutes) {
  * テロップぶんの内容を作る。長さも文字数もバラつかせて実際に近づける。
  * chars: 1枚あたりのだいたいの文字数（限界を探すときに増やす）
  */
-function makeCues(count, totalSec, chars = 12) {
+/**
+ * テロップの見た目を作る。
+ * strokes: 縁取りの枚数 / shadows: 影の枚数 / kinds: 何種類のスタイルを混ぜるか
+ * 装飾はプレビューを描くたびに効いてくるので、重さの軸になる。
+ */
+function makeStyle(i, { strokes = 1, shadows = 0, kinds = 1 } = {}) {
+  const k = kinds > 1 ? i % kinds : 0
+  const hue = (k * 37) % 360
+  return {
+    fontFamily: 'Noto Sans JP',
+    fontSize: 60 + (k % 5) * 4,
+    bold: k % 2 === 0,
+    italic: false,
+    align: 'center',
+    tracking: (k % 7) * 5,
+    leading: (k % 3) * 4,
+    fill: { enabled: true, color: `hsl(${hue} 90% 60%)` },
+    strokes: Array.from({ length: strokes }, (_, s) => ({
+      enabled: true,
+      color: `hsl(${(hue + s * 24) % 360} 70% ${20 + s * 5}%)`,
+      width: 10 - Math.min(8, s),
+      position: 'outside'
+    })),
+    background: { enabled: k % 4 === 0, color: '#000000', opacity: 40 },
+    shadow: { enabled: shadows > 0, color: '#000000', opacity: 70, angle: 135, distance: 6, blur: 8 },
+    shadows: Array.from({ length: Math.max(0, shadows - 1) }, (_, s) => ({
+      enabled: true,
+      color: '#000000',
+      opacity: 50,
+      angle: (135 + s * 20) % 360,
+      distance: 4 + s * 2,
+      blur: 6 + s * 3
+    }))
+  }
+}
+
+function makeCues(count, totalSec, chars = 12, styleOpts = null) {
   const gap = totalSec / count
   const words = ['ここ大事', 'なるほど', 'えっ', 'そういうこと', '待って', '結論から言うと']
   const fill = (i) => {
@@ -156,7 +197,8 @@ function makeCues(count, totalSec, chars = 12) {
     start: +(i * gap + 0.2).toFixed(2),
     end: +(i * gap + 0.2 + Math.min(gap * 0.8, 1.2 + (i % 5) * 0.4)).toFixed(2),
     text: fill(i),
-    track: 'V2'
+    track: 'V2',
+    ...(styleOpts ? { style: makeStyle(i, styleOpts) } : {})
   }))
 }
 
@@ -171,8 +213,29 @@ function makeSegments(count, totalSec) {
   }))
 }
 
-/** プロジェクトの中身を組み立てる（枚数・文字数・クリップ数を変えられる） */
-function buildProject(video, totalSec, { telops = TELOPS, chars = 12, clips = 1 } = {}) {
+/** プロジェクトの中身を組み立てる（種類ごとに数を変えられる） */
+function buildProject(
+  video,
+  totalSec,
+  {
+    telops = TELOPS,
+    chars = 12,
+    clips = 1,
+    se = 0,
+    imgs = 0,
+    marks = 0,
+    media = 1,
+    strokes = 0,
+    shadows = 0,
+    kinds = 0
+  } = {}
+) {
+  const styleOpts =
+    strokes || shadows || kinds
+      ? { strokes: strokes || 1, shadows: shadows || 0, kinds: kinds || 1 }
+      : null
+  const spread = (n, make) =>
+    Array.from({ length: n }, (_, i) => make(i, (totalSec * (i + 0.3)) / Math.max(1, n)))
   const project = {
     version: 1,
     videoPath: video,
@@ -189,12 +252,32 @@ function buildProject(video, totalSec, { telops = TELOPS, chars = 12, clips = 1 
     ],
     trackStates: {},
     segments: makeSegments(clips, totalSec),
-    cues: makeCues(telops, totalSec, chars),
-    seClips: [],
-    imgClips: [],
+    cues: makeCues(telops, totalSec, chars, styleOpts),
+    // 効果音・画像は素材ファイルが要るが、ここで見たいのは「並んでいる数の重さ」。
+    // 元動画を指しておけば、読み込みに失敗しても帯は並ぶ。
+    seClips: spread(se, (i, t) => ({
+      id: i + 1,
+      path: video,
+      name: 'se.mp4',
+      tStart: +t.toFixed(2),
+      duration: 1.5,
+      track: 'A2'
+    })),
+    imgClips: spread(imgs, (i, t) => ({
+      id: i + 1,
+      path: video,
+      name: 'img.png',
+      tStart: +t.toFixed(2),
+      duration: 2,
+      track: 'V3'
+    })),
     vClips: [],
-    markers: [],
-    mediaItems: [{ path: video, name: 'bench.mp4', kind: 'video' }],
+    markers: spread(marks, (i, t) => ({ id: i + 1, t: +t.toFixed(2), label: 'め' + i })),
+    mediaItems: Array.from({ length: media }, (_, i) => ({
+      path: video,
+      name: `bench${i}.mp4`,
+      kind: 'video'
+    })),
     iconSide: 'l',
     iconOffset: { x: 0, y: 0 },
     iconScale: 1
@@ -225,7 +308,7 @@ function makeProject(video, totalSec) {
 const rows = []
 let pageRef = null
 let stepNo = 0
-const TOTAL_STEPS = 11 + (DO_LIMITS ? 3 : 0) + (DO_EXPORT ? 4 : 0)
+const TOTAL_STEPS = 16 + (DO_LIMITS ? 6 : 0) + (DO_EXPORT ? 4 : 0)
 
 function row(lens, what, detail, verdict) {
   rows.push({ lens, what, detail, verdict })
@@ -400,7 +483,36 @@ try {
   }
 
   /** 操作している間の描画のコマ落ちを記録する */
-  async function measure(name, fn) {
+  /**
+   * 操作しながら重さを測る。
+   *
+   * fn は「操作が成立しなかったら throw する」こと。成立の確認が無い項目は、
+   * 何も起きていないのに「軽い」という数字を出してしまう。
+   *
+   * broken を渡すと --selfcheck でそれを実行し、**落ちることを確かめる**。
+   * 落ちなければ、その項目は何も見ていないということ。
+   */
+  async function measure(name, fn, broken) {
+    if (SELFCHECK) {
+      if (!broken) {
+        await done('自己点検', name, 'わざと間違える手順が用意されていない', 'warn')
+        return
+      }
+      await say('自己点検', name, 'わざと間違えて、ちゃんと落ちるかを見る')
+      let threw = false
+      try {
+        await broken()
+      } catch {
+        threw = true
+      }
+      await done(
+        '自己点検',
+        name,
+        threw ? 'わざと間違えると、ちゃんと落ちる' : '間違えても合格してしまう（何も見ていない）',
+        threw ? 'ok' : 'ng'
+      )
+      return
+    }
     await say('動作', name, '触っている間のコマ落ちを記録中')
     await page.evaluate(() => {
       window.__frames = []
@@ -488,6 +600,30 @@ try {
   // ---- 3. 動作: 触ったときのもたつき -----------------------------------
   const inner = await page.locator('.track-inner').boundingBox()
   const clip = page.locator('[data-tid="V1"] .video-clip').first()
+  /**
+   * タイムラインを拡大する。
+   * ※拡大は Ctrl（か Alt）を押しながらのホイール。ただのホイールは横スクロール。
+   *   ここを間違えると「拡大したつもりで何も起きていない」測定になる（実際なっていた）。
+   */
+  const zoomIn = async (x, y, times) => {
+    await page.keyboard.down('Control')
+    await page.mouse.move(x, y)
+    for (let i = 0; i < times; i++) {
+      await page.mouse.wheel(0, -120)
+      await page.waitForTimeout(120)
+    }
+    await page.keyboard.up('Control')
+    await page.waitForTimeout(200)
+  }
+  const timelineWidth = () =>
+    page.locator('.track-inner').evaluate((e) => Math.round(e.getBoundingClientRect().width))
+  /** 先頭へ頭出し（プレビューの絵を揃えたいとき） */
+  const seekTo0 = async () => {
+    const r = await page.locator('.ruler').boundingBox()
+    await page.keyboard.press('Escape')
+    await page.mouse.click(Math.max(inner.x, 0) + 10, r.y + r.height / 2)
+    await page.waitForTimeout(600)
+  }
   // .track-inner は画面の外まで続いている。そのまま幅で割ると押す場所の大半が
   // 窓の外に出て、押しても何も起きない（実際それで50回切ったつもりが1回だった）。
   const vp = page.viewportSize() ?? { width: 1280, height: 800 }
@@ -499,7 +635,13 @@ try {
     // 端のクリップは磁石で元の位置へ戻る。真ん中あたりを掴む。
     const all = page.locator('[data-tid="V1"] .video-clip')
     const t = all.nth(Math.floor((await all.count()) / 2))
-    const b = await t.boundingBox()
+    let b = await t.boundingBox()
+    // 細いクリップは掴めない。人と同じで、掴める幅まで拡大してから動かす。
+    for (let g = 0; g < 12 && b.width < 24; g++) {
+      await zoomIn(b.x + b.width / 2, b.y + b.height / 2, 1)
+      await t.scrollIntoViewIfNeeded().catch(() => {})
+      b = (await t.boundingBox()) ?? b
+    }
     // 動かせたかは「並び全体が変わったか」で見る。n番目を見張ると、
     // ずれた別のクリップが同じ番号に来て「動いていない」ことになる。
     const layout = () =>
@@ -525,19 +667,50 @@ try {
     if ((await layout()) === l0) throw new Error('掴んで動かせていない')
     await page.keyboard.press('Control+z') // 元に戻しておく
     await page.waitForTimeout(500)
+  },
+  // わざと間違える: 掴まずに0pxだけ動かす（＝何も起きない）
+  async () => {
+    const all = page.locator('[data-tid="V1"] .video-clip')
+    const t = all.nth(Math.floor((await all.count()) / 2))
+    const b = await t.boundingBox()
+    const layout = () =>
+      all.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)).join(','))
+    const l0 = await layout()
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+    if ((await layout()) === l0) throw new Error('掴んで動かせていない')
   })
   void clip
 
   await measure('タイムラインを拡大・縮小する', async () => {
+    const w0 = await timelineWidth()
+    await zoomIn(visMid, inner.y + 40, 10)
+    const w1 = await timelineWidth()
+    if (w1 <= w0 * 1.2) throw new Error(`拡大できていない（${w0} → ${w1}px）`)
+    await page.keyboard.down('Control')
     await page.mouse.move(visMid, inner.y + 40)
-    for (let i = 0; i < 12; i++) {
-      await page.mouse.wheel(0, -120)
-      await page.waitForTimeout(40)
-    }
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 10; i++) {
       await page.mouse.wheel(0, 120)
-      await page.waitForTimeout(40)
+      await page.waitForTimeout(120)
     }
+    await page.keyboard.up('Control')
+    await page.waitForTimeout(200)
+    const w2 = await timelineWidth()
+    if (w2 >= w1 * 0.9) throw new Error(`縮小できていない（${w1} → ${w2}px）`)
+  },
+  // わざと間違える: Ctrl を押さずにホイールする（＝横スクロールするだけ）
+  async () => {
+    const w0 = await timelineWidth()
+    await page.mouse.move(visMid, inner.y + 40)
+    for (let i = 0; i < 10; i++) {
+      await page.mouse.wheel(0, -120)
+      await page.waitForTimeout(80)
+    }
+    const w1 = await timelineWidth()
+    if (w1 <= w0 * 1.2) throw new Error(`拡大できていない（${w0} → ${w1}px）`)
   })
 
   await measure('再生ヘッドを掴んで動かす', async () => {
@@ -550,6 +723,140 @@ try {
       await page.waitForTimeout(8)
     }
     await page.mouse.up()
+    await page.waitForTimeout(300)
+  })
+
+  await measure('タイムラインを横にスクロールする', async () => {
+    await page.mouse.move(visMid, inner.y + 60)
+    for (let i = 0; i < 20; i++) {
+      await page.mouse.wheel(160, 0)
+      await page.waitForTimeout(25)
+    }
+  })
+
+  await measure('テロップを掴んで動かす', async () => {
+    const tel = page.locator('.telop-clip')
+    const n = await tel.count()
+    if (!n) throw new Error('テロップが1つも出ていない')
+    // テロップの帯は最低12pxで描かれるので、拡大率が低いと隣どうしが重なり、
+    // 狙った帯ではなく手前の帯を掴んでしまう。まず拡大してから、
+    // 「いま画面に見えていて掴める幅のもの」を選び直す。
+    // （拡大すると狙った帯が画面外へ出るので、先に決めておくと空振りする）
+    await zoomIn(visMid, inner.y + 40, 10)
+    const vw = (page.viewportSize() ?? { width: 1280 }).width
+    const idx = await tel.evaluateAll((els, w) => {
+      for (let i = 0; i < els.length; i++) {
+        const r = els[i].getBoundingClientRect()
+        if (r.width >= 20 && r.x > 80 && r.x + r.width < w - 120) return i
+      }
+      return -1
+    }, vw)
+    if (idx < 0) throw new Error('掴める幅のテロップが画面に無い')
+    const t = tel.nth(idx)
+    let b = await t.boundingBox()
+    await t.click() // 掴む前に選んでおく
+    await page.waitForTimeout(200)
+    b = (await t.boundingBox()) ?? b
+    const shot0 = await tel.evaluateAll((els) =>
+      els.map((e) => Math.round(e.getBoundingClientRect().x)).join(',')
+    )
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 30; i++) {
+      await page.mouse.move(b.x + b.width / 2 + i * 8, b.y + b.height / 2)
+      await page.waitForTimeout(8)
+    }
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+    const shot1 = await tel.evaluateAll((els) =>
+      els.map((e) => Math.round(e.getBoundingClientRect().x)).join(',')
+    )
+    if (shot0 === shot1)
+      throw new Error(`テロップを動かせていない（幅 ${Math.round(b.width)}px・${n}枚）`)
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  },
+  // わざと間違える: 拡大せず、重なって細いままの帯を掴もうとする
+  async () => {
+    const tel = page.locator('.telop-clip')
+    const t = tel.nth(Math.floor((await tel.count()) / 2))
+    const b = await t.boundingBox()
+    const pos = () => tel.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)).join(','))
+    const p0 = await pos()
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+    if ((await pos()) === p0) throw new Error('テロップを動かせていない')
+  })
+
+  await measure('テロップの文字を打ち直す', async () => {
+    // 1文字打つたびに画面全体が作り直されると、長い動画ほど入力が遅れる
+    // テロップが出ている時刻へ移る（先頭は空いていることがある）
+    const band = page.locator('.telop-clip').nth(1)
+    const bb = await band.boundingBox()
+    const rr = await page.locator('.ruler').boundingBox()
+    await page.keyboard.press('Escape')
+    await page.mouse.click(bb.x + bb.width / 2, rr.y + rr.height / 2)
+    await page.waitForTimeout(700)
+    const tel = page.locator('.telop-overlay > *').first()
+    if (!(await tel.count())) throw new Error('プレビューに文字が出ていない')
+    await tel.dblclick()
+    await page.waitForTimeout(400)
+    const ed = page.locator('.telop-editor textarea, .telop-editor input').first()
+    if (!(await ed.count())) throw new Error('打ち直す欄が出ない')
+    for (const ch of 'あいうえおかきくけこ') {
+      await page.keyboard.type(ch)
+      await page.waitForTimeout(12)
+    }
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(300)
+  })
+
+  await measure('全部選んでまとめて動かす', async () => {
+    const all = page.locator('[data-tid="V1"] .video-clip')
+    // 画面に見えていて掴める幅のものを選ぶ（拡大率は前の項目で変わっている）
+    const vw2 = (page.viewportSize() ?? { width: 1280 }).width
+    // 拡大していると1つが画面より広いこともある。画面に見えている部分があれば掴める。
+    const i2 = await all.evaluateAll((els, w) => {
+      for (let i = 0; i < els.length; i++) {
+        const r = els[i].getBoundingClientRect()
+        if (r.x < w - 200 && r.x + r.width > 200) return i
+      }
+      return -1
+    }, vw2)
+    if (i2 < 0) throw new Error('掴めるクリップが画面に無い')
+    const t = all.nth(i2)
+    await page.keyboard.press('Control+a')
+    await page.waitForTimeout(400)
+    const b = await t.boundingBox()
+    const l0 = await all.evaluateAll((els) =>
+      els.map((e) => Math.round(e.getBoundingClientRect().x)).join(',')
+    )
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 30; i++) {
+      await page.mouse.move(b.x + b.width / 2 + i * 5, b.y + b.height / 2)
+      await page.waitForTimeout(8)
+    }
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const l1 = await all.evaluateAll((els) =>
+      els.map((e) => Math.round(e.getBoundingClientRect().x)).join(',')
+    )
+    if (l0 === l1) throw new Error('まとめて動かせていない')
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(500)
+    await page.keyboard.press('Escape')
+  })
+
+  await measure('再生してみる（3秒）', async () => {
+    await seekTo0()
+    await page.keyboard.press('Space')
+    await page.waitForTimeout(3000)
+    await page.keyboard.press('Space')
     await page.waitForTimeout(300)
   })
 
@@ -656,8 +963,12 @@ try {
   // 「重いかどうか」だけだと、どこまで足していいのか分からない。
   // 現実にありうる範囲から少しずつ上げて、崩れる手前を見つける。
   if (DO_LIMITS) {
-    /** 別の中身のプロジェクトを開いて、開く時間・触ったときのコマ落ち・メモリを見る */
-    async function probe(path) {
+    /**
+     * 別の中身のプロジェクトを開いて、開く時間・触ったときの重さ・メモリを見る。
+     * what: 何を掴むか。増やした物そのものを掴まないと、その物の重さを測ったことに
+     *       ならない（テロップを4000枚に増やして動画を掴んでも、テロップの重さは出ない）。
+     */
+    async function probe(path, what = 'clip') {
       await app.evaluate((_e, p) => {
         globalThis.__e2e.open = [p]
       }, path)
@@ -677,10 +988,57 @@ try {
       await page.waitForTimeout(1200)
       const openSec = nowSec() - t0
 
-      // 掴んで動かしてみて、そのあいだのコマ落ちを見る。
-      // 端のクリップは磁石で元の位置に戻るので、真ん中あたりのものを掴む。
-      const clips = page.locator('[data-tid="V1"] .video-clip')
+      // 掴んで動かしてみて、そのあいだの重さを見る。
+      // 端のものは磁石で元の位置に戻るので、真ん中あたりを掴む。
+      // 見た目の重さ（縁取り・影・種類）はプレビューを描くたびに効く。
+      // 掴んで動かすのではなく、再生ヘッドを動かして描き直させて測る。
+      if (what === 'scrub') {
+        const rr = await page.locator('.ruler').boundingBox()
+        const bx = await page.locator('.track-inner').boundingBox()
+        const vpw = (page.viewportSize() ?? { width: 1280 }).width
+        const L = Math.max(bx.x, 0) + 10
+        const R = Math.min(bx.x + bx.width, vpw) - 10
+        await page.evaluate(() => {
+          window.__frames = []
+          window.__sampling = true
+          let last = performance.now()
+          const tick = (t) => {
+            window.__frames.push(t - last)
+            last = t
+            if (window.__sampling) requestAnimationFrame(tick)
+          }
+          requestAnimationFrame(tick)
+        })
+        const MOVES = 30
+        const SLEEP = 8
+        await page.mouse.move(L, rr.y + rr.height / 2)
+        await page.mouse.down()
+        const t1 = nowSec()
+        for (let i = 1; i <= MOVES; i++) {
+          await page.mouse.move(L + ((R - L) * i) / MOVES, rr.y + rr.height / 2)
+          await page.waitForTimeout(SLEEP)
+        }
+        const sec = nowSec() - t1
+        await page.mouse.up()
+        await page.waitForTimeout(300)
+        const fr = await page.evaluate(() => {
+          window.__sampling = false
+          return window.__frames
+        })
+        const st = frameStats(fr) ?? { worst: NaN }
+        const hh = await heap()
+        const lg = (sec * 1000 - MOVES * SLEEP) / MOVES
+        return { openSec, lag: lg, worst: st.worst, heap: hh, ok: openSec <= 30 && lg <= 50, note: '' }
+      }
+      const sel = {
+        clip: '[data-tid="V1"] .video-clip',
+        telop: '.telop-clip',
+        se: '[data-tid="A2"] .se-clip',
+        img: '[data-tid="V3"] .img-clip'
+      }
+      const clips = page.locator(sel[what] ?? sel.clip)
       const nClips = await clips.count()
+      if (!nClips) return { openSec, lag: NaN, worst: NaN, heap: NaN, ok: false, note: '掴む物が無い' }
       const target = clips.nth(Math.min(nClips - 1, Math.floor(nClips / 2)))
       await target.scrollIntoViewIfNeeded().catch(() => {})
       let c = await target.boundingBox()
@@ -688,8 +1046,11 @@ try {
       // クリップ数が多いと1個が数pxしかなく、掴もうとしても外れる。
       // 人間も同じことをするので、掴める幅になるまで拡大してから測る。
       for (let g = 0; g < 12 && c.width < 24; g++) {
+        // 拡大は Ctrl を押しながら（ただのホイールは横スクロール）
+        await page.keyboard.down('Control')
         await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2)
         await page.mouse.wheel(0, -120)
+        await page.keyboard.up('Control')
         await page.waitForTimeout(140)
         await target.scrollIntoViewIfNeeded().catch(() => {})
         c = (await target.boundingBox()) ?? c
@@ -767,34 +1128,110 @@ try {
         key: 'clips',
         values: [50, 200, 500, 1000, 2000],
         label: (v) => `${v}個`,
-        base: { telops: 100 }
+        base: { telops: 100 },
+        grab: 'clip'
+      },
+      {
+        name: '効果音の数',
+        key: 'se',
+        values: [50, 200, 500, 1000],
+        label: (v) => `${v}個`,
+        base: { telops: 50, clips: 12 },
+        grab: 'se'
+      },
+      {
+        name: '画像の数',
+        key: 'imgs',
+        values: [50, 200, 500, 1000],
+        label: (v) => `${v}枚`,
+        base: { telops: 50, clips: 12 },
+        grab: 'img'
+      },
+      {
+        name: 'めじるしの数',
+        key: 'marks',
+        values: [200, 1000, 3000, 8000],
+        label: (v) => `${v}個`,
+        base: { telops: 50, clips: 12 },
+        grab: 'clip'
+      },
+      {
+        name: 'テロップの縁取りの枚数',
+        key: 'strokes',
+        values: [1, 3, 6, 10],
+        label: (v) => `${v}枚`,
+        base: { telops: 200, clips: 12, shadows: 1 },
+        grab: 'scrub'
+      },
+      {
+        name: 'テロップの影の枚数',
+        key: 'shadows',
+        values: [1, 3, 6, 12],
+        label: (v) => `${v}枚`,
+        base: { telops: 200, clips: 12, strokes: 2 },
+        grab: 'scrub'
+      },
+      {
+        name: 'テロップのスタイルの種類数',
+        key: 'kinds',
+        values: [1, 10, 50, 200],
+        label: (v) => `${v}種`,
+        base: { telops: 200, clips: 12, strokes: 2, shadows: 2 },
+        grab: 'scrub'
+      },
+      {
+        name: '素材ビンの数',
+        key: 'media',
+        values: [10, 100, 500, 2000],
+        label: (v) => `${v}件`,
+        base: { telops: 50, clips: 12 },
+        grab: 'clip'
       }
     ]
 
     for (const sw of sweeps) {
       let lastOk = null
       let broke = null
+      const pts = [] // 1つあたりの重さを出すために全部の点を残す
       for (const v of sw.values) {
         const opts = { ...sw.base, [sw.key]: v }
         const p = join(fx.dir, `limit-${sw.key}-${v}.gcproj`)
         writeFileSync(p, JSON.stringify(buildProject(video, totalSec, opts)), 'utf-8')
         await say('動作', `どこまで耐えるか: ${sw.name}`, `${sw.label(v)} を開いて触ってみる`)
-        const r = await probe(p)
+        // 増やした物そのものを掴む（テロップの軸ならテロップを動かす）。
+        // ここを合わせないと「置いてあるだけの重さ」しか測れない。
+        const r = await probe(p, sw.grab ?? 'telop')
         const line =
           `${sw.label(v)}: 開く ${fmt(r.openSec)}秒 / 1操作 ${fmt(r.lag)}ms` +
           ` / 最悪のコマ ${fmt(r.worst)}ms / メモリ ${mb(r.heap)}`
         console.log(`    ${r.ok ? '·' : '×'} ${line}${r.note ? ' … ' + r.note : ''}`)
+        if (Number.isFinite(r.lag)) pts.push({ v, lag: r.lag, heap: r.heap })
         if (r.ok) lastOk = { v, r }
         else {
           broke = { v, r }
           break
         }
       }
-      const detail = broke
-        ? `${lastOk ? sw.label(lastOk.v) : '最小の設定'} までは平気 / ${sw.label(broke.v)} で崩れる` +
-          `（開く ${fmt(broke.r.openSec)}秒・1操作 ${fmt(broke.r.lag)}ms${broke.r.note ? '・' + broke.r.note : ''}）`
-        : `試した上限 ${sw.label(sw.values[sw.values.length - 1])} まで平気` +
-          `（そこで 開く ${fmt(lastOk.r.openSec)}秒・1操作 ${fmt(lastOk.r.lag)}ms・メモリ ${mb(lastOk.r.heap)}）`
+      // 1つ増えるごとにどれだけ重くなるか（端どうしを結んだ傾き）。
+      // 「どこで崩れるか」だけだと、あとどれくらい余裕があるか分からない。
+      let slope = ''
+      if (pts.length >= 2) {
+        const a = pts[0]
+        const b = pts[pts.length - 1]
+        const dv = b.v - a.v
+        if (dv > 0) {
+          const per1000 = ((b.lag - a.lag) / dv) * 1000
+          const memPer1000 = ((b.heap - a.heap) / dv) * 1000
+          slope = ` ／ 1000増えるごとに +${fmt(per1000)}ms・+${fmt(memPer1000 / 1024 / 1024)}MB`
+        }
+      }
+      const detail =
+        (broke
+          ? `${lastOk ? sw.label(lastOk.v) : '最小の設定'} までは平気 / ${sw.label(broke.v)} で崩れる` +
+            `（開く ${fmt(broke.r.openSec)}秒・1操作 ${fmt(broke.r.lag)}ms${broke.r.note ? '・' + broke.r.note : ''}）`
+          : `試した上限 ${sw.label(sw.values[sw.values.length - 1])} まで平気` +
+            `（そこで 開く ${fmt(lastOk.r.openSec)}秒・1操作 ${fmt(lastOk.r.lag)}ms・メモリ ${mb(lastOk.r.heap)}）`) +
+        slope
       await done('動作', `どこまで耐えるか: ${sw.name}`, detail, broke ? 'warn' : 'ok')
     }
 

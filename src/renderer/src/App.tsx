@@ -119,6 +119,49 @@ const TRACK_PAD_ROWS = 2
 // 取りこぼさない。短くすれば安心だが、そのぶん書き込みが増える。
 const AUTOSAVE_MS = 5 * 60 * 1000
 
+/**
+ * マウスの動きを「1フレームに1回」へまとめる。
+ *
+ * マウスは1秒に100回以上動くが、画面は60回しか描き替わらない。
+ * まとめないと、描いても見えない絵のために毎回タイムライン全体を作り直すことになる。
+ * クリップが増えるほどこれが効いてくる（1000個で1操作75ms かかっていた）。
+ *
+ * 使うときの約束:
+ *   - 離した時に flush() を呼ぶ（最後の位置を取りこぼさない）
+ *   - その後に cancel() を呼ぶ（フレーム待ちのまま残さない）
+ */
+function rafThrottle<T>(fn: (arg: T) => void): {
+  run: (arg: T) => void
+  flush: () => void
+  cancel: () => void
+} {
+  let id = 0
+  let last: T | null = null
+  const fire = (): void => {
+    const a = last
+    last = null
+    if (a !== null) fn(a)
+  }
+  return {
+    run: (arg: T) => {
+      last = arg
+      if (id) return
+      id = requestAnimationFrame(() => {
+        id = 0
+        fire()
+      })
+    },
+    flush: () => {
+      if (last !== null) fire()
+    },
+    cancel: () => {
+      if (id) cancelAnimationFrame(id)
+      id = 0
+      last = null
+    }
+  }
+}
+
 // トラック高さ（映像/音声グループごとにまとめて可変）。デフォはプレミア風に少し狭め
 const TRACK_H_MIN = 26
 const TRACK_H_MAX = 160
@@ -6958,7 +7001,7 @@ export default function App(): JSX.Element {
     let moved = false
     const modeOf = (ev: { altKey: boolean; ctrlKey: boolean; metaKey: boolean }): SegDropMode =>
       ev.altKey ? 'copy' : ev.ctrlKey || ev.metaKey ? 'insert' : 'move'
-    const onMove = (ev: PointerEvent): void => {
+    const applyMove = (ev: PointerEvent): void => {
       // 数px の震えで動かさない（クリック＝選択のままにする）
       if (!moved && Math.abs(ev.clientX - sx) < 4) return
       if (!moved) {
@@ -7049,10 +7092,15 @@ export default function App(): JSX.Element {
               .map((o) => o.seg.id)
       )
     }
+    // マウスの動きは1フレームに1回へまとめる（クリップが多いほど効く）
+    const mover = rafThrottle<PointerEvent>(applyMove)
+    const onMove = (ev: PointerEvent): void => mover.run(ev)
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
+      mover.flush() // 最後の位置を取りこぼさない
+      mover.cancel()
       const nt = segMoveToRef.current
       const mode = segDropModeRef.current
       segMoveToRef.current = null
@@ -7090,7 +7138,7 @@ export default function App(): JSX.Element {
     const srcMax = ownDur > 0 ? ownDur : videoDurationRef.current > 0 ? videoDurationRef.current : e0
     const sp = segSpeed(L.seg) // 速度クリップ: 画面上の移動量(タイムライン秒)→ソース秒 に変換
     const oldTEnd = L.tEnd // トリム前のこのクリップの終端（後続シフトの境界）
-    const onMove = (ev: PointerEvent): void => {
+    const applyTrim = (ev: PointerEvent): void => {
       // マグネット: 画面上の位置で吸着させてから、ソース秒の移動量に変換する
       // （他のクリップと同じ操作感にする。従来はここだけ吸着しなかった）
       const rawT = edge === 'l' ? L.tStart + (ev.clientX - sx) / zoomRef.current : oldTEnd + (ev.clientX - sx) / zoomRef.current
@@ -7114,10 +7162,15 @@ export default function App(): JSX.Element {
         setSegments((prev) => prev.map((s) => (s.id === L.seg.id ? { ...s, srcEnd: ne } : s)))
       }
     }
+    // 端をつまむ操作はクリップ一覧そのものを書き換えるので、まとめる効果が大きい
+    const trimmer = rafThrottle<PointerEvent>(applyTrim)
+    const onMove = (ev: PointerEvent): void => trimmer.run(ev)
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
+      trimmer.flush() // 最後の位置を取りこぼさない
+      trimmer.cancel()
       setDragTip(null)
       setSnapLineX(null)
       // 値が結局変わっていなければ参照を base に戻して履歴の空振りを防ぐ
