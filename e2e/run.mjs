@@ -3202,6 +3202,14 @@ try {
   })
 
   await check('右クリックからも、コピーと「何が貼れるか」が分かる形で貼れる', async () => {
+    // 何も設定されていないクリップからコピーすると、当然「設定なし」になる。
+    // 見たいのは「何が貼れるかが名前で分かるか」なので、まず1つ設定を付ける。
+    // （ここへ来るまでに何が設定済みかは、前の項目次第で変わる）
+    await v1Clips().nth(0).click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    await page.locator('.ctx-swatch:not(.ctx-swatch-none)').first().click()
+    await page.waitForTimeout(400)
+
     await v1Clips().nth(0).click({ button: 'right' })
     await page.waitForSelector('.ctx-menu')
     const copy = page.locator('.ctx-item', { hasText: '設定をコピー' })
