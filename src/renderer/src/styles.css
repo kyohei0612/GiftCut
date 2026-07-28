@@ -887,10 +887,26 @@ body {
   overflow: hidden;
   container-type: size;
 }
+/* 市松模様（透明）の上に出るので、下敷きを敷かないと読めない */
 .screen-empty {
-  color: #4a4a52;
+  color: #cfd4dd;
   align-self: center;
+  text-align: center;
   font-size: 13px;
+  line-height: 1.7;
+  background: #0b1220cc;
+  border: 1px solid #ffffff22;
+  border-radius: 10px;
+  padding: 14px 22px;
+}
+.screen-empty-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #e6e8ee;
+}
+.screen-empty-sub {
+  font-size: 11px;
+  color: #9aa3b2;
 }
 .screen-video {
   position: absolute;
@@ -1807,8 +1823,12 @@ body {
 }
 .tool {
   /* Fitts's law: クリック目標を最低 32x26px 確保（誤クリック低減） */
-  width: 32px;
+  min-width: 32px;
+  /* 文字を添えたものは、そのぶん広がってよい（固定幅だと文字がはみ出す） */
+  width: auto;
+  padding: 0 6px;
   height: 26px;
+  white-space: nowrap;
   background: var(--panel-2);
   border: 1px solid var(--line);
   color: var(--text);
@@ -1852,6 +1872,16 @@ body {
 }
 .tl-zoom input {
   width: 120px;
+}
+/* アイコンに添える文字。狭いときは消して、アイコンだけに戻す */
+.tool-text {
+  font-size: 10px;
+  margin-left: 2px;
+}
+@media (max-width: 1200px) {
+  .tool-text {
+    display: none;
+  }
 }
 /* タイムラインの手元に置く、文字入りのボタン */
 .tool-wide {
@@ -2031,8 +2061,25 @@ body {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+/* 段の番号。**ここだけは絶対に切らせない**（どの段かが分からなくなる） */
+.th-id {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: #e6e8ee;
+}
+/* 名前。入らなければここだけ切る */
+.th-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #a9b0bd;
+  font-size: 10px;
 }
 .th-name.th-target {
   background: var(--accent-2);

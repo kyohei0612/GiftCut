@@ -3369,7 +3369,13 @@ export default function App(): JSX.Element {
   const [rightW, setRightW] = useState(() => loadLS('gc.rightW', 300))
   // タイムラインの高さ。段を太らせるのではなく、領域そのものに余裕を持たせる
   // （プレミアも行は細く、下に余白がある形）。段が増えても足りなくならない。
-  const [timelineH, setTimelineH] = useState(() => loadLS('gc.timelineH', 420))
+  // タイムラインの既定の高さ。
+  //
+  // 420 だと画面のほぼ半分をタイムラインが占め、**プレビューが枠の4割**しか
+  // 使えていなかった（実測: 枠845pxに対し映像326px）。切り抜きは
+  // 「プレビューを見ながらテロップを詰める」作業なので、映像側を優先する。
+  // 配置は保存されるので、好みで広げればその形が次から続く。
+  const [timelineH, setTimelineH] = useState(() => loadLS('gc.timelineH', 370))
   useEffect(() => {
     saveLS('gc.leftW', leftW)
     saveLS('gc.rightW', rightW)
@@ -8394,7 +8400,7 @@ export default function App(): JSX.Element {
       openProject: () => void openProjectFn(),
       exportVideo: () => {
         if (exportStatus) return // 書き出し中は受け付けない
-        setShowExportDialog(true)
+        openExportDialog()
       }
     }
     dispatch[id]()
@@ -8624,6 +8630,21 @@ export default function App(): JSX.Element {
   }
 
   // ================= 書き出し =================
+  /**
+   * 書き出しの設定画面を開く。
+   *
+   * **中身が無いときは開かない。** 以前は空でも開き、設定を選んで
+   * 「書き出す」を押して初めて「動画を読み込んでください」と怒られた。
+   * 押す前に分かる方が親切。
+   */
+  function openExportDialog(): void {
+    if (!videoPath || !segments.length) {
+      showToast('書き出す中身がありません。先に動画を読み込んでタイムラインに置いてください。')
+      return
+    }
+    if (exportStatus) return // 書き出し中は受け付けない
+    setShowExportDialog(true)
+  }
   async function exportProject(): Promise<void> {
     if (!videoPath) {
       showToast('先に動画を読み込んでください。\n「ファイル」→「動画をプロジェクトに追加…」から追加できます。')
@@ -9705,7 +9726,7 @@ export default function App(): JSX.Element {
                 className="menu-drop-item"
                 onClick={() => {
                   setFileMenuOpen(false)
-                  setShowExportDialog(true)
+                  openExportDialog()
                 }}
               >
                 動画を書き出し…
@@ -9732,7 +9753,7 @@ export default function App(): JSX.Element {
           <button className="mode-tab mode-tab-on">編集</button>
           {/* 設定ダイアログを経由する（メニューや Ctrl+M と挙動を揃える。
               以前はここだけ前回設定で即書き出しが始まっていた） */}
-          <button className="mode-tab" onClick={() => setShowExportDialog(true)}>
+          <button className="mode-tab" onClick={() => openExportDialog()}>
             書き出し
           </button>
         </div>
@@ -10811,7 +10832,14 @@ export default function App(): JSX.Element {
                   </div>
                 )}
                 {!videoSrc && !activeCues.length && (
-                  <div className="screen-empty">プレビュー</div>
+                  // 市松模様（＝透明）だけだと、初見では「壊れている？」に見える。
+                  // 次に何をすればいいかを書く。
+                  <div className="screen-empty">
+                    <div className="screen-empty-title">動画をここにドラッグ</div>
+                    <div className="screen-empty-sub">
+                      右の「＋ ファイル追加」からでも読み込めます
+                    </div>
+                  </div>
                 )}
                 {proxyPct != null && (
                   <div className="proxy-badge" title="編集用プレビューを最適化中（書き出しは原本フル画質）">
@@ -11825,14 +11853,16 @@ export default function App(): JSX.Element {
               title={`レザー / カット (${formatCombo(shortcuts.toolRazor)})`}
               onClick={() => setTool('razor')}
             >
-              ✂
+              {/* 使用頻度が高く、押し間違えると影響が大きいものには文字を付ける。
+                  アイコンだけだと初見で分からない（実際に「⎇」「↔」が分からなかった）。 */}
+              ✂ <span className="tool-text">カット</span>
             </button>
             <button
               className={`tool ${snap ? 'tool-on' : ''}`}
               title={`スナップ (${formatCombo(shortcuts.toggleSnap)})`}
               onClick={toggleSnap}
             >
-              🧲
+              🧲 <span className="tool-text">磁石</span>
             </button>
             <button
               className={`tool ${tool === 'trackBack' ? 'tool-on' : ''}`}
@@ -11873,7 +11903,7 @@ export default function App(): JSX.Element {
                 splitAtPlayhead('all')
               }}
             >
-              ⎇
+              ⎇ <span className="tool-text">分割</span>
             </button>
             {/* 喋っていない所をまとめて切る。切り抜きでは毎回やる作業なので、
                 メニューの奥ではなくタイムラインの手元に置く */}
@@ -11976,9 +12006,14 @@ export default function App(): JSX.Element {
                           )
                         })
                       }}
-                      title="クリックでトラック選択 / ダブルクリックで名前を変更"
+                      title={`${tr.name}（クリックでトラック選択 / ダブルクリックで名前を変更）`}
                     >
-                      {tr.name}
+                      {/* 段の番号は絶対に見せる。名前は入るぶんだけ。
+                          以前は「V…」「A1 音…」と切れて、**どれが V2 で
+                          どれが V3 かも分からなかった**。番号と名前を分け、
+                          番号は縮まないようにする。 */}
+                      <b className="th-id">{tr.id}</b>
+                      {tr.name !== tr.id && <span className="th-label">{tr.name.replace(new RegExp(`^${tr.id}\\s*`), '')}</span>}
                     </span>
                     <span className="th-icons" onClick={(e) => e.stopPropagation()}>
                       <button
@@ -12295,7 +12330,14 @@ export default function App(): JSX.Element {
                             className="clip-trim clip-trim-l"
                             onPointerDown={(e) => onTrimStart(cue, 'l', e)}
                           />
-                          <span className="clip-text">{cue.text}</span>
+                          {/* 帯が細いときは文字を出さない。
+                              帯は最低12pxで描かれるので、引いた状態では
+                              「ろ」「ク」のような**読めない断片**が並び、
+                              意味が無いのに視線だけ取っていた。
+                              何があるかは色と位置で分かる（中身は重ねた説明で見る）。 */}
+                          {(cue.end - cue.start) * zoom >= 40 && (
+                            <span className="clip-text">{cue.text}</span>
+                          )}
                           {/* テロップの出入りアニメ帯（動画トランジションと同じ流儀: 範囲表示＋クリック選択） */}
                           {cue.style.anim && cue.style.anim.in !== 'none' && (
                             <div

@@ -1349,8 +1349,13 @@ try {
     await input.fill('テスト段')
     await page.locator('.modal-btn.primary').click()
     await page.waitForTimeout(300)
-    const after = await page.locator('.th-name').first().textContent()
+    // 段の頭は「番号＋名前」に分かれている（番号は切らせない作りにした）。
+    // 見るのは名前の方。全体を見ると "V3テスト段" になって食い違う。
+    const after = await page.locator('.th-label').first().textContent()
     assert(after === 'テスト段', `名前が変わっていない: ${before} → ${after}`)
+    // 番号は残っている（どの段か分からなくならない）
+    const id = await page.locator('.th-id').first().textContent()
+    assert(id.trim().length > 0, '段の番号が消えた')
   })
 
   await check('トラック名をクリックしても、意味のない青い表示にならない', async () => {
