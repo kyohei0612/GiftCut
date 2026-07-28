@@ -24,3 +24,5 @@ e2e/ng-report.json
 resources/ffmpeg/*.exe
 resources/ffmpeg/*.dll
 dist/
+# 起動中のアプリに掴まれている時に、別の場所へ作った確認用の配布物
+dist-check/

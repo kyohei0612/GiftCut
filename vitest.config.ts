@@ -9,7 +9,9 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   plugins: [react()],
   test: {
-    include: ['src/shared/**/*.test.ts', 'src/renderer/src/**/*.test.tsx'],
+    //  - src/main … Electron を import しない本体側の道具（ZIP の読み書きなど）。
+    //    実際にファイルを作って往復させる。
+    include: ['src/shared/**/*.test.ts', 'src/main/**/*.test.ts', 'src/renderer/src/**/*.test.tsx'],
     environment: 'node',
     reporters: ['default'],
     // 失敗を必ず非ゼロ終了で返す（フック/CI が検知できるように）

@@ -152,6 +152,35 @@ const api = {
     videoExists?: boolean
     error?: string
   } | null> => ipcRenderer.invoke('project:open', path),
+  // ---- 持ち出し（素材ごと1つの ZIP にまとめる／受け取って開く）----
+  packProject: (
+    json: string,
+    suggestName?: string
+  ): Promise<{
+    ok: boolean
+    path?: string
+    files?: number
+    missing?: string[]
+    size?: number
+    canceled?: boolean
+    error?: string
+  }> => ipcRenderer.invoke('pack:save', json, suggestName),
+  openPack: (
+    zipPath?: string
+  ): Promise<{
+    ok: boolean
+    path?: string
+    dir?: string
+    data?: unknown
+    videoExists?: boolean
+    canceled?: boolean
+    error?: string
+  }> => ipcRenderer.invoke('pack:open', zipPath),
+  onPackProgress: (cb: (data: { percent: number }) => void): (() => void) => {
+    const h = (_e: unknown, data: { percent: number }): void => cb(data)
+    ipcRenderer.on('pack:progress', h)
+    return () => ipcRenderer.removeListener('pack:progress', h)
+  },
   // ---- プロジェクトテンプレート ----
   listTemplates: (): Promise<{ ok: boolean; items: { name: string; path: string }[]; error?: string }> =>
     ipcRenderer.invoke('template:list'),

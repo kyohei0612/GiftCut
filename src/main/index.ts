@@ -10,6 +10,7 @@ import {
   existsSync,
   readdirSync,
   createReadStream,
+  createWriteStream,
   utimesSync
 } from 'fs'
 import { writeFile as writeFileAsync } from 'fs/promises'
@@ -27,6 +28,11 @@ import {
 } from '../shared/filterGraph'
 // 保存するプロジェクトの整合性検査（参照切れ・長さ0・id重複など）
 import { checkProject, formatProjectProblems } from '../shared/projectCheck'
+// 本体ウィンドウの大きさ・位置（初回の既定と、前回の形の引き継ぎ）
+import { nextBounds, MIN_SIZE, type WindowState } from '../shared/windowBounds'
+// プロジェクトの持ち出し（素材ごと ZIP に入れる／展開してパスを繋ぎ直す）
+import { planPack, relinkProject, PROJECT_ENTRY, MANIFEST_ENTRY } from '../shared/projectPack'
+import { writeZip, extractZip } from './zip'
 
 // 書き出し中の ffmpeg プロセス（キャンセル用）。exportCanceled でユーザー中断とエラーを区別する。
 let currentExportFf: ChildProcess | null = null
@@ -391,14 +397,32 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
+// 前回どんな形で閉じたかを覚えておく場所。プロジェクトではなくアプリの設定なので
+// userData に置く（プロジェクトを別PCへ持って行っても、その人の画面の形が優先される）。
+const windowStatePath = (): string => join(app.getPath('userData'), 'giftcut-window.json')
+
+function readWindowState(): WindowState | null {
+  try {
+    const o = JSON.parse(readFileSync(windowStatePath(), 'utf-8'))
+    return o && typeof o === 'object' ? (o as WindowState) : null
+  } catch {
+    return null // 初回起動・壊れている → 既定の形で開く
+  }
+}
+
 function createWindow(): void {
+  const displays = screen.getAllDisplays().map((d) => d.workArea)
+  const { bounds, maximized } = nextBounds(
+    readWindowState(),
+    displays,
+    screen.getPrimaryDisplay().workArea
+  )
   const mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1100,
-    minHeight: 680,
+    ...bounds,
+    minWidth: MIN_SIZE.width,
+    minHeight: MIN_SIZE.height,
     show: false,
-    backgroundColor: '#1b1b1e',
+    backgroundColor: '#121416',
     autoHideMenuBar: true,
     title: 'GiftCut',
     webPreferences: {
@@ -407,6 +431,32 @@ function createWindow(): void {
       contextIsolation: true
     }
   })
+  if (maximized) mainWindow.maximize()
+
+  // 形が変わるたびに覚え直す。動かしている間ずっと書くと遅いので、手が止まってから書く。
+  // 最大化中の getBounds() は画面いっぱいの値なので、記録するのは
+  // 「元に戻したときの形」＝ getNormalBounds()。これを取り違えると、
+  // 最大化→解除で開いた次回に、画面いっぱいの大きさの窓が出てくる。
+  let saveTimer: NodeJS.Timeout | null = null
+  const rememberWindow = (): void => {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      if (mainWindow.isDestroyed()) return
+      const state: WindowState = {
+        bounds: mainWindow.getNormalBounds(),
+        maximized: mainWindow.isMaximized()
+      }
+      try {
+        writeFileSync(windowStatePath(), JSON.stringify(state, null, 1), 'utf-8')
+      } catch (e) {
+        console.warn('[window] 窓の形を覚えられませんでした:', e)
+      }
+    }, 400)
+  }
+  mainWindow.on('resize', rememberWindow)
+  mainWindow.on('move', rememberWindow)
+  mainWindow.on('maximize', rememberWindow)
+  mainWindow.on('unmaximize', rememberWindow)
 
   mainWindow.on('ready-to-show', () => mainWindow.show())
 
@@ -941,6 +991,100 @@ app.whenReady().then(() => {
       return { ok: true, path: target, data, videoExists }
     } catch (e) {
       return { ok: false, error: String(e) }
+    }
+  })
+
+  // ---- プロジェクトの持ち出し（素材ごと1つの ZIP）----
+  //
+  // 渡す側は「まとめて書き出す」で ZIP を作り、受け取る側は「まとめを開く」で展開する。
+  // 素材のパスは ZIP の中の場所（素材/○○）に書き換えて入れ、展開時に展開先の
+  // 絶対パスへ戻す。書き換え規則は shared/projectPack にあり、単体で確かめてある。
+  //
+  // 圧縮は掛けない。動画も音声も画像も既に圧縮済みで、掛けても数%しか減らないのに
+  // 数GBを読み直すぶんの時間だけ確実に増える（＝待たせるだけになる）。
+  ipcMain.handle('pack:save', async (e, json: string, suggestName?: string) => {
+    try {
+      const project = JSON.parse(json)
+      const plan = planPack(project, { exists: (p: string) => existsSync(p) })
+      const base = (suggestName || '無題プロジェクト').replace(/[\\/:*?"<>|]/g, '_')
+      const save = await dialog.showSaveDialog({
+        title: 'プロジェクトを素材ごとまとめて書き出す',
+        defaultPath: base + '.zip',
+        filters: [{ name: 'GiftCut まとめ', extensions: ['zip'] }]
+      })
+      if (save.canceled || !save.filePath) return { ok: false, canceled: true }
+
+      const manifest = {
+        app: 'GiftCut',
+        version: app.getVersion(),
+        作成: new Date().toISOString(),
+        素材の数: plan.files.length,
+        見つからなかった素材: plan.missing,
+        // 元がどこにあったかは、受け取り側で差し替えるときの手がかりになる
+        対応表: plan.files.map((f) => ({ 元: f.from, 中: f.to }))
+      }
+      await writeZip(
+        save.filePath,
+        [
+          {
+            name: PROJECT_ENTRY,
+            data: Buffer.from(JSON.stringify(plan.project, null, 1), 'utf-8')
+          },
+          { name: MANIFEST_ENTRY, data: Buffer.from(JSON.stringify(manifest, null, 2), 'utf-8') },
+          ...plan.files.map((f) => ({ name: f.to.replace(/\\/g, '/'), from: f.from }))
+        ],
+        (percent) => e.sender.send('pack:progress', { percent })
+      )
+      const size = statSync(save.filePath).size
+      return { ok: true, path: save.filePath, files: plan.files.length, missing: plan.missing, size }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  // 受け取り側。ZIP を展開し、パスを繋ぎ直した .gcproj を書いてから、その中身を返す。
+  // 展開先は「ドキュメント/GiftCut/受け取ったプロジェクト/<ZIPの名前>」。
+  // 同じ名前があれば (2) を付けて別の場所にする（前に受け取ったものを上書きしない）。
+  ipcMain.handle('pack:open', async (e, zipPath?: string) => {
+    let target = zipPath
+    if (!target) {
+      const { canceled, filePaths } = await dialog.showOpenDialog({
+        title: 'まとめたプロジェクトを開く',
+        filters: [{ name: 'GiftCut まとめ', extensions: ['zip'] }],
+        properties: ['openFile']
+      })
+      if (canceled || !filePaths.length) return { ok: false, canceled: true }
+      target = filePaths[0]
+    }
+    if (!existsSync(target)) return { ok: false, error: 'ファイルが見つかりません: ' + target }
+    try {
+      const stem = target.split(/[\\/]/).pop()!.replace(/\.zip$/i, '')
+      const root = join(app.getPath('documents'), 'GiftCut', '受け取ったプロジェクト')
+      let dest = join(root, stem)
+      for (let i = 2; existsSync(dest); i++) dest = join(root, `${stem} (${i})`)
+      mkdirSync(dest, { recursive: true })
+
+      const held = await extractZip(target, dest, {
+        keepInMemory: [PROJECT_ENTRY],
+        onProgress: (percent) => e.sender.send('pack:progress', { percent })
+      })
+      const projectJson = held[PROJECT_ENTRY]
+      if (!projectJson) {
+        // 展開はしたが中身が違った。空のフォルダを残さない
+        rmSync(dest, { recursive: true, force: true })
+        return {
+          ok: false,
+          error: 'この ZIP は GiftCut のまとめではないようです（プロジェクトが入っていません）'
+        }
+      }
+      const data = relinkProject(JSON.parse(projectJson), dest)
+      const outPath = join(dest, stem + '.gcproj')
+      writeFileSync(outPath, JSON.stringify(data, null, 1), 'utf-8')
+      const videoExists = allowProjectMedia(data)
+      e.sender.send('pack:progress', { percent: 100 })
+      return { ok: true, path: outPath, dir: dest, data, videoExists }
+    } catch (err) {
+      return { ok: false, error: String(err) }
     }
   })
 

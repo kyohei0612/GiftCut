@@ -78,6 +78,8 @@ import {
   type SplitSeg
 } from '../../shared/timeline'
 import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
+// ビンの素材が使用中か（＝クリップが残っているか）の判定
+import { mediaInUse, staleSourceIds } from '../../shared/mediaBin'
 import {
   voiceRegions,
   duckEnvelope,
@@ -693,6 +695,13 @@ export default function App(): JSX.Element {
   const [fps, setFps] = useState(FPS)
   const fpsRef = useRef(FPS)
   const [proxyPct, setProxyPct] = useState<number | null>(null) // プロキシ生成の進捗（null=非生成/完了）
+  // 素材ごとまとめる／まとめを開く の進捗（null=実行していない）。
+  // 数GBになることがあり、無反応に見えると二度押しされるので必ず出す。
+  const [packPct, setPackPct] = useState<number | null>(null)
+  // 実行中かどうか。進捗の知らせは終わったあとにも遅れて届くので、これで無視する。
+  // 見張っていないと最後の 100% が居座り、バッジが出たままになって
+  // 「実行中だから」と次の操作を弾き続ける（実際にそうなった）。
+  const packBusyRef = useRef(false)
   const proxyForPathRef = useRef<string | null>(null) // 今プロキシ生成中の原本パス
   // この動画について初期切片を作ったか。プロキシ完成でsrcが変わると loadedmetadata が再発火するため、
   // 「segments が空」を初期化条件にすると、全消しした直後にカットが勝手に復活してしまう。
@@ -1717,16 +1726,33 @@ export default function App(): JSX.Element {
   }
   function removeMedia(id: number): void {
     const m = mediaItems.find((x) => x.id === id)
-    // タイムラインで使っている素材は消せない（消すとビンから見えないのに再生され続けて混乱する）
+    // タイムラインで使っている素材は消せない（消すとビンから見えないのに再生され続けて混乱する）。
+    // 「使用中」の基準はクリップが残っているかどうか。元動画としての登録は、切片を
+    // 全部消したあとも主ソースとして残るので、それを見ていると
+    // 「タイムラインは空なのにビンから消せない」という手詰まりになる。
     if (m) {
-      const used =
-        sourcesRef.current.some((s) => s.path === m.path) ||
-        seClipsRef.current.some((c) => c.path === m.path) ||
-        imgClipsRef.current.some((c) => c.path === m.path) ||
-        vClipsRef.current.some((c) => c.path === m.path)
-      if (used) {
+      const refs = {
+        sources: sourcesRef.current,
+        segments: segsRef.current,
+        seClips: seClipsRef.current,
+        imgClips: imgClipsRef.current,
+        vClips: vClipsRef.current
+      }
+      if (mediaInUse(m.path, refs)) {
         showToast('この素材はタイムラインで使用中です。先にクリップを削除してください。')
         return
+      }
+      // 誰も使っていない元動画の登録も一緒に片付ける。残すと、見えない <video> が
+      // プロキシを読み続け、書き出しの入力にも無駄に載る。
+      const stale = staleSourceIds(m.path, refs)
+      if (stale.length) setSources((prev) => prev.filter((s) => !stale.includes(s.id)))
+      // 消した素材をプレビューが映したままにしない（ビンに無い動画が出続ける）
+      if (videoPath === m.path) {
+        setVideoPath(null)
+        setVideoSrc(null)
+        setVideoName(null)
+        setVideoDuration(0)
+        setThumbnailSrc(null)
       }
     }
     setMediaItems((prev) => prev.filter((x) => x.id !== id))
@@ -3604,6 +3630,13 @@ export default function App(): JSX.Element {
     return () => off?.()
   }, [])
 
+  useEffect(() => {
+    const off = window.giftcut?.onPackProgress?.(({ percent }) => {
+      if (packBusyRef.current) setPackPct(percent)
+    })
+    return () => off?.()
+  }, [])
+
   const seEnd = useMemo(
     () => (seClips.length ? Math.max(...seClips.map((s) => s.tStart + s.duration)) : 0),
     [seClips]
@@ -5251,6 +5284,63 @@ export default function App(): JSX.Element {
     }
     await applyProjectData(res.data, !!res.videoExists, res.path ?? null)
     if (res.path) rememberProject(res.path)
+  }
+
+  // ---- 持ち出し（素材ごと1つの ZIP）----
+  //
+  // プロジェクトファイルだけ渡しても、相手のPCには素材が無いので全部
+  // 「見つかりません」になる。使っている素材を全部入れて渡せるようにする。
+  async function packProjectFn(): Promise<void> {
+    if (packBusyRef.current) return // 二重起動しない
+    const name = projectPath
+      ? (projectPath.split(/[\\/]/).pop() ?? '').replace(/\.(gcproj|json)$/i, '')
+      : (videoName ?? '').replace(/\.[^.]+$/, '') || '無題プロジェクト'
+    packBusyRef.current = true
+    setPackPct(0)
+    try {
+      const res = await window.giftcut.packProject(projectJson(), name)
+      if (res.canceled) return
+      if (!res.ok) {
+        showToast('まとめられませんでした:\n' + (res.error ?? '不明なエラー'), 'error')
+        return
+      }
+      const mb = Math.round((res.size ?? 0) / 1024 / 1024)
+      // 入れられなかった素材は必ず伝える。黙って抜けると、渡した先で
+      // 「一部だけ見つかりません」と言われて原因が分からない。
+      const miss = res.missing?.length
+        ? `\n入れられなかった素材 ${res.missing.length} 件（元の場所に見つかりません）:\n` +
+          res.missing.slice(0, 5).join('\n') +
+          (res.missing.length > 5 ? `\n…他 ${res.missing.length - 5} 件` : '')
+        : ''
+      showToast(
+        `まとめました（素材 ${res.files ?? 0} 件 / ${mb}MB）\n${res.path}${miss}`,
+        res.missing?.length ? 'error' : undefined
+      )
+    } finally {
+      packBusyRef.current = false
+      setPackPct(null)
+    }
+  }
+
+  // 受け取ったまとめ（ZIP）を開く。展開してパスを繋ぎ直したものをそのまま開く。
+  async function openPackFn(): Promise<void> {
+    if (packBusyRef.current) return
+    if (!(await confirmDiscard('まとめたプロジェクトを開く'))) return
+    packBusyRef.current = true
+    setPackPct(0)
+    try {
+      const res = await window.giftcut.openPack()
+      if (res.canceled) return
+      if (!res.ok || !res.data) {
+        showToast('まとめを開けませんでした:\n' + (res.error ?? '不明なエラー'), 'error')
+        return
+      }
+      await applyProjectData(res.data, !!res.videoExists, res.path ?? null)
+      if (res.path) rememberProject(res.path)
+      showToast(`まとめを開きました。素材はここに展開しています:\n${res.dir}`)
+    } finally {
+      setPackPct(null)
+    }
   }
 
   // テンプレJSON＝プロジェクトタブ(メディアビン)＋テロップ設定(フォルダ/お気に入り/カテゴリ)＋比率/アイコン。
@@ -9656,6 +9746,29 @@ export default function App(): JSX.Element {
                 別名で保存…
               </button>
               <div className="menu-drop-sep" />
+              {/* 別PCへ渡す用。プロジェクトだけ渡しても素材が無ければ開けないので、
+                  使っている素材ごと1つの ZIP にまとめる。 */}
+              <button
+                className="menu-drop-item"
+                onClick={() => {
+                  setFileMenuOpen(false)
+                  void packProjectFn()
+                }}
+                title="使っている素材を全部入れた ZIP を作ります。別のPCの GiftCut で開けば続きから編集できます"
+              >
+                素材ごとまとめて書き出す…（ZIP）
+              </button>
+              <button
+                className="menu-drop-item"
+                onClick={() => {
+                  setFileMenuOpen(false)
+                  void openPackFn()
+                }}
+                title="まとめた ZIP を展開して開きます（素材はドキュメント/GiftCut/受け取ったプロジェクト に置きます）"
+              >
+                まとめたプロジェクトを開く…（ZIP）
+              </button>
+              <div className="menu-drop-sep" />
               <button
                 className="menu-drop-item"
                 onClick={() => {
@@ -10844,6 +10957,11 @@ export default function App(): JSX.Element {
                 {proxyPct != null && (
                   <div className="proxy-badge" title="編集用プレビューを最適化中（書き出しは原本フル画質）">
                     ⚙ プレビュー最適化中… {proxyPct}%
+                  </div>
+                )}
+                {packPct != null && (
+                  <div className="proxy-badge" title="素材ごとまとめています（大きい素材があると時間がかかります）">
+                    📦 素材ごとまとめ中… {packPct}%
                   </div>
                 )}
                 {editingId != null &&
@@ -12078,6 +12196,13 @@ export default function App(): JSX.Element {
             <div
               className="track-scroll"
               ref={scrollRef}
+              // 範囲選択（マーキー）はレーンの中だけでなく、レーンの外——上下の余白、
+              // 最後のレーンより下、素材の終わりより右——からでも始められる。
+              // 掴む物の無い所で始めた投げ縄が「ここは対象外です」と無反応になるのは、
+              // 使う側からは区別のつかない当たり判定を覚えろと言っているのと同じなので。
+              // クリップ・マーカー・ルーラー・再生ヘッドは自分で伝播を止めるため、
+              // ここまで上がってくるのは「何も無い所」だけになる。
+              onPointerDown={onTrackAreaPointerDown}
               onDragEnter={(e) => {
                 // ターゲット要素が切り替わる瞬間も許可し続ける（カット上で駐禁がチラつくのを防ぐ）。
                 // 素材のドラッグもここで許可しないと、行と行の境目や余白に入った瞬間に
@@ -12274,7 +12399,6 @@ export default function App(): JSX.Element {
                               ? 'w-resize'
                               : 'default'
                     }}
-                    onPointerDown={onTrackAreaPointerDown}
                   >
                     {tr.kind === 'video' &&
                       tr.id !== 'V1' &&

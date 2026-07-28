@@ -123,6 +123,28 @@ export interface GiftcutApi {
     videoExists?: boolean
     error?: string
   } | null>
+  packProject: (
+    json: string,
+    suggestName?: string
+  ) => Promise<{
+    ok: boolean
+    path?: string
+    files?: number
+    missing?: string[]
+    size?: number
+    canceled?: boolean
+    error?: string
+  }>
+  openPack: (zipPath?: string) => Promise<{
+    ok: boolean
+    path?: string
+    dir?: string
+    data?: unknown
+    videoExists?: boolean
+    canceled?: boolean
+    error?: string
+  }>
+  onPackProgress: (cb: (data: { percent: number }) => void) => () => void
   listTemplates: () => Promise<{ ok: boolean; items: { name: string; path: string }[]; error?: string }>
   saveTemplate: (name: string, json: string) => Promise<{ ok: boolean; path?: string; error?: string }>
   loadTemplate: (
