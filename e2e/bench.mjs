@@ -566,11 +566,16 @@ try {
   // ---- 2. 目: 中身がちゃんと描かれているか -----------------------------
   await say('目', '画面に中身が出ているか', 'タイムラインとプレビューを撮って測る')
   const shotStart = await shot('起動直後')
-  const telopCount = await page.locator('.telop-clip').count()
+  // 画面に出ている帯の数と、プロジェクトが持っているテロップの数は**別物**。
+  // 画面に出ていない帯は作らない作りにしたので、帯を数えると
+  // 「テロップが減った」と誤読する（実際に要注意として報告してしまった）。
+  const telopBands = await page.locator('.telop-clip').count()
+  const statusTxt = (await page.locator('.statusbar').first().textContent()) ?? ''
+  const telopCount = Number(/(\d+) テロップ/.exec(statusTxt)?.[1] ?? 0)
   await done(
     '動作',
-    'テロップが並んでいる',
-    `${telopCount} / ${TELOPS} 枚`,
+    'テロップが全部読み込まれている',
+    `${telopCount} / ${TELOPS} 枚（画面に出ている帯は ${telopBands} 本）`,
     telopCount >= TELOPS ? 'ok' : telopCount > 0 ? 'warn' : 'ng'
   )
 
@@ -880,12 +885,40 @@ try {
 
   await measure('テロップの文字を打ち直す', async () => {
     // 1文字打つたびに画面全体が作り直されると、長い動画ほど入力が遅れる
-    // テロップが出ている時刻へ移る（先頭は空いていることがある）
+    //
+    // テロップが出ている時刻へ移る。**帯の真ん中を押してはいけない**。
+    // 帯は細くなりすぎないよう最低12pxで描かれるので、引いた状態では
+    // 「帯の真ん中」と「テロップが出ている時刻」がずれる（60分だと数秒ぶん）。
+    // ずれた所へ再生ヘッドを置くと、プレビューに文字が出ず、
+    // アプリの不具合のように見える（実際にそう報告してしまった）。
+    // 帯そのものを押して選び、その中身の時刻へ移る。
     const band = page.locator('.telop-clip').nth(1)
-    const bb = await band.boundingBox()
-    const rr = await page.locator('.ruler').boundingBox()
     await page.keyboard.press('Escape')
-    await page.mouse.click(bb.x + bb.width / 2, rr.y + rr.height / 2)
+    await band.click()
+    await page.waitForTimeout(400)
+    // 選んだテロップの開始時刻＋わずかに後ろ（確実に表示される所）へ。
+    // 時刻は帯の left（＝開始秒×拡大率）から割り戻す。
+    // アプリ側にテスト用の属性は足さない（本番のコードに仕掛けを入れない）。
+    const at = await page.evaluate(() => {
+      const el = document.querySelector('.telop-clip.clip-selected')
+      if (!el) return null
+      const left = parseFloat(el.style.left || '0')
+      return Number.isFinite(left) ? left : null
+    })
+    const rr = await page.locator('.ruler').boundingBox()
+    const inner = await page.locator('.track-inner').boundingBox()
+    const zoomV = await page
+      .locator('.tl-zoom input[type="range"]')
+      .first()
+      .inputValue()
+      .then(Number)
+    if (at !== null && zoomV > 0) {
+      // at は px（開始秒×拡大率）。0.2秒ぶん後ろへずらして、確実に表示される所を押す
+      await page.mouse.click(inner.x + at + 0.2 * zoomV, rr.y + rr.height / 2)
+    } else {
+      const bb = await band.boundingBox()
+      await page.mouse.click(bb.x + bb.width / 2, rr.y + rr.height / 2)
+    }
     await page.waitForTimeout(700)
     const tel = page.locator('.telop-overlay > *').first()
     if (!(await tel.count())) throw new Error('プレビューに文字が出ていない')

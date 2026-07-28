@@ -12170,7 +12170,7 @@ export default function App(): JSX.Element {
                 )}
 
                 {/* マーカー（頭出し/メモ）: ルーラーの旗＋タイムライン縦線 */}
-                {markers.map((mk) => (
+                {markers.filter((mk) => inView(mk.t, mk.t)).map((mk) => (
                   <div
                     key={mk.id}
                     className={`marker ${selectedMarkerId === mk.id ? 'marker-sel' : ''}`}
@@ -12244,7 +12244,8 @@ export default function App(): JSX.Element {
                     {tr.kind === 'video' &&
                       tr.id !== 'V1' &&
                       cues
-                        .filter((cue) => cueTrack(cue) === tr.id)
+                        // 画面に出ていない帯は作らない（クリップと同じ。1000個で 68→33ms 効いた）
+                        .filter((cue) => cueTrack(cue) === tr.id && inView(cue.start, cue.end))
                         .map((cue) => (
                         <div
                           key={cue.id}
@@ -12483,7 +12484,7 @@ export default function App(): JSX.Element {
                     {tr.kind === 'video' &&
                       tr.id !== 'V1' &&
                       imgClips
-                        .filter((c) => c.track === tr.id)
+                        .filter((c) => c.track === tr.id && inView(c.tStart, c.tStart + c.duration))
                         .map((clip) => (
                           <div
                             key={`img-${clip.id}`}
@@ -12877,7 +12878,12 @@ export default function App(): JSX.Element {
                           </div>
                         )
                       })}
-                    {(tr.kind === 'audio' ? seClips.filter((c) => c.track === tr.id) : []).map(
+                    {(tr.kind === 'audio'
+                      ? seClips.filter(
+                          (c) => c.track === tr.id && inView(c.tStart, c.tStart + c.duration)
+                        )
+                      : []
+                    ).map(
                       (clip) => (
                         <div
                           key={clip.id}

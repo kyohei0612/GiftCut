@@ -2926,6 +2926,16 @@ try {
   await check('書き出した動画に、文字と画像が焼き込まれている', async () => {
     // 文字も画像も無い時刻と、両方ある時刻のコマを抜き出して見比べる
     const out = join(outDir, 'fps-same.mp4')
+    // 前の項目が書き出したファイルに頼っていたので、絞って回すと
+    // 「コマを抜き出せなかった」で落ちていた。無ければ自分で書き出す。
+    if (!existsSync(out)) {
+      await setDialogFiles(null, out)
+      await page.keyboard.press('Control+m')
+      await page.waitForSelector('.export-overlay', { timeout: 8000 })
+      await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
+      await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
+      assert(existsSync(out), '書き出しファイルができていない')
+    }
     const frame = async (t, name) => {
       const f = join(shotDir, name)
       const p = spawn('ffmpeg', ['-y', '-ss', String(t), '-i', out, '-frames:v', '1', f])

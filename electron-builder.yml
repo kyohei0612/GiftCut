@@ -1,0 +1,60 @@
+# 配布物（インストーラ）の作り方。
+#
+#   npm run dist        … 署名なしのインストーラを作る（out → dist/）
+#
+# 署名について:
+#   Windows は署名が無いと、初回起動で SmartScreen の警告が出る（「不明な発行元」）。
+#   消すにはコードサイニング証明書（有料・年契約）が要る。取得したら
+#   win.certificateFile / certificatePassword（または環境変数 CSC_LINK / CSC_KEY_PASSWORD）
+#   を足すだけで、この設定のまま署名付きになる。
+#
+# 自動更新について:
+#   electron-updater ＋ 置き場所（GitHub Releases など）が要る。置き場所が
+#   決まっていないので、いまは入れていない。決まったら publish: を足す。
+
+appId: jp.giftcut.app
+productName: GiftCut
+copyright: © kyohei
+
+directories:
+  output: dist
+  buildResources: build
+
+# 配布物に入れるもの。
+#
+# **SE/ と telop-presets/ は入れない。** 効果音ラボ由来のSEと Geba のテロップ
+# スタイルは再配布が禁止されているため（.gitignore にも同じ理由で入っている）。
+# ここを間違えると、配布した時点で規約違反になる。
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+  - '!**/node_modules/**/{test,__tests__,tests,example,examples}/**'
+
+# テンプレート（プロジェクトの雛形）は同梱する。
+# アプリはこれを「テンプレート」フォルダから読む。
+extraResources:
+  - from: テンプレート
+    to: テンプレート
+    filter:
+      - '**/*.gcproj'
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # 署名はまだ。証明書を用意したらここに certificateFile を足す
+
+nsis:
+  oneClick: false # 置き場所を選べるようにする（既定の一発インストールにしない）
+  allowToChangeInstallationDirectory: true
+  perMachine: false # ユーザー単位。管理者権限を求めない
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: GiftCut
+
+# ffmpeg について:
+#   いまは PC に入っている ffmpeg を使っている（PATH 頼み）。
+#   配布するなら同梱するか、無いときの案内を出す必要がある。
+#   → 未対応。配布前に必ず片付けること（残課題メモに書いてある）。
