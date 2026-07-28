@@ -76,6 +76,7 @@ const AREA = [
   { re: /src\/main\/index\.ts/, words: ['別ウィンドウ', '保存', '書き出し', '起動'] },
   { re: /shared\/timeline/, words: ['動かす', '削除', '元に戻す', '空き'] },
   { re: /shared\/silenceCut/, words: ['無音'] },
+  { re: /shared\/ducking/, words: ['ダッキング', '音'] },
   { re: /shared\/filterGraph/, words: ['書き出し', '音'] },
   { re: /lib\/srt/, words: ['字幕', 'テロップ'] },
   { re: /components\/StylePanel/, words: ['テロップ', '見た目'] },
@@ -1393,6 +1394,72 @@ try {
     assert(a !== null && b !== null, '書き出したファイルの音量を測れなかった')
     assert(b > -60, `ソロのまま書き出したら音がほぼ消えた（${b} dB）`)
     near(b, a, 6, `ソロの有無で書き出しの音量が変わった（通常 ${a} dB / ソロ ${b} dB）`)
+  })
+
+  await check('ダッキング: 声に合わせて BGM が下がる（書き出しでも）', async () => {
+    // 「設定は入るが音は変わらない」が一番まずい。実際に2回書き出して、
+    // **その差を測る**。声に埋もれて平均では見えないので、引き算で BGM の変化だけを見る。
+    await resetProject()
+    const exportOnce = async (label) => {
+      const out = join(outDir, `${label}.mp4`)
+      await setDialogFiles(null, out)
+      await page.keyboard.press('Control+m')
+      await page.waitForSelector('.export-overlay', { timeout: 8000 })
+      await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
+      await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
+      assert(existsSync(out), `書き出しファイルができていない: ${out}`)
+      return out
+    }
+    const before = await exportOnce('duck-off')
+    // 声のある所を調べる（確認用の素材は静かなので、しきい値をゆるめる）
+    await page.locator('.tool-wide', { hasText: '無音カット' }).click()
+    await page.waitForSelector('.sil-box')
+    await setSlider('これより静かなら無音', -25)
+    await setSlider('この長さ以上を無音とみなす', 0.2)
+    await page.locator('.sil-box .btn', { hasText: '調べる' }).click()
+    await page.waitForFunction(
+      () => !(document.querySelector('.sil-result')?.textContent ?? '').includes('調べています'),
+      { timeout: 60000 }
+    )
+    await page.locator('.sil-box .btn', { hasText: '閉じる' }).click()
+    await page.waitForTimeout(300)
+    // BGM クリップを右クリック →「声に合わせて下げる」
+    await page.locator('.se-clip').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const duckItem = page.locator('.ctx-item', { hasText: '声に合わせて下げる' })
+    assert(await duckItem.count(), 'メニューにダッキングが無い')
+    await duckItem.first().click()
+    await page.waitForTimeout(800)
+    // 下げ幅を最大にして、測って分かる差を作る
+    if (await page.locator('.sil-box').count()) {
+      await setSlider('どれだけ下げるか', -24)
+      await page.waitForTimeout(300)
+      await page.locator('.sil-box .btn', { hasText: '閉じる' }).click()
+      await page.waitForTimeout(300)
+    }
+    const after = await exportOnce('duck-on')
+    // 指定が書き出しまで届いているか（届いていないのか、効きが弱いのかを分ける）
+    const filterFile = join(fx.userData, 'last-export-filter.txt')
+    const filterTxt = existsSync(filterFile) ? readFileSync(filterFile, 'utf-8') : ''
+    assert(
+      filterTxt.includes('volume=eval=frame'),
+      '書き出しに声の音量指定が渡っていない（控えのフィルタに見当たらない）'
+    )
+    // 2つの音の差を作って測る。何も変わっていなければ、差は無音になる。
+    const diff = join(outDir, 'duck-diff.wav')
+    await sh('ffmpeg', [
+      '-y', '-i', before, '-i', after,
+      '-filter_complex', '[1:a]volume=-1[inv];[0:a][inv]amix=inputs=2:normalize=0[d]',
+      '-map', '[d]', diff
+    ])
+    const d = await meanVolume(diff)
+    const a = await meanVolume(before)
+    const b = await meanVolume(after)
+    assert(a !== null && b !== null && d !== null, '書き出した音量を測れなかった')
+    assert(a > -70, `そもそも音が入っていない（${a} dB）`)
+    // 差が無音＝ダッキングが1つも効いていない
+    assert(d > -70, `ダッキングの有無で音が変わっていない（差 ${d} dB）`)
+    assert(b <= a + 0.5, `ダッキングを入れたのに音が大きくなった（${a} → ${b} dB）`)
   })
 
   // =========================================================================

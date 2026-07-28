@@ -78,6 +78,14 @@ import {
   type SplitSeg
 } from '../../shared/timeline'
 import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
+import {
+  voiceRegions,
+  duckEnvelope,
+  gainAt,
+  envToFfmpegExpr,
+  DEFAULT_DUCK,
+  type DuckOpts
+} from '../../shared/ducking'
 
 type Tool = 'select' | 'razor' | 'trackFwd' | 'trackBack'
 type Ratio = '16:9' | '9:16' | '1:1'
@@ -899,6 +907,8 @@ export default function App(): JSX.Element {
     track: string // 載っているトラック（'A2'=SE / 'A3'=BGM）。既定はA2。
     srcOffset?: number // 音源内の開始オフセット秒（左端トリム/分割で進む）。未指定=0
     srcDur?: number // 音源の全長（右端トリムの上限）。未取得なら undefined
+    /** 声が入っている間だけ音量を下げる（ダッキング）。BGM に付ける */
+    duck?: boolean
   }
   const [seClips, setSeClips] = useState<SEClip[]>([])
   const [selectedSeIds, setSelectedSeIds] = useState<number[]>([])
@@ -3818,7 +3828,9 @@ export default function App(): JSX.Element {
         if (Math.abs(a.currentTime - target) > 0.3) a.currentTime = target
         // 載っているトラック音量×フェード（頭/尻の指定秒で 0→1 / 1→0）※クリップ内ローカル秒で判定
         const fade = seFadeGain(clip, local)
-        a.volume = clamp(clip.volume * fade * audioTrackGain(clip.track), 0, 1)
+        // 声が入っている間は下げる（ダッキング）。書き出しと同じ折れ線を使う
+        const duck = duckGainAt(clip, currentTime)
+        a.volume = clamp(clip.volume * fade * duck * audioTrackGain(clip.track), 0, 1)
         if (a.paused) void a.play().catch(() => {})
       } else if (!a.paused) {
         a.pause()
@@ -5502,7 +5514,10 @@ export default function App(): JSX.Element {
           fadeOut: typeof s.fadeOut === 'number' ? s.fadeOut : 0,
           track: typeof s.track === 'string' ? s.track : 'A2',
           srcOffset: typeof s.srcOffset === 'number' && s.srcOffset > 0 ? s.srcOffset : undefined,
-          srcDur: typeof s.srcDur === 'number' && s.srcDur > 0 ? s.srcDur : undefined
+          srcDur: typeof s.srcDur === 'number' && s.srcDur > 0 ? s.srcDur : undefined,
+          // ここに足し忘れると、保存して開き直したときに設定だけ消える
+          // （クリップの色で実際にやらかしている）
+          duck: s.duck === true ? true : undefined
         }))
       : []
     // トラック構成（追加レーン）を復元。形式が不正ならデフォルトに戻す
@@ -7146,6 +7161,26 @@ export default function App(): JSX.Element {
     minLen: number
   }>({ busy: false, found: null, noiseDb: -35, minSec: 0.35, pad: 0.15, minLen: 0.4 })
   const [silenceOpen, setSilenceOpen] = useState(false)
+  // ---- ダッキング（声が入っている間だけ BGM を下げる）----
+  //
+  // 無音を探す仕組みをそのまま使う。「静かな所」の裏返しが「声のある所」。
+  // 下げ方（何dB・どれくらいの速さ）は好みが分かれるので設定にする。
+  const [duckOpts, setDuckOpts] = useState<DuckOpts>(DEFAULT_DUCK)
+  const [duckOpen, setDuckOpen] = useState(false)
+  /**
+   * 声に合わせた音量の折れ線。
+   * **プレビューと書き出しで同じものを使う**（別々に作ると、聴いた音と
+   * 書き出した音が違うという一番たちの悪いズレになる）。
+   */
+  const duckEnv = useMemo(() => {
+    if (!silenceCut.found?.length) return []
+    const dur = totalSegLen(segments) || 0
+    if (dur <= 0) return []
+    return duckEnvelope(voiceRegions(silenceCut.found, dur), duckOpts)
+  }, [silenceCut.found, segments, duckOpts])
+  /** この効果音/BGMクリップに、いまダッキングが効いているか */
+  const duckGainAt = (clip: SEClip, t: number): number =>
+    clip.duck && duckEnv.length ? gainAt(duckEnv, t) : 1
   /** いまの設定で「どこを切るか」。設定を動かすたびに出し直す（実行前に見せる） */
   const silenceCuts = useMemo(() => {
     if (!silenceCut.found) return []
@@ -8734,7 +8769,9 @@ export default function App(): JSX.Element {
           srcOffset: c.srcOffset,
           volume: clamp(c.volume * audioTrackGainForExport(c.track), 0, 4),
           fadeIn: c.fadeIn,
-          fadeOut: c.fadeOut
+          fadeOut: c.fadeOut,
+          // 声に合わせて下げる指定。プレビューで使っているのと同じ折れ線を式にして渡す
+          duckExpr: c.duck && duckEnv.length ? envToFfmpegExpr(duckEnv) : undefined
         })),
         // 映像レイヤー（V2以降の動画）。下のトラックから順に重ねる＝上のトラックが前面。
         // 音声はクリップ音量×トラックゲイン×フェードを焼き込む。
@@ -13285,6 +13322,76 @@ export default function App(): JSX.Element {
         </div>
       )}
 
+      {/* ===== ダッキング（声に合わせて BGM を下げる）===== */}
+      {duckOpen && (
+        <div className="export-overlay" onClick={() => setDuckOpen(false)}>
+          <div className="restore-box sil-box" onClick={(e) => e.stopPropagation()}>
+            <div className="restore-title">声に合わせて BGM を下げる</div>
+            <div className="restore-msg">
+              喋っている間だけ下げます。判定は無音カットと同じ「静かな所」の裏返しなので、
+              声を拾えていないときは、下の「調べ直す」で静かさのしきい値を変えてください。
+            </div>
+            <div className="sil-rows">
+              <label className="sil-row">
+                <span>どれだけ下げるか</span>
+                <input
+                  type="range"
+                  min={-24}
+                  max={0}
+                  step={1}
+                  value={duckOpts.amountDb}
+                  onChange={(e) =>
+                    setDuckOpts((d) => ({ ...d, amountDb: Number(e.target.value) }))
+                  }
+                />
+                <b>{duckOpts.amountDb === 0 ? '下げない' : `${duckOpts.amountDb} dB`}</b>
+              </label>
+              <label className="sil-row">
+                <span>下がりきるまで</span>
+                <input
+                  type="range"
+                  min={0.02}
+                  max={1}
+                  step={0.01}
+                  value={duckOpts.attack}
+                  onChange={(e) => setDuckOpts((d) => ({ ...d, attack: Number(e.target.value) }))}
+                />
+                <b>{duckOpts.attack.toFixed(2)} 秒</b>
+              </label>
+              <label className="sil-row">
+                <span>戻りきるまで</span>
+                <input
+                  type="range"
+                  min={0.05}
+                  max={2}
+                  step={0.05}
+                  value={duckOpts.release}
+                  onChange={(e) => setDuckOpts((d) => ({ ...d, release: Number(e.target.value) }))}
+                />
+                <b>{duckOpts.release.toFixed(2)} 秒</b>
+              </label>
+            </div>
+            <div className="sil-result">
+              {silenceCut.busy
+                ? '声のある所を調べています…'
+                : !silenceCut.found
+                  ? '声のある所がまだ分かりません。「調べ直す」を押してください。'
+                  : duckEnv.length === 0
+                    ? '声が見つかりませんでした（無音カットの設定で静かさを変えて調べ直してください）。'
+                    : `声のある所 ${voiceRegions(silenceCut.found, totalSegLen(segments)).length} か所に合わせて下げます。再生すると、そのまま聴けます。`}
+            </div>
+            <div className="restore-btns">
+              <button className="btn" onClick={() => void findSilences()} disabled={silenceCut.busy}>
+                調べ直す
+              </button>
+              <button className="btn btn-primary" onClick={() => setDuckOpen(false)}>
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* SE 再生用の隠し audio 要素。全クリップぶん常設すると Chromium のメディア要素上限に
           触れて新しい要素が読み込めず無音になるため、再生ヘッド近傍だけをマウントする。
           後ろ側（1秒）に余裕を持たせて、区間を出た瞬間に音がぶつ切りになるのを防ぐ。 */}
@@ -13773,6 +13880,28 @@ export default function App(): JSX.Element {
               }}
             />
           </div>
+          {/* BGM を敷くなら必須の機能なので、音のクリップの右クリックに直接置く */}
+          {clipMenu.kind === 'se' && (
+            <button
+              className="ctx-item"
+              onClick={() => {
+                const on = !seClips.find((c) => c.id === clipMenu.id)?.duck
+                setSeClips((prev) =>
+                  prev.map((c) => (c.id === clipMenu.id ? { ...c, duck: on } : c))
+                )
+                setClipMenu(null)
+                if (on) {
+                  setDuckOpen(true)
+                  // 声の位置が分からないと下げようがない。まだ調べていなければ調べる
+                  if (!silenceCut.found && !silenceCut.busy) void findSilences()
+                }
+              }}
+            >
+              {seClips.find((c) => c.id === clipMenu.id)?.duck
+                ? '🎚 声に合わせて下げるのをやめる'
+                : '🎚 声に合わせて下げる（ダッキング）'}
+            </button>
+          )}
           {clipMenu.kind !== 'seg' && (
             <button
               className="ctx-item"

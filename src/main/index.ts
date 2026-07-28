@@ -238,6 +238,11 @@ interface ExportSEClip {
   volume?: number
   fadeIn?: number
   fadeOut?: number
+  /**
+   * 声が入っている間だけ下げるための音量式（ffmpeg の volume に渡す）。
+   * プレビューで使っている折れ線をそのまま式にしたもの。
+   */
+  duckExpr?: string
 }
 interface ExportPayload {
   videoPath: string
@@ -1788,7 +1793,12 @@ app.whenReady().then(() => {
         // 音源内オフセット（左端トリム/分割）ぶん頭を送って、そこから duration 秒を切り出す。
         // ベース音声と同じ 48k/stereo に揃えてから amix に入れる（サンプルレート差で崩れないように）。
         const so = Math.max(0, se.srcOffset ?? 0)
-        filter += `${useA(seInput[k])}atrim=${so.toFixed(3)}:${(so + durN).toFixed(3)},asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo,volume=${vol}${fade},adelay=${ms}|${ms}[se${k}];`
+        // 声に合わせて下げる（ダッキング）。**adelay の後**に掛ける。
+        // 前に掛けると、式の t がクリップ内の時間になって、声の位置とずれる。
+        const duck = se.duckExpr
+          ? `,volume=eval=frame:volume='${se.duckExpr.replace(/'/g, '')}'`
+          : ''
+        filter += `${useA(seInput[k])}atrim=${so.toFixed(3)}:${(so + durN).toFixed(3)},asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo,volume=${vol}${fade},adelay=${ms}|${ms}${duck}[se${k}];`
         mixParts.push(`[se${k}]`)
       })
       // 映像レイヤーの音声もミックスへ（映像と同じ位置・同じ長さ）
