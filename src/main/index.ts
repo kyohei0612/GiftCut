@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, protocol, screen } from 'electron'
-import { join, normalize } from 'path'
+import { join, normalize, resolve } from 'path'
 import {
   readFileSync,
   writeFileSync,
@@ -14,6 +14,7 @@ import {
 } from 'fs'
 import { writeFile as writeFileAsync } from 'fs/promises'
 import { createHash } from 'crypto'
+import { tmpdir } from 'os'
 import { Readable } from 'stream'
 import { spawn, type ChildProcess } from 'child_process'
 // フィルタグラフは ffmpeg を起動する前に検証する（入力indexのズレ・ラベルの
@@ -55,7 +56,9 @@ function ffBin(name: 'ffmpeg' | 'ffprobe'): string {
         join(process.cwd(), 'resources', 'ffmpeg', exe)
       ]
   for (const c of cands) {
-    if (existsSync(c)) return c
+    // **必ず絶対パスにする。** 書き出しは cwd を一時フォルダに変えて実行するので、
+    // 相対パスのままだと「そこには無い」で起動に失敗する（実際に ENOENT で落ちた）。
+    if (existsSync(c)) return resolve(c)
   }
   return name // 同梱が無ければ PC のものを使う（開発中はこれで足りる）
 }
@@ -136,6 +139,49 @@ function tryEncoder(enc: Enc): Promise<boolean> {
     }, 8000)
   })
 }
+// フィルタは長くなるのでファイルに書いて渡す（Windows のコマンドライン長 32767 を
+// 超えると起動できない。テロップが増えるとすぐ超える）。
+//
+// 渡し方が ffmpeg の版で違う:
+//   〜7系: -filter_complex_script <file>
+//   8系〜: -/filter_complex <file>（前者は削除された）
+// **同梱するのは新しい版だが、PC に入っている古い ffmpeg を使うこともある**ので、
+// 実際に試して通った方を使う。
+let filterOptPick: Promise<string[]> | null = null
+function filterScriptArgs(file: string): Promise<string[]> {
+  if (!filterOptPick) {
+    filterOptPick = (async () => {
+      // 判定用の短いフィルタを一時的に置く
+      const probe = join(tmpdir(), `giftcut-filterprobe-${Date.now()}.txt`)
+      try {
+        writeFileSync(probe, 'color=c=black:s=32x32:d=1[v]', 'utf-8')
+        for (const opt of ['-/filter_complex', '-filter_complex_script']) {
+          const p2 = probe
+          const ok = await new Promise<boolean>((res) => {
+            const pr = spawn(FFMPEG, ['-v', 'error', opt, p2, '-map', '[v]', '-frames:v', '1', '-f', 'null', '-'])
+            pr.on('error', () => res(false))
+            pr.on('close', (code) => res(code === 0))
+          })
+          if (ok) {
+            console.log(`[書き出し] フィルタの渡し方: ${opt}`)
+            return [opt]
+          }
+        }
+      } catch {
+        /* 判定できなければ古い書き方で試す */
+      } finally {
+        try {
+          rmSync(probe, { force: true })
+        } catch {
+          /* noop */
+        }
+      }
+      return ['-filter_complex_script']
+    })()
+  }
+  return filterOptPick
+}
+
 let encoderPick: Promise<Enc> | null = null
 /** 使えるエンコーダを1回だけ決める（以降は使い回す） */
 function videoEncoder(): Promise<Enc> {
@@ -1405,8 +1451,12 @@ app.whenReady().then(() => {
 
   // 動画書き出し（FFmpegでテロップPNGを焼き込み）
   ipcMain.handle('export:cancel', () => {
+    // **ffmpeg が始まる前でも「中止」を覚えておく。**
+    // 書き出しの前半はテロップの画像作りで、ここは ffmpeg がまだ動いていない。
+    // 以前は「動いていなければ何もしない」だったので、その間に中止を押しても
+    // 黙って書き出しが続いていた（テロップが多いほどこの時間は長い）。
+    exportCanceled = true
     if (currentExportFf) {
-      exportCanceled = true
       try {
         currentExportFf.kill('SIGKILL')
       } catch {
@@ -1418,6 +1468,9 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
+    // 始める前に「中止」の印を落とす。前回の中止が残っていると、
+    // 次の書き出しが始まった瞬間に止まる
+    exportCanceled = false
     const { videoPath, width, height, frames, extendSec, segments } = payload
     const baseVol = typeof payload.baseAudioVolume === 'number' ? payload.baseAudioVolume : 1
     if (!videoPath) {
@@ -2137,7 +2190,8 @@ app.whenReady().then(() => {
       args.push('-i', sp.path)
     }
     args.push(
-      '-filter_complex_script',
+      // 渡し方は ffmpeg の版で違う（8系で -filter_complex_script が消えた）
+      ...(await filterScriptArgs(join(tmp, 'filter.txt'))),
       'filter.txt', // cwd=tmp なので相対でよい（コマンドライン長の節約）
       '-map',
       '[v]',
@@ -2153,8 +2207,18 @@ app.whenReady().then(() => {
     )
 
     const totalDur = typeof payload.totalDurationSec === 'number' ? payload.totalDurationSec : 0
+    // 準備（テロップの画像作り）の間に中止を押されていたら、ここで止める。
+    // ここを見ないと、押しても書き出しが最後まで進んでしまう
+    if (exportCanceled) {
+      try {
+        rmSync(tmp, { recursive: true, force: true })
+      } catch {
+        /* noop */
+      }
+      liveTmpDirs.delete(tmp)
+      return { ok: false, canceled: true }
+    }
     return await new Promise((resolve) => {
-      exportCanceled = false
       // cwd=tmp: テロップPNG・フィルタを相対パスで渡してコマンドライン長を抑える
       // （元動画・出力先は絶対パスなので cwd の影響を受けない）
       const ff = spawn(FFMPEG, args, { cwd: tmp })
@@ -2180,15 +2244,43 @@ app.whenReady().then(() => {
           /* noop */
         }
       }
-      ff.on('error', (er) => {
+      /** 書き出しが失敗したときの控え。画面のお知らせは1行しか出ないので、
+       *  原因を切り分けられるだけの中身をファイルに残す。 */
+      const saveDiag = (why: string, detail = ""): void => {
+        try {
+          // userData は確認の後片付けで消えることがあるので、OS の一時フォルダへ
+          writeFileSync(
+            join(tmpdir(), "giftcut-last-export-error.txt"),
+            why +
+              `
+使った ffmpeg: ${FFMPEG}（ある: ${existsSync(FFMPEG)}）` +
+              `
+作業フォルダ: ${tmp}（ある: ${existsSync(tmp)}）` +
+              `
+出力先: ${save.filePath}` +
+              (detail ? `
+---- ffmpeg の言い分 ----
+${detail}` : ""),
+            "utf-8"
+          )
+        } catch {
+          /* 控えが残せなくても続行 */
+        }
+      }
+      ff.on("error", (er) => {
+        saveDiag(`ffmpeg起動失敗: ${er.message}`)
         cleanup()
-        resolve({ ok: false, error: 'ffmpeg起動失敗: ' + er.message })
+        resolve({ ok: false, error: "ffmpeg起動失敗: " + er.message })
       })
       // async にしているのは、GPU で失敗したときに「CPU 側で使える物」を
       // その場で試してから焼き直すため（x264 があるとは限らない）
       ff.on('close', async (code) => {
-        cleanup()
+        // **ここで片付けてはいけない。** 片付けはテロップPNGを置いた作業フォルダを
+        // 消す。GPU で失敗して CPU でやり直すとき、その作業フォルダを使うので、
+        // 先に消すと「作業フォルダが無い」で必ず失敗する（実際にそうなった）。
+        // やり直しの必要が無いと分かってから片付ける。
         if (exportCanceled) {
+          cleanup()
           // 中断: 書きかけの出力ファイルを消してキャンセル扱いで返す
           try {
             rmSync(save.filePath, { force: true })
@@ -2199,6 +2291,7 @@ app.whenReady().then(() => {
           return
         }
         if (code === 0) {
+          cleanup()
           resolve({ ok: true, outPath: save.filePath })
           return
         }
@@ -2240,10 +2333,20 @@ app.whenReady().then(() => {
           ff2.on('close', (c2) => {
             cleanup()
             if (c2 === 0) resolve({ ok: true, outPath: save.filePath })
-            else resolve({ ok: false, error: `ffmpeg失敗 (code ${c2})\n` + err2.slice(-600) })
+            else {
+              // 1回目（GPU）の言い分も一緒に残す。やり直しの失敗だけ見ても、
+              // そもそもなぜ GPU が駄目だったのかが分からない
+              saveDiag(
+                `CPUでのやり直しも失敗 (code ${c2})`,
+                `【1回目 GPU (code ${code})】\n${err.slice(-1500)}\n\n【2回目 CPU】\n${err2.slice(-1500)}`
+              )
+              resolve({ ok: false, error: `ffmpeg失敗 (code ${c2})\n` + err2.slice(-600) })
+            }
           })
           return
         }
+        cleanup()
+        saveDiag(`ffmpeg失敗 (code ${code})`, err.slice(-2000))
         resolve({ ok: false, error: `ffmpeg失敗 (code ${code})\n` + err.slice(-600) })
       })
     })

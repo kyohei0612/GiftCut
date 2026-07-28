@@ -454,6 +454,8 @@ async function ngState() {
       const txt = (el) => (el?.textContent ?? '').trim().replace(/\s+/g, ' ')
       const all = (sel) => [...document.querySelectorAll(sel)]
       return {
+        // 画面に出ているお知らせ（失敗の理由はたいていここに出る）
+        お知らせ: all('.toast, .toasts > *').map((e) => txt(e).slice(0, 160)),
         // 開いたままの物（これが残っていると、以降のクリックが全部吸われる）
         メニュー: all('.ctx-menu').length,
         ダイアログ: all('.modal, .restore-box').map((e) => txt(e).slice(0, 40)),
@@ -2950,14 +2952,25 @@ try {
   })
 
   await check('書き出しの途中でやめられて、中途半端なファイルが残らない', async () => {
+    // **軽い書き出しだと、中止を押す前に終わってしまう**（GPU で焼くようになって
+    // 実際にそうなった）。それでは「中止できた」ことを確かめられないので、
+    // 一番重い設定（4K）にして、途中で止められる時間を作る。
+    await resetProject()
     const out = join(outDir, 'cancelled.mp4')
     await setDialogFiles(null, out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
+    const res4k = page.locator('.export-overlay select').first()
+    if (await res4k.count()) {
+      await res4k.selectOption({ label: /2160|4K/ }).catch(() => {})
+      await page.waitForTimeout(300)
+    }
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
-    await page.waitForTimeout(1200)
+    // **待ってから探してはいけない。** 書き出しが速いと、探す前に終わってしまい
+    // 「中止ボタンが無い」と誤って報告する（GPU で焼くようになって実際に起きた）。
+    // 出た瞬間に掴む。
     const cancel = page.locator('.export-overlay button', { hasText: /中止|キャンセル|やめる/ })
-    assert(await cancel.count(), '書き出し中に中止できるボタンが無い')
+    await cancel.first().waitFor({ timeout: 8000 })
     await cancel.first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 60000 })
     await page.waitForTimeout(800)
@@ -3114,14 +3127,19 @@ try {
   await check('別ウィンドウで文字を打っても、ショートカットとして効かない', async () => {
     // 流しっぱなしにすると、1文字打つたびに削除や分割が走る。
     // 「効く」だけ見て「効いてはいけない場合」を見ないと、この事故を通す。
+    for (const w of popWindows()) await w.close().catch(() => {})
+    await page.waitForTimeout(1200)
+    // 文字を打てるのはプロパティ（左パネル）。テロップを選ぶと打ち直し欄が出る
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(400)
+    await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    await page.locator('.ctx-item', { hasText: 'プロパティ を切り離す' }).first().click()
+    await page.waitForTimeout(2000)
     const pop = popWindows()[0]
-    assert(pop, '別ウィンドウが無い')
-    // 別ウィンドウの中の入力欄（プロジェクト名の検索など）を探す
-    const input = pop.locator('.pane-pop-root input[type="text"], .pane-pop-root textarea').first()
-    if (!(await input.count())) {
-      // 入力欄が無いパネルのときは、この確認は成立しない
-      throw new Error('別ウィンドウに入力欄が無い（この確認が成立していない）')
-    }
+    assert(pop, '別ウィンドウが開かない')
+    const input = pop.locator('.pane-pop-root textarea, .pane-pop-root input[type="text"]').first()
+    await input.waitFor({ timeout: 8000 })
     const clips = () => page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)').count()
     const before = await clips()
     await input.click()
@@ -3129,14 +3147,21 @@ try {
     await page.waitForTimeout(800)
     const after = await clips()
     assert(after === before, `文字を打っただけでクリップが増えた（${before} → ${after}）`)
-    await input.fill('')
+    for (const w of popWindows()) await w.close().catch(() => {})
+    await page.waitForTimeout(1200)
   })
 
   await check('本体の見た目が変わると、別ウィンドウにも追いつく', async () => {
     // 開いた瞬間の見た目を1回写すだけだと、別ウィンドウだけ古いまま取り残される。
     // 本体に見た目を足して、別ウィンドウに届くかを見る。
+    if (!popWindows().length) {
+      await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
+      await page.waitForSelector('.ctx-menu')
+      await page.locator('.ctx-item', { hasText: 'このパネルを切り離す' }).first().click()
+      await page.waitForTimeout(2000)
+    }
     const pop = popWindows()[0]
-    assert(pop, '別ウィンドウが無い')
+    assert(pop, '別ウィンドウが開かない')
     await page.evaluate(() => {
       const s = document.createElement('style')
       s.id = '__e2e_theme'

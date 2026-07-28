@@ -18,3 +18,8 @@ e2e/.cache/
 e2e/bench-shots/
 e2e/bench-result.md
 e2e/ng-report.json
+
+# 同梱する ffmpeg（128MB。配布物には入れるが、履歴には入れない）
+# 置き方は resources/ffmpeg/README.md、確認は npm run check:ffmpeg
+resources/ffmpeg/*.exe
+resources/ffmpeg/*.dll
