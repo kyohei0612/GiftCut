@@ -20,7 +20,8 @@
     "bench": "node e2e/bench.mjs",
     "check:ffmpeg": "node scripts/check-ffmpeg.mjs",
     "dist": "npm run check:ffmpeg && npm run build && electron-builder --win --config electron-builder.yml",
-    "check:packaged": "node scripts/check-packaged.mjs"
+    "check:packaged": "node scripts/check-packaged.mjs",
+    "release": "npm run verify && npm run check:ffmpeg && npm run build && electron-builder --win --config electron-builder.yml --publish always"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
@@ -40,6 +41,7 @@
     "vitest": "^2.1.9"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "yauzl": "^3.4.0",
     "yazl": "^3.3.1"
   }

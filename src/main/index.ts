@@ -33,6 +33,8 @@ import { nextBounds, MIN_SIZE, type WindowState } from '../shared/windowBounds'
 // プロジェクトの持ち出し（素材ごと ZIP に入れる／展開してパスを繋ぎ直す）
 import { planPack, relinkProject, PROJECT_ENTRY, MANIFEST_ENTRY } from '../shared/projectPack'
 import { writeZip, extractZip } from './zip'
+// 自動更新（GitHub の Releases を見に行く）
+import { setupAutoUpdate } from './updater'
 
 // 書き出し中の ffmpeg プロセス（キャンセル用）。exportCanceled でユーザー中断とエラーを区別する。
 let currentExportFf: ChildProcess | null = null
@@ -459,6 +461,12 @@ function createWindow(): void {
   mainWindow.on('unmaximize', rememberWindow)
 
   mainWindow.on('ready-to-show', () => mainWindow.show())
+
+  // 更新を見に行く。当てていいかは「今なにをしているか」で決める
+  // （書き出し中・未保存のときに勝手に再起動しない）。
+  setupAutoUpdate(mainWindow, {
+    busy: () => ({ dirty: projectDirty, exporting: !!currentExportFf })
+  })
 
   // 未保存の変更があるまま閉じようとしたら確認する（無警告で編集内容を失わないため）。
   //

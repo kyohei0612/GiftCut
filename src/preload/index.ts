@@ -79,6 +79,14 @@ interface ExportPayload {
   crf?: number
 }
 
+/** 更新の状況（本体から届く。src/main/updater.ts と同じ形） */
+type UpdateState =
+  | { phase: 'checking' }
+  | { phase: 'none' }
+  | { phase: 'downloading'; version: string; percent: number }
+  | { phase: 'ready'; version: string; when: 'now' | 'onQuit'; message: string; countdownSec: number }
+  | { phase: 'error'; message: string }
+
 const api = {
   importSrt: (): Promise<{ path: string; content: string; error?: string } | null> =>
     ipcRenderer.invoke('dialog:importSrt'),
@@ -181,6 +189,23 @@ const api = {
     ipcRenderer.on('pack:progress', h)
     return () => ipcRenderer.removeListener('pack:progress', h)
   },
+  // ---- 自動更新 ----
+  onUpdateState: (cb: (s: UpdateState) => void): (() => void) => {
+    const h = (_e: unknown, s: UpdateState): void => cb(s)
+    ipcRenderer.on('update:state', h)
+    return () => ipcRenderer.removeListener('update:state', h)
+  },
+  /** 「あとで」= この起動中は再起動しない（次に閉じたときに当たる） */
+  updateLater: (): void => ipcRenderer.send('update:later'),
+  /** 「今すぐ」= すぐ再起動して当てる */
+  updateNow: (): void => ipcRenderer.send('update:now'),
+  /** 更新の再起動の直前に呼ばれる。今の状態を書き終えたら updateFlushed() を返す */
+  onUpdateFlush: (fn: () => void): (() => void) => {
+    const h = (): void => fn()
+    ipcRenderer.on('update:flush', h)
+    return () => ipcRenderer.removeListener('update:flush', h)
+  },
+  updateFlushed: (): void => ipcRenderer.send('update:flushed'),
   // ---- プロジェクトテンプレート ----
   listTemplates: (): Promise<{ ok: boolean; items: { name: string; path: string }[]; error?: string }> =>
     ipcRenderer.invoke('template:list'),

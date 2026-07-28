@@ -9,8 +9,18 @@
 #   を足すだけで、この設定のまま署名付きになる。
 #
 # 自動更新について:
-#   electron-updater ＋ 置き場所（GitHub Releases など）が要る。置き場所が
-#   決まっていないので、いまは入れていない。決まったら publish: を足す。
+#   GitHub の Releases に置いたものを、起動時に見に行って当てる（publish: を参照）。
+#   出し方:
+#     1. package.json の version を上げる
+#     2. GH_TOKEN=... npm run release   （tag を打ってビルドし、Releases に上げる）
+#   置き場所のリポジトリは **公開** であること。非公開だと、配る相手全員に
+#   読み取り用トークンを渡すことになり、配布物にトークンを埋める羽目になる。
+
+publish:
+  provider: github
+  owner: kyohei0612
+  repo: GiftCut
+  releaseType: release
 
 appId: jp.giftcut.app
 productName: GiftCut
@@ -61,7 +71,3 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: GiftCut
 
-# ffmpeg について:
-#   いまは PC に入っている ffmpeg を使っている（PATH 頼み）。
-#   配布するなら同梱するか、無いときの案内を出す必要がある。
-#   → 未対応。配布前に必ず片付けること（残課題メモに書いてある）。

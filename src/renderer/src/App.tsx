@@ -44,6 +44,7 @@ import {
   saveIconAssign,
   type IconItem
 } from './lib/iconLibrary'
+import type { UpdateState } from '../../preload/index.d'
 import CropModal from './components/CropModal'
 import StylePanel from './components/StylePanel'
 import TelopText from './components/TelopText'
@@ -698,6 +699,8 @@ export default function App(): JSX.Element {
   // 素材ごとまとめる／まとめを開く の進捗（null=実行していない）。
   // 数GBになることがあり、無反応に見えると二度押しされるので必ず出す。
   const [packPct, setPackPct] = useState<number | null>(null)
+  // アプリの更新（GitHub から自動で当てる）の状況。null=何も出さない
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null)
   // 実行中かどうか。進捗の知らせは終わったあとにも遅れて届くので、これで無視する。
   // 見張っていないと最後の 100% が居座り、バッジが出たままになって
   // 「実行中だから」と次の操作を弾き続ける（実際にそうなった）。
@@ -3630,6 +3633,35 @@ export default function App(): JSX.Element {
     return () => off?.()
   }, [])
 
+  // 更新の再起動の直前。今の状態を下書きに書いてから「書けた」と返す。
+  // 更新は「未保存の変更が無いとき」しか当てないが、それでも
+  // 開いていたプロジェクト・再生位置・画面の形は消したくない。
+  // 次の起動でこれを黙って読み直すので、印（resumeAfterUpdate）も付ける。
+  useEffect(() => {
+    const off = window.giftcut?.onUpdateFlush?.(() => {
+      void (async () => {
+        try {
+          localStorage.setItem('giftcut.resumeAfterUpdate', '1')
+          await window.giftcut.autosaveProject(projectJson())
+        } catch (e) {
+          console.warn('[update] 再起動前の保存に失敗:', e)
+        } finally {
+          window.giftcut.updateFlushed()
+        }
+      })()
+    })
+    return () => off?.()
+  })
+
+  useEffect(() => {
+    const off = window.giftcut?.onUpdateState?.((s) => {
+      // 「新しいのは無い」「見に行っています」は黙っておく。
+      // 何も起きていないことをいちいち画面に出しても、邪魔なだけなので。
+      setUpdateState(s.phase === 'none' || s.phase === 'checking' ? null : s)
+    })
+    return () => off?.()
+  }, [])
+
   useEffect(() => {
     const off = window.giftcut?.onPackProgress?.(({ percent }) => {
       if (packBusyRef.current) setPackPct(percent)
@@ -4657,7 +4689,7 @@ export default function App(): JSX.Element {
   async function captureScreenshot(): Promise<void> {
     const v = videoRef.current
     if (!videoSrc || !v) {
-      showToast('先に動画を読み込んでください。\n「ファイル」→「動画をプロジェクトに追加…」から追加できます。')
+      showToast('先に動画を読み込んでください。\n右の「プロジェクト」タブ →「＋ファイル追加」から追加できます。')
       return
     }
     const size =
@@ -6158,6 +6190,14 @@ export default function App(): JSX.Element {
   useEffect(() => {
     void window.giftcut?.autosaveCheck?.()?.then(async (r) => {
       if (r?.exists && r.data) {
+        // 更新のために自分で落としたのなら、「復元しますか？」とは聞かない。
+        // 勝手に閉じておいて開き直しを頼むのは筋が通らないので、黙って続きから開く。
+        if (localStorage.getItem('giftcut.resumeAfterUpdate')) {
+          localStorage.removeItem('giftcut.resumeAfterUpdate')
+          await applyProjectData(r.data, !!r.videoExists, null)
+          showToast('新しい GiftCut になりました。続きから開いています。')
+          return
+        }
         const when = (ms?: number): string | undefined =>
           ms ? new Date(ms).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' }) : undefined
         setRestorePrompt({
@@ -8737,7 +8777,7 @@ export default function App(): JSX.Element {
   }
   async function exportProject(): Promise<void> {
     if (!videoPath) {
-      showToast('先に動画を読み込んでください。\n「ファイル」→「動画をプロジェクトに追加…」から追加できます。')
+      showToast('先に動画を読み込んでください。\n右の「プロジェクト」タブ →「＋ファイル追加」から追加できます。')
       return
     }
     // テロップが無くても書き出せる（カット＋BGM＋画像だけの動画も作れる）
@@ -9680,6 +9720,35 @@ export default function App(): JSX.Element {
       // 素材をドラッグしている間は、アプリのどこにいても受け付ける。
       // 受け付けない場所があると、そこだけ 🚫（駐禁）が出て「置けない場所」に見える。
     >
+      {/* アプリの更新。作業の邪魔をしない細い帯で出す。
+          再起動は勝手にやるが、必ず「何が起きるか」を先に出してから。 */}
+      {(updateState?.phase === 'downloading' || updateState?.phase === 'ready') && (
+        <div className="update-bar">
+          {updateState.phase === 'downloading' ? (
+            <span>⬇ 新しい GiftCut を用意しています… {updateState.percent}%</span>
+          ) : (
+            <>
+              <span>✨ {updateState.message}</span>
+              {updateState.when === 'now' && (
+                <>
+                  <button className="update-btn" onClick={() => window.giftcut.updateNow()}>
+                    今すぐ再起動
+                  </button>
+                  <button
+                    className="update-btn update-btn-ghost"
+                    onClick={() => {
+                      window.giftcut.updateLater()
+                      setUpdateState(null)
+                    }}
+                  >
+                    あとで
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
       {/* ===== メニューバー ===== */}
       <div className="menubar">
         <div className="menu-wrap">
@@ -9788,15 +9857,10 @@ export default function App(): JSX.Element {
                 テンプレートを開く…
               </button>
               <div className="menu-drop-sep" />
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  handleOpenVideo()
-                }}
-              >
-                動画をプロジェクトに追加…
-              </button>
+              {/* ここに残しているのは「パネルからは届かない操作」だけ。
+                  素材の追加・SRT読込・書き出しは、プロジェクトパネルとモードバーで
+                  できるので、メニューには出さない（同じ物が2箇所にあると、
+                  どちらが正しいのかを毎回考えることになる）。 */}
               <button
                 className="menu-drop-item"
                 onClick={() => {
@@ -9821,28 +9885,10 @@ export default function App(): JSX.Element {
                 className="menu-drop-item"
                 onClick={() => {
                   setFileMenuOpen(false)
-                  handleImportSrt()
-                }}
-              >
-                SRT（テロップ）を読み込む…
-              </button>
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
                   void exportSrtFn()
                 }}
               >
                 SRT を書き出し…
-              </button>
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  openExportDialog()
-                }}
-              >
-                動画を書き出し…
               </button>
               <div className="menu-drop-sep" />
               <button

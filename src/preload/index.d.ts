@@ -77,6 +77,14 @@ export interface ExportPayload {
   crf?: number
 }
 
+/** 更新の状況（本体から届く。src/main/updater.ts と同じ形） */
+export type UpdateState =
+  | { phase: 'checking' }
+  | { phase: 'none' }
+  | { phase: 'downloading'; version: string; percent: number }
+  | { phase: 'ready'; version: string; when: 'now' | 'onQuit'; message: string; countdownSec: number }
+  | { phase: 'error'; message: string }
+
 export interface GiftcutApi {
   importSrt: () => Promise<{ path: string; content: string; error?: string } | null>
   openVideo: () => Promise<{ path: string } | null>
@@ -145,6 +153,11 @@ export interface GiftcutApi {
     error?: string
   }>
   onPackProgress: (cb: (data: { percent: number }) => void) => () => void
+  onUpdateState: (cb: (s: UpdateState) => void) => () => void
+  updateLater: () => void
+  updateNow: () => void
+  onUpdateFlush: (fn: () => void) => () => void
+  updateFlushed: () => void
   listTemplates: () => Promise<{ ok: boolean; items: { name: string; path: string }[]; error?: string }>
   saveTemplate: (name: string, json: string) => Promise<{ ok: boolean; path?: string; error?: string }>
   loadTemplate: (

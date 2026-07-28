@@ -3809,3 +3809,38 @@ body {
 input[type="range"] {
   accent-color: var(--accent);
 }
+
+/* アプリの更新の帯。作業の邪魔をしない高さで、押せる物だけ目立たせる */
+.update-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  background: linear-gradient(90deg, var(--panel-2), var(--panel));
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+}
+.update-btn {
+  background: var(--accent);
+  color: #10131a;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.update-btn:hover {
+  background: var(--accent-2);
+}
+.update-btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  font-weight: 400;
+}
+.update-btn-ghost:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}

@@ -83,6 +83,7 @@ const AREA = [
   { re: /shared\/projectPack|main\/zip/, words: ['持ち出し', 'まとめ', '受け取っ'] },
   { re: /shared\/mediaBin/, words: ['素材', 'ビン'] },
   { re: /shared\/windowBounds/, words: ['起動'] },
+  { re: /main\/updater|shared\/updatePolicy/, words: ['更新'] },
   { re: /e2e\/run\.mjs/, words: [] } // 確認そのものの変更。これだけでは何も選ばない
 ]
 function changedKeywords() {
@@ -2141,6 +2142,47 @@ try {
     await page.keyboard.press('Escape')
     await page.waitForTimeout(300)
     assert((await page.locator('.modal-box').count()) === 0, 'Escape で確認を中止できない')
+  })
+
+  // =========================================================================
+  section('更新（アプリが自動で新しくなる）')
+  await resetProject()
+
+  await check('更新の再起動をしても、作業していた内容が消えない', async () => {
+    // 更新そのもの（GitHub から落とす所）は本物のリリースが要るので、ここでは
+    // **落とす直前から後** ＝ いちばん壊れると困る所だけを見る。
+    // 本体が「落とすぞ」と声を掛ける → 画面側が下書きを書く → 開き直すと続きが出る。
+    await dragBy(v1Clips().nth(0), (await clipW()) * 0.35) // 保存していない編集を作る
+    await page.waitForTimeout(700)
+    const before = await clipLayout()
+
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].webContents.send('update:flush')
+    })
+    await page.waitForTimeout(1500)
+    const flagged = await page.evaluate(() => localStorage.getItem('giftcut.resumeAfterUpdate'))
+    assert(flagged === '1', '再起動前の印が付いていない（次の起動で続きから開けない）')
+    assert(existsSync(join(fx.userData, 'giftcut-autosave.json')), '下書きが書かれていない')
+
+    // 開き直す（実際の再起動と同じ道を通る）
+    await page.reload()
+    await page.waitForSelector('.app', { timeout: 20000 })
+    await page.waitForTimeout(2500)
+    // 「復元しますか？」とは聞かない（自分で落としておいて聞くのは筋が通らない）
+    assert(
+      (await page.locator('.restore-box').count()) === 0,
+      '更新の再起動なのに「復元しますか？」と聞いている'
+    )
+    const after = await clipLayout()
+    assert(after.length === before.length, `クリップが減っている（${before.length} → ${after.length}）`)
+    assert(
+      Math.abs(after[0].x - before[0].x) < 6,
+      `動かした位置が戻っていない（${before[0].x} → ${after[0].x}）`
+    )
+    // 印は消えている（次の普通の起動で勝手に復元しない）
+    const cleared = await page.evaluate(() => localStorage.getItem('giftcut.resumeAfterUpdate'))
+    assert(!cleared, '印が残っている（次の起動でも黙って復元してしまう）')
+    touchedRef.dirty = true
   })
 
   // =========================================================================
