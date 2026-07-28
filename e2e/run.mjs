@@ -2012,6 +2012,24 @@ try {
     assert(widths.every((w) => w > 2), `幅0の文字ができた（${widths.map(Math.round).join(',')}）`)
   })
 
+  await check('続けて何度でも、再生ヘッドで動画を切れる', async () => {
+    // 1回目は切れるのに2回目から切れない、という不具合があった。
+    // 分割してできたテロップが選択状態になり、次の Ctrl+K が
+    // 「選択中のテロップだけ分割」に切り替わっていたため。
+    await resetProject()
+    const n0 = await v1Clips().count()
+    for (const sec of [1.5, 2.5, 3.5]) {
+      await seekTo(sec)
+      await page.keyboard.press('Control+k')
+      await page.waitForTimeout(350)
+    }
+    const n1 = await v1Clips().count()
+    assert(
+      n1 === n0 + 3,
+      `3回切ったのにクリップが ${n0} → ${n1} 個（${n0 + 3} 個のはず。2回目以降が効いていない）`
+    )
+  })
+
   await check('プレビューの文字をダブルクリックすると、その場で打ち直せる', async () => {
     await resetProject()
     await seekTo(2)

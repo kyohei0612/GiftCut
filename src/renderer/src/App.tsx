@@ -7932,8 +7932,13 @@ export default function App(): JSX.Element {
     if (seg) razorSegment(seg, src.srcTime)
   }
 
-  // 再生ヘッドでクリップを分割（選択があればそれだけ、なければ全て）
-  function splitAtPlayhead(): void {
+  // 再生ヘッドでテロップを分割（選択があればそれだけ、なければ全て）
+  //
+  // scope='all'（何も選んでいないときの分割）では、分割してできたテロップを
+  // 選択状態にしない。選択したままにすると、次に Ctrl+K を押したときに
+  // 「選択中のテロップだけ分割」へ勝手に切り替わり、動画が切れなくなる。
+  // （切って動かして切る、を繰り返すと2回目から動画が切れない不具合になっていた）
+  function splitAtPlayhead(scope: 'selected' | 'all' = 'selected'): void {
     const t = qFrame(currentTimeRef.current, fpsRef.current)
     // ロック中トラックのテロップは分割対象外（実トラック単位で判定）
     const inScope = (c: Cue): boolean =>
@@ -7958,7 +7963,7 @@ export default function App(): JSX.Element {
       }
       return result.sort((a, b) => a.start - b.start)
     })
-    setSelectedIds(newIds)
+    if (scope === 'selected') setSelectedIds(newIds)
   }
   function setLabelFor(cueId: number, color: string): void {
     const targets = isSelected(cueId) ? selectedIds : [cueId]
@@ -8282,10 +8287,10 @@ export default function App(): JSX.Element {
         // テロップ選択中はそのテロップだけ分割（下地動画に不要なカット点を増やさない）。
         // 何も選択が無ければ従来どおり 動画＋再生ヘッド上のテロップ を分割。
         if (selectedIds.length) {
-          splitAtPlayhead()
+          splitAtPlayhead('selected')
         } else {
           splitVideoAtPlayhead()
-          splitAtPlayhead()
+          splitAtPlayhead('all')
         }
       },
       addTelop: () => addTelop(),
@@ -11743,7 +11748,7 @@ export default function App(): JSX.Element {
               title={`再生ヘッドで分割 (${formatCombo(shortcuts.split)})`}
               onClick={() => {
                 splitVideoAtPlayhead()
-                splitAtPlayhead()
+                splitAtPlayhead('all')
               }}
             >
               ⎇

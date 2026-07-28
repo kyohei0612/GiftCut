@@ -500,17 +500,29 @@ try {
     const all = page.locator('[data-tid="V1"] .video-clip')
     const t = all.nth(Math.floor((await all.count()) / 2))
     const b = await t.boundingBox()
-    const x0 = b.x + Math.min(20, b.width / 2)
+    // 動かせたかは「並び全体が変わったか」で見る。n番目を見張ると、
+    // ずれた別のクリップが同じ番号に来て「動いていない」ことになる。
+    const layout = () =>
+      all.evaluateAll((els) =>
+        els
+          .map((e) => {
+            const r = e.getBoundingClientRect()
+            return Math.round(r.x) + ':' + Math.round(r.width)
+          })
+          .join(',')
+      )
+    const l0 = await layout()
+    const x0 = b.x + b.width / 2
+    const dx = Math.max(3, Math.min(8, (b.width * 1.5) / 40))
     await page.mouse.move(x0, b.y + b.height / 2)
     await page.mouse.down()
     for (let i = 1; i <= 40; i++) {
-      await page.mouse.move(x0 + i * 6, b.y + b.height / 2)
+      await page.mouse.move(x0 + i * dx, b.y + b.height / 2)
       await page.waitForTimeout(8)
     }
     await page.mouse.up()
     await page.waitForTimeout(300)
-    const b2 = await t.boundingBox()
-    if (!b2 || Math.abs(b2.x - b.x) <= 5) throw new Error('掴んで動かせていない')
+    if ((await layout()) === l0) throw new Error('掴んで動かせていない')
     await page.keyboard.press('Control+z') // 元に戻しておく
     await page.waitForTimeout(500)
   })
