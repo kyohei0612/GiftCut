@@ -2774,13 +2774,27 @@ try {
     await page.waitForTimeout(500)
   }
 
-  await check('パネルを狭めてタブが入りきらないと、送りと一覧のボタンが出る', async () => {
+  await check('送りと一覧のボタンは、狭めていなくても常に出ている', async () => {
+    // 出たり消えたりすると押す場所がずれて、どこにあるか覚えられない。
+    // 「狭めたときだけ出る」だと、この確認は広いままでも通ってしまう（空振り）ので、
+    // **狭める前**に見る。
+    for (const panel of [page.locator('.panel-tabs').last(), page.locator('.panel.monitor .panel-tabs')]) {
+      assert((await panel.locator('.tab-more').count()) > 0, '一覧（≫）が出ていない')
+      assert((await panel.locator('.tab-nav').count()) >= 3, '送りのボタンが出ていない')
+    }
+    // 送るものが無いときは薄くなる。右パネルは既定の幅でもタブが入りきらないので、
+    // 余裕のあるモニタ側（プログラム／ミキサーの2つ）で見る。
+    const off = await page.locator('.panel.monitor .tab-nav.tab-nav-off').count()
+    assert(off >= 2, `送るものが無いのに薄くなっていない（${off}個）`)
+  })
+
+  await check('パネルを狭めると、送りのボタンが押せる状態に変わる', async () => {
     await narrowRightPanel()
     const strip = page.locator('.panel-tabs-strip').last()
     const over = await strip.evaluate((el) => el.scrollWidth > el.clientWidth + 2)
     assert(over, 'タブがはみ出す状態を作れなかった')
-    assert((await page.locator('.tab-more').count()) > 0, '一覧（≫）のボタンが出ていない')
-    assert((await page.locator('.tab-nav').count()) >= 2, '送りのボタンが出ていない')
+    const off = await page.locator('.panel-tabs').last().locator('.tab-nav.tab-nav-off').count()
+    assert(off === 0, `はみ出しているのに送りが薄いまま（${off}個）`)
   })
 
   await check('送りボタンを押しっぱなしにすると、タブが横に流れる', async () => {
@@ -2833,6 +2847,56 @@ try {
     assert(
       listed.every((t) => !visible.includes(t.trim())),
       `見えているタブまで出ている（見えている: ${visible.join(',')} / 一覧: ${listed.join(',')}）`
+    )
+    await page.mouse.click(5, 5)
+    await page.waitForTimeout(200)
+  })
+
+  await check('一覧（≫）の並び替えコーナーで、長押しして並び順を変えられる', async () => {
+    const strip = page.locator('.panel-tabs-strip').last()
+    const before = await strip.locator('.tab').allTextContents()
+    await page.locator('.tab-more').last().click()
+    await page.waitForSelector('.ctx-menu')
+    const rows = page.locator('.ctx-menu .tab-sort-row')
+    assert((await rows.count()) >= 2, '並び替えコーナーが出ていない')
+    const a = await rows.nth(0).boundingBox()
+    const b = await rows.nth(1).boundingBox()
+    // 長押し → 掴めたことを見てから動かす（掴めていないのに動かして
+    // 「並びが変わらない＝正しい」に化けるのを防ぐ）
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
+    await page.mouse.down()
+    await page.waitForTimeout(450)
+    assert((await page.locator('.tab-sort-grab').count()) === 1, '長押ししても掴めていない')
+    for (let i = 1; i <= 6; i++)
+      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2 + ((b.y + b.height - a.y) * i) / 6)
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const after = await strip.locator('.tab').allTextContents()
+    assert(after[0] === before[1], `並び替わっていない（${before.join(',')} → ${after.join(',')}）`)
+    await page.mouse.click(5, 5)
+    await page.waitForTimeout(200)
+  })
+
+  await check('並び替えコーナーは、長押ししていなければ並びが変わらない', async () => {
+    // 押しただけ・触れただけで並びが崩れると、選ぼうとしただけで壊れる。
+    const strip = page.locator('.panel-tabs-strip').last()
+    const before = await strip.locator('.tab').allTextContents()
+    await page.locator('.tab-more').last().click()
+    await page.waitForSelector('.ctx-menu')
+    const rows = page.locator('.ctx-menu .tab-sort-row')
+    const a = await rows.nth(0).boundingBox()
+    const b = await rows.nth(1).boundingBox()
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
+    await page.mouse.down()
+    // 長押しの手前（280ms）より短い間に動かす
+    for (let i = 1; i <= 6; i++)
+      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2 + ((b.y + b.height - a.y) * i) / 6)
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const after = await strip.locator('.tab').allTextContents()
+    assert(
+      after.join(',') === before.join(','),
+      `長押ししていないのに並びが変わった（${before.join(',')} → ${after.join(',')}）`
     )
     await page.mouse.click(5, 5)
     await page.waitForTimeout(200)

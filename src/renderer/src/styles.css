@@ -583,6 +583,62 @@ body {
   width: 24px;
   font-size: 12px;
 }
+/* 送るものが無いとき。消すと押す場所がずれるので、薄くして残す */
+.tab-nav-off {
+  opacity: 0.25;
+  cursor: default;
+}
+.tab-nav-off:hover {
+  color: var(--muted);
+  background: transparent;
+}
+/* 「≫」の中の並び替えコーナー */
+.tab-sort {
+  padding: 2px 4px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tab-sort-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  background: #ffffff08;
+}
+.tab-sort-row:hover {
+  background: #ffffff14;
+}
+/* 長押しの最中。もう少しで掴める、が伝わるようにする */
+.tab-sort-hold {
+  background: #ffffff1f;
+  transform: scale(0.98);
+  transition: transform 0.12s ease;
+}
+/* 掴んだ状態。どれを動かしているかを見失わないように */
+.tab-sort-grab {
+  background: var(--accent);
+  color: #fff;
+  cursor: grabbing;
+  box-shadow: 0 6px 18px #0008;
+}
+.tab-sort-on .tab-sort-label {
+  font-weight: 700;
+}
+.tab-sort-grip {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: -1px;
+}
+.tab-sort-grab .tab-sort-grip {
+  color: #fff;
+}
 .tab {
   font-size: 12px;
   color: var(--muted);

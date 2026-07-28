@@ -664,11 +664,16 @@ function PanelTabs({
   }
   return (
     <div className="panel-tabs">
-      {over && (
-        <button className="tab-nav" title="左へ送る（押しっぱなしで続けて送る）" onPointerDown={hold(-1)}>
-          ‹
-        </button>
-      )}
+      {/* 送りと一覧は**常に出す**。狭めたときだけ出す作りにしていたが、
+          出たり消えたりで押す場所がずれるうえ、「どこにあるのか」を
+          覚えられない。送るものが無いときは薄くして押しても何も起きない。 */}
+      <button
+        className={`tab-nav ${over ? '' : 'tab-nav-off'}`}
+        title="左へ送る（押しっぱなしで続けて送る）"
+        onPointerDown={over ? hold(-1) : undefined}
+      >
+        ‹
+      </button>
       <div
         className="panel-tabs-strip"
         ref={stripRef}
@@ -747,20 +752,107 @@ function PanelTabs({
           </span>
         ))}
       </div>
-      {over && (
-        <button className="tab-nav" title="右へ送る（押しっぱなしで続けて送る）" onPointerDown={hold(1)}>
-          ›
-        </button>
-      )}
-      {over && (
-        <button
-          className="tab-nav tab-more"
-          title="いま見えていないタブを一覧から選ぶ"
-          onClick={(e) => onOverflow(e, group, hiddenIds())}
+      <button
+        className={`tab-nav ${over ? '' : 'tab-nav-off'}`}
+        title="右へ送る（押しっぱなしで続けて送る）"
+        onPointerDown={over ? hold(1) : undefined}
+      >
+        ›
+      </button>
+      <button
+        className="tab-nav tab-more"
+        title="タブを選ぶ・並び順を変える"
+        onClick={(e) => onOverflow(e, group, hiddenIds())}
+      >
+        ≫
+      </button>
+    </div>
+  )
+}
+
+/**
+ * 「≫」の中の並び替えコーナー。
+ *
+ * 帯の上で掴んで動かす方法は残してあるが、狭いパネルでは掴む場所そのものが
+ * 見えないことがある。ここなら幅に関係なく必ず並び替えられる。
+ *
+ * 操作は**長押ししてから動かす**。押しただけ・軽く触れただけで並びが
+ * 変わってしまうと、選ぼうとしただけなのに並びが崩れる。
+ *
+ * ※ App の中で定義してはいけない（PanelTabs と同じ理由）。
+ */
+const SORT_HOLD_MS = 280
+function TabSortList({
+  tabs,
+  active,
+  onReorder
+}: {
+  tabs: { id: string; label: string }[]
+  active: string
+  onReorder: (ids: string[]) => void
+}): JSX.Element {
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const [holdId, setHoldId] = useState<string | null>(null) // 長押し待ち
+  const [grabId, setGrabId] = useState<string | null>(null) // 掴んだ
+  const start = (id: string) => (e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    setHoldId(id)
+    // 掴んだかどうかは、この場の値で見る。state は次のレンダーまで反映されず、
+    // 長押しが成立した直後の動きを取りこぼす。
+    let grabbed = false
+    const timer = window.setTimeout(() => {
+      grabbed = true
+      setHoldId(null)
+      setGrabId(id)
+    }, SORT_HOLD_MS)
+    const move = (ev: PointerEvent): void => {
+      // 長押しが成立する前の動きでは並び替えない（選ぼうとしただけで崩れないように）
+      if (!grabbed) return
+      const list = listRef.current
+      if (!list) return
+      const rows = [...list.querySelectorAll<HTMLElement>('.tab-sort-row')]
+      const ids = tabs.map((t) => t.id)
+      const from = ids.indexOf(id)
+      let to = rows.findIndex((r) => {
+        const b = r.getBoundingClientRect()
+        return ev.clientY < b.top + b.height / 2
+      })
+      if (to < 0) to = ids.length - 1
+      if (to !== from && from >= 0) {
+        const next = [...ids]
+        next.splice(from, 1)
+        next.splice(to, 0, id)
+        onReorder(next)
+      }
+    }
+    const up = (): void => {
+      window.clearTimeout(timer)
+      setHoldId(null)
+      setGrabId(null)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+  }
+  return (
+    <div className="tab-sort" ref={listRef}>
+      {tabs.map((t) => (
+        <div
+          key={t.id}
+          className={`tab-sort-row ${grabId === t.id ? 'tab-sort-grab' : ''} ${
+            holdId === t.id ? 'tab-sort-hold' : ''
+          } ${active === t.id ? 'tab-sort-on' : ''}`}
+          onPointerDown={start(t.id)}
+          title="長押ししてから上下に動かすと、並び順を変えられます"
         >
-          ≫
-        </button>
-      )}
+          <span className="tab-sort-grip">⠿</span>
+          <span className="tab-sort-label">{t.label}</span>
+        </div>
+      ))}
     </div>
   )
 }
@@ -13590,6 +13682,17 @@ export default function App(): JSX.Element {
               {t.label}
             </button>
           ))}
+          {/* ---- もう1つのコーナー: 並び替え ----
+              帯の上で掴んで動かす方法は残してあるが、パネルが狭いと
+              掴むタブ自体が見えない。ここなら幅に関係なく必ず変えられる。 */}
+          <div className="ctx-sep" />
+          <div className="ctx-title">並び替え</div>
+          <div className="ctx-note">長押ししてから上下に動かす</div>
+          <TabSortList
+            tabs={orderedTabs(tabOverflow.group, TAB_DEFS[tabOverflow.group] ?? [])}
+            active={tabOverflow.group === 'monitor' ? monitorTab : rightTab}
+            onReorder={(ids) => setTabOrder((p) => ({ ...p, [tabOverflow.group]: ids }))}
+          />
         </div>
       )}
 
