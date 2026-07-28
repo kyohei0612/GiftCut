@@ -17,3 +17,4 @@ e2e/shots/
 e2e/.cache/
 e2e/bench-shots/
 e2e/bench-result.md
+e2e/ng-report.json

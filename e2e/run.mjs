@@ -347,8 +347,20 @@ async function check(name, fn, opts = {}) {
     await banner({ status: 'ok', name: esc(name), section: esc(curSection), done: results.length, total })
   } catch (e) {
     const msg = String(e?.message ?? e).split('\n')[0]
-    results.push({ name, ok: false, err: String(e?.message ?? e) })
+    const state = await ngState()
+    let png = null
+    if (pageRef) {
+      png = join(ROOT, 'e2e', 'shots', `NG-${String(results.length + 1).padStart(2, '0')}.png`)
+      try {
+        mkdirSync(dirname(png), { recursive: true })
+        await pageRef.screenshot({ path: png })
+      } catch {
+        png = null
+      }
+    }
+    results.push({ name, ok: false, err: String(e?.message ?? e), state, png })
     console.log(`  \x1b[31m✗\x1b[0m ${name}\n      ${msg}`)
+    if (state) console.log(`      \x1b[90m落ちた時の画面: ${JSON.stringify(state)}\x1b[0m`)
     await banner({
       status: 'ng',
       name: esc(name),
@@ -360,6 +372,48 @@ async function check(name, fn, opts = {}) {
     if (pageRef) await pageRef.waitForTimeout(1200) // 失敗は読む時間を長めに
   }
   if (pageRef) await pageRef.waitForTimeout(SLOW ? 500 : 180)
+}
+/**
+ * 落ちた瞬間の「画面がどうなっていたか」を残す。
+ *
+ * 通しでだけ落ちる項目は、単体で回すと通ってしまうので、あとから調べ直せない。
+ * メッセージだけでは「押したのに効かなかった」としか分からず、
+ * 前の項目が何を残したのかが読めない。撮るのは落ちたときだけ。
+ */
+async function ngState() {
+  if (!pageRef) return null
+  try {
+    return await pageRef.evaluate(() => {
+      const txt = (el) => (el?.textContent ?? '').trim().replace(/\s+/g, ' ')
+      const all = (sel) => [...document.querySelectorAll(sel)]
+      return {
+        // 開いたままの物（これが残っていると、以降のクリックが全部吸われる）
+        メニュー: all('.ctx-menu').length,
+        ダイアログ: all('.modal, .restore-box').map((e) => txt(e).slice(0, 40)),
+        // パネルの配置
+        選ばれているタブ: all('.panel-tabs-strip').map((s) => txt(s.querySelector('.tab-on'))),
+        切り離し中: all('.pane-float').length,
+        パネル幅: {
+          左: localStorage.getItem('gc.leftW'),
+          右: localStorage.getItem('gc.rightW'),
+          並び: localStorage.getItem('giftcut.tabOrder'),
+          切り離し: localStorage.getItem('giftcut.floatPanes')
+        },
+        モニタ: txt(document.querySelector('.panel.monitor .tab-on')),
+        // 素材ビン
+        見えている素材: all('.media-card')
+          .filter((e) => e.getBoundingClientRect().height > 0)
+          .map((e) => txt(e).slice(0, 24)),
+        折りたたみ: all('.tpl-acc').map((e) => `${txt(e).slice(0, 12)}:${e.className.includes('open') ? '開' : '閉'}`),
+        // タイムライン
+        クリップ数: all('[data-tid="V1"] .video-clip:not(.se-ghost)').length,
+        選択中: all('.video-clip.sel, .telop-clip.sel, .img-clip.sel').length,
+        再生位置: txt(document.querySelector('.tc-cur'))
+      }
+    })
+  } catch {
+    return null
+  }
 }
 function assert(cond, msg) {
   if (!cond) throw new Error(msg)
@@ -521,6 +575,90 @@ try {
   }
   /** V1（本編）のクリップ一覧。左からの並び順で返す。 */
   const v1Clips = () => page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)')
+  // 画面の配置に関わる保存先。プロジェクトの中身ではないので、
+  // プロジェクトを開き直しても戻らない。
+  const LAYOUT_KEYS = [
+    'giftcut.floatPanes', // 切り離したパネルの位置
+    'giftcut.tabOrder', // タブの並び順
+    'gc.leftW',
+    'gc.rightW',
+    'gc.timelineH',
+    'gc.videoTrackH',
+    'gc.audioTrackH'
+  ]
+  /**
+   * 画面の配置が既定からずれていないかを見る。
+   *
+   * ずれたまま次の項目へ進むと、探している物が「そこに無い」だけで落ちる。
+   * 単体で回すと前の項目を飛ばすので再現せず、**通しでだけ落ちる**という
+   * 一番たちの悪い形になる（実際に14件がこれだった）。
+   */
+  // 起動直後の配置。既定値を直接書くと、アプリ側で既定を変えた瞬間に
+  // 毎回「ずれている」と言い出すので、実際の値を1回だけ控える。
+  let layoutBase = null
+  let zoomBase = null
+  async function layoutDrifted() {
+    const now = await page.evaluate((keys) => {
+      const txt = (el) => (el?.textContent ?? '').trim()
+      const strips = [...document.querySelectorAll('.panel-tabs-strip')]
+      return {
+        float: document.querySelectorAll('.pane-float').length,
+        menu: document.querySelectorAll('.ctx-menu').length,
+        // 素材ビンは右パネルが「プロジェクト」のときだけ描かれる。
+        // トランジションの持ち手を触ると勝手に「設定」へ切り替わるので、ここが最有力。
+        right: txt(strips[strips.length - 1]?.querySelector('.tab-on')),
+        monitor: txt(document.querySelector('.panel.monitor .tab-on')),
+        ls: Object.fromEntries(keys.map((k) => [k, localStorage.getItem(k)]))
+      }
+    }, LAYOUT_KEYS)
+    if (!layoutBase) {
+      layoutBase = now
+      return ''
+    }
+    if (now.float) return '切り離したパネルが残っている'
+    if (now.menu) return '右クリックのメニューが開いたまま'
+    if (now.right !== layoutBase.right) return `右パネルのタブが「${now.right}」のまま`
+    if (now.monitor !== layoutBase.monitor) return `モニタが「${now.monitor}」のまま`
+    for (const k of LAYOUT_KEYS) {
+      if (now.ls[k] !== layoutBase.ls[k])
+        return `${k} が起動時と違う（${String(layoutBase.ls[k]).slice(0, 20)} → ${String(now.ls[k]).slice(0, 20)}）`
+    }
+    return ''
+  }
+  /**
+   * 画面の配置を既定へ戻す。
+   *
+   * 配置は localStorage と画面の状態にあり、プロジェクトを開き直しても戻らない。
+   * 消してから読み込み直すのが、取りこぼしの無い唯一の方法。
+   * ずれているときだけ呼ぶ（毎回やると読み込み直しの時間で通しが倍になる）。
+   */
+  async function resetLayout(why) {
+    console.log(`  \x1b[90m画面の配置を既定へ戻します（${why}）\x1b[0m`)
+    await page.evaluate((keys) => {
+      for (const k of keys) localStorage.removeItem(k)
+      // 右パネルのタブは「前回の続き」として giftcut.session に入っている。
+      // ここを消さないと、読み込み直しても同じタブが復活する。
+      try {
+        const s = JSON.parse(localStorage.getItem('giftcut.session') || '{}')
+        delete s.tab
+        delete s.rsx
+        localStorage.setItem('giftcut.session', JSON.stringify(s))
+      } catch {
+        localStorage.removeItem('giftcut.session')
+      }
+    }, LAYOUT_KEYS)
+    await page.reload()
+    // 読み込み直すと「前回の作業が残っています」が出る。
+    // どちらを選んでもこの直後にプロジェクトを開き直すので、破棄でよい。
+    const box = page.locator('.restore-btns button', { hasText: '破棄' })
+    try {
+      await box.first().waitFor({ timeout: 20000 })
+      await box.first().click()
+    } catch {
+      /* 下書きが無ければ出ない */
+    }
+    await page.waitForTimeout(600)
+  }
   /**
    * 用意した状態に戻す。各章の頭で呼ぶ。
    * 前の章の操作が残っていると、失敗の原因が「今見ている物」なのか
@@ -528,6 +666,13 @@ try {
    */
   async function resetProject() {
     if (SHOT_ONLY) return
+    // 画面の配置は、何も編集していなくてもずれる（タブが切り替わるだけでずれる）。
+    // なので dirty の判定より先に見る。
+    const drift = await layoutDrifted()
+    if (drift) {
+      await resetLayout(drift)
+      touchedRef.dirty = true // 開き直したので、中身も戻す
+    }
     // 前のリセット以降に何も実行していなければ、戻す必要が無い。
     // 毎回戻すと、同じ画面を何度も作り直すだけで時間を食う。
     if (!touchedRef.dirty) return
@@ -554,6 +699,38 @@ try {
     }
     await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 15000 })
     await page.waitForTimeout(700)
+    // タイムラインの「見ている場所」はプロジェクトの中身ではないので、開き直しても戻らない。
+    // 左へ寄せておかないと、1つ目のクリップが左端に埋もれて一部しか掴めず、
+    // 「動かせていない」「詰まっていない」という**別物の失敗**になる。
+    // 実際、通しでだけ落ちていた14件のうち5件がこれだった。
+    await page.evaluate(() => {
+      const el = document.querySelector('.track-scroll')
+      if (el) el.scrollLeft = 0
+    })
+    await page.waitForTimeout(250)
+    const sx = await page.evaluate(() => document.querySelector('.track-scroll')?.scrollLeft ?? 0)
+    assert(sx < 2, `タイムラインを左端に戻せなかった（scrollLeft=${sx}）`)
+    // 拡大率も戻す。Ctrl+ホイールで拡大する項目があり、そのままだと以降の章で
+    // 「クリップ1つぶんの幅」が変わる。同じ距離を動かしたつもりが磁石に吸い戻され、
+    // 「動かせていない」という別物の失敗になる（負荷チェックでも同じ失敗をした）。
+    const zoomEl = page.locator('.tl-zoom input[type="range"]').first()
+    if (await zoomEl.count()) {
+      const cur = await zoomEl.inputValue()
+      if (zoomBase === null) zoomBase = cur
+      else if (cur !== zoomBase) {
+        await zoomEl.evaluate((el, val) => {
+          const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            'value'
+          ).set
+          setter.call(el, String(val))
+          el.dispatchEvent(new Event('input', { bubbles: true }))
+        }, zoomBase)
+        await page.waitForTimeout(350)
+        const back = await zoomEl.inputValue()
+        assert(back === zoomBase, `拡大率を戻せなかった（${cur} → ${back} / 起動時 ${zoomBase}）`)
+      }
+    }
     assert((await v1Clips().count()) === 3, '状態を戻せなかった（クリップが3つにならない）')
   }
   /** 秒を指定して再生位置を移す（拡大率に依存しない） */
@@ -2334,14 +2511,19 @@ try {
   await resetProject()
 
   await check('ミキサーの数字に「dB」が付いている', async () => {
-    const tab = page.locator('.panel-tabs *', { hasText: 'オーディオミキサー' }).first()
-    if (await tab.count()) {
-      await tab.click()
-      await page.waitForTimeout(500)
-    }
+    // `.panel-tabs *` だと、タブを囲っている帯そのものが先に当たる。
+    // 帯の真ん中はタブとタブの隙間なので、押しても何も起きず、
+    // 「ミキサーに dB が出ていない」＝アプリの不具合のように見えていた。
+    // タブそのもの（.tab）を押す。
+    const tab = page.locator('.panel.monitor .tab', { hasText: 'オーディオミキサー' }).first()
+    assert(await tab.count(), 'ミキサーのタブが見当たらない')
+    await tab.click()
+    await page.waitForTimeout(500)
+    const on = await page.locator('.panel.monitor .tab-on').first().textContent()
+    assert(on.includes('ミキサー'), `ミキサーのタブに切り替わっていない（${on}）`)
     const txt = await page.locator('.panel.monitor').first().textContent()
     assert(txt.includes('dB'), `ミキサーに dB が出ていない: ${txt.slice(0, 120)}`)
-    const back = page.locator('.panel-tabs *', { hasText: 'プログラム' }).first()
+    const back = page.locator('.panel.monitor .tab', { hasText: 'プログラム' }).first()
     if (await back.count()) await back.click()
     await page.waitForTimeout(400)
   })
@@ -2692,18 +2874,30 @@ try {
     assert(on === on2, `並べ替えただけでタブが切り替わった（${on} → ${on2}）`)
   })
 
-  await check('タブを右クリックすると、並び順を元に戻せる', async () => {
+  await check('タブの右クリックは、切り離しのメニューだけを出す', async () => {
+    // 並び順を変えるのは「掴んで動かす」だけ、右クリックはドッキング関連だけ、
+    // と決めた（右クリックに両方入れると、押し間違いで並びが変わってしまう）。
+    // 以前はここで「並び順を元に戻す」を探していたが、その項目はアプリに無い。
     const strip = page.locator('.panel-tabs-strip').last()
-    const before = await strip.locator('.tab').allTextContents()
+    // 前の項目で流れたままだと、1つ目のタブが帯からはみ出していて、
+    // 右クリックが帯の外（パネル本体）へ落ち、別のメニューが出る。
+    await strip.evaluate((el) => (el.scrollLeft = 0))
+    await page.waitForTimeout(300)
     await strip.locator('.tab').nth(0).click({ button: 'right' })
     await page.waitForSelector('.ctx-menu')
-    const note = await page.locator('.ctx-note').textContent()
-    assert(note.includes('掴んで'), `並べ替え方の案内が出ていない: ${note}`)
-    await page.locator('.ctx-item', { hasText: '並び順を元に戻す' }).first().click()
-    await page.waitForTimeout(500)
-    const after = await strip.locator('.tab').allTextContents()
-    assert(after[0] === 'プロジェクト', `既定の並びに戻っていない（${after.join(',')}）`)
-    void before
+    const items = await page.locator('.ctx-menu .ctx-item').allTextContents()
+    assert(items.length > 0, 'メニューが空')
+    assert(
+      items.some((t) => t.includes('切り離す') || t.includes('戻す')),
+      `切り離しの項目が無い（${items.join(' / ')}）`
+    )
+    assert(
+      !items.some((t) => t.includes('並び順')),
+      `右クリックに並び替えが混ざっている（${items.join(' / ')}）`
+    )
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+    assert((await page.locator('.ctx-menu').count()) === 0, 'Escape でメニューが閉じない')
   })
 
   // =========================================================================
@@ -3257,7 +3451,30 @@ try {
   console.log(`\n\x1b[1m結果: ${ok} / ${results.length} 件が期待どおり\x1b[0m`)
   if (ng.length) {
     console.log('\n直すべきもの:')
-    for (const r of ng) console.log(`  ・${r.name}\n      ${r.err}`)
+    for (const r of ng) {
+      console.log(`  ・${r.name}\n      ${r.err}`)
+      // 通しでだけ落ちるものは、あとから単体で回しても再現しない。
+      // そのときの画面を書き出しておく（読むのはこの一覧だけで済む）。
+      if (r.state) console.log(`      落ちた時: ${JSON.stringify(r.state)}`)
+      if (r.png) console.log(`      画面: ${r.png}`)
+    }
+    try {
+      writeFileSync(
+        join(ROOT, 'e2e', 'ng-report.json'),
+        JSON.stringify(ng.map(({ name, err, state, png }) => ({ name, err, state, png })), null, 2),
+        'utf-8'
+      )
+      console.log('\n落ちた項目の詳細を e2e/ng-report.json に書き出しました。')
+    } catch {
+      /* 書けなくても実行結果には影響しない */
+    }
+  } else {
+    // 落ちなかったのに前回の記録が残っていると、それを今回の結果だと読んでしまう
+    try {
+      rmSync(join(ROOT, 'e2e', 'ng-report.json'), { force: true })
+    } catch {
+      /* 無ければ何もしない */
+    }
   }
   if (app && !KEEP) {
     try {
