@@ -1211,6 +1211,61 @@ app.whenReady().then(() => {
   // 精度のポイント: ダウンサンプリングすると リサンプラのローパスで真のピークが潰れるため、
   // 高レート(48kHz)の実サンプルから min/max を取る（ClipGift 相当の正確さ）。
   // 長尺でもメモリを食わないよう、チャンクを溜めずに逐次(ストリーミング)でバケット集計する。
+  // 喋っていない所を探す。
+  //
+  // 音の大きさだけで見る（文字起こしは使わない）。ブリューの無音カットも同じ考え方で、
+  // これだけで実用になる。どこまでを「無音」とするかは人によって違うので、
+  // しきい値と最短の長さは呼ぶ側から渡す。
+  ipcMain.handle(
+    'audio:silences',
+    async (_e, videoPath: string, noiseDb = -35, minSec = 0.35) => {
+      if (!videoPath) return { ok: false, error: 'パスがありません' }
+      if (!allowedFiles.has(normalize(videoPath)))
+        return { ok: false, error: '許可されていないファイルです' }
+      const db = Math.min(-5, Math.max(-90, Number(noiseDb) || -35))
+      const min = Math.min(5, Math.max(0.05, Number(minSec) || 0.35))
+      return await new Promise((resolve) => {
+        const p = trackedSpawn('ffmpeg', [
+          '-v', 'info',
+          '-i', videoPath,
+          '-map', '0:a:0?',
+          '-af', `silencedetect=noise=${db}dB:d=${min}`,
+          '-f', 'null',
+          '-'
+        ])
+        let err = ''
+        p.stderr?.on('data', (d) => (err += d.toString()))
+        p.on('error', (e2) => resolve({ ok: false, error: 'ffmpeg起動失敗: ' + e2.message }))
+        p.on('close', () => {
+          // silencedetect は「開始」と「終了＋長さ」を別々の行で出す。
+          // 終了行だけを見ると、最後まで無音のまま終わった区間を取りこぼす。
+          const out: { start: number; dur: number }[] = []
+          const re = /silence_start:\s*(-?[\d.]+)|silence_end:\s*(-?[\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)/g
+          let m: RegExpExecArray | null
+          let pending: number | null = null
+          while ((m = re.exec(err))) {
+            if (m[1] !== undefined) pending = parseFloat(m[1])
+            else if (m[2] !== undefined && m[3] !== undefined) {
+              const dur = parseFloat(m[3])
+              const start = pending ?? parseFloat(m[2]) - dur
+              out.push({ start: Math.max(0, start), dur })
+              pending = null
+            }
+          }
+          // 最後まで無音で終わった場合（終了行が出ない）
+          if (pending !== null) {
+            const dm = /Duration:\s*(\d+):(\d+):([\d.]+)/.exec(err)
+            if (dm) {
+              const total = +dm[1] * 3600 + +dm[2] * 60 + parseFloat(dm[3])
+              if (total > pending) out.push({ start: pending, dur: total - pending })
+            }
+          }
+          resolve({ ok: true, silences: out })
+        })
+      })
+    }
+  )
+
   ipcMain.handle('audio:waveform', async (_e, videoPath: string) => {
     if (!videoPath) return { ok: false, error: 'パスがありません' }
     if (!allowedFiles.has(normalize(videoPath)))

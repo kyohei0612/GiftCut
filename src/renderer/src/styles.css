@@ -1853,6 +1853,52 @@ body {
 .tl-zoom input {
   width: 120px;
 }
+/* タイムラインの手元に置く、文字入りのボタン */
+.tool-wide {
+  width: auto;
+  padding: 0 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* 無音カットの設定 */
+.sil-box {
+  min-width: 460px;
+}
+.sil-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.sil-row {
+  display: grid;
+  /* ラベルが2行に折り返すと、つまみの位置が行ごとにずれて読みにくい */
+  grid-template-columns: 190px 150px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* 押せないボタンが押せそうに見えると、押しても何も起きない物を探し続けることになる */
+.sil-box .btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sil-row b {
+  color: var(--text);
+  font-size: 12px;
+  text-align: right;
+}
+.sil-result {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
 .tl-hint {
   margin-left: auto;
   font-size: 11px;

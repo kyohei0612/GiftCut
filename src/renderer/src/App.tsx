@@ -77,6 +77,7 @@ import {
   type SegOps,
   type SplitSeg
 } from '../../shared/timeline'
+import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
 
 type Tool = 'select' | 'razor' | 'trackFwd' | 'trackBack'
 type Ratio = '16:9' | '9:16' | '1:1'
@@ -7126,6 +7127,80 @@ export default function App(): JSX.Element {
   // 選択中の切片を削除＝リップル（動画・音声どちらの選択でも切片ごと除去、後続が詰まる）
   // 動画切片のリップル削除。切片を除去し、その timeline 区間より後ろのテロップ/SEを同量だけ左へ
   // シフト＝映像と同期を保つ（切片削除だけだとテロップがズレる不具合の対策）。
+  // ---- 無音カット ----
+  //
+  // 喋っていない所を機械に見つけさせて、まとめて切る。切り抜きの定番作業で、
+  // いままで人が波形を見ながら手で切っていた。
+  //
+  // 判定は音の大きさだけ（文字起こしは使わない）。
+  // どこまでを無音とするか・前後にどれだけ余白を残すかは人によって違うので、
+  // 「バツっと切りたい人」「少し余白がほしい人」の両方を設定で受ける。
+  const [silenceCut, setSilenceCut] = useState<{
+    /** 探している最中 */
+    busy: boolean
+    /** 見つけた無音（素材の時間） */
+    found: { start: number; dur: number }[] | null
+    noiseDb: number
+    minSec: number
+    pad: number
+    minLen: number
+  }>({ busy: false, found: null, noiseDb: -35, minSec: 0.35, pad: 0.15, minLen: 0.4 })
+  const [silenceOpen, setSilenceOpen] = useState(false)
+  /** いまの設定で「どこを切るか」。設定を動かすたびに出し直す（実行前に見せる） */
+  const silenceCuts = useMemo(() => {
+    if (!silenceCut.found) return []
+    return cutsFromSilences(segments, silenceCut.found, {
+      pad: silenceCut.pad,
+      minLen: silenceCut.minLen
+    })
+  }, [segments, silenceCut.found, silenceCut.pad, silenceCut.minLen])
+  async function findSilences(): Promise<void> {
+    const path = sources[0]?.path ?? videoPath
+    if (!path) {
+      showToast('先に動画を読み込んでください。')
+      return
+    }
+    setSilenceCut((s) => ({ ...s, busy: true }))
+    const res = await window.giftcut.detectSilences(path, silenceCut.noiseDb, silenceCut.minSec)
+    setSilenceCut((s) => ({ ...s, busy: false, found: res?.ok ? (res.silences ?? []) : [] }))
+    if (!res?.ok) showToast('無音を調べられませんでした: ' + (res?.error ?? ''), 'error')
+  }
+  /** 見つけた無音を、後ろから順に詰めて削除する */
+  function applySilenceCut(): void {
+    const ranges = silenceCuts
+    if (!ranges.length) return
+    if (mainLocked()) return
+    commitPending()
+    // 後ろから消す。前から消すと、消したぶんだけ後ろの位置がずれて狙いが外れる。
+    const desc = [...ranges].sort((a, b) => b.start - a.start)
+    let segs = segsRef.current
+    for (const r of desc) segs = cutRangeFromSegs(segs, r.start, r.end).out
+    setSegments(tidyGaps(segs, segOps))
+    // 文字・効果音・画像・めじるしも一緒に詰める（映像だけ詰まると全部ずれる）
+    const shift = (t: number): number => {
+      let v = t
+      for (const r of desc) {
+        if (v >= r.end) v -= r.end - r.start
+        else if (v > r.start) v = r.start
+      }
+      return v
+    }
+    setCues((prev) =>
+      prev
+        .map((c) => ({ ...c, start: shift(c.start), end: shift(c.end) }))
+        .filter((c) => c.end - c.start > 0.05)
+    )
+    setSeClips((prev) => prev.map((x) => ({ ...x, tStart: shift(x.tStart) })))
+    setMarkers((prev) => prev.map((m) => ({ ...m, t: shift(m.t) })))
+    setVClips((prev) => prev.map((c) => ({ ...c, tStart: shift(c.tStart) })))
+    setImgClips((prev) => prev.map((c) => ({ ...c, tStart: shift(c.tStart) })))
+    clearSegSel()
+    const sec = totalCutLen(ranges)
+    showToast(`${ranges.length}か所・合計 ${sec.toFixed(1)}秒 を詰めました。`, 'success')
+    setSilenceOpen(false)
+    setSilenceCut((s) => ({ ...s, found: null }))
+  }
+
   function rippleDeleteVideoSegments(): void {
     if (mainLocked()) return
     const ids = new Set([...selectedVideoIds, ...selectedAudioIds])
@@ -11763,6 +11838,18 @@ export default function App(): JSX.Element {
             >
               ⎇
             </button>
+            {/* 喋っていない所をまとめて切る。切り抜きでは毎回やる作業なので、
+                メニューの奥ではなくタイムラインの手元に置く */}
+            <button
+              className="tool tool-wide"
+              title="喋っていない所をまとめて切る"
+              onClick={() => {
+                setSilenceOpen(true)
+                if (!silenceCut.found && !silenceCut.busy) void findSilences()
+              }}
+            >
+              🔇 無音カット
+            </button>
             <div className="tl-zoom">
               <button
                 className="tool tool-sm"
@@ -13094,6 +13181,104 @@ export default function App(): JSX.Element {
             <div className="restore-btns">
               <button className="btn" onClick={() => setTemplatePicker(null)}>
                 {templatePicker.startup ? '空で始める' : '閉じる'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 無音カット ===== */}
+      {silenceOpen && (
+        <div className="export-overlay" onClick={() => setSilenceOpen(false)}>
+          <div className="restore-box sil-box" onClick={(e) => e.stopPropagation()}>
+            <div className="restore-title">喋っていない所をまとめて切る</div>
+            <div className="restore-msg">
+              音の大きさだけで判断します。切る前に「どこを・何秒切るか」を出すので、
+              数字を動かして納得してから実行してください。
+            </div>
+            <div className="sil-rows">
+              <label className="sil-row">
+                <span>これより静かなら無音</span>
+                <input
+                  type="range"
+                  min={-60}
+                  max={-15}
+                  step={1}
+                  value={silenceCut.noiseDb}
+                  onChange={(e) =>
+                    setSilenceCut((s) => ({ ...s, noiseDb: Number(e.target.value), found: null }))
+                  }
+                />
+                <b>{silenceCut.noiseDb} dB</b>
+              </label>
+              <label className="sil-row">
+                <span>この長さ以上を無音とみなす</span>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={2}
+                  step={0.05}
+                  value={silenceCut.minSec}
+                  onChange={(e) =>
+                    setSilenceCut((s) => ({ ...s, minSec: Number(e.target.value), found: null }))
+                  }
+                />
+                <b>{silenceCut.minSec.toFixed(2)} 秒</b>
+              </label>
+              {/* バツっと切りたい人と、少し余白がほしい人の両方がいる */}
+              <label className="sil-row">
+                <span>前後に残す余白</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={0.6}
+                  step={0.01}
+                  value={silenceCut.pad}
+                  onChange={(e) => setSilenceCut((s) => ({ ...s, pad: Number(e.target.value) }))}
+                />
+                <b>
+                  {silenceCut.pad === 0 ? 'なし（バツっと切る）' : `${silenceCut.pad.toFixed(2)} 秒`}
+                </b>
+              </label>
+              <label className="sil-row">
+                <span>これより短い所は切らない</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={0.05}
+                  value={silenceCut.minLen}
+                  onChange={(e) => setSilenceCut((s) => ({ ...s, minLen: Number(e.target.value) }))}
+                />
+                <b>{silenceCut.minLen.toFixed(2)} 秒</b>
+              </label>
+            </div>
+            <div className="sil-result">
+              {/* 「見つからない」と「見つけたが条件で外れた」を分けて出す。
+                  一緒にすると、どの数字をゆるめればいいのか分からない */}
+              {silenceCut.busy
+                ? '調べています…'
+                : silenceCut.found === null
+                  ? '「調べる」を押すと、どこが無音かを探します。'
+                  : silenceCut.found.length === 0
+                    ? '無音が1か所も見つかりませんでした。上の2つ（静かさ・長さ）をゆるめてください。'
+                    : silenceCuts.length === 0
+                      ? `無音は ${silenceCut.found.length} か所ありましたが、下の2つ（余白・最短）で全部外れました。`
+                      : `${silenceCuts.length} か所 / 合計 ${totalCutLen(silenceCuts).toFixed(1)} 秒 短くなります（無音は ${silenceCut.found.length} か所）`}
+            </div>
+            <div className="restore-btns">
+              <button className="btn" onClick={() => void findSilences()} disabled={silenceCut.busy}>
+                {silenceCut.found === null ? '調べる' : 'もう一度調べる'}
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={applySilenceCut}
+                disabled={!silenceCuts.length || silenceCut.busy}
+              >
+                切って詰める
+              </button>
+              <button className="btn" onClick={() => setSilenceOpen(false)}>
+                閉じる
               </button>
             </div>
           </div>

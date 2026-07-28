@@ -101,6 +101,13 @@ const api = {
     videoPath: string
   ): Promise<{ ok: boolean; min?: number[]; max?: number[]; duration?: number; error?: string }> =>
     ipcRenderer.invoke('audio:waveform', videoPath),
+  /** 喋っていない所を探す（noiseDb=これより静かなら無音, minSec=これより短いのは無視） */
+  detectSilences: (
+    videoPath: string,
+    noiseDb?: number,
+    minSec?: number
+  ): Promise<{ ok: boolean; silences?: { start: number; dur: number }[]; error?: string }> =>
+    ipcRenderer.invoke('audio:silences', videoPath, noiseDb, minSec),
   generateThumbnail: (
     videoPath: string
   ): Promise<{ ok: boolean; path?: string; error?: string }> =>
