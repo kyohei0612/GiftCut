@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { PanelTabs, PaneHost, TabSortList } from './components/PanelChrome'
 import { parseSrt, buildSrt, formatTime, type Cue } from './lib/srt'
 import {
   anchorFrac,
@@ -590,405 +590,6 @@ function TemplateCard({
   )
 }
 
-/**
- * 見切れないタブ帯。
- *
- * パネルを狭めるとタブが端から切れて、奥のタブへ一生たどり着けなかった。
- * 3つの逃げ道を用意する:
- *   1. 端の「送り」ボタン（押しっぱなしで送り続ける）
- *   2. 「≫」から、いま見えていないタブを一覧で選ぶ
- *   3. 掴んで横に引っぱる
- *
- * ※ App の中で定義してはいけない。毎レンダーで別物として作り直され、
- *   ref も横スクロール位置も失われて、引っぱっても戻ってしまう（実際に起きた）。
- */
-function PanelTabs({
-  group,
-  tabs,
-  active,
-  onPick,
-  onTabMenu,
-  onOverflow,
-  onReorder
-}: {
-  group: string
-  tabs: { id: string; label: string }[]
-  active: string
-  onPick: (id: string) => void
-  onTabMenu: (e: React.MouseEvent, group: string, id: string, label: string) => void
-  onOverflow: (e: React.MouseEvent, group: string, hidden: string[]) => void
-  onReorder: (ids: string[]) => void
-}): JSX.Element {
-  const stripRef = useRef<HTMLDivElement | null>(null)
-  const [over, setOver] = useState(false) // 端が切れているか
-  const [dragId, setDragId] = useState<string | null>(null)
-  const didDragRef = useRef(false) // 並べ替えた直後にタブが切り替わらないように
-  /** いま帯からはみ出して見えていないタブ。「≫」はこれを出す。 */
-  const hiddenIds = (): string[] => {
-    const strip = stripRef.current
-    if (!strip) return []
-    const box = strip.getBoundingClientRect()
-    return [...strip.querySelectorAll<HTMLElement>('.tab')]
-      .map((el, i) => ({ el, id: tabs[i]?.id }))
-      .filter(({ el }) => {
-        const r = el.getBoundingClientRect()
-        return r.left < box.left - 1 || r.right > box.right + 1
-      })
-      .map(({ id }) => id)
-      .filter((id): id is string => !!id)
-  }
-  const measure = (): void => {
-    const el = stripRef.current
-    if (el) setOver(el.scrollWidth > el.clientWidth + 2)
-  }
-  useEffect(() => {
-    measure()
-    const ro = new ResizeObserver(measure)
-    if (stripRef.current) ro.observe(stripRef.current)
-    return () => ro.disconnect()
-  }, [tabs.length])
-  const hold = (dir: -1 | 1) => (e: React.PointerEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const step = (): void => {
-      stripRef.current?.scrollBy({ left: dir * 18 })
-    }
-    step()
-    const iv = window.setInterval(step, 40)
-    const stop = (): void => {
-      window.clearInterval(iv)
-      window.removeEventListener('pointerup', stop)
-      window.removeEventListener('pointercancel', stop)
-    }
-    window.addEventListener('pointerup', stop)
-    window.addEventListener('pointercancel', stop)
-  }
-  return (
-    <div className="panel-tabs">
-      {/* 送りと一覧は**常に出す**。狭めたときだけ出す作りにしていたが、
-          出たり消えたりで押す場所がずれるうえ、「どこにあるのか」を
-          覚えられない。送るものが無いときは薄くして押しても何も起きない。 */}
-      <button
-        className={`tab-nav ${over ? '' : 'tab-nav-off'}`}
-        title="左へ送る（押しっぱなしで続けて送る）"
-        onPointerDown={over ? hold(-1) : undefined}
-      >
-        ‹
-      </button>
-      <div
-        className="panel-tabs-strip"
-        ref={stripRef}
-        onScroll={measure}
-        onPointerDown={(e) => {
-          if (e.button !== 0) return
-          const el = stripRef.current
-          if (!el) return
-          const sx = e.clientX
-          const s0 = el.scrollLeft
-          let moved = false
-          const mv = (ev: PointerEvent): void => {
-            if (!moved && Math.abs(ev.clientX - sx) < 4) return
-            moved = true
-            el.scrollLeft = s0 - (ev.clientX - sx)
-          }
-          const up = (): void => {
-            window.removeEventListener('pointermove', mv)
-            window.removeEventListener('pointerup', up)
-          }
-          window.addEventListener('pointermove', mv)
-          window.addEventListener('pointerup', up)
-        }}
-      >
-        {tabs.map((t) => (
-          <span
-            key={t.id}
-            className={`tab ${active === t.id ? 'tab-on' : ''} ${dragId === t.id ? 'tab-dragging' : ''}`}
-            onClick={() => {
-              // 並べ替えた直後は、タブが切り替わらないようにする
-              if (didDragRef.current) {
-                didDragRef.current = false
-                return
-              }
-              onPick(t.id)
-            }}
-            onContextMenu={(e) => onTabMenu(e, group, t.id, t.label)}
-            title={`${t.label}（掴んで左右に動かすと並び順を変えられます）`}
-            // 掴んで動かす＝並べ替え。押しただけならタブの切り替え。
-            onPointerDown={(e) => {
-              if (e.button !== 0) return
-              e.stopPropagation() // 帯の横スクロールと取り合わない
-              const sx = e.clientX
-              let dragging = false
-              const move = (ev: PointerEvent): void => {
-                if (!dragging && Math.abs(ev.clientX - sx) < 5) return
-                dragging = true
-                didDragRef.current = true
-                setDragId(t.id)
-                const strip = stripRef.current
-                if (!strip) return
-                const rects = [...strip.querySelectorAll('.tab')].map((el) =>
-                  el.getBoundingClientRect()
-                )
-                const ids = tabs.map((x) => x.id)
-                const from = ids.indexOf(t.id)
-                let to = rects.findIndex((r) => ev.clientX < r.left + r.width / 2)
-                if (to < 0) to = ids.length - 1
-                if (to !== from) {
-                  const next = [...ids]
-                  next.splice(from, 1)
-                  next.splice(to, 0, t.id)
-                  onReorder(next)
-                }
-              }
-              const up = (): void => {
-                window.removeEventListener('pointermove', move)
-                window.removeEventListener('pointerup', up)
-                setDragId(null)
-              }
-              window.addEventListener('pointermove', move)
-              window.addEventListener('pointerup', up)
-            }}
-          >
-            {t.label}
-          </span>
-        ))}
-      </div>
-      <button
-        className={`tab-nav ${over ? '' : 'tab-nav-off'}`}
-        title="右へ送る（押しっぱなしで続けて送る）"
-        onPointerDown={over ? hold(1) : undefined}
-      >
-        ›
-      </button>
-      <button
-        className="tab-nav tab-more"
-        title="タブを選ぶ・並び順を変える"
-        onClick={(e) => onOverflow(e, group, hiddenIds())}
-      >
-        ≫
-      </button>
-    </div>
-  )
-}
-
-/**
- * パネルの置き場所。別ウィンドウへ出しているときだけ、中身をそちらへ差し込む。
- * 出していないときは、今までどおりその場に置く（何も挟まらない）。
- */
-function PaneHost({
-  id,
-  title,
-  popped,
-  onClose,
-  children
-}: {
-  id: string
-  title: string
-  popped: boolean
-  onClose: () => void
-  children: React.ReactNode
-}): JSX.Element {
-  if (!popped) return <>{children}</>
-  return (
-    <PaneWindow id={id} title={title} onClose={onClose}>
-      {children}
-    </PaneWindow>
-  )
-}
-
-/**
- * パネルを**アプリの外**（別ウィンドウ・別モニター）へ出す。
- *
- * 画面の中で浮かせる「切り離し」とは別物。作業中はパネルを2枚目のモニターへ
- * 逃がしたい、という要望から作った。
- *
- * 作りは `window.open` した別ウィンドウへ React のポータルで中身を差し込む形。
- * **同じレンダラーのまま**なので、状態はそのまま共有される（別ウィンドウで
- * 選んだクリップが本体側でも選ばれている、という当たり前の動きになる）。
- *
- * 気を付けたところ:
- *   - 別 document なので CSS は引き継がれない。style と link を写す
- *   - 掴んで動かす処理は、どれも本体側の window に耳を付けている。
- *     別ウィンドウの中で動かしたぶんが届かないと**掴んだまま固まる**ので、
- *     pointer 系だけ本体へ流す（座標はどちらも同じ窓の中で測るのでずれない）
- *   - キーは流さない。流すと、別ウィンドウの文字入力がショートカットとして
- *     二重に効いてしまう（文字を打つたびに削除や分割が走る）
- *   - ウィンドウを閉じたら自動で元の場所へ戻す（閉じ忘れで行方不明にしない）
- *
- * ※ App の中で定義してはいけない（PanelTabs と同じ理由）。
- */
-function PaneWindow({
-  id,
-  title,
-  onClose,
-  children
-}: {
-  id: string
-  title: string
-  onClose: () => void
-  children: React.ReactNode
-}): JSX.Element | null {
-  const [host, setHost] = useState<HTMLElement | null>(null)
-  const closeRef = useRef(onClose)
-  closeRef.current = onClose
-  useEffect(() => {
-    const w = window.open(
-      '',
-      `gc-pane-${id}`,
-      `width=${Math.min(760, Math.round(window.innerWidth * 0.42))},height=${Math.min(
-        820,
-        Math.round(window.innerHeight * 0.7)
-      )}`
-    )
-    if (!w) {
-      closeRef.current()
-      return
-    }
-    const doc = w.document
-    doc.title = `GiftCut - ${title}`
-    for (const node of document.querySelectorAll('style, link[rel="stylesheet"]')) {
-      doc.head.appendChild(node.cloneNode(true))
-    }
-    doc.body.className = document.body.className
-    doc.body.style.margin = '0'
-    doc.body.style.background = getComputedStyle(document.body).backgroundColor
-    const root = doc.createElement('div')
-    root.className = 'pane-pop-root'
-    doc.body.appendChild(root)
-    setHost(root)
-    // 掴んで動かすぶんを本体へ流す
-    const forward = (ev: PointerEvent): void => {
-      window.dispatchEvent(new PointerEvent(ev.type, ev))
-    }
-    for (const t of ['pointermove', 'pointerup', 'pointercancel']) {
-      w.addEventListener(t, forward as EventListener, true)
-    }
-    // メニューを閉じる処理も本体側にあるので、押した合図だけ流す
-    const forwardClick = (): void => {
-      window.dispatchEvent(new MouseEvent('click'))
-    }
-    w.addEventListener('click', forwardClick, true)
-    // 閉じたら元の場所へ戻す。
-    // beforeunload は閉じ方によっては飛んでこない（実際、閉じても戻らなかった）。
-    // 閉じたかどうかを見張るのが確実。
-    const watch = window.setInterval(() => {
-      if (w.closed) {
-        window.clearInterval(watch)
-        closeRef.current()
-      }
-    }, 400)
-    return () => {
-      window.clearInterval(watch)
-      for (const t of ['pointermove', 'pointerup', 'pointercancel']) {
-        w.removeEventListener(t, forward as EventListener, true)
-      }
-      w.removeEventListener('click', forwardClick, true)
-      if (!w.closed) w.close()
-    }
-    // 開くのは1回だけ。title が変わっても開き直さない
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
-  if (!host) return null
-  return createPortal(
-    <>
-      <div className="pane-pop-head">
-        <span className="float-title">{title}</span>
-        <button className="float-dock" title="本体へ戻す" onClick={() => closeRef.current()}>
-          ⇤ 戻す
-        </button>
-      </div>
-      {children}
-    </>,
-    host
-  )
-}
-
-/**
- * 「≫」の中の並び替えコーナー。
- *
- * 帯の上で掴んで動かす方法は残してあるが、狭いパネルでは掴む場所そのものが
- * 見えないことがある。ここなら幅に関係なく必ず並び替えられる。
- *
- * 操作は**長押ししてから動かす**。押しただけ・軽く触れただけで並びが
- * 変わってしまうと、選ぼうとしただけなのに並びが崩れる。
- *
- * ※ App の中で定義してはいけない（PanelTabs と同じ理由）。
- */
-const SORT_HOLD_MS = 280
-function TabSortList({
-  tabs,
-  active,
-  onReorder
-}: {
-  tabs: { id: string; label: string }[]
-  active: string
-  onReorder: (ids: string[]) => void
-}): JSX.Element {
-  const listRef = useRef<HTMLDivElement | null>(null)
-  const [holdId, setHoldId] = useState<string | null>(null) // 長押し待ち
-  const [grabId, setGrabId] = useState<string | null>(null) // 掴んだ
-  const start = (id: string) => (e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    e.preventDefault()
-    setHoldId(id)
-    // 掴んだかどうかは、この場の値で見る。state は次のレンダーまで反映されず、
-    // 長押しが成立した直後の動きを取りこぼす。
-    let grabbed = false
-    const timer = window.setTimeout(() => {
-      grabbed = true
-      setHoldId(null)
-      setGrabId(id)
-    }, SORT_HOLD_MS)
-    const move = (ev: PointerEvent): void => {
-      // 長押しが成立する前の動きでは並び替えない（選ぼうとしただけで崩れないように）
-      if (!grabbed) return
-      const list = listRef.current
-      if (!list) return
-      const rows = [...list.querySelectorAll<HTMLElement>('.tab-sort-row')]
-      const ids = tabs.map((t) => t.id)
-      const from = ids.indexOf(id)
-      let to = rows.findIndex((r) => {
-        const b = r.getBoundingClientRect()
-        return ev.clientY < b.top + b.height / 2
-      })
-      if (to < 0) to = ids.length - 1
-      if (to !== from && from >= 0) {
-        const next = [...ids]
-        next.splice(from, 1)
-        next.splice(to, 0, id)
-        onReorder(next)
-      }
-    }
-    const up = (): void => {
-      window.clearTimeout(timer)
-      setHoldId(null)
-      setGrabId(null)
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      window.removeEventListener('pointercancel', up)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-    window.addEventListener('pointercancel', up)
-  }
-  return (
-    <div className="tab-sort" ref={listRef}>
-      {tabs.map((t) => (
-        <div
-          key={t.id}
-          className={`tab-sort-row ${grabId === t.id ? 'tab-sort-grab' : ''} ${
-            holdId === t.id ? 'tab-sort-hold' : ''
-          } ${active === t.id ? 'tab-sort-on' : ''}`}
-          onPointerDown={start(t.id)}
-          title="長押ししてから上下に動かすと、並び順を変えられます"
-        >
-          <span className="tab-sort-grip">⠿</span>
-          <span className="tab-sort-label">{t.label}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
 
 export default function App(): JSX.Element {
   // ---- データ ----
@@ -2446,7 +2047,13 @@ export default function App(): JSX.Element {
     }
   }, [floating])
   const isFloating = (id: PaneId): boolean => !!floating[id]
+  // 掴んだまま枠の外へ出ているパネル（離すと別ウィンドウになる）
+  const [tearOut, setTearOut] = useState<PaneId | null>(null)
   function undockPane(id: PaneId): void {
+    // 別ウィンドウへ出しているものを画面内で浮かせようとしても意味が無い。
+    // 浮かせる指定（位置とサイズ）が別ウィンドウの中で効いてしまい、
+    // 窓の中に小さい箱が浮くだけになる（実際にそうなった）。
+    if (isPopped(id)) return
     const w = Math.min(560, Math.max(320, window.innerWidth * 0.32))
     const h = Math.min(560, Math.max(240, window.innerHeight * 0.45))
     // 元あった側の近くに出す（真ん中に出すと、どれが出たのか分からなくなる）
@@ -2495,7 +2102,18 @@ export default function App(): JSX.Element {
       if (!r0) return
       const sx = e.clientX
       const sy = e.clientY
+      // アプリの枠の外へ持って行ったら、そのまま別ウィンドウにする。
+      // 切り離しても画面の中をうろうろするだけでは、2枚目のモニターへ逃がせない
+      // （右クリックのメニューを知っている人しか外へ出せなかった）。
+      const OUT = 24 // 枠からこれだけ外れたら「外へ出す」とみなす
+      const isOutside = (ev: PointerEvent): boolean =>
+        mode === 'move' &&
+        (ev.clientX < -OUT ||
+          ev.clientY < -OUT ||
+          ev.clientX > window.innerWidth + OUT ||
+          ev.clientY > window.innerHeight + OUT)
       const onMove = (ev: PointerEvent): void => {
+        setTearOut(isOutside(ev) ? id : null)
         const dx = ev.clientX - sx
         const dy = ev.clientY - sy
         setFloating((p) => {
@@ -2518,9 +2136,12 @@ export default function App(): JSX.Element {
           }
         })
       }
-      const onUp = (): void => {
+      const onUp = (ev: PointerEvent): void => {
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
+        setTearOut(null)
+        // 枠の外で離した＝別ウィンドウにする
+        if (isOutside(ev)) popPane(id)
       }
       window.addEventListener('pointermove', onMove)
       window.addEventListener('pointerup', onUp)
@@ -2535,10 +2156,24 @@ export default function App(): JSX.Element {
   const floatHead = (id: PaneId): JSX.Element => (
     <>
       <div className="float-head" onPointerDown={floatDrag(id, 'move')}>
-        <span className="float-title">{PANE_LABEL[id]}</span>
-        <button className="float-dock" title="元の場所に戻す" onClick={() => dockPane(id)}>
-          ⇤ 戻す
-        </button>
+        <span className="float-title">
+          {PANE_LABEL[id]}
+          {/* 枠の外まで持って行くと出る。離せば別ウィンドウになる、と先に伝える */}
+          {tearOut === id && <span className="float-tear">離すと別ウィンドウ</span>}
+        </span>
+        <span className="float-head-btns">
+          {/* 掴んで外へ出す以外に、押して出せる道も残す（掴む操作を知らなくても届く） */}
+          <button
+            className="float-dock"
+            title="別ウィンドウ（別モニター）で開く"
+            onClick={() => popPane(id)}
+          >
+            ⧉ 外へ
+          </button>
+          <button className="float-dock" title="元の場所に戻す" onClick={() => dockPane(id)}>
+            ⇤ 戻す
+          </button>
+        </span>
       </div>
       <div className="float-resize" onPointerDown={floatDrag(id, 'resize')} title="大きさを変える" />
     </>
@@ -10771,7 +10406,27 @@ export default function App(): JSX.Element {
 
           <div className="resizer resizer-v" onPointerDown={(e) => startResize('left', e)} />
 
-          <PaneHost id="preview" title={PANE_LABEL.preview} popped={isPopped('preview')} onClose={() => unpopPane('preview')}>
+          {/* 真ん中のパネルだけは、出て行くと横幅が丸ごと余る（左右は幅が固定で、
+              伸び縮みするのはここだけ）。何も置かないと画面の6割が空になり、
+              壊れたように見えるので、行き先の案内と戻すボタンを置く。 */}
+          <PaneHost
+            id="preview"
+            title={PANE_LABEL.preview}
+            popped={isPopped('preview')}
+            onClose={() => unpopPane('preview')}
+            placeholder={
+              <section className="panel pane-away" style={{ flex: '1 1 0', minWidth: 0 }}>
+                <div className="pane-away-box">
+                  <div className="pane-away-title">
+                    ⧉ {PANE_LABEL.preview} は別ウィンドウで開いています
+                  </div>
+                  <button className="float-dock" onClick={() => unpopPane('preview')}>
+                    ⇤ 本体へ戻す
+                  </button>
+                </div>
+              </section>
+            }
+          >
           {/* --- 中央: プログラムモニター / オーディオミキサー --- */}
           <section
             className={`panel monitor ${isFloating('preview') ? 'pane-float' : ''}`}
@@ -13287,6 +12942,22 @@ export default function App(): JSX.Element {
         <span>再生ヘッド {formatTimecode(currentTime, fps)}</span>
         {playRateUI !== 0 && <span>シャトル {playRateUI}x</span>}
         <span className="grow" />
+        {/* いま別ウィンドウへ出しているパネル。
+            出すと本体からは消えるので、どこへ行ったのか分からなくなる
+            （真ん中のプレビュー以外はその場に案内も残らない）。
+            押せばそのまま本体へ戻せる。 */}
+        {(['left', 'preview', 'right', 'timeline'] as PaneId[])
+          .filter((id) => isPopped(id))
+          .map((id) => (
+            <button
+              key={id}
+              className="status-pop"
+              title={`${PANE_LABEL[id]} を本体へ戻す`}
+              onClick={() => unpopPane(id)}
+            >
+              ⧉ {PANE_LABEL[id]}
+            </button>
+          ))}
         <span>GiftCut</span>
       </footer>
 
@@ -13786,16 +13457,21 @@ export default function App(): JSX.Element {
             return (
               <>
                 <div className="ctx-title">{PANE_LABEL[pane]}</div>
-                <button
-                  className="ctx-item"
-                  onClick={() => {
-                    if (isFloating(pane)) dockPane(pane)
-                    else undockPane(pane)
-                    setTabMenu(null)
-                  }}
-                >
-                  {isFloating(pane) ? '⇤ 元の場所に戻す' : '⇱ このパネルを切り離す'}
-                </button>
+                {/* 別ウィンドウへ出している間は「切り離す」を出さない。
+                    出しているものを画面内で浮かせることはできないので、
+                    押せるのに何も起きないボタンになる。 */}
+                {!isPopped(pane) && (
+                  <button
+                    className="ctx-item"
+                    onClick={() => {
+                      if (isFloating(pane)) dockPane(pane)
+                      else undockPane(pane)
+                      setTabMenu(null)
+                    }}
+                  >
+                    {isFloating(pane) ? '⇤ 元の場所に戻す' : '⇱ このパネルを切り離す'}
+                  </button>
+                )}
                 {/* 画面の中で浮かせるのとは別に、アプリの外（別モニター）へも出せる */}
                 <button
                   className="ctx-item"
@@ -13817,13 +13493,18 @@ export default function App(): JSX.Element {
                     <div className="ctx-row" key={id}>
                       <button
                         className="ctx-item"
+                        disabled={isPopped(id)}
                         onClick={() => {
                           if (isFloating(id)) dockPane(id)
                           else undockPane(id)
                           setTabMenu(null)
                         }}
                       >
-                        {isFloating(id) ? `⇤ ${PANE_LABEL[id]} を戻す` : `⇱ ${PANE_LABEL[id]} を切り離す`}
+                        {isPopped(id)
+                          ? `⧉ ${PANE_LABEL[id]} は別ウィンドウ`
+                          : isFloating(id)
+                            ? `⇤ ${PANE_LABEL[id]} を戻す`
+                            : `⇱ ${PANE_LABEL[id]} を切り離す`}
                       </button>
                       <button
                         className="ctx-pop"

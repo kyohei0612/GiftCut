@@ -545,6 +545,22 @@ body {
   font-weight: 700;
   color: var(--muted, #9aa3b2);
 }
+.float-head-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+/* 枠の外へ持って行っている最中の合図 */
+.float-tear {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
 .float-dock {
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -611,6 +627,37 @@ body {
   min-width: 0;
   min-height: 0;
   border: none;
+}
+/* ステータスバーに出す「いま別ウィンドウにあるパネル」 */
+.status-pop {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 5px;
+  font-size: 11px;
+  padding: 1px 8px;
+  margin-right: 8px;
+  cursor: pointer;
+}
+.status-pop:hover {
+  background: #26313f;
+}
+/* 別ウィンドウへ出ている間、その場所に置く案内 */
+.pane-away {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pane-away-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.pane-away-title {
+  letter-spacing: 0.02em;
 }
 .pane-pop-head {
   display: flex;

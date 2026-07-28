@@ -17,10 +17,13 @@
 //   npm run e2e -- --slow       1操作ごとに間を置いて、目で追えるようにする
 //   npm run e2e -- --keep       終わってもウィンドウを閉じない
 //   npm run e2e -- --only=空き  名前か章にその言葉を含むものだけ実行（開発中用）
+//   npm run e2e -- --only=タブ,別ウィンドウ   カンマで複数（章をまたぐ再現用）
+//   npm run e2e -- --changed    いま直している所に関わる確認だけ（普段はこれ）
+//                               対応表に無いファイルは「見ていない」と出る
 //   （項目名の一覧は `grep "await check(" e2e/run.mjs` で見られる）
 // ============================================================================
 import { _electron as electron } from 'playwright'
-import { spawn } from 'node:child_process'
+import { spawn, execSync } from 'node:child_process'
 import {
   mkdtempSync,
   mkdirSync,
@@ -47,11 +50,73 @@ const argAfter = (flag) => {
   const i = process.argv.indexOf(flag)
   return i >= 0 ? process.argv[i + 1] : null
 }
-const ONLY =
-  (process.argv.find((a) => a.startsWith('--only=')) ?? '').slice(7) || argAfter('--only') || ''
+// カンマで複数指定できる（--only=タブ,別ウィンドウ）。
+// 1つしか指定できないと、章をまたいで起きることを再現できない。
+// 実際「通しでだけ落ちる14件」の調査で、章をまたいで回せずに困った。
+const ONLY = ((process.argv.find((a) => a.startsWith('--only=')) ?? '').slice(7) ||
+  argAfter('--only') ||
+  '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+const CHANGED = process.argv.includes('--changed')
 // 見た目を見たいだけのとき用。確認は一切せず、起動して復元して1枚撮って終わる。
 // これが無いと、画面を見るためだけにテストを回すことになる。
 const SHOT_ONLY = process.argv.includes('--shot')
+
+// --changed: いま直している所に関わる確認だけを回す。
+//
+// 通しは長い。かといって毎回 --only を手で書くと、書き忘れた所を見ないまま進む。
+// 変更したファイルから、見るべき確認を引く。
+//
+// **対応表に無いファイルは「分からない」と正直に出す。** 黙って少しだけ回して
+// 「全部通った」と読めてしまうのが一番まずい（今日それで14件を見落としていた）。
+const AREA = [
+  { re: /components\/PanelChrome/, words: ['タブ', '別ウィンドウ', 'パネル'] },
+  { re: /src\/main\/index\.ts/, words: ['別ウィンドウ', '保存', '書き出し', '起動'] },
+  { re: /shared\/timeline/, words: ['動かす', '削除', '元に戻す', '空き'] },
+  { re: /shared\/filterGraph/, words: ['書き出し', '音'] },
+  { re: /lib\/srt/, words: ['字幕', 'テロップ'] },
+  { re: /components\/StylePanel/, words: ['テロップ', '見た目'] },
+  { re: /e2e\/run\.mjs/, words: [] } // 確認そのものの変更。これだけでは何も選ばない
+]
+function changedKeywords() {
+  const out = { words: new Set(), unknown: [] }
+  let files = []
+  try {
+    const a = execSync('git diff --name-only HEAD', { cwd: ROOT }).toString()
+    const b = execSync('git ls-files --others --exclude-standard', { cwd: ROOT }).toString()
+    files = (a + b)
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  } catch {
+    return { words: new Set(), unknown: ['（git が読めなかった）'] }
+  }
+  for (const f of files) {
+    const hit = AREA.find((a) => a.re.test(f))
+    if (hit) hit.words.forEach((w) => out.words.add(w))
+    else out.unknown.push(f)
+  }
+  return out
+}
+// --changed で選ばれた言葉。ONLY と同じ扱いで絞る
+const CHANGED_INFO = CHANGED ? changedKeywords() : null
+if (CHANGED_INFO) {
+  ONLY.push(...CHANGED_INFO.words)
+  console.log(
+    `変更に関わる確認だけ回します: ${[...CHANGED_INFO.words].join(' / ') || '（該当なし）'}`
+  )
+  if (CHANGED_INFO.unknown.length) {
+    console.log(
+      `\x1b[33m対応表に無いファイルの変更（この実行では見ていない）:\x1b[0m\n  ${CHANGED_INFO.unknown.join('\n  ')}`
+    )
+  }
+  if (!ONLY.length) {
+    console.log('\x1b[33m選べる確認がありません。通しで回すか --only を指定してください。\x1b[0m')
+    process.exit(2)
+  }
+}
 const STEP = SLOW ? 600 : 0
 
 const sh = (cmd, args) =>
@@ -331,7 +396,7 @@ async function check(name, fn, opts = {}) {
     results.push({ name, skipped: true })
     return
   }
-  if (ONLY && !opts.setup && !name.includes(ONLY) && !curSection.includes(ONLY)) {
+  if (ONLY.length && !opts.setup && !ONLY.some((w) => name.includes(w) || curSection.includes(w))) {
     results.push({ name, skipped: true })
     return
   }
@@ -586,78 +651,167 @@ try {
     'gc.videoTrackH',
     'gc.audioTrackH'
   ]
+
   /**
-   * 画面の配置が既定からずれていないかを見る。
+   * 「画面の状態」の一覧。
    *
-   * ずれたまま次の項目へ進むと、探している物が「そこに無い」だけで落ちる。
-   * 単体で回すと前の項目を飛ばすので再現せず、**通しでだけ落ちる**という
-   * 一番たちの悪い形になる（実際に14件がこれだった）。
+   * プロジェクトの中身ではないので、**開き直しても戻らない**もの。
+   * ここに載っていないものは誰も戻さないので、前の項目の状態がそのまま
+   * 次へ渡り、通しでだけ落ちる。実際、1日で3つ（タブ・見ている場所・拡大率）
+   * 取りこぼして14件落とした。**足すならこの表に足すこと。**
+   *
+   * 各項目:
+   *   name    … 落ちたときに出す名前
+   *   read    … いまの値。比べられるように文字列で返す
+   *   restore … 'reload'（読み込み直しでしか戻らない）か、その場で戻す関数
    */
-  // 起動直後の配置。既定値を直接書くと、アプリ側で既定を変えた瞬間に
-  // 毎回「ずれている」と言い出すので、実際の値を1回だけ控える。
-  let layoutBase = null
-  let zoomBase = null
-  async function layoutDrifted() {
-    const now = await page.evaluate((keys) => {
-      const txt = (el) => (el?.textContent ?? '').trim()
-      const strips = [...document.querySelectorAll('.panel-tabs-strip')]
-      return {
-        float: document.querySelectorAll('.pane-float').length,
-        menu: document.querySelectorAll('.ctx-menu').length,
-        // 素材ビンは右パネルが「プロジェクト」のときだけ描かれる。
-        // トランジションの持ち手を触ると勝手に「設定」へ切り替わるので、ここが最有力。
-        right: txt(strips[strips.length - 1]?.querySelector('.tab-on')),
-        monitor: txt(document.querySelector('.panel.monitor .tab-on')),
-        ls: Object.fromEntries(keys.map((k) => [k, localStorage.getItem(k)]))
+  const VIEW_STATE = [
+    {
+      name: '切り離したパネル',
+      read: () => page.evaluate(() => String(document.querySelectorAll('.pane-float').length)),
+      restore: 'reload'
+    },
+    {
+      name: '開いたままのメニュー',
+      read: () => page.evaluate(() => String(document.querySelectorAll('.ctx-menu').length)),
+      // メニューは押せば閉じる。読み込み直すほどのものではない
+      restore: async () => {
+        await page.keyboard.press('Escape')
+        await page.mouse.click(4, 4)
+        await page.waitForTimeout(200)
       }
-    }, LAYOUT_KEYS)
-    if (!layoutBase) {
-      layoutBase = now
-      return ''
+    },
+    {
+      name: '右パネルのタブ',
+      // 素材ビンは右パネルが「プロジェクト」のときだけ描かれる。
+      // トランジションの持ち手を触ると勝手に「設定」へ切り替わる
+      read: () =>
+        page.evaluate(() => {
+          const s = [...document.querySelectorAll('.panel-tabs-strip')]
+          return (s[s.length - 1]?.querySelector('.tab-on')?.textContent ?? '').trim()
+        }),
+      restore: 'reload'
+    },
+    {
+      name: 'モニタのタブ',
+      read: () =>
+        page.evaluate(() =>
+          (document.querySelector('.panel.monitor .tab-on')?.textContent ?? '').trim()
+        ),
+      restore: 'reload'
+    },
+    ...LAYOUT_KEYS.map((k) => ({
+      name: k,
+      read: () => page.evaluate((key) => String(localStorage.getItem(key)), k),
+      restore: 'reload'
+    })),
+    {
+      name: 'タイムラインの見ている場所',
+      // 左へ寄せておかないと、1つ目のクリップが左端に埋もれて一部しか掴めず、
+      // 「動かせていない」という**別物の失敗**になる
+      read: () =>
+        page.evaluate(() =>
+          String(Math.round(document.querySelector('.track-scroll')?.scrollLeft ?? 0))
+        ),
+      restore: async () => {
+        await page.evaluate(() => {
+          const el = document.querySelector('.track-scroll')
+          if (el) el.scrollLeft = 0
+        })
+        await page.waitForTimeout(250)
+      }
+    },
+    {
+      name: 'タイムラインの拡大率',
+      // 積み上がると「クリップ1つぶんの幅」が変わり、同じ距離を動かしたつもりが
+      // 磁石に吸い戻される（負荷チェックでも同じ失敗をした）
+      read: () =>
+        page.evaluate(
+          () => document.querySelector('.tl-zoom input[type="range"]')?.value ?? ''
+        ),
+      restore: async (base) => {
+        await page.evaluate((val) => {
+          const el = document.querySelector('.tl-zoom input[type="range"]')
+          if (!el) return
+          const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            'value'
+          ).set
+          setter.call(el, String(val))
+          el.dispatchEvent(new Event('input', { bubbles: true }))
+        }, base)
+        await page.waitForTimeout(350)
+      }
     }
-    if (now.float) return '切り離したパネルが残っている'
-    if (now.menu) return '右クリックのメニューが開いたまま'
-    if (now.right !== layoutBase.right) return `右パネルのタブが「${now.right}」のまま`
-    if (now.monitor !== layoutBase.monitor) return `モニタが「${now.monitor}」のまま`
-    for (const k of LAYOUT_KEYS) {
-      if (now.ls[k] !== layoutBase.ls[k])
-        return `${k} が起動時と違う（${String(layoutBase.ls[k]).slice(0, 20)} → ${String(now.ls[k]).slice(0, 20)}）`
-    }
-    return ''
+  ]
+
+  /**
+   * 起動直後の画面の状態。既定値を直接書くと、アプリ側で既定を変えた瞬間に
+   * 毎回「ずれている」と言い出すので、実際の値を控える。
+   *
+   * **取るのは起動直後の1回だけ**（遅れて取ると、ずれた状態が基準になる）。
+   */
+  let viewBase = null
+  const readView = async () => {
+    const out = []
+    for (const s of VIEW_STATE) out.push(await s.read())
+    return out
+  }
+  async function captureViewBase() {
+    viewBase = await readView()
+  }
+  /** 起動時と違っている項目を返す */
+  async function viewDrift() {
+    if (!viewBase) return []
+    const now = await readView()
+    return VIEW_STATE.map((s, i) => ({ s, now: now[i], base: viewBase[i] })).filter(
+      (x) => x.now !== x.base
+    )
   }
   /**
-   * 画面の配置を既定へ戻す。
+   * 画面の状態を起動直後へ戻す。
    *
-   * 配置は localStorage と画面の状態にあり、プロジェクトを開き直しても戻らない。
-   * 消してから読み込み直すのが、取りこぼしの無い唯一の方法。
-   * ずれているときだけ呼ぶ（毎回やると読み込み直しの時間で通しが倍になる）。
+   * その場で戻せるものは戻し、読み込み直しでしか戻らないものが1つでもあれば
+   * 読み込み直す。**戻したあと、本当に戻ったかを確かめる**（戻せていないのに
+   * 先へ進むと、原因が分からないまま次の項目が落ちる）。
    */
-  async function resetLayout(why) {
-    console.log(`  \x1b[90m画面の配置を既定へ戻します（${why}）\x1b[0m`)
-    await page.evaluate((keys) => {
-      for (const k of keys) localStorage.removeItem(k)
-      // 右パネルのタブは「前回の続き」として giftcut.session に入っている。
-      // ここを消さないと、読み込み直しても同じタブが復活する。
+  async function restoreView(drift) {
+    const why = drift.map((d) => `${d.s.name}: ${d.base} → ${d.now}`).join(' / ')
+    console.log(`  \x1b[90m画面の状態を戻します（${why}）\x1b[0m`)
+    if (drift.some((d) => d.s.restore === 'reload')) {
+      await page.evaluate((keys) => {
+        for (const k of keys) localStorage.removeItem(k)
+        // 右パネルのタブは「前回の続き」として giftcut.session に入っている。
+        // ここを消さないと、読み込み直しても同じタブが復活する。
+        try {
+          const s = JSON.parse(localStorage.getItem('giftcut.session') || '{}')
+          delete s.tab
+          delete s.rsx
+          localStorage.setItem('giftcut.session', JSON.stringify(s))
+        } catch {
+          localStorage.removeItem('giftcut.session')
+        }
+      }, LAYOUT_KEYS)
+      await page.reload()
+      // 読み込み直すと「前回の作業が残っています」が出る。
+      // どちらを選んでもこの直後にプロジェクトを開き直すので、破棄でよい。
+      const box = page.locator('.restore-btns button', { hasText: '破棄' })
       try {
-        const s = JSON.parse(localStorage.getItem('giftcut.session') || '{}')
-        delete s.tab
-        delete s.rsx
-        localStorage.setItem('giftcut.session', JSON.stringify(s))
+        await box.first().waitFor({ timeout: 20000 })
+        await box.first().click()
       } catch {
-        localStorage.removeItem('giftcut.session')
+        /* 下書きが無ければ出ない */
       }
-    }, LAYOUT_KEYS)
-    await page.reload()
-    // 読み込み直すと「前回の作業が残っています」が出る。
-    // どちらを選んでもこの直後にプロジェクトを開き直すので、破棄でよい。
-    const box = page.locator('.restore-btns button', { hasText: '破棄' })
-    try {
-      await box.first().waitFor({ timeout: 20000 })
-      await box.first().click()
-    } catch {
-      /* 下書きが無ければ出ない */
+      await page.waitForTimeout(600)
     }
-    await page.waitForTimeout(600)
+    for (const d of drift) {
+      if (typeof d.s.restore === 'function') await d.s.restore(d.base)
+    }
+    const left = await viewDrift()
+    assert(
+      !left.length,
+      `画面の状態を戻せなかった（${left.map((d) => `${d.s.name}=${d.now}（起動時 ${d.base}）`).join(' / ')}）`
+    )
   }
   /**
    * 用意した状態に戻す。各章の頭で呼ぶ。
@@ -674,12 +828,13 @@ try {
       await w.close().catch(() => {})
       await page.waitForTimeout(800)
     }
-    // 画面の配置は、何も編集していなくてもずれる（タブが切り替わるだけでずれる）。
+    // 画面の状態は、何も編集していなくてもずれる（タブが切り替わるだけでずれる）。
     // なので dirty の判定より先に見る。
-    const drift = await layoutDrifted()
-    if (drift) {
-      await resetLayout(drift)
-      touchedRef.dirty = true // 開き直したので、中身も戻す
+    const drift = await viewDrift()
+    if (drift.length) {
+      await restoreView(drift)
+      // 読み込み直したなら中身も戻す。その場で戻しただけなら中身は無傷
+      if (drift.some((d) => d.s.restore === 'reload')) touchedRef.dirty = true
     }
     // 前のリセット以降に何も実行していなければ、戻す必要が無い。
     // 毎回戻すと、同じ画面を何度も作り直すだけで時間を食う。
@@ -707,38 +862,10 @@ try {
     }
     await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 15000 })
     await page.waitForTimeout(700)
-    // タイムラインの「見ている場所」はプロジェクトの中身ではないので、開き直しても戻らない。
-    // 左へ寄せておかないと、1つ目のクリップが左端に埋もれて一部しか掴めず、
-    // 「動かせていない」「詰まっていない」という**別物の失敗**になる。
-    // 実際、通しでだけ落ちていた14件のうち5件がこれだった。
-    await page.evaluate(() => {
-      const el = document.querySelector('.track-scroll')
-      if (el) el.scrollLeft = 0
-    })
-    await page.waitForTimeout(250)
-    const sx = await page.evaluate(() => document.querySelector('.track-scroll')?.scrollLeft ?? 0)
-    assert(sx < 2, `タイムラインを左端に戻せなかった（scrollLeft=${sx}）`)
-    // 拡大率も戻す。Ctrl+ホイールで拡大する項目があり、そのままだと以降の章で
-    // 「クリップ1つぶんの幅」が変わる。同じ距離を動かしたつもりが磁石に吸い戻され、
-    // 「動かせていない」という別物の失敗になる（負荷チェックでも同じ失敗をした）。
-    const zoomEl = page.locator('.tl-zoom input[type="range"]').first()
-    if (await zoomEl.count()) {
-      const cur = await zoomEl.inputValue()
-      if (zoomBase === null) zoomBase = cur
-      else if (cur !== zoomBase) {
-        await zoomEl.evaluate((el, val) => {
-          const setter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype,
-            'value'
-          ).set
-          setter.call(el, String(val))
-          el.dispatchEvent(new Event('input', { bubbles: true }))
-        }, zoomBase)
-        await page.waitForTimeout(350)
-        const back = await zoomEl.inputValue()
-        assert(back === zoomBase, `拡大率を戻せなかった（${cur} → ${back} / 起動時 ${zoomBase}）`)
-      }
-    }
+    // プロジェクトを開き直すと、見ている場所や拡大率がまたずれることがある。
+    // 表に従ってもう一度そろえる（ここを飛ばすと、開いた直後の状態で次へ進む）。
+    const after = await viewDrift()
+    if (after.length) await restoreView(after)
     assert((await v1Clips().count()) === 3, '状態を戻せなかった（クリップが3つにならない）')
   }
   /** 秒を指定して再生位置を移す（拡大率に依存しない） */
@@ -792,6 +919,10 @@ try {
     },
     { setup: true }
   )
+
+  // ここが「起動直後」。まだどの項目も画面をいじっていないので、
+  // この時点の画面の状態を基準にする。**遅れて取ると、ずれた状態が基準になる。**
+  await captureViewBase()
 
   // =========================================================================
   section('4. クリップを掴んで動かす')
@@ -2764,7 +2895,72 @@ try {
     assert(after[0] === before[1], `別ウィンドウで並べ替えできない（${before.join(',')} → ${after.join(',')}）`)
   })
 
+  await check('切り離したパネルを枠の外まで持って行くと、別ウィンドウになる', async () => {
+    // 切り離しただけでは画面の中をうろうろするだけで、2枚目のモニターへ逃がせない。
+    // 掴んだまま外へ出せることが、この機能の入口になる。
+    for (const w of popWindows()) await w.close().catch(() => {})
+    await page.waitForTimeout(1200)
+    await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    await page.locator('.ctx-item', { hasText: 'を切り離す' }).first().click()
+    await page.waitForTimeout(700)
+    assert((await page.locator('.pane-float').count()) > 0, '切り離せていない')
+    const head = page.locator('.pane-float .float-head').first()
+    const b = await head.boundingBox()
+    const size = page.viewportSize() ?? { width: 1424, height: 861 }
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    // 右の枠の外まで運ぶ
+    for (let i = 1; i <= 8; i++)
+      await page.mouse.move(b.x + ((size.width + 80 - b.x) * i) / 8, b.y + b.height / 2)
+    await page.waitForTimeout(300)
+    // 離す前に「離すと別ウィンドウ」と出ていること（出ないまま外れると事故になる）
+    assert((await page.locator('.float-tear').count()) === 1, '外へ出る合図が出ていない')
+    await page.mouse.up()
+    await page.waitForTimeout(2000)
+    assert(popWindows().length === 1, `別ウィンドウにならなかった（${popWindows().length}枚）`)
+    assert((await page.locator('.pane-float').count()) === 0, '画面の中の浮きが残っている')
+  })
+
+  await check('本体の見た目が変わると、別ウィンドウにも追いつく', async () => {
+    // 開いた瞬間の見た目を1回写すだけだと、別ウィンドウだけ古いまま取り残される。
+    // 本体に見た目を足して、別ウィンドウに届くかを見る。
+    const pop = popWindows()[0]
+    assert(pop, '別ウィンドウが無い')
+    await page.evaluate(() => {
+      const s = document.createElement('style')
+      s.id = '__e2e_theme'
+      s.textContent = '.pane-pop-root { outline: 3px solid rgb(255, 0, 0) !important; }'
+      document.head.appendChild(s)
+    })
+    await page.waitForTimeout(700)
+    const outline = await pop
+      .locator('.pane-pop-root')
+      .evaluate((el) => getComputedStyle(el).outlineColor)
+    await page.evaluate(() => document.getElementById('__e2e_theme')?.remove())
+    await page.waitForTimeout(400)
+    assert(outline === 'rgb(255, 0, 0)', `後から足した見た目が届いていない（${outline}）`)
+  })
+
+  await check('別ウィンドウに出したパネルは、下の帯から戻せる', async () => {
+    // 出すと本体から消えるので、どこへ行ったのか分からなくなる。
+    // 下の帯に出ているものを並べ、押せば戻せるようにしてある。
+    const chip = page.locator('.status-pop')
+    assert((await chip.count()) === 1, `下の帯に出ていない（${await chip.count()}個）`)
+    const txt = await chip.first().textContent()
+    assert(txt.includes('プロジェクト'), `別のパネルが出ている（${txt}）`)
+    await chip.first().click()
+    await page.waitForTimeout(1500)
+    assert(popWindows().length === 0, '押しても別ウィンドウが閉じない')
+    assert((await page.locator('.status-pop').count()) === 0, '戻したのに帯に残っている')
+  })
+
   await check('別ウィンドウを閉じると、パネルが本体へ戻る', async () => {
+    // 上の項目で戻してしまったので、もう一度出してから閉じる
+    await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    await page.locator('.ctx-item', { hasText: '別ウィンドウで開く' }).first().click()
+    await page.waitForTimeout(2000)
     const before = await page.locator('.panel-tabs-strip').count()
     const pop = popWindows()[0]
     assert(pop, '別ウィンドウが無い')
@@ -3569,7 +3765,7 @@ try {
 
   // 画面の記録は「通しで回したとき」と「撮るだけのとき」だけ。
   // 絞って回すたびに同じ画面を撮っても、前のものと変わらず意味が無い。
-  if (!ONLY || SHOT_ONLY) {
+  if (!ONLY.length || SHOT_ONLY) {
     await check(
       '最後の画面をスクリーンショットに残す',
       async () => {
@@ -3587,6 +3783,19 @@ try {
   const skipped = results.filter((r) => r.skipped).length
   const ng = results.filter((r) => !r.ok && !r.skipped)
   console.log(`\n\x1b[1m結果: ${ok} / ${results.length} 件が期待どおり\x1b[0m`)
+  // 絞って回したときは、必ず「全部は見ていない」と出す。
+  // これが無いと、緑を見て「通った＝大丈夫」と読んでしまう。
+  if (ONLY.length && skipped) {
+    console.log(
+      `\x1b[33m※ 絞って回しました（${ONLY.join(' / ')}）。${skipped} 件は見ていません。` +
+        `最終確認は絞らずに 1 回。\x1b[0m`
+    )
+    if (CHANGED_INFO?.unknown.length) {
+      console.log(
+        `\x1b[33m※ 対応表に無いファイルの変更は見ていません: ${CHANGED_INFO.unknown.join(', ')}\x1b[0m`
+      )
+    }
+  }
   if (ng.length) {
     console.log('\n直すべきもの:')
     for (const r of ng) {
