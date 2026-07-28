@@ -23,3 +23,4 @@ e2e/ng-report.json
 # 置き方は resources/ffmpeg/README.md、確認は npm run check:ffmpeg
 resources/ffmpeg/*.exe
 resources/ffmpeg/*.dll
+dist/
