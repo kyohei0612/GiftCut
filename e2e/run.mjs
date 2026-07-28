@@ -1529,8 +1529,8 @@ try {
     await page.waitForTimeout(600)
     const after = await clipLayout()
     assert(after[0].x > before[0].x + 5, '編集（クリップの移動）ができていない')
-    // 「＊」の判定は一定間隔で更新されるので、少し待ってから見る
-    await page.waitForTimeout(1100)
+    // 「＊」は編集が止まってから見直される（以前の0.8秒ごとの総当たりをやめた）
+    await page.waitForTimeout(600)
     const dirty = await page.locator('.modebar-title').first().textContent()
     assert(dirty.includes('*'), `編集したのに「＊」が出ていない: ${dirty.slice(0, 60)}`)
     // 開いているファイルへ上書き保存される（別名保存のダイアログは出ない）
@@ -1538,6 +1538,23 @@ try {
     await page.waitForTimeout(1600)
     const clean = await page.locator('.modebar-title').first().textContent()
     assert(!clean.includes('*'), `保存したのに「＊」が残っている: ${clean.slice(0, 60)}`)
+  })
+
+  await check('元に戻して保存時と同じ内容になれば「＊」も消える', async () => {
+    // 「＊」は保存した内容と今の内容を直接くらべて決めている。
+    // 変わった回数を数える作りにすると、元に戻しても「＊」が残ってしまう。
+    const before = await clipLayout()
+    await dragBy(v1Clips().nth(0), (await clipW()) * 0.3)
+    await page.waitForTimeout(700)
+    const dirty = await page.locator('.modebar-title').first().textContent()
+    assert(dirty.includes('*'), `動かしたのに「＊」が出ていない: ${dirty.slice(0, 60)}`)
+
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(700)
+    const after = await clipLayout()
+    assert(Math.abs(after[0].x - before[0].x) < 3, '元に戻せていない（位置が戻っていない）')
+    const clean = await page.locator('.modebar-title').first().textContent()
+    assert(!clean.includes('*'), `保存時と同じ内容なのに「＊」が残っている: ${clean.slice(0, 60)}`)
   })
 
   await check('保存すると「最近使ったプロジェクト」に増える', async () => {

@@ -114,6 +114,11 @@ const RULER_H = 24
 //   ここだけ足して他を直し忘れると、掴んだ場所と実際の段がずれる。
 const TRACK_PAD_ROWS = 2
 
+// 自動保存（落ちたときの下書き）の間隔。
+// 落ちて失うのは最大でこの間隔ぶん。普通に閉じた場合は beforeunload で書き出すので
+// 取りこぼさない。短くすれば安心だが、そのぶん書き込みが増える。
+const AUTOSAVE_MS = 5 * 60 * 1000
+
 // トラック高さ（映像/音声グループごとにまとめて可変）。デフォはプレミア風に少し狭め
 const TRACK_H_MIN = 26
 const TRACK_H_MAX = 160
@@ -3193,6 +3198,9 @@ export default function App(): JSX.Element {
     kind: 'in' | 'out' | 'between'
   } | null>(null)
   const [newTelopStyle, setNewTelopStyle] = useState<TelopStyle>(defaultTelopStyle) // 新規テロップの既定
+  // 新規トランジションの長さ(秒)。D&D で置く時の初期長さ。置いた後は帯の端ドラッグ/選択で変更。
+  // ※プロジェクトに保存する値なので、未保存判定の依存配列より前で宣言しておくこと。
+  const [transDur, setTransDur] = useState(0.4)
   const draggingTemplateRef = useRef<TelopStyle | null>(null) // テンプレをテロップへD&D中
   const [userTemplates, setUserTemplates] = useState<TelopTemplate[]>(loadUserTemplates)
   function saveCurrentAsTemplate(): void {
@@ -5218,7 +5226,8 @@ export default function App(): JSX.Element {
   function hasUnsavedChanges(): boolean {
     try {
       if (!hasProjectContent()) return false
-      return savedJsonRef.current !== projectJsonRef.current()
+      // ここはその場で比べ直す（「＊」の更新が遅れていても、閉じるときは必ず正しい）
+      return savedJsonRef.current !== currentJsonRef.current()
     } catch {
       return false
     }
@@ -5254,7 +5263,7 @@ export default function App(): JSX.Element {
       savedJsonRef.current = saved // ここを「保存済み」の基準にする
       baselineRef.current = snapNow() // 保存時点を「未編集」の基準にする
       rememberProject(res.path) // ファイルメニューの「最近使ったプロジェクト」に出す
-      markUnsavedRef.current() // タイトルの「＊」を待たずに消す
+      markUnsavedRef.current(saved) // タイトルの「＊」を待たずに消す
       showToast('プロジェクトを保存しました:\n' + res.path, 'success')
     } else if (res?.error && res.error !== 'キャンセル')
       showToast('保存失敗: ' + res.error, 'error')
@@ -5823,7 +5832,9 @@ export default function App(): JSX.Element {
     setProjectPath(srcPath ?? (typeof d.projectPath === 'string' ? d.projectPath : null))
     // 開いた直後は「未保存の変更なし」。次のレンダー後の内容を基準にする
     window.setTimeout(() => {
-      savedJsonRef.current = projectJsonRef.current()
+      const json = projectJsonRef.current()
+      savedJsonRef.current = json
+      markUnsavedRef.current(json) // タイトルの「＊」もその場で消す
     }, 0)
     if (typeof d.srtPath === 'string') setSrtPath(d.srtPath)
     // 将来の新形式を旧バイナリが黙って読み書きして壊さないための検証
@@ -5927,23 +5938,32 @@ export default function App(): JSX.Element {
     data: unknown
     videoExists: boolean
   } | null>(null)
-  // 30秒ごとに、内容が変わっていれば自動保存。
   // ★依存配列を空にしてタイマーを一度だけ作る（毎レンダー再生成だと再生/編集中に一度も発火しないバグ）。
   //   最新state参照は ref 経由（projectJson/hasProjectContent は毎レンダー再代入）。
   const projectJsonRef = useRef(projectJson)
   projectJsonRef.current = projectJson
   const hasContentRef = useRef(hasProjectContent)
   hasContentRef.current = hasProjectContent
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      if (!hasContentRef.current()) return
-      const json = projectJsonRef.current()
-      if (json === lastAutosaveRef.current) return
-      lastAutosaveRef.current = json
-      void window.giftcut?.autosaveProject?.(json)
-    }, 30000)
-    return () => window.clearInterval(id)
-  }, [])
+
+  // プロジェクト全体を文字列にするのは重い（クリップ・テロップが増えるほど）。
+  // 「保存済みと同じか」と「自動保存に書くか」は同じ文字列を使うので、
+  // 1レンダーにつき1回だけ作って使い回す。
+  //
+  // 使い回してよい根拠: プロジェクトの中身はすべて React の state なので、
+  // 変われば必ず描き直され、projectJson の関数そのものが作り直される。
+  // ＝関数が同じなら中身も同じ。
+  const jsonCacheRef = useRef<{ fn: typeof projectJson; json: string } | null>(null)
+  const currentJson = (): string => {
+    const fn = projectJsonRef.current
+    const hit = jsonCacheRef.current
+    if (hit && hit.fn === fn) return hit.json
+    const json = fn()
+    jsonCacheRef.current = { fn, json }
+    return json
+  }
+  const currentJsonRef = useRef(currentJson)
+  currentJsonRef.current = currentJson
+
   // 未保存かどうかをメインプロセスへ通知（×ボタンで閉じるときの確認ダイアログに使う）。
   // ついでに画面のタイトルに出す「＊」もここで決める。
   //
@@ -5951,29 +5971,98 @@ export default function App(): JSX.Element {
   // 編集の450ms後に false へ戻るので、未保存でも「＊」が消えていた。
   // ＝「＊が無い＝保存済み」と思って閉じると編集が飛ぶ。保存済みの内容と
   // 今の内容を直接比べたこの判定を、閉じる確認とタイトルで共通に使う。
-  const markUnsaved = (): void => {
+  //
+  // nowJson: 保存直後など「今の内容」が手元にあるときに渡す。渡さないと
+  // まだ描き直される前の古い内容と比べてしまい、「＊」が一瞬ちらつく。
+  const lastDirtySentRef = useRef<boolean | null>(null)
+  const markUnsaved = (nowJson?: string): void => {
     try {
-      const dirty = hasContentRef.current() ? savedJsonRef.current !== projectJsonRef.current() : false
+      const cur = nowJson ?? currentJsonRef.current()
+      const dirty = hasContentRef.current() ? savedJsonRef.current !== cur : false
       setUnsaved(dirty)
-      window.giftcut?.setDirty?.(dirty)
+      // 同じ値を送り続けない（以前は0.8秒ごとに毎回IPCを投げていた）
+      if (dirty !== lastDirtySentRef.current) {
+        lastDirtySentRef.current = dirty
+        window.giftcut?.setDirty?.(dirty)
+      }
     } catch {
       /* noop */
     }
   }
   const markUnsavedRef = useRef(markUnsaved)
   markUnsavedRef.current = markUnsaved
+
+  // 「＊」の付け外しは、以前は0.8秒ごとに総当たりで見ていた。
+  // それだと何も編集していない間も、再生しているだけの間も、ずっと
+  // プロジェクト全体を文字列にし続けることになる（長い素材ほど効く）。
+  //
+  // なので中身が変わったときだけ見直す。編集が止まってから 300ms 後に1回。
+  // 依存配列は projectJson が読んでいる値ぜんぶ。片方だけ足すと「＊」が
+  // 出ないので、projectJson を触ったらここも触ること。
+  //
+  // 万一ここに書き漏らしても、閉じるときの確認は hasUnsavedChanges() が
+  // その場で比べ直すので、編集が黙って消えることはない（「＊」が遅れるだけ）。
+  const projectRevRef = useRef(0)
   useEffect(() => {
-    const id = window.setInterval(() => markUnsavedRef.current(), 800)
+    projectRevRef.current += 1
+    const id = window.setTimeout(() => markUnsavedRef.current(), 300)
+    return () => window.clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    videoPath,
+    missingMedia,
+    srtPath,
+    sources,
+    ratio,
+    tracks,
+    cues,
+    segments,
+    seClips,
+    markers,
+    imgClips,
+    vClips,
+    trackStates,
+    mediaItems,
+    iconSide,
+    iconOffset,
+    iconScale,
+    iconAuto,
+    iconAnchorPos,
+    iconAssign,
+    laneIconAssign,
+    exportOpts,
+    loudnormLUFS,
+    masterVolume,
+    transDur,
+    newTelopStyle,
+    projectPath
+  ])
+
+  // 自動保存（クラッシュしたときの下書き）。5分ごと。
+  // 中身が変わっていなければ文字列にすらしない＝待機中・再生中はゼロ。
+  // 間隔を縮めたければ AUTOSAVE_MS だけ変えればよい。落ちたときに失うのは
+  // 最大でこの間隔ぶん（普通に閉じた場合は下の beforeunload で取りこぼさない）。
+  const autosavedRevRef = useRef(-1)
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (!hasContentRef.current()) return
+      if (projectRevRef.current === autosavedRevRef.current) return // 何も変わっていない
+      autosavedRevRef.current = projectRevRef.current
+      const json = currentJsonRef.current()
+      if (json === lastAutosaveRef.current) return
+      lastAutosaveRef.current = json
+      void window.giftcut?.autosaveProject?.(json)
+    }, AUTOSAVE_MS)
     return () => window.clearInterval(id)
   }, [])
   // 終了/リロード直前に、その時点の内容を自動保存へ流し込む。
-  // （30秒間隔のタイマーだけだと、閉じた瞬間に最大30秒ぶんの編集が無警告で消える）
+  // （間隔タイマーだけだと、閉じた瞬間に最大その間隔ぶんの編集が無警告で消える）
   // ※ここでは閉じるのをキャンセルしない（Electronでは無言で閉じられなくなるため）。
   //   未保存の確認はメインプロセスのネイティブダイアログで行う（project:dirty を通知）。
   useEffect(() => {
     const onBeforeUnload = (): void => {
       if (!hasContentRef.current()) return
-      const json = projectJsonRef.current()
+      const json = currentJsonRef.current()
       if (json !== lastAutosaveRef.current) {
         lastAutosaveRef.current = json
         void window.giftcut?.autosaveProject?.(json) // 最後のフラッシュ
@@ -7224,8 +7313,6 @@ export default function App(): JSX.Element {
       prev.map((s) => (isVideoSel(s.id) ? { ...s, [key]: s[key] ? undefined : true } : s))
     )
   }
-  // 新規トランジションの長さ(秒)。D&D で置く時の初期長さ。置いた後は帯の端ドラッグ/選択で変更。
-  const [transDur, setTransDur] = useState(0.4)
   // タイムラインのトランジション枠を選択（動画クリップは選択しない＝トランジションだけを編集対象に）。
   function selectTransition(segId: number, kind: 'in' | 'out' | 'xfade'): void {
     setSelectedTrackId(null)

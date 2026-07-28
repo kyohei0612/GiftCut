@@ -312,3 +312,73 @@ describe('起動直後の画面', () => {
     expect(again!.className, '再起動でONに戻ってしまった').not.toContain('tool-on')
   })
 })
+
+// ===========================================================================
+describe('未保存の「＊」と自動保存', () => {
+  /** App.tsx の projectJson が保存している項目名を取り出す */
+  function savedFields(src: string): string[] {
+    const from = src.indexOf('function projectJson(')
+    expect(from, 'projectJson が見つからない').toBeGreaterThan(-1)
+    const body = src.slice(from, src.indexOf('\n  }', from))
+    // JSON.stringify に渡すオブジェクトの直下の項目だけ（＝インデント8つ）
+    return [...body.matchAll(/^ {8}(\w+)\s*[:,]/gm)].map((m) => m[1])
+  }
+
+  /** 「＊」を見直す useEffect の依存配列を取り出す */
+  function dirtyDeps(src: string): string[] {
+    const anchor = src.indexOf('const projectRevRef = useRef(0)')
+    expect(anchor, '未保存判定の useEffect が見つからない').toBeGreaterThan(-1)
+    const open = src.indexOf('}, [', anchor)
+    const list = src.slice(open + 4, src.indexOf('])', open))
+    return [...list.matchAll(/\b([a-zA-Z_]\w*)\b/g)].map((m) => m[1])
+  }
+
+  it('保存する項目はすべて「＊」の見直し対象に入っている', async () => {
+    // 「＊」は 0.8 秒ごとの総当たりをやめ、中身が変わったときだけ見直すように
+    // した。依存配列は手で書くので、projectJson に項目を足して依存を足し忘れると
+    // 「＊」が出なくなる。人が気づけないので、ここで機械に見張らせる。
+    const src = await import('./App?raw').then((m) => m.default as string)
+    const fields = savedFields(src)
+    const deps = dirtyDeps(src)
+
+    expect(fields.length, '保存項目を1つも読み取れていない（書式が変わった？）').toBeGreaterThan(20)
+    expect(deps.length, '依存配列を読み取れていない（書式が変わった？）').toBeGreaterThan(20)
+
+    // version は定数、projectPath は保存時に差し替えるので名前が一致しない
+    const exempt = new Set(['version'])
+    const missing = fields.filter((f) => !exempt.has(f) && !deps.includes(f))
+    expect(
+      missing,
+      `projectJson に足したのに「＊」の依存配列に入っていない: ${missing.join(', ')}`
+    ).toEqual([])
+  })
+
+  it('自動保存は5分ごと（短すぎる指定に戻っていない）', async () => {
+    const src = await import('./App?raw').then((m) => m.default as string)
+    const m = src.match(/const AUTOSAVE_MS = ([^\n]+)/)
+    expect(m, 'AUTOSAVE_MS が見つからない').not.toBeNull()
+    // 「5 * 60 * 1000」のような書き方もそのまま読めるようにする
+    const ms = m![1].split('*').reduce((a, b) => a * Number(b.trim()), 1)
+    expect(Number.isFinite(ms), `AUTOSAVE_MS を読み取れない: ${m![1]}`).toBe(true)
+    expect(ms, '自動保存の間隔が1分未満（毎回プロジェクト全体を書き出すことになる）').toBeGreaterThanOrEqual(60_000)
+    expect(ms, '自動保存の間隔が10分超（落ちたときに失う量が大きすぎる）').toBeLessThanOrEqual(600_000)
+  })
+
+  it('待機中はプロジェクト全体を何度も文字列にしない', async () => {
+    // 以前は 0.8 秒ごとに JSON.stringify していた。素材が長いほど効くので、
+    // 何も編集していない間は走らないことを実際に測る。
+    await mountApp()
+    // 起動直後の1回（基準づくり）は正しい動きなので、落ち着くまで待ってから測る
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 500))
+    })
+    const spy = vi.spyOn(JSON, 'stringify')
+    const before = spy.mock.calls.length
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 1200)) // 以前ならこの間に1〜2回
+    })
+    const during = spy.mock.calls.length - before
+    spy.mockRestore()
+    expect(during, `待機中なのに ${during} 回も文字列化している`).toBe(0)
+  })
+})
