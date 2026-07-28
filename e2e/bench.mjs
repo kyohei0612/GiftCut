@@ -29,7 +29,9 @@ import {
   rmSync,
   existsSync,
   statSync,
-  readdirSync
+  readdirSync,
+  copyFileSync,
+  linkSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -225,6 +227,8 @@ function buildProject(
     imgs = 0,
     marks = 0,
     media = 1,
+    /** 素材ビンに並べる「別ファイル」の一覧。省略すると全部同じファイルになる */
+    mediaFiles = null,
     strokes = 0,
     shadows = 0,
     kinds = 0
@@ -273,8 +277,14 @@ function buildProject(
     })),
     vClips: [],
     markers: spread(marks, (i, t) => ({ id: i + 1, t: +t.toFixed(2), label: 'め' + i })),
+    // 素材ビンの中身。
+    //
+    // **全部が同じファイルだと、実際より軽く出る。** アプリは「同じファイルの
+    // サムネは作り直さない」ので、1件ぶんの手間しかかからない。
+    // 実際にフォルダを丸ごと読み込むときは全部が別ファイルなので、
+    // mediaFiles（別ファイルの一覧）が渡されたらそちらを使う。
     mediaItems: Array.from({ length: media }, (_, i) => ({
-      path: video,
+      path: mediaFiles?.[i % Math.max(1, mediaFiles.length)] ?? video,
       name: `bench${i}.mp4`,
       kind: 'video'
     })),
@@ -1396,14 +1406,59 @@ try {
         grab: 'scrub'
       },
       {
-        name: '素材ビンの数',
+        name: '素材ビンの数（同じファイル）',
         key: 'media',
         values: [10, 100, 500, 2000],
         label: (v) => `${v}件`,
         base: { telops: 50, clips: 12 },
         grab: 'clip'
+      },
+      {
+        // フォルダを丸ごと読み込む使い方は、全部が別ファイルになる。
+        // 同じファイルを並べた測定より重いはずで、そこが実際の上限になる。
+        name: '素材ビンの数（全部が別ファイル）',
+        key: 'media',
+        values: [100, 500, 2000],
+        label: (v) => `${v}件`,
+        base: { telops: 50, clips: 12, mediaFiles: makeDistinctMedia(2000) },
+        grab: 'clip'
       }
     ]
+
+    /**
+     * 別ファイルを n 個作る（素材ビンの「フォルダ丸ごと読み込み」を再現する）。
+     *
+     * 中身は同じでよいが、**パスは全部違う**必要がある。アプリは同じファイルの
+     * サムネを作り直さないので、同じパスを並べると1件ぶんの手間しか出ない。
+     */
+    function makeDistinctMedia(n) {
+      const dir = join(fx.dir, 'many')
+      mkdirSync(dir, { recursive: true })
+      // 元は短いものを使う（本編の10分素材を2000個ぶん解析すると、
+      // 測定そのものが何時間もかかって終わらない）。
+      const cacheDir = join(ROOT, 'e2e', '.cache')
+      const short = existsSync(cacheDir)
+        ? readdirSync(cacheDir)
+            .filter((f) => f.endsWith('.mp4') && !f.startsWith('bench-'))
+            .map((f) => join(cacheDir, f))[0]
+        : null
+      const src = short ?? video
+      const out = []
+      for (let i = 0; i < n; i++) {
+        const f = join(dir, `m${String(i).padStart(4, '0')}.mp4`)
+        if (!existsSync(f)) {
+          // 中身は同じでよく、違う必要があるのは**パスだけ**。
+          // 2000個コピーすると数GB使うので、ハードリンクで済ませる。
+          try {
+            linkSync(src, f)
+          } catch {
+            copyFileSync(src, f)
+          }
+        }
+        out.push(f)
+      }
+      return out
+    }
 
     for (const sw of sweeps) {
       let lastOk = null

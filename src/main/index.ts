@@ -36,6 +36,32 @@ let exportCanceled = false
 let projectDirty = false
 const liveProcs = new Set<ChildProcess>()
 const liveTmpDirs = new Set<string>()
+// ---- ffmpeg / ffprobe の場所 ----
+//
+// 渡した相手の PC に ffmpeg は入っていない。**同梱したものを使う。**
+// PATH 頼みのままだと、配布した瞬間に何も動かない（読み込みも波形も書き出しも
+// 全部これを呼んでいる）。
+//
+// 同梱するのは **LGPL 版**。GPL 版（x264 入り）を同梱すると、アプリ全体を
+// GPL で配ることになり、ソース公開の義務が付く。
+// LGPL 版には x264 が入っていないので、CPU で焼くときは OpenH264 を使う
+// （Cisco が特許料を肩代わりしている配布形態。買わずに H.264 を出せる）。
+function ffBin(name: 'ffmpeg' | 'ffprobe'): string {
+  const exe = process.platform === 'win32' ? `${name}.exe` : name
+  const cands = app.isPackaged
+    ? [join(process.resourcesPath, 'ffmpeg', exe)]
+    : [
+        join(app.getAppPath(), 'resources', 'ffmpeg', exe),
+        join(process.cwd(), 'resources', 'ffmpeg', exe)
+      ]
+  for (const c of cands) {
+    if (existsSync(c)) return c
+  }
+  return name // 同梱が無ければ PC のものを使う（開発中はこれで足りる）
+}
+const FFMPEG = ffBin('ffmpeg')
+const FFPROBE = ffBin('ffprobe')
+
 // ---- 映像を焼くのに使うもの（CPU か、GPU か）----
 //
 // GPU で焼けると、画質を落とさずに書き出しが速くなる（1080p の実測で 12.9秒 → 9.9秒）。
@@ -62,15 +88,27 @@ const ENCODERS: Enc[] = [
     args: (crf) => ['-c:v', 'h264_amf', '-rc', 'cqp', '-qp_i', String(crf), '-qp_p', String(crf)]
   },
   {
+    // 開発機など、x264 入り（GPL）の ffmpeg があるときはこちらが一番きれい。
+    // 配布物には入っていないので、実際に使われるのは開発中だけ。
     v: 'libx264',
     label: 'CPU',
     args: (crf) => ['-c:v', 'libx264', '-crf', String(crf), '-preset', 'medium']
+  },
+  {
+    // GPU が1つも使えず、x264 も無い機械のための最後の砦。
+    // 画質は x264 に劣るが、**買わずに H.264 を出せる**（Cisco が特許料を
+    // 肩代わりしている OpenH264）。これが無いと、GPU の無い PC で
+    // 「書き出せないアプリ」になる。
+    v: 'libopenh264',
+    label: 'CPU（OpenH264）',
+    // -crf は使えないので、品質の指定を量子化パラメータに読み替える
+    args: (crf) => ['-c:v', 'libopenh264', '-qp', String(Math.min(51, Math.max(0, crf)))]
   }
 ]
 /** 実際に1枚焼いてみて、そのエンコーダが本当に使えるか確かめる */
 function tryEncoder(enc: Enc): Promise<boolean> {
   return new Promise((res) => {
-    const p = spawn('ffmpeg', [
+    const p = spawn(FFMPEG, [
       '-v', 'error',
       '-f', 'lavfi',
       '-i', 'color=c=black:s=320x240',
@@ -103,14 +141,17 @@ let encoderPick: Promise<Enc> | null = null
 function videoEncoder(): Promise<Enc> {
   if (!encoderPick) {
     encoderPick = (async () => {
-      for (const e of ENCODERS) {
-        if (e.v === 'libx264') break
+      // 上から順に、実際に1枚焼けたものを使う。
+      // 最後の1つ（OpenH264）は「これしか無い」ときの砦なので、
+      // 試して駄目でもそれを返す（返せる物が無いと書き出し自体ができない）。
+      for (const e of ENCODERS.slice(0, -1)) {
         if (await tryEncoder(e)) {
           console.log(`[書き出し] ${e.label} を使います（${e.v}）`)
           return e
         }
       }
-      console.log('[書き出し] CPU を使います（libx264）')
+      const last = ENCODERS[ENCODERS.length - 1]
+      console.log(`[書き出し] ${last.label} を使います（${last.v}）`)
       return ENCODERS[ENCODERS.length - 1]
     })()
   }
@@ -163,7 +204,7 @@ function killAllChildren(): void {
 // ffprobe 不在等は 'unknown' を返し、呼び出し側は「音声あり」として扱う（無言化を避ける）。
 function hasAudioStream(path: string): Promise<boolean | 'unknown'> {
   return new Promise((resolve) => {
-    const p = trackedSpawn('ffprobe', [
+    const p = trackedSpawn(FFPROBE, [
       '-v',
       'error',
       '-select_streams',
@@ -515,7 +556,7 @@ app.whenReady().then(() => {
   ipcMain.handle('media:duration', async (_e, path: string) => {
     if (!path || !allowedFiles.has(normalize(path))) return { ok: false }
     return await new Promise((resolve) => {
-      const p = trackedSpawn('ffprobe', [
+      const p = trackedSpawn(FFPROBE, [
         '-v',
         'error',
         '-show_entries',
@@ -540,7 +581,7 @@ app.whenReady().then(() => {
   ipcMain.handle('media:fps', async (_e, path: string) => {
     if (!path || !allowedFiles.has(normalize(path))) return { ok: false }
     return await new Promise((resolve) => {
-      const p = trackedSpawn('ffprobe', [
+      const p = trackedSpawn(FFPROBE, [
         '-v',
         'error',
         '-select_streams',
@@ -1076,7 +1117,7 @@ app.whenReady().then(() => {
     const out = join(app.getPath('temp'), 'giftcut_thumb_' + Date.now() + '.png')
     const args = ['-y', '-ss', '0.5', '-i', videoPath, '-frames:v', '1', '-vf', 'scale=240:-1', out]
     return await new Promise((resolve) => {
-      const ff = spawn('ffmpeg', args)
+      const ff = spawn(FFMPEG, args)
       let err = ''
       ff.stderr.on('data', (d) => {
         err += d.toString()
@@ -1127,7 +1168,7 @@ app.whenReady().then(() => {
     }
     // 進捗計算用に総時間を取得
     const durSec = await new Promise<number>((resolve) => {
-      const p = spawn('ffprobe', [
+      const p = spawn(FFPROBE, [
         '-v',
         'error',
         '-show_entries',
@@ -1173,7 +1214,7 @@ app.whenReady().then(() => {
       tmp
     ]
     return await new Promise((resolve) => {
-      const ff = spawn('ffmpeg', args)
+      const ff = spawn(FFMPEG, args)
       let err = ''
       ff.stderr.on('data', (d) => {
         const s = d.toString()
@@ -1230,7 +1271,7 @@ app.whenReady().then(() => {
       const db = Math.min(-5, Math.max(-90, Number(noiseDb) || -35))
       const min = Math.min(5, Math.max(0.05, Number(minSec) || 0.35))
       return await new Promise((resolve) => {
-        const p = trackedSpawn('ffmpeg', [
+        const p = trackedSpawn(FFMPEG, [
           '-v', 'info',
           '-i', videoPath,
           '-map', '0:a:0?',
@@ -1282,7 +1323,7 @@ app.whenReady().then(() => {
     // ピーク検出には十分。aresample は 48k 化のみで実質ダウンサンプリングしない）
     const args = ['-v', 'error', '-i', videoPath, '-ac', '1', '-ar', String(rate), '-f', 'f32le', '-']
     return await new Promise((resolve) => {
-      const ff = spawn('ffmpeg', args)
+      const ff = spawn(FFMPEG, args)
       const mins: number[] = []
       const maxs: number[] = []
       let curMin = 0
@@ -2116,7 +2157,7 @@ app.whenReady().then(() => {
       exportCanceled = false
       // cwd=tmp: テロップPNG・フィルタを相対パスで渡してコマンドライン長を抑える
       // （元動画・出力先は絶対パスなので cwd の影響を受けない）
-      const ff = spawn('ffmpeg', args, { cwd: tmp })
+      const ff = spawn(FFMPEG, args, { cwd: tmp })
       currentExportFf = ff
       let err = ''
       ff.stderr.on('data', (d) => {
@@ -2143,7 +2184,9 @@ app.whenReady().then(() => {
         cleanup()
         resolve({ ok: false, error: 'ffmpeg起動失敗: ' + er.message })
       })
-      ff.on('close', (code) => {
+      // async にしているのは、GPU で失敗したときに「CPU 側で使える物」を
+      // その場で試してから焼き直すため（x264 があるとは限らない）
+      ff.on('close', async (code) => {
         cleanup()
         if (exportCanceled) {
           // 中断: 書きかけの出力ファイルを消してキャンセル扱いで返す
@@ -2164,24 +2207,20 @@ app.whenReady().then(() => {
         // ここで諦めると「書き出せないアプリ」になってしまう。
         const usedGpu = args.some((a) => a === 'h264_nvenc' || a === 'h264_qsv' || a === 'h264_amf')
         if (usedGpu && !exportCanceled) {
-          console.warn('[書き出し] GPU で失敗したので CPU でやり直します')
-          encoderPick = Promise.resolve(ENCODERS[ENCODERS.length - 1]) // 以降も CPU
-          const cpuArgs = args.map((a) =>
-            a === 'h264_nvenc' || a === 'h264_qsv' || a === 'h264_amf' ? 'libx264' : a
-          )
-          // GPU 用の細かい指定を落として、CPU 用に組み直す
-          const cut = new Set(['-preset', '-rc', '-cq', '-global_quality', '-qp_i', '-qp_p'])
-          const fixed: string[] = []
-          for (let i = 0; i < cpuArgs.length; i++) {
-            if (cut.has(cpuArgs[i])) {
-              i++
-              continue
-            }
-            fixed.push(cpuArgs[i])
-          }
-          const at = fixed.indexOf('libx264')
-          if (at >= 0) fixed.splice(at + 1, 0, '-crf', String(crf), '-preset', 'medium')
-          const ff2 = spawn('ffmpeg', fixed, { cwd: tmp })
+          // CPU で焼き直す。**x264 があるとは限らない**（配布物は LGPL 版で、
+          // x264 は入っていない）ので、実際に使える方を選ぶ。
+          const x264 = ENCODERS.find((e) => e.v === 'libx264')!
+          const oh264 = ENCODERS.find((e) => e.v === 'libopenh264')!
+          const cpu = (await tryEncoder(x264)) ? x264 : oh264
+          console.warn(`[書き出し] GPU で失敗したので ${cpu.label} でやり直します`)
+          encoderPick = Promise.resolve(cpu) // 以降もこれを使う
+          // エンコーダの指定は '-c:v' から '-pix_fmt' の手前までに入っている。
+          // そこを丸ごと差し替える（GPU 用の細かい指定も一緒に消える）。
+          const fixed = [...args]
+          const from = fixed.indexOf('-c:v')
+          const to = fixed.indexOf('-pix_fmt')
+          if (from >= 0 && to > from) fixed.splice(from, to - from, ...cpu.args(crf))
+          const ff2 = spawn(FFMPEG, fixed, { cwd: tmp })
           currentExportFf = ff2
           let err2 = ''
           ff2.stderr.on('data', (d) => {

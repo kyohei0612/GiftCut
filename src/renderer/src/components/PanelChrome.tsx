@@ -364,6 +364,24 @@ function PaneWindow({
       window.dispatchEvent(new MouseEvent('click'))
     }
     w.addEventListener('click', forwardClick, true)
+    // ショートカットも流す。
+    //
+    // ただし**文字を打っている最中は流さない**。流すと、打った文字が
+    // そのままショートカットとして効いて、1文字打つたびに削除や分割が走る。
+    // 本体側は「押された相手が入力欄かどうか」で判断しているが、
+    // 流したイベントの相手は本体の窓になるので、ここで見るしかない。
+    const forwardKey = (ev: KeyboardEvent): void => {
+      const el = ev.target as HTMLElement | null
+      const tag = el?.tagName
+      const typing =
+        (tag === 'INPUT' && (el as HTMLInputElement).type !== 'range') ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        el?.isContentEditable === true
+      if (typing) return
+      window.dispatchEvent(new KeyboardEvent(ev.type, ev))
+    }
+    w.addEventListener('keydown', forwardKey, true)
     // 本体が読み込み直されると、この中身を描いていた側がいなくなる。
     // 別ウィンドウだけが「もう動かない画面」として残るので、道連れに閉じる
     // （実際、再読み込みで1枚取り残された）。
@@ -389,6 +407,7 @@ function PaneWindow({
         w.removeEventListener(t, forward as EventListener, true)
       }
       w.removeEventListener('click', forwardClick, true)
+      w.removeEventListener('keydown', forwardKey as EventListener, true)
       // すぐ閉じない。置き直し（開発モードの2回走り）なら、この直後に
       // また置かれるので、そのときは閉じるのをやめる
       const slot = PANE_WINDOWS[id]

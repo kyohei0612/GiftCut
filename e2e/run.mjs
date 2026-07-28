@@ -3089,6 +3089,49 @@ try {
     assert(!page.isClosed(), '本体が落ちた')
   })
 
+  await check('別ウィンドウを選んだままでも、ショートカットが効く', async () => {
+    // 別ウィンドウで作業している最中に、いちいち本体を選び直すのは面倒。
+    for (const w of popWindows()) await w.close().catch(() => {})
+    await page.waitForTimeout(1200)
+    await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    await page.locator('.ctx-item', { hasText: 'このパネルを切り離す' }).first().click()
+    await page.waitForTimeout(2000)
+    const pop = popWindows()[0]
+    assert(pop, '別ウィンドウが開かない')
+    const clips = () => page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)').count()
+    const before = await clips()
+    // 別ウィンドウを選んでから、そちらで Ctrl+K（分割）を押す
+    await pop.locator('.pane-pop-root').first().click({ position: { x: 5, y: 5 } })
+    await pop.keyboard.press('Control+k')
+    await page.waitForTimeout(800)
+    const after = await clips()
+    assert(after === before + 1, `別ウィンドウでショートカットが効かない（${before} → ${after}）`)
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(600)
+  })
+
+  await check('別ウィンドウで文字を打っても、ショートカットとして効かない', async () => {
+    // 流しっぱなしにすると、1文字打つたびに削除や分割が走る。
+    // 「効く」だけ見て「効いてはいけない場合」を見ないと、この事故を通す。
+    const pop = popWindows()[0]
+    assert(pop, '別ウィンドウが無い')
+    // 別ウィンドウの中の入力欄（プロジェクト名の検索など）を探す
+    const input = pop.locator('.pane-pop-root input[type="text"], .pane-pop-root textarea').first()
+    if (!(await input.count())) {
+      // 入力欄が無いパネルのときは、この確認は成立しない
+      throw new Error('別ウィンドウに入力欄が無い（この確認が成立していない）')
+    }
+    const clips = () => page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)').count()
+    const before = await clips()
+    await input.click()
+    await input.type('kkk') // k は分割のショートカット
+    await page.waitForTimeout(800)
+    const after = await clips()
+    assert(after === before, `文字を打っただけでクリップが増えた（${before} → ${after}）`)
+    await input.fill('')
+  })
+
   await check('本体の見た目が変わると、別ウィンドウにも追いつく', async () => {
     // 開いた瞬間の見た目を1回写すだけだと、別ウィンドウだけ古いまま取り残される。
     // 本体に見た目を足して、別ウィンドウに届くかを見る。

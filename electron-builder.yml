@@ -38,6 +38,13 @@ extraResources:
     to: テンプレート
     filter:
       - '**/*.gcproj'
+  # ffmpeg / ffprobe を同梱する。相手の PC には入っていないので、
+  # これが無いと読み込みも波形も書き出しも動かない。
+  #
+  # **置くのは LGPL 版だけ。** GPL 版（x264 入り）を置くと、GiftCut 全体を
+  # GPL で配ることになる。`npm run check:ffmpeg` が見張っている。
+  - from: resources/ffmpeg
+    to: ffmpeg
 
 win:
   target:
