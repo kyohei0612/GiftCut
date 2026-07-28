@@ -457,12 +457,11 @@ async function ngState() {
         ダイアログ: all('.modal, .restore-box').map((e) => txt(e).slice(0, 40)),
         // パネルの配置
         選ばれているタブ: all('.panel-tabs-strip').map((s) => txt(s.querySelector('.tab-on'))),
-        切り離し中: all('.pane-float').length,
+
         パネル幅: {
           左: localStorage.getItem('gc.leftW'),
           右: localStorage.getItem('gc.rightW'),
-          並び: localStorage.getItem('giftcut.tabOrder'),
-          切り離し: localStorage.getItem('giftcut.floatPanes')
+          並び: localStorage.getItem('giftcut.tabOrder')
         },
         モニタ: txt(document.querySelector('.panel.monitor .tab-on')),
         // 素材ビン
@@ -643,7 +642,6 @@ try {
   // 画面の配置に関わる保存先。プロジェクトの中身ではないので、
   // プロジェクトを開き直しても戻らない。
   const LAYOUT_KEYS = [
-    'giftcut.floatPanes', // 切り離したパネルの位置
     'giftcut.tabOrder', // タブの並び順
     'gc.leftW',
     'gc.rightW',
@@ -666,11 +664,7 @@ try {
    *   restore … 'reload'（読み込み直しでしか戻らない）か、その場で戻す関数
    */
   const VIEW_STATE = [
-    {
-      name: '切り離したパネル',
-      read: () => page.evaluate(() => String(document.querySelectorAll('.pane-float').length)),
-      restore: 'reload'
-    },
+
     {
       name: '開いたままのメニュー',
       read: () => page.evaluate(() => String(document.querySelectorAll('.ctx-menu').length)),
@@ -2791,68 +2785,19 @@ try {
   })
 
   // =========================================================================
-  section('パネルの切り離し（ドッキング解除）')
-  await resetProject()
-
-  await check('タブを右クリックして、パネルを切り離せる', async () => {
-    const monitorW = async () =>
-      page.locator('.panel.monitor').boundingBox().then((b) => b.width)
-    const w0 = await monitorW()
-    await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
-    await page.waitForSelector('.ctx-menu')
-    const item = page.locator('.ctx-item', { hasText: 'を切り離す' }).first()
-    assert(await item.count(), 'メニューに切り離しが無い')
-    await item.click()
-    await page.waitForTimeout(600)
-    assert((await page.locator('.pane-float').count()) > 0, '切り離されていない')
-    const w1 = await monitorW()
-    assert(w1 > w0 + 20, `切り離してもプレビューが広がらない（${Math.round(w0)} → ${Math.round(w1)}）`)
-  })
-
-  await check('切り離したパネルは掴んで動かせて、大きさも変えられる', async () => {
-    const pane = page.locator('.pane-float').first()
-    const b0 = await pane.boundingBox()
-    const head = pane.locator('.float-head')
-    const hb = await head.boundingBox()
-    await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(hb.x + hb.width / 2 - 120, hb.y + hb.height / 2 + 60, { steps: 6 })
-    await page.mouse.up()
-    await page.waitForTimeout(400)
-    const b1 = await pane.boundingBox()
-    assert(Math.abs(b1.x - b0.x) > 40, `動かせていない（${Math.round(b0.x)} → ${Math.round(b1.x)}）`)
-    const grip = pane.locator('.float-resize')
-    const gb = await grip.boundingBox()
-    await page.mouse.move(gb.x + gb.width / 2, gb.y + gb.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(gb.x + 90, gb.y + 60, { steps: 6 })
-    await page.mouse.up()
-    await page.waitForTimeout(400)
-    const b2 = await pane.boundingBox()
-    assert(b2.width > b1.width + 30, `大きさを変えられない（${Math.round(b1.width)} → ${Math.round(b2.width)}）`)
-  })
-
-  await check('「戻す」で元の場所に戻り、切り離した状態は覚えている', async () => {
-    await page.locator('.float-dock').first().click()
-    await page.waitForTimeout(600)
-    assert((await page.locator('.pane-float').count()) === 0, '元に戻っていない')
-    const saved = await page.evaluate(() => localStorage.getItem('giftcut.floatPanes'))
-    assert(saved !== null, '切り離しの状態が保存されていない')
-  })
-
   // =========================================================================
-  section('パネルを別ウィンドウ（別モニター）へ出す')
+  section('パネルの切り離し（別ウィンドウ・別モニター）')
   await resetProject()
 
   /** いま開いている別ウィンドウ（本体を除く） */
   const popWindows = () => app.windows().filter((w) => w !== page)
 
-  await check('タブの右クリックから、パネルを別ウィンドウで開ける', async () => {
+  await check('タブを右クリックして、パネルを切り離すと窓になる', async () => {
     const before = await page.locator('.panel-tabs-strip').count()
     await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
     await page.waitForSelector('.ctx-menu')
-    const item = page.locator('.ctx-item', { hasText: '別ウィンドウで開く' }).first()
-    assert(await item.count(), 'メニューに「別ウィンドウで開く」が無い')
+    const item = page.locator('.ctx-item', { hasText: 'このパネルを切り離す' }).first()
+    assert(await item.count(), 'メニューに切り離しが無い')
     await item.click()
     await page.waitForTimeout(2000)
     const pops = popWindows()
@@ -2895,31 +2840,73 @@ try {
     assert(after[0] === before[1], `別ウィンドウで並べ替えできない（${before.join(',')} → ${after.join(',')}）`)
   })
 
-  await check('切り離したパネルを枠の外まで持って行くと、別ウィンドウになる', async () => {
-    // 切り離しただけでは画面の中をうろうろするだけで、2枚目のモニターへ逃がせない。
-    // 掴んだまま外へ出せることが、この機能の入口になる。
+  await check('切り離した状態は保存され、開き直すと同じ形で始まる', async () => {
+    // 「今のこの状態」が戻らないと切り離す意味が無い。
+    // 配置はプロジェクトの中身と一緒に保存し、開き直したら同じ形にする。
+    const pop = popWindows()[0]
+    assert(pop, '別ウィンドウが無い')
+    // いまの配置（切り離し中）を、開いているファイルへ保存する
+    await page.keyboard.press('Control+s')
+    await page.waitForTimeout(1800)
+    const data = JSON.parse(readFileSync(fx.gcproj, 'utf-8'))
+    assert(data.layout, '保存した中身に画面の配置が入っていない')
+    assert(
+      Array.isArray(data.layout.panes) && data.layout.panes.includes('right'),
+      `切り離しているパネルが保存されていない（${JSON.stringify(data.layout.panes)}）`
+    )
+    assert(
+      typeof data.layout.leftW === 'number' && typeof data.layout.rightW === 'number',
+      'パネルの大きさが保存されていない'
+    )
+    const g = data.layout.geom?.right
+    assert(g && g.w > 0 && g.h > 0, `窓の大きさ・位置が保存されていない（${JSON.stringify(g)}）`)
+    // いったん本体へ戻してから、保存したものを開く
+    await pop.close()
+    await page.waitForTimeout(1500)
+    assert(popWindows().length === 0, '窓が閉じていない')
+    await setDialogFiles([fx.gcproj], null)
+    await page.keyboard.press('Control+o')
+    await page.waitForTimeout(3000)
+    const cont = page.locator('.modal-btn', { hasText: 'このまま続ける' })
+    if (await cont.count()) {
+      await cont.click()
+      await page.waitForTimeout(2500)
+    }
+    assert(popWindows().length === 1, `開き直しても切り離した形にならない（${popWindows().length}枚）`)
+    for (const w of popWindows()) await w.close().catch(() => {})
+    await page.waitForTimeout(1500)
+  })
+  await check('別ウィンドウのプレビューで、映像が出て再生できる', async () => {
+    // 動画の部品（video）が別の document へ移る。作り直しに失敗すると、
+    // 窓が白いまま・落ちる、という一番まずい形になる。
     for (const w of popWindows()) await w.close().catch(() => {})
     await page.waitForTimeout(1200)
-    await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
+    await page.locator('.panel.monitor .panel-tabs-strip .tab').first().click({ button: 'right' })
     await page.waitForSelector('.ctx-menu')
-    await page.locator('.ctx-item', { hasText: 'を切り離す' }).first().click()
-    await page.waitForTimeout(700)
-    assert((await page.locator('.pane-float').count()) > 0, '切り離せていない')
-    const head = page.locator('.pane-float .float-head').first()
-    const b = await head.boundingBox()
-    const size = page.viewportSize() ?? { width: 1424, height: 861 }
-    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
-    await page.mouse.down()
-    // 右の枠の外まで運ぶ
-    for (let i = 1; i <= 8; i++)
-      await page.mouse.move(b.x + ((size.width + 80 - b.x) * i) / 8, b.y + b.height / 2)
-    await page.waitForTimeout(300)
-    // 離す前に「離すと別ウィンドウ」と出ていること（出ないまま外れると事故になる）
-    assert((await page.locator('.float-tear').count()) === 1, '外へ出る合図が出ていない')
-    await page.mouse.up()
-    await page.waitForTimeout(2000)
-    assert(popWindows().length === 1, `別ウィンドウにならなかった（${popWindows().length}枚）`)
-    assert((await page.locator('.pane-float').count()) === 0, '画面の中の浮きが残っている')
+    await page.locator('.ctx-menu > .ctx-item', { hasText: '切り離す' }).first().click()
+    await page.waitForTimeout(2500)
+    const pop = popWindows()[0]
+    assert(pop, 'プレビューの別ウィンドウが開かない')
+    await pop.waitForSelector('.pane-pop-root .panel.monitor', { timeout: 15000 })
+    // 映像が生きているか（読めない・エラー付きなら作り直しに失敗している）
+    const v = await pop.evaluate(() => {
+      const el = document.querySelector('video')
+      if (!el) return null
+      return { ready: el.readyState, w: el.videoWidth, err: el.error ? el.error.code : null }
+    })
+    assert(v, '別ウィンドウに映像の部品が無い')
+    assert(!v.err, `映像がエラーになっている（code=${v.err}）`)
+    assert(v.w > 0, `映像の大きさが取れていない（${JSON.stringify(v)}）`)
+    // 再生してみる（落ちるならここで落ちる）
+    await pop.locator('.pane-pop-root .transport button', { hasText: '▶' }).first().click()
+    await pop.waitForTimeout(2000)
+    assert(!pop.isClosed(), '再生したら別ウィンドウが落ちた')
+    const t = await pop.locator('.pane-pop-root .tc-cur').first().textContent()
+    assert(t && t !== '00:00:00:00', `別ウィンドウで再生が進んでいない（${t}）`)
+    await pop.locator('.pane-pop-root .transport button', { hasText: '▶' }).first().click()
+    await pop.waitForTimeout(300)
+    assert(!pop.isClosed(), '止めたら別ウィンドウが落ちた')
+    assert(!page.isClosed(), '本体が落ちた')
   })
 
   await check('本体の見た目が変わると、別ウィンドウにも追いつく', async () => {
@@ -2945,10 +2932,15 @@ try {
   await check('別ウィンドウに出したパネルは、下の帯から戻せる', async () => {
     // 出すと本体から消えるので、どこへ行ったのか分からなくなる。
     // 下の帯に出ているものを並べ、押せば戻せるようにしてある。
+    // 前の項目が何を出していても同じ結果になるよう、ここで作り直す
+    for (const w of popWindows()) await w.close().catch(() => {})
+    await page.waitForTimeout(1500)
+    await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    await page.locator('.ctx-item', { hasText: 'このパネルを切り離す' }).first().click()
+    await page.waitForTimeout(2000)
     const chip = page.locator('.status-pop')
     assert((await chip.count()) === 1, `下の帯に出ていない（${await chip.count()}個）`)
-    const txt = await chip.first().textContent()
-    assert(txt.includes('プロジェクト'), `別のパネルが出ている（${txt}）`)
     await chip.first().click()
     await page.waitForTimeout(1500)
     assert(popWindows().length === 0, '押しても別ウィンドウが閉じない')
@@ -2957,9 +2949,11 @@ try {
 
   await check('別ウィンドウを閉じると、パネルが本体へ戻る', async () => {
     // 上の項目で戻してしまったので、もう一度出してから閉じる
+    for (const w of popWindows()) await w.close().catch(() => {})
+    await page.waitForTimeout(1500)
     await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
     await page.waitForSelector('.ctx-menu')
-    await page.locator('.ctx-item', { hasText: '別ウィンドウで開く' }).first().click()
+    await page.locator('.ctx-item', { hasText: '切り離す' }).first().click()
     await page.waitForTimeout(2000)
     const before = await page.locator('.panel-tabs-strip').count()
     const pop = popWindows()[0]

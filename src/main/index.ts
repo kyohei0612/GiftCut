@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, protocol } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, protocol, screen } from 'electron'
 import { join, normalize } from 'path'
 import {
   readFileSync,
@@ -261,20 +261,47 @@ function createWindow(): void {
   // 素材に紛れ込んだリンクを踏んだときにアプリの中でページが開く）。
   mainWindow.webContents.setWindowOpenHandler((details) => {
     if (details.frameName.startsWith('gc-pane-')) {
-      return {
-        action: 'allow',
-        overrideBrowserWindowOptions: {
-          backgroundColor: '#1b1b1e',
-          autoHideMenuBar: true,
-          minWidth: 260,
-          minHeight: 200,
-          webPreferences: {
-            preload: join(__dirname, '../preload/index.js'),
-            sandbox: false,
-            contextIsolation: true
-          }
+      // 保存してあった位置に開く場合、その位置のモニターがもう無いことがある
+      // （ノートを持ち出した、モニターを外した）。画面の外に開くと、
+      // 出したパネルが見えないまま行方不明になるので、その時は位置を捨てる。
+      const opts: Electron.BrowserWindowConstructorOptions = {
+        backgroundColor: '#1b1b1e',
+        autoHideMenuBar: true,
+        minWidth: 260,
+        minHeight: 200,
+        webPreferences: {
+          preload: join(__dirname, '../preload/index.js'),
+          sandbox: false,
+          contextIsolation: true
         }
       }
+      const f = details.features
+      const num = (k: string): number | null => {
+        const m = new RegExp(`\\b${k}=(-?\\d+)`).exec(f)
+        return m ? Number(m[1]) : null
+      }
+      const x = num('left')
+      const y = num('top')
+      if (x !== null && y !== null) {
+        const w = num('width') ?? 480
+        const h = num('height') ?? 400
+        const visible = screen.getAllDisplays().some((d) => {
+          const b = d.workArea
+          // 窓の一部でも画面に重なっていればよい（完全に外なら捨てる）
+          return x + w > b.x && x < b.x + b.width && y + h > b.y && y < b.y + b.height
+        })
+        if (visible) {
+          opts.x = x
+          opts.y = y
+        } else {
+          // 本体の画面の真ん中へ寄せる（そのままだと見えない所に開く）
+          const b = screen.getDisplayMatching(mainWindow.getBounds()).workArea
+          opts.x = Math.round(b.x + (b.width - w) / 2)
+          opts.y = Math.round(b.y + (b.height - h) / 2)
+          console.warn('[pane] 保存されていた位置に画面が無いので、本体の画面へ寄せます')
+        }
+      }
+      return { action: 'allow', overrideBrowserWindowOptions: opts }
     }
     shell.openExternal(details.url)
     return { action: 'deny' }

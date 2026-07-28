@@ -346,7 +346,27 @@ describe('未保存の「＊」と自動保存', () => {
 
     // version は定数、projectPath は保存時に差し替えるので名前が一致しない
     const exempt = new Set(['version'])
-    const missing = fields.filter((f) => !exempt.has(f) && !deps.includes(f))
+    // layout は「画面の配置」をまとめた1項目。中で読んでいる state が
+    // ぜんぶ依存に入っていれば、この項目は見張られていることになる。
+    // （まとめただけで見張りから外れる、という抜け道を作らないため）
+    const layoutFrom = src.indexOf('const layoutNow = ()')
+    expect(layoutFrom, 'layoutNow が見つからない').toBeGreaterThan(-1)
+    const layoutBody = src.slice(layoutFrom, src.indexOf('\n  })', layoutFrom))
+    const stateNames = new Set(
+      [...src.matchAll(/const \[(\w+), set\w+\] = useState/g)].map((m) => m[1])
+    )
+    const layoutStates = [...new Set([...layoutBody.matchAll(/\b([a-zA-Z_]\w*)\b/g)].map((m) => m[1]))]
+      .filter((n) => stateNames.has(n))
+    expect(layoutStates.length, '画面の配置が何も読めていない').toBeGreaterThan(5)
+    const layoutMissing = layoutStates.filter((n) => !deps.includes(n))
+    expect(
+      layoutMissing,
+      `画面の配置に足したのに「＊」の依存配列に入っていない: ${layoutMissing.join(', ')}`
+    ).toEqual([])
+
+    const missing = fields.filter(
+      (f) => !exempt.has(f) && f !== 'layout' && !deps.includes(f)
+    )
     expect(
       missing,
       `projectJson に足したのに「＊」の依存配列に入っていない: ${missing.join(', ')}`

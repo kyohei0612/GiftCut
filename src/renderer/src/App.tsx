@@ -1,5 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { PanelTabs, PaneHost, TabSortList } from './components/PanelChrome'
+import {
+  PanelTabs,
+  PaneHost,
+  TabSortList,
+  readPaneGeometry,
+  type PaneGeom
+} from './components/PanelChrome'
 import { parseSrt, buildSrt, formatTime, type Cue } from './lib/srt'
 import {
   anchorFrac,
@@ -2028,63 +2034,21 @@ export default function App(): JSX.Element {
     preview: 'プレビュー',
     timeline: 'タイムライン'
   }
-  const FLOAT_KEY = 'giftcut.floatPanes'
-  const [floating, setFloating] = useState<
-    Partial<Record<PaneId, { x: number; y: number; w: number; h: number }>>
-  >(() => {
-    try {
-      const v = JSON.parse(localStorage.getItem(FLOAT_KEY) || '{}')
-      return v && typeof v === 'object' ? v : {}
-    } catch {
-      return {}
-    }
-  })
-  useEffect(() => {
-    try {
-      localStorage.setItem(FLOAT_KEY, JSON.stringify(floating))
-    } catch {
-      /* 保存できなくても動作には影響しない */
-    }
-  }, [floating])
-  const isFloating = (id: PaneId): boolean => !!floating[id]
-  // 掴んだまま枠の外へ出ているパネル（離すと別ウィンドウになる）
-  const [tearOut, setTearOut] = useState<PaneId | null>(null)
-  function undockPane(id: PaneId): void {
-    // 別ウィンドウへ出しているものを画面内で浮かせようとしても意味が無い。
-    // 浮かせる指定（位置とサイズ）が別ウィンドウの中で効いてしまい、
-    // 窓の中に小さい箱が浮くだけになる（実際にそうなった）。
-    if (isPopped(id)) return
-    const w = Math.min(560, Math.max(320, window.innerWidth * 0.32))
-    const h = Math.min(560, Math.max(240, window.innerHeight * 0.45))
-    // 元あった側の近くに出す（真ん中に出すと、どれが出たのか分からなくなる）
-    const at: Record<PaneId, { x: number; y: number }> = {
-      left: { x: 24, y: 100 },
-      right: { x: Math.max(24, window.innerWidth - w - 24), y: 100 },
-      preview: { x: Math.max(24, (window.innerWidth - w) / 2), y: 90 },
-      timeline: { x: 24, y: Math.max(90, window.innerHeight - h - 24) }
-    }
-    setFloating((p) => ({ ...p, [id]: { ...at[id], w, h } }))
-    showToast(`${PANE_LABEL[id]} を切り離しました。「⇤ 戻す」で元に戻せます。`)
-  }
-  function dockPane(id: PaneId): void {
-    setFloating((p) => {
-      const n = { ...p }
-      delete n[id]
-      return n
-    })
-  }
-  // ---- アプリの外（別ウィンドウ・別モニター）へ出す ----
+  // ---- パネルの切り離し ----
   //
-  // 画面の中で浮かせる「切り離し」とは別物。2枚目のモニターへ逃がすためのもの。
-  // 覚えさせない（localStorage に残さない）。起動しただけで勝手に別ウィンドウが
-  // 開くと、モニターを外して起動したときに画面の外へ出たまま行方不明になる。
+  // 切り離す＝**そのパネルを別の窓にする**。それだけ。
+  // 以前は「画面の中で浮かせる」と「別ウィンドウで開く」の2つがあったが、
+  // 窓なら本体の上にも別モニターにも自由に置けるので、分ける意味が無かった。
+  //
+  // 覚えさせない（localStorage に残さない）。起動しただけで窓が開くと、
+  // モニターを外して起動したときに画面の外へ出たまま行方不明になる。
   const [popped, setPopped] = useState<Partial<Record<PaneId, true>>>({})
   const isPopped = (id: PaneId): boolean => !!popped[id]
+  // 切り離した窓の大きさ・位置。開き直すときに使う
+  const [paneGeom, setPaneGeom] = useState<Record<string, PaneGeom>>({})
   function popPane(id: PaneId): void {
-    // 中で浮いたまま外へ出すと、戻す先が分からなくなる。先に元へ戻す
-    dockPane(id)
     setPopped((p) => ({ ...p, [id]: true }))
-    showToast(`${PANE_LABEL[id]} を別ウィンドウで開きました。閉じると元に戻ります。`)
+    showToast(`${PANE_LABEL[id]} を切り離しました。窓を閉じると元に戻ります。`)
   }
   function unpopPane(id: PaneId): void {
     setPopped((p) => {
@@ -2093,91 +2057,48 @@ export default function App(): JSX.Element {
       return n
     })
   }
-  function floatDrag(id: PaneId, mode: 'move' | 'resize') {
-    return (e: React.PointerEvent): void => {
-      if (e.button !== 0) return
-      e.preventDefault()
-      e.stopPropagation()
-      const r0 = floating[id]
-      if (!r0) return
-      const sx = e.clientX
-      const sy = e.clientY
-      // アプリの枠の外へ持って行ったら、そのまま別ウィンドウにする。
-      // 切り離しても画面の中をうろうろするだけでは、2枚目のモニターへ逃がせない
-      // （右クリックのメニューを知っている人しか外へ出せなかった）。
-      const OUT = 24 // 枠からこれだけ外れたら「外へ出す」とみなす
-      const isOutside = (ev: PointerEvent): boolean =>
-        mode === 'move' &&
-        (ev.clientX < -OUT ||
-          ev.clientY < -OUT ||
-          ev.clientX > window.innerWidth + OUT ||
-          ev.clientY > window.innerHeight + OUT)
-      const onMove = (ev: PointerEvent): void => {
-        setTearOut(isOutside(ev) ? id : null)
-        const dx = ev.clientX - sx
-        const dy = ev.clientY - sy
-        setFloating((p) => {
-          const cur = p[id]
-          if (!cur) return p
-          return {
-            ...p,
-            [id]:
-              mode === 'move'
-                ? {
-                    ...cur,
-                    x: clamp(r0.x + dx, -cur.w + 140, window.innerWidth - 140),
-                    y: clamp(r0.y + dy, 0, window.innerHeight - 40)
-                  }
-                : {
-                    ...cur,
-                    w: clamp(r0.w + dx, 280, window.innerWidth),
-                    h: clamp(r0.h + dy, 160, window.innerHeight)
-                  }
-          }
-        })
+  // ---- 画面の配置（保存して、次に開いたときに同じ形で始めるためのもの）----
+  //
+  // 「今のこの状態」が戻らないと意味が無いので、**保存するその場で読む**。
+  // 窓の大きさ・位置は React の状態ではなく実物から読む（動かしても
+  // 描き直しは起きないので、状態に持つと必ず古くなる）。
+  const layoutNow = (): Record<string, unknown> => ({
+    panes: (Object.keys(popped) as PaneId[]).filter((id) => popped[id]),
+    geom: { ...paneGeom, ...readPaneGeometry() },
+    leftW,
+    rightW,
+    timelineH,
+    videoTrackH,
+    audioTrackH,
+    tabOrder,
+    rightTab,
+    monitorTab
+  })
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const applyLayout = (l: any): void => {
+    if (!l || typeof l !== 'object') return
+    const num = (v: unknown, set: (n: number) => void): void => {
+      if (typeof v === 'number' && Number.isFinite(v)) set(v)
+    }
+    num(l.leftW, setLeftW)
+    num(l.rightW, setRightW)
+    num(l.timelineH, setTimelineH)
+    num(l.videoTrackH, setVideoTrackH)
+    num(l.audioTrackH, setAudioTrackH)
+    if (l.tabOrder && typeof l.tabOrder === 'object') setTabOrder(l.tabOrder)
+    if (typeof l.rightTab === 'string') setRightTab(l.rightTab)
+    if (l.monitorTab === 'program' || l.monitorTab === 'mixer') setMonitorTab(l.monitorTab)
+    if (l.geom && typeof l.geom === 'object') setPaneGeom(l.geom)
+    if (Array.isArray(l.panes)) {
+      const next: Partial<Record<PaneId, true>> = {}
+      for (const raw of l.panes as unknown[]) {
+        const id = String(raw)
+        if (id === 'left' || id === 'right' || id === 'preview' || id === 'timeline') next[id] = true
       }
-      const onUp = (ev: PointerEvent): void => {
-        window.removeEventListener('pointermove', onMove)
-        window.removeEventListener('pointerup', onUp)
-        setTearOut(null)
-        // 枠の外で離した＝別ウィンドウにする
-        if (isOutside(ev)) popPane(id)
-      }
-      window.addEventListener('pointermove', onMove)
-      window.addEventListener('pointerup', onUp)
+      setPopped(next)
     }
   }
-  /** 切り離したパネルの見た目（画面から浮かせて、並びの計算から外す） */
-  const floatStyle = (id: PaneId): React.CSSProperties => {
-    const r = floating[id]!
-    return { position: 'fixed', left: r.x, top: r.y, width: r.w, height: r.h, zIndex: 900 }
-  }
-  /** 切り離したパネルの上に付く、掴む所と「戻す」 */
-  const floatHead = (id: PaneId): JSX.Element => (
-    <>
-      <div className="float-head" onPointerDown={floatDrag(id, 'move')}>
-        <span className="float-title">
-          {PANE_LABEL[id]}
-          {/* 枠の外まで持って行くと出る。離せば別ウィンドウになる、と先に伝える */}
-          {tearOut === id && <span className="float-tear">離すと別ウィンドウ</span>}
-        </span>
-        <span className="float-head-btns">
-          {/* 掴んで外へ出す以外に、押して出せる道も残す（掴む操作を知らなくても届く） */}
-          <button
-            className="float-dock"
-            title="別ウィンドウ（別モニター）で開く"
-            onClick={() => popPane(id)}
-          >
-            ⧉ 外へ
-          </button>
-          <button className="float-dock" title="元の場所に戻す" onClick={() => dockPane(id)}>
-            ⇤ 戻す
-          </button>
-        </span>
-      </div>
-      <div className="float-resize" onPointerDown={floatDrag(id, 'resize')} title="大きさを変える" />
-    </>
-  )
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   // ---- パネルのタブ帯（見切れ対策と並べ替え）----
   //
@@ -5226,6 +5147,9 @@ export default function App(): JSX.Element {
         masterVolume,
         transDur, // トランジションの既定長
         newTelopStyle, // このプロジェクトで次に追加するテロップの既定スタイル
+        // 画面の配置（パネルの幅・段の高さ・タブ・切り離した窓）。
+        // 「開き直したら前と同じ形で始まる」ようにするため、中身と一緒に持つ。
+        layout: layoutNow(),
         // 現在のプロジェクトファイルパス（自動保存からの復帰でタイトル/上書き先を失わないため）
         projectPath: pathOverride !== undefined ? pathOverride : projectPath
       },
@@ -5334,7 +5258,10 @@ export default function App(): JSX.Element {
         telop: { favorites, catOverrides, customCats, userTemplates },
         iconAssign,
         laneIconAssign,
-        newTelopStyle
+        newTelopStyle,
+        // 画面の配置も込みで覚える。テンプレは「開始状態を揃える」ものなので、
+        // 窓を出した形で登録すれば、次からその形で始まる
+        layout: layoutNow()
       },
       null,
       1
@@ -5425,6 +5352,8 @@ export default function App(): JSX.Element {
       saveLS('giftcut.laneIconAssign', merged)
     }
     if (d.newTelopStyle && typeof d.newTelopStyle === 'object') setNewTelopStyle(d.newTelopStyle)
+    // 画面の配置（窓を出した形も含む）。テンプレの目的は「開始状態を揃える」こと
+    applyLayout(d.layout)
     showToast('テンプレートを読み込みました。', 'success')
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -5471,6 +5400,9 @@ export default function App(): JSX.Element {
   ): Promise<void> {
     stopPlayback()
     const d = data as any
+    // 画面の配置を先に戻す（中身より先に形を作っておく）。
+    // 復元でも「落ちる前と同じ形」で戻ってくる
+    applyLayout(d?.layout)
     // id はファイルの値を信用せず振り直す（NaN/重複による採番汚染を防ぐ）
     const loadedCues: Cue[] = Array.isArray(d.cues)
       ? d.cues.map((c: any, i: number) => ({
@@ -6063,6 +5995,17 @@ export default function App(): JSX.Element {
     masterVolume,
     transDur,
     newTelopStyle,
+    // 画面の配置も保存の中身なので、変わったら「＊」が出る
+    popped,
+    paneGeom,
+    leftW,
+    rightW,
+    timelineH,
+    videoTrackH,
+    audioTrackH,
+    tabOrder,
+    rightTab,
+    monitorTab,
     projectPath
   ])
 
@@ -9725,13 +9668,13 @@ export default function App(): JSX.Element {
       {/* ===== ワークスペース ===== */}
       <div className="workspace">
         <div className="upper">
-          <PaneHost id="left" title={PANE_LABEL.left} popped={isPopped('left')} onClose={() => unpopPane('left')}>
+          <PaneHost id="left" title={PANE_LABEL.left} popped={isPopped('left')}
+            geom={paneGeom.left} onClose={() => unpopPane('left')}>
           {/* --- 左: プロパティ --- */}
           <section
-            className={`panel ${isFloating('left') ? 'pane-float' : ''}`}
-            style={isFloating('left') ? floatStyle('left') : { width: leftW, flex: '0 0 auto' }}
+            className="panel"
+            style={{ width: leftW, flex: '0 0 auto' }}
           >
-            {isFloating('left') && floatHead('left')}
             <div className="panel-tabs">
               <span className="tab tab-on">プロパティ</span>
             </div>
@@ -10413,6 +10356,7 @@ export default function App(): JSX.Element {
             id="preview"
             title={PANE_LABEL.preview}
             popped={isPopped('preview')}
+            geom={paneGeom.preview}
             onClose={() => unpopPane('preview')}
             placeholder={
               <section className="panel pane-away" style={{ flex: '1 1 0', minWidth: 0 }}>
@@ -10429,10 +10373,9 @@ export default function App(): JSX.Element {
           >
           {/* --- 中央: プログラムモニター / オーディオミキサー --- */}
           <section
-            className={`panel monitor ${isFloating('preview') ? 'pane-float' : ''}`}
-            style={isFloating('preview') ? floatStyle('preview') : { flex: '1 1 0', minWidth: 0 }}
+            className="panel monitor"
+            style={{ flex: '1 1 0', minWidth: 0 }}
           >
-            {isFloating('preview') && floatHead('preview')}
             <PanelTabs
               group="monitor"
               tabs={orderedTabs('monitor', TAB_DEFS.monitor)}
@@ -10963,13 +10906,13 @@ export default function App(): JSX.Element {
 
           <div className="resizer resizer-v" onPointerDown={(e) => startResize('right', e)} />
 
-          <PaneHost id="right" title={PANE_LABEL.right} popped={isPopped('right')} onClose={() => unpopPane('right')}>
+          <PaneHost id="right" title={PANE_LABEL.right} popped={isPopped('right')}
+            geom={paneGeom.right} onClose={() => unpopPane('right')}>
           {/* --- 右: プロジェクト --- */}
           <section
-            className={`panel ${isFloating('right') ? 'pane-float' : ''}`}
-            style={isFloating('right') ? floatStyle('right') : { width: rightW, flex: '0 0 auto' }}
+            className="panel"
+            style={{ width: rightW, flex: '0 0 auto' }}
           >
-            {isFloating('right') && floatHead('right')}
             <PanelTabs
               group="right"
               tabs={orderedTabs('right', TAB_DEFS.right)}
@@ -11750,15 +11693,13 @@ export default function App(): JSX.Element {
 
         <div className="resizer resizer-h" onPointerDown={(e) => startResize('timeline', e)} />
 
-        <PaneHost id="timeline" title={PANE_LABEL.timeline} popped={isPopped('timeline')} onClose={() => unpopPane('timeline')}>
+        <PaneHost id="timeline" title={PANE_LABEL.timeline} popped={isPopped('timeline')}
+            geom={paneGeom.timeline} onClose={() => unpopPane('timeline')}>
         {/* ===== タイムライン ===== */}
         <section
-          className={`timeline ${isFloating('timeline') ? 'pane-float' : ''}`}
-          style={
-            isFloating('timeline') ? floatStyle('timeline') : { height: timelineH, flex: '0 0 auto' }
-          }
+          className="timeline"
+          style={{ height: timelineH, flex: '0 0 auto' }}
         >
-          {isFloating('timeline') && floatHead('timeline')}
           <div className="tl-toolbar">
             <button
               className={`tool ${tool === 'select' ? 'tool-on' : ''}`}
@@ -13457,22 +13398,9 @@ export default function App(): JSX.Element {
             return (
               <>
                 <div className="ctx-title">{PANE_LABEL[pane]}</div>
-                {/* 別ウィンドウへ出している間は「切り離す」を出さない。
-                    出しているものを画面内で浮かせることはできないので、
-                    押せるのに何も起きないボタンになる。 */}
-                {!isPopped(pane) && (
-                  <button
-                    className="ctx-item"
-                    onClick={() => {
-                      if (isFloating(pane)) dockPane(pane)
-                      else undockPane(pane)
-                      setTabMenu(null)
-                    }}
-                  >
-                    {isFloating(pane) ? '⇤ 元の場所に戻す' : '⇱ このパネルを切り離す'}
-                  </button>
-                )}
-                {/* 画面の中で浮かせるのとは別に、アプリの外（別モニター）へも出せる */}
+                {/* 切り離す＝窓にする。それだけ。
+                    「画面の中で浮かせる」と「別ウィンドウで開く」を分けていたが、
+                    窓なら本体の上にも別モニターにも置けるので、分ける意味が無かった。 */}
                 <button
                   className="ctx-item"
                   onClick={() => {
@@ -13481,47 +13409,25 @@ export default function App(): JSX.Element {
                     setTabMenu(null)
                   }}
                 >
-                  {isPopped(pane) ? '⇤ 本体へ戻す' : '⧉ 別ウィンドウで開く'}
+                  {isPopped(pane) ? '⇤ 元の場所に戻す' : '⇱ このパネルを切り離す'}
                 </button>
                 <div className="ctx-sep" />
-                {/* 他のパネルも、ここから切り離し（⇱）と別ウィンドウ（⧉）を選べる。
-                    左パネルとタイムラインにはタブの右クリックが無いので、
-                    ここが唯一の入口になる。 */}
+                {/* 他のパネルもここから。左パネルとタイムラインにはタブの
+                    右クリックが無いので、ここが唯一の入口になる。 */}
                 {(['left', 'preview', 'right', 'timeline'] as PaneId[])
                   .filter((id) => id !== pane)
                   .map((id) => (
-                    <div className="ctx-row" key={id}>
-                      <button
-                        className="ctx-item"
-                        disabled={isPopped(id)}
-                        onClick={() => {
-                          if (isFloating(id)) dockPane(id)
-                          else undockPane(id)
-                          setTabMenu(null)
-                        }}
-                      >
-                        {isPopped(id)
-                          ? `⧉ ${PANE_LABEL[id]} は別ウィンドウ`
-                          : isFloating(id)
-                            ? `⇤ ${PANE_LABEL[id]} を戻す`
-                            : `⇱ ${PANE_LABEL[id]} を切り離す`}
-                      </button>
-                      <button
-                        className="ctx-pop"
-                        title={
-                          isPopped(id)
-                            ? `${PANE_LABEL[id]} を本体へ戻す`
-                            : `${PANE_LABEL[id]} を別ウィンドウで開く`
-                        }
-                        onClick={() => {
-                          if (isPopped(id)) unpopPane(id)
-                          else popPane(id)
-                          setTabMenu(null)
-                        }}
-                      >
-                        {isPopped(id) ? '⇤' : '⧉'}
-                      </button>
-                    </div>
+                    <button
+                      key={id}
+                      className="ctx-item"
+                      onClick={() => {
+                        if (isPopped(id)) unpopPane(id)
+                        else popPane(id)
+                        setTabMenu(null)
+                      }}
+                    >
+                      {isPopped(id) ? `⇤ ${PANE_LABEL[id]} を戻す` : `⇱ ${PANE_LABEL[id]} を切り離す`}
+                    </button>
                   ))}
               </>
             )

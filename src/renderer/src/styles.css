@@ -520,46 +520,10 @@ body {
 }
 /* 並べ替えで掴んでいるタブ。どれを動かしているか分かるようにする */
 /* 切り離したパネル。画面から浮かせるので、残りのパネルが自動で広がる。 */
-.pane-float {
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px #000a;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.float-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 5px 8px 5px 12px;
-  background: var(--head);
-  border-bottom: 1px solid var(--line);
-  cursor: move;
-  user-select: none;
-  flex: 0 0 auto;
-}
 .float-title {
   font-size: 11px;
   font-weight: 700;
   color: var(--muted, #9aa3b2);
-}
-.float-head-btns {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-}
-/* 枠の外へ持って行っている最中の合図 */
-.float-tear {
-  margin-left: 8px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
 }
 .float-dock {
   background: var(--panel-2);
@@ -574,15 +538,6 @@ body {
   background: #26313f;
 }
 /* 右下のつまみ。ここを掴んで大きさを変える */
-.float-resize {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 16px;
-  height: 16px;
-  cursor: nwse-resize;
-  background: linear-gradient(135deg, transparent 50%, var(--line) 50%);
-}
 /* メニュー内の説明文。押せる項目と見分けが付くよう控えめにする */
 .ctx-note {
   padding: 4px 10px 8px;
@@ -670,28 +625,6 @@ body {
   flex: 0 0 auto;
 }
 /* メニューの1行に「切り離す」と「別ウィンドウ（⧉）」を並べる */
-.ctx-row {
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-}
-.ctx-row .ctx-item {
-  flex: 1 1 auto;
-}
-.ctx-pop {
-  flex: 0 0 auto;
-  width: 30px;
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 13px;
-  border-radius: 6px;
-}
-.ctx-pop:hover {
-  color: var(--text);
-  background: #ffffff14;
-}
 /* 「≫」の中の並び替えコーナー */
 .tab-sort {
   padding: 2px 4px 4px;

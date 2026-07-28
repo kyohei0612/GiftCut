@@ -214,6 +214,7 @@ export function PaneHost({
   id,
   title,
   popped,
+  geom,
   onClose,
   placeholder,
   children
@@ -221,6 +222,8 @@ export function PaneHost({
   id: string
   title: string
   popped: boolean
+  /** 保存してあった大きさ・位置。あればそこに開く（別モニターに置いたまま戻せる） */
+  geom?: PaneGeom
   onClose: () => void
   /** 出ている間、その場所に置いておくもの。真ん中のパネルだけ必要（下記） */
   placeholder?: React.ReactNode
@@ -230,7 +233,7 @@ export function PaneHost({
   return (
     <>
       {placeholder}
-      <PaneWindow id={id} title={title} onClose={onClose}>
+      <PaneWindow id={id} title={title} geom={geom} onClose={onClose}>
         {children}
       </PaneWindow>
     </>
@@ -261,26 +264,57 @@ export function PaneHost({
 function PaneWindow({
   id,
   title,
+  geom,
   onClose,
   children
 }: {
   id: string
   title: string
+  geom?: PaneGeom
   onClose: () => void
   children: React.ReactNode
 }): JSX.Element | null {
+  // 開く場所は最初の1回だけ見る（開いたあとに保存内容が変わっても開き直さない）
+  const geomRef = useRef(geom)
   const [host, setHost] = useState<HTMLElement | null>(null)
   const closeRef = useRef(onClose)
   closeRef.current = onClose
   useEffect(() => {
-    const w = window.open(
-      '',
-      `gc-pane-${id}`,
-      `width=${Math.min(760, Math.round(window.innerWidth * 0.42))},height=${Math.min(
-        820,
-        Math.round(window.innerHeight * 0.7)
-      )}`
-    )
+    // 置き直し（開発モードの2回走り）なら、さっきの窓をそのまま使う。
+    // 新しく開き直すと、閉じかけの窓を掴んでしまい一瞬で消える。
+    const kept = PANE_WINDOWS[id]
+    if (kept && !kept.w.closed) {
+      if (kept.closeTimer !== null) {
+        window.clearTimeout(kept.closeTimer)
+        kept.closeTimer = null
+      }
+      setHost(kept.root)
+      const keptWatch = window.setInterval(() => {
+        if (kept.w.closed) {
+          window.clearInterval(keptWatch)
+          delete PANE_WINDOWS[id]
+          closeRef.current()
+        }
+      }, 400)
+      return () => {
+        window.clearInterval(keptWatch)
+        const cur = PANE_WINDOWS[id]
+        if (!cur) return
+        cur.closeTimer = window.setTimeout(() => {
+          delete PANE_WINDOWS[id]
+          if (!cur.w.closed) cur.w.close()
+        }, CLOSE_DELAY_MS)
+      }
+    }
+    // 保存してあった大きさ・位置があればそこへ。無ければ本体の脇に手ごろな大きさで。
+    const g = geomRef.current
+    const feat = g
+      ? `width=${g.w},height=${g.h},left=${g.x},top=${g.y}`
+      : `width=${Math.min(760, Math.round(window.innerWidth * 0.42))},height=${Math.min(
+          820,
+          Math.round(window.innerHeight * 0.7)
+        )}`
+    const w = window.open('', `gc-pane-${id}`, feat)
     if (!w) {
       closeRef.current()
       return
@@ -317,6 +351,7 @@ function PaneWindow({
     root.className = 'pane-pop-root'
     doc.body.appendChild(root)
     setHost(root)
+    PANE_WINDOWS[id] = { w, root, closeTimer: null }
     // 掴んで動かすぶんを本体へ流す
     const forward = (ev: PointerEvent): void => {
       window.dispatchEvent(new PointerEvent(ev.type, ev))
@@ -342,6 +377,7 @@ function PaneWindow({
     const watch = window.setInterval(() => {
       if (w.closed) {
         window.clearInterval(watch)
+        delete PANE_WINDOWS[id]
         closeRef.current()
       }
     }, 400)
@@ -353,7 +389,17 @@ function PaneWindow({
         w.removeEventListener(t, forward as EventListener, true)
       }
       w.removeEventListener('click', forwardClick, true)
-      if (!w.closed) w.close()
+      // すぐ閉じない。置き直し（開発モードの2回走り）なら、この直後に
+      // また置かれるので、そのときは閉じるのをやめる
+      const slot = PANE_WINDOWS[id]
+      if (slot) {
+        slot.closeTimer = window.setTimeout(() => {
+          delete PANE_WINDOWS[id]
+          if (!w.closed) w.close()
+        }, CLOSE_DELAY_MS)
+      } else if (!w.closed) {
+        w.close()
+      }
     }
     // 開くのは1回だけ。title が変わっても開き直さない
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -384,6 +430,40 @@ function PaneWindow({
  *
  * ※ App の中で定義してはいけない（PanelTabs と同じ理由）。
  */
+/**
+ * 開いている別ウィンドウの控え。
+ *
+ * 開発モードの React（StrictMode）は、部品を置いた直後に
+ * **わざと1回片付けて、もう一度置き直す**（後片付けが正しく書けているかを試すため）。
+ * 「置いたら開く・片付けたら閉じる」と素直に書くと、
+ * **開いた瞬間に閉じられて、押しても一瞬で消える**（実際にそうなった）。
+ *
+ * なので id ごとに窓を控えておき、置き直しでは同じ窓を使い回す。
+ * 片付けはすぐ閉じずに少し待ち、その間に置き直されたら閉じるのをやめる。
+ */
+const PANE_WINDOWS: Record<
+  string,
+  { w: Window; root: HTMLElement; closeTimer: number | null }
+> = {}
+const CLOSE_DELAY_MS = 80
+
+/** 切り離した窓の、いまの大きさと位置。保存するときに**その場で**読む。 */
+export type PaneGeom = { x: number; y: number; w: number; h: number }
+export function readPaneGeometry(): Record<string, PaneGeom> {
+  const out: Record<string, PaneGeom> = {}
+  for (const [id, slot] of Object.entries(PANE_WINDOWS)) {
+    if (slot.w.closed) continue
+    // 画面上の位置で持つ（別モニターに置いてあれば、その位置のまま戻せる）
+    out[id] = {
+      x: Math.round(slot.w.screenX),
+      y: Math.round(slot.w.screenY),
+      w: Math.round(slot.w.outerWidth),
+      h: Math.round(slot.w.outerHeight)
+    }
+  }
+  return out
+}
+
 const SORT_HOLD_MS = 280
 export function TabSortList({
   tabs,
