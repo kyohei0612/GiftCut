@@ -2474,6 +2474,9 @@ try {
   })
 
   await check('重ねた動画の音が、対の音声段に波形として並ぶ', async () => {
+    // 前の項目が置いた動画に頼っていたので、絞って回すと必ず落ちていた
+    // （置かれていない＝波形が無い、を不具合として報告してしまう）。自分で置く。
+    await placePiP()
     const wave = await page.locator('[data-tid="A2"] canvas').count()
     assert(wave > 0, '対の音声段に波形が出ていない')
   })
