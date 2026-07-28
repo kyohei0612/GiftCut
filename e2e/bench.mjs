@@ -1086,6 +1086,21 @@ try {
       await page.waitForTimeout(1200)
       const openSec = nowSec() - t0
 
+      // ★拡大率は前の測定から積み上がる。引きすぎても寄りすぎても掴めないので、
+      //   いったん少し引いてから、掴める幅になるまで寄せ直す。
+      {
+        const bx = await page.locator('.track-inner').boundingBox()
+        const vw0 = (page.viewportSize() ?? { width: 1280 }).width
+        await page.keyboard.down('Control')
+        await page.mouse.move((Math.max(bx.x, 0) + Math.min(bx.x + bx.width, vw0)) / 2, bx.y + 60)
+        for (let z = 0; z < 8; z++) {
+          await page.mouse.wheel(0, 120)
+          await page.waitForTimeout(45)
+        }
+        await page.keyboard.up('Control')
+        await page.waitForTimeout(300)
+      }
+
       // 掴んで動かしてみて、そのあいだの重さを見る。
       // 端のものは磁石で元の位置に戻るので、真ん中あたりを掴む。
       // 見た目の重さ（縁取り・影・種類）はプレビューを描くたびに効く。
@@ -1109,6 +1124,11 @@ try {
         })
         const MOVES = 30
         const SLEEP = 8
+        // 画面上の位置ではなくタイムライン上の位置で見る。
+        // 拡大していると再生ヘッドが画面の外に出て、位置が読めなくなるため。
+        const hx = () =>
+          page.locator('.playhead').first().evaluate((e) => parseFloat(e.style.left) || 0)
+        const hx0 = await hx()
         await page.mouse.move(L, rr.y + rr.height / 2)
         await page.mouse.down()
         const t1 = nowSec()
@@ -1119,6 +1139,9 @@ try {
         const sec = nowSec() - t1
         await page.mouse.up()
         await page.waitForTimeout(300)
+        // 再生ヘッドが動いていなければ、プレビューを描き直させていない＝測っていない
+        if (!(Math.abs((await hx()) - hx0) > 10))
+          return { openSec, lag: NaN, worst: NaN, heap: NaN, ok: false, note: '再生ヘッドが動かない' }
         const fr = await page.evaluate(() => {
           window.__sampling = false
           return window.__frames
@@ -1137,23 +1160,45 @@ try {
       const clips = page.locator(sel[what] ?? sel.clip)
       const nClips = await clips.count()
       if (!nClips) return { openSec, lag: NaN, worst: NaN, heap: NaN, ok: false, note: '掴む物が無い' }
-      const target = clips.nth(Math.min(nClips - 1, Math.floor(nClips / 2)))
-      await target.scrollIntoViewIfNeeded().catch(() => {})
-      let c = await target.boundingBox()
-      if (!c) return { openSec, lag: NaN, worst: NaN, heap: NaN, ok: false, note: 'クリップが見つからない' }
-      // クリップ数が多いと1個が数pxしかなく、掴もうとしても外れる。
-      // 人間も同じことをするので、掴める幅になるまで拡大してから測る。
-      for (let g = 0; g < 12 && c.width < 24; g++) {
-        // 拡大は Ctrl を押しながら（ただのホイールは横スクロール）
+      // 数が多いと1個が数pxしかなく、掴もうとしても外れる。人と同じで先に拡大する。
+      // ★拡大すると狙った物が画面の外へ出るので、拡大してから選び直すこと。
+      //   先に決めておくと、画面に無い場所を押して空振りする。
+      const box0 = await page.locator('.track-inner').boundingBox()
+      const vpw0 = (page.viewportSize() ?? { width: 1280 }).width
+      const mid = (Math.max(box0.x, 0) + Math.min(box0.x + box0.width, vpw0)) / 2
+      // 掴める幅の物が画面に出るまで寄せる（出たら止める）
+      const findPick = () =>
+        clips.evaluateAll((els, w) => {
+          for (let i = 0; i < els.length; i++) {
+            const r = els[i].getBoundingClientRect()
+            if (r.width >= 24 && r.x > 80 && r.x + r.width < w - 160) return i
+          }
+          return -1
+        }, vpw0)
+      for (let g = 0; g < 14 && (await findPick()) < 0; g++) {
         await page.keyboard.down('Control')
-        await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2)
+        await page.mouse.move(mid, box0.y + 60)
         await page.mouse.wheel(0, -120)
         await page.keyboard.up('Control')
-        await page.waitForTimeout(140)
-        await target.scrollIntoViewIfNeeded().catch(() => {})
-        c = (await target.boundingBox()) ?? c
+        await page.waitForTimeout(130)
       }
-      if (c.width < 8) return { openSec, lag: NaN, worst: NaN, heap: NaN, ok: false, note: '拡大しても掴める幅にならない' }
+      const pick = await clips.evaluateAll((els, w) => {
+        for (let i = 0; i < els.length; i++) {
+          const r = els[i].getBoundingClientRect()
+          if (r.width >= 20 && r.x > 80 && r.x + r.width < w - 160) return i
+        }
+        // 拡大しすぎて1個が画面より広い場合は、見えている部分があれば掴める
+        for (let i = 0; i < els.length; i++) {
+          const r = els[i].getBoundingClientRect()
+          if (r.x < w - 200 && r.x + r.width > 200) return i
+        }
+        return -1
+      }, vpw0)
+      if (pick < 0)
+        return { openSec, lag: NaN, worst: NaN, heap: NaN, ok: false, note: '掴める物が画面に無い' }
+      const target = clips.nth(pick)
+      const c = await target.boundingBox()
+      if (!c) return { openSec, lag: NaN, worst: NaN, heap: NaN, ok: false, note: '掴む物が見つからない' }
       await page.evaluate(() => {
         window.__frames = []
         window.__sampling = true
@@ -1173,10 +1218,10 @@ try {
           els.map((e) => Math.round(e.getBoundingClientRect().x) + ':' + Math.round(e.getBoundingClientRect().width)).join(',')
         )
       const before = await layout()
-      const x0 = c.x + c.width / 2
+      const x0 = Math.max(c.x + 20, Math.min(c.x + c.width / 2, vpw0 - 220))
       const MOVES = 30
       const SLEEP = 8
-      const dx = Math.max(3, Math.min(8, (c.width * 1.5) / MOVES)) // 1.5クリップぶん動かす
+      const dx = Math.max(4, Math.min(8, (c.width * 1.5) / MOVES)) // 1.5個ぶん動かす
       await page.mouse.move(x0, c.y + c.height / 2)
       await page.mouse.down()
       const tDrag = nowSec()
@@ -1318,9 +1363,15 @@ try {
         const b = pts[pts.length - 1]
         const dv = b.v - a.v
         if (dv > 0) {
-          const per1000 = ((b.lag - a.lag) / dv) * 1000
-          const memPer1000 = ((b.heap - a.heap) / dv) * 1000
-          slope = ` ／ 1000増えるごとに +${fmt(per1000)}ms・+${fmt(memPer1000 / 1024 / 1024)}MB`
+          // 単位は試した範囲に合わせる。1〜10 の軸を1000倍に伸ばすと、
+          // 誤差が1000倍になって「+97MB」のような意味の無い数字が出る。
+          const unit = b.v >= 200 ? 1000 : b.v >= 20 ? 100 : 1
+          const ms = ((b.lag - a.lag) / dv) * unit
+          const mem = ((b.heap - a.heap) / dv) * unit / 1024 / 1024
+          const sign = (x) => (x >= 0 ? '+' : '')
+          slope =
+            ` ／ ${unit}増えるごとに ${sign(ms)}${fmt(ms)}ms・${sign(mem)}${fmt(mem)}MB` +
+            (Math.abs(ms) < 2 ? '（ほぼ変わらない）' : '')
         }
       }
       const detail =
