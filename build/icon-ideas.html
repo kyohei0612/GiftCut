@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        margin: 0;
+        background: #0f1420;
+        color: #e6e8ee;
+        font: 13px/1.6 "Yu Gothic UI", system-ui, sans-serif;
+        padding: 24px;
+      }
+      .row {
+        display: flex;
+        gap: 28px;
+        align-items: flex-start;
+        margin-bottom: 26px;
+      }
+      .card {
+        text-align: center;
+      }
+      .name {
+        font-size: 12px;
+        color: #9aa3b2;
+        margin-top: 8px;
+      }
+      .small {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: center;
+        margin-top: 8px;
+      }
+      h2 {
+        font-size: 13px;
+        color: #7dd3fc;
+        margin: 0 0 10px;
+        font-weight: 700;
+      }
+      p.why {
+        color: #9aa3b2;
+        margin: 0 0 12px;
+        max-width: 560px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 案1: 切り取り線 × 再生 ＝「切り抜く」を直球で -->
+    <h2>案1「切り取り線」— 何をする道具かを直球で出す</h2>
+    <p class="why">再生の三角に切り取り線。小さくしても「動画を切る物」と分かる。</p>
+    <div class="row">
+      <div class="card">
+        <svg id="i1" width="180" height="180" viewBox="0 0 256 256">
+          <defs>
+            <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#2f6df6" />
+              <stop offset="1" stop-color="#1b3fae" />
+            </linearGradient>
+          </defs>
+          <rect width="256" height="256" rx="56" fill="url(#g1)" />
+          <path d="M92 66 L92 190 L196 128 Z" fill="#fff" />
+          <g stroke="#0f1420" stroke-width="12" stroke-linecap="round">
+            <path d="M60 128 h18" />
+            <path d="M96 128 h22" />
+            <path d="M136 128 h22" />
+            <path d="M176 128 h20" />
+          </g>
+        </svg>
+        <div class="name">案1</div>
+        <div class="small">
+          <svg width="48" height="48" viewBox="0 0 256 256">
+            <use href="#i1" />
+          </svg>
+          <svg width="32" height="32" viewBox="0 0 256 256"><use href="#i1" /></svg>
+          <svg width="16" height="16" viewBox="0 0 256 256"><use href="#i1" /></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- 案2: リボン × 再生 ＝ 名前(Gift)を出す -->
+    <h2>案2「リボン」— 名前（Gift）を出す</h2>
+    <p class="why">贈り物のリボンが再生の三角になる。名前と結びつき、他の編集アプリと並んでも埋もれない。</p>
+    <div class="row">
+      <div class="card">
+        <svg id="i2" width="180" height="180" viewBox="0 0 256 256">
+          <defs>
+            <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#1a2338" />
+              <stop offset="1" stop-color="#0d1322" />
+            </linearGradient>
+          </defs>
+          <clipPath id="c2"><rect width="256" height="256" rx="56" /></clipPath>
+          <g clip-path="url(#c2)">
+            <rect width="256" height="256" fill="url(#g2)" />
+            <rect x="0" y="112" width="256" height="32" fill="#2f6df6" />
+            <rect x="112" y="0" width="32" height="256" fill="#2f6df6" />
+            <path d="M104 74 L104 182 L188 128 Z" fill="#fff" />
+            <circle cx="128" cy="128" r="20" fill="#ff5a7a" />
+          </g>
+        </svg>
+        <div class="name">案2</div>
+        <div class="small">
+          <svg width="48" height="48" viewBox="0 0 256 256"><use href="#i2" /></svg>
+          <svg width="32" height="32" viewBox="0 0 256 256"><use href="#i2" /></svg>
+          <svg width="16" height="16" viewBox="0 0 256 256"><use href="#i2" /></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- 案3: テロップ帯 ＝ このアプリの得意技 -->
+    <h2>案3「テロップ帯」— このアプリの得意技を出す</h2>
+    <p class="why">画面下のテロップ帯。切り抜き＝テロップ、と分かっている人に一番速く伝わる。</p>
+    <div class="row">
+      <div class="card">
+        <svg id="i3" width="180" height="180" viewBox="0 0 256 256">
+          <defs>
+            <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#2b3b57" />
+              <stop offset="1" stop-color="#131a2a" />
+            </linearGradient>
+          </defs>
+          <rect width="256" height="256" rx="56" fill="url(#g3)" />
+          <rect x="40" y="52" width="176" height="112" rx="12" fill="#0b1120" />
+          <path d="M108 84 L108 132 L150 108 Z" fill="#2f6df6" />
+          <rect x="40" y="182" width="176" height="30" rx="8" fill="#ffd54a" />
+          <rect x="58" y="192" width="86" height="10" rx="5" fill="#0b1120" />
+          <rect x="152" y="192" width="46" height="10" rx="5" fill="#0b1120" />
+        </svg>
+        <div class="name">案3</div>
+        <div class="small">
+          <svg width="48" height="48" viewBox="0 0 256 256"><use href="#i3" /></svg>
+          <svg width="32" height="32" viewBox="0 0 256 256"><use href="#i3" /></svg>
+          <svg width="16" height="16" viewBox="0 0 256 256"><use href="#i3" /></svg>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

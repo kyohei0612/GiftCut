@@ -1,18 +1,23 @@
 :root {
-  /* ClipGift 風のダークネイビー＋ブルーアクセント */
-  --bg: #0b0f17;
-  --panel: #131a27;
-  --panel-2: #1b2433;
-  --head: #161e2c;
-  --menubar: #0c1017;
-  --line: #26313f;
-  --text: #e9eef5;
-  --muted: #8792a4;
-  --accent: #2b8fef;
-  --accent-2: #57a9ff;
-  --accent-grad: linear-gradient(135deg, #2f95f2, #1a7fe0);
-  --playhead: #2b8fef;
-  --glow: 0 0 0 1px #ffffff0d, 0 10px 34px #0009;
+  /* アイコンに合わせた黒鉛（グラファイト）基調。
+     アイコンは「黒〜濃灰のグラデ＋白銀のGC」なので、画面もそこへ寄せる。
+     色味は青を抜いた中間色にし、**色で意味を持たせるのは
+     クリップの種類とラベルだけ**にする（そこが読みやすくなる）。 */
+  --bg: #121416;
+  --panel: #1a1d20;
+  --panel-2: #23272b;
+  --head: #1d2124;
+  --menubar: #0e1012;
+  --line: #30353a;
+  --text: #e8eaed;
+  --muted: #98a0a9;
+  /* 効きどころ（選択・再生ヘッド・実行ボタン）だけに使う一色。
+     アイコンの白銀に寄せた寒色寄りのシルバーブルー。 */
+  --accent: #8fa8c0;
+  --accent-2: #b9cbdd;
+  --accent-grad: linear-gradient(135deg, #9db4c9, #6f8aa3);
+  --playhead: #d7dee6;
+  --glow: 0 0 0 1px #ffffff0f, 0 10px 34px #000a;
 }
 
 * {
@@ -38,7 +43,7 @@
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(#2f95f2, #1a7fe0);
+  background: linear-gradient(#9db4c9, #6f8aa3);
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-corner {
@@ -157,7 +162,7 @@ body {
   width: 560px;
   max-width: 92vw;
   max-height: 84vh;
-  background: #131a27;
+  background: #1a1d20;
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: 0 16px 50px #000c;
@@ -315,7 +320,7 @@ body {
 .crop-box {
   width: 340px;
   max-width: 92vw;
-  background: #131a27;
+  background: #1a1d20;
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: 0 16px 50px #000c;
@@ -414,14 +419,14 @@ body {
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
 }
 .btn:hover {
-  background: #26313f;
+  background: #30353a;
   border-color: #4a4a55;
 }
 .btn:active {
   transform: translateY(1px);
 }
 .btn:hover {
-  background: #26313f;
+  background: #30353a;
 }
 .btn-primary {
   background: var(--accent);
@@ -430,7 +435,7 @@ body {
   font-weight: 600;
 }
 .btn-primary:hover {
-  background: #b58cf5;
+  background: var(--accent-2);
 }
 .ratio-group {
   display: flex;
@@ -535,7 +540,7 @@ body {
   cursor: pointer;
 }
 .float-dock:hover {
-  background: #26313f;
+  background: #30353a;
 }
 /* 右下のつまみ。ここを掴んで大きさを変える */
 /* メニュー内の説明文。押せる項目と見分けが付くよう控えめにする */
@@ -595,7 +600,7 @@ body {
   cursor: pointer;
 }
 .status-pop:hover {
-  background: #26313f;
+  background: #30353a;
 }
 /* 別ウィンドウへ出ている間、その場所に置く案内 */
 .pane-away {
@@ -1305,7 +1310,7 @@ body {
 }
 .fx-item:hover {
   border-color: var(--accent-2);
-  background: #2a3550;
+  background: #2f343a;
 }
 .fx-ico {
   font-size: 16px;
@@ -1498,7 +1503,7 @@ body {
   font-size: 12px;
 }
 .tbtn:hover {
-  background: #26313f;
+  background: #30353a;
 }
 .tbtn-shot {
   margin-left: 4px;
@@ -1532,7 +1537,7 @@ body {
   position: absolute;
   width: 14px;
   height: 14px;
-  background: #82aaff;
+  background: #9db4c9;
   border: 2px solid #fff;
   border-radius: 3px;
   pointer-events: auto;
@@ -1624,7 +1629,7 @@ body {
   cursor: pointer;
 }
 .reframe-btn:hover {
-  background: #26313f;
+  background: #30353a;
 }
 
 /* 左パネル: 編集フィールド */
@@ -2023,7 +2028,7 @@ body {
 .th-add:hover {
   border-color: var(--accent-2);
   color: var(--text);
-  background: #2a3550;
+  background: #2f343a;
 }
 .th-add-audio {
   display: block;
@@ -2043,7 +2048,7 @@ body {
   overflow: hidden;
 }
 .th.th-selected {
-  background: #2a3550;
+  background: #2f343a;
   box-shadow: inset 0 0 0 1px var(--accent-2);
 }
 .th-video {
@@ -2379,7 +2384,7 @@ body {
   border-color: #ffffff33;
 }
 .gap-clip.clip-selected {
-  background: #2b8fef1f;
+  background: #8fa8c01f;
   border-color: var(--accent);
   border-style: dashed;
 }
@@ -2863,7 +2868,7 @@ body {
 }
 .align-cell:hover {
   border-color: var(--accent-2);
-  background: #2a3550;
+  background: #2f343a;
 }
 .align-cell.align-on {
   border-color: var(--accent-2);
@@ -2975,7 +2980,7 @@ body {
   background: var(--accent-grad);
   border-color: transparent;
   color: #fff;
-  box-shadow: 0 2px 10px #2b8fef4d;
+  box-shadow: 0 2px 10px #8fa8c04d;
 }
 .seg-on:hover {
   color: #fff;
@@ -3052,7 +3057,7 @@ body {
   line-height: 1;
 }
 .icon-btn:hover {
-  background: #26313f;
+  background: #30353a;
 }
 .icon-on {
   border-color: var(--accent);
@@ -3197,7 +3202,7 @@ body {
   justify-content: center;
 }
 .export-box {
-  background: #131a27e6;
+  background: #1a1d20e6;
   backdrop-filter: blur(10px);
   border: 1px solid #ffffff14;
   border-radius: 16px;
@@ -3463,7 +3468,7 @@ body {
   pointer-events: none;
   background: #2b3a4f;
   color: #fff;
-  border: 1px solid #82aaff;
+  border: 1px solid #9db4c9;
   border-radius: 6px;
   padding: 3px 8px;
   font-size: 11px;
@@ -3506,7 +3511,7 @@ body {
   box-shadow: 0 0 6px rgba(185, 138, 255, 0.9);
 }
 .trans-drop-xfade {
-  background: #82aaff;
+  background: #9db4c9;
   box-shadow: 0 0 6px rgba(130, 170, 255, 0.9);
 }
 .trans-drop-label {
@@ -3546,7 +3551,7 @@ body {
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #1b2433;
+  background: #23272b;
   cursor: grab;
   font-size: 12px;
   color: var(--text);
@@ -3632,7 +3637,7 @@ body {
   max-width: 420px;
   padding: 12px 16px;
   border-radius: 12px;
-  background: #131a27e6;
+  background: #1a1d20e6;
   backdrop-filter: blur(10px);
   border: 1px solid #ffffff14;
   box-shadow: var(--glow);
@@ -3742,7 +3747,7 @@ body {
 }
 .modal-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px #2b8fef33;
+  box-shadow: 0 0 0 3px #8fa8c033;
 }
 .modal-actions {
   display: flex;
@@ -3766,7 +3771,7 @@ body {
   color: var(--text);
 }
 .modal-btn.ghost:hover {
-  background: #26313f;
+  background: #30353a;
 }
 .modal-btn.primary {
   background: var(--accent-grad);
@@ -3799,3 +3804,8 @@ body {
   white-space: pre-wrap;
 }
 
+
+/* つまみの色をアプリの色に合わせる（既定の青が浮くため） */
+input[type="range"] {
+  accent-color: var(--accent);
+}

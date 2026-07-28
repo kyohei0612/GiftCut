@@ -13600,7 +13600,7 @@ export default function App(): JSX.Element {
       {cropSrc && (
         <CropModal
           src={cropSrc.src}
-          ringColor="#2b8fef"
+          ringColor="#8fa8c0"
           onCancel={() => setCropSrc(null)}
           onConfirm={(image) => {
             cropSrc.onDone(image)
