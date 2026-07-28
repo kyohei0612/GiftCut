@@ -855,9 +855,20 @@ try {
     await page.waitForTimeout(200)
     const before = await page.locator('.screen-video').first().evaluate((el) => el.style.transform)
     const tl = await page.locator('.track-scroll').boundingBox()
+    // ★拡大は Ctrl（か Alt）を押しながらのホイール。ただのホイールは横スクロールなので、
+    //   押さずに回すと「何も起きない＝映像も変わらない」で必ず合格してしまっていた。
+    const tlW = () => page.locator('.track-inner').evaluate((e) => Math.round(e.getBoundingClientRect().width))
+    const w0 = await tlW()
+    await page.keyboard.down('Control')
     await page.mouse.move(tl.x + 300, tl.y + 60)
-    await page.mouse.wheel(0, -400)
+    for (let i = 0; i < 4; i++) {
+      await page.mouse.wheel(0, -120)
+      await page.waitForTimeout(80)
+    }
+    await page.keyboard.up('Control')
     await page.waitForTimeout(300)
+    const w1 = await tlW()
+    assert(w1 > w0 * 1.1, `タイムラインが拡大していない＝確認になっていない（${w0} → ${w1}px）`)
     const after = await page.locator('.screen-video').first().evaluate((el) => el.style.transform)
     assert(before === after, `ホイールで映像が変わった（${before} → ${after}）`)
     await page.keyboard.press('Escape')
@@ -1879,23 +1890,65 @@ try {
     await resetProject()
     const lock = trackHead('V1').locator('button[title="ロック"]').first()
     const before = await clipLayout()
+
+    // ★先に「鍵なしなら効く」ことを確かめる。
+    //   これが無いと、操作がそもそも届いていないだけでも
+    //   「鍵が効いている」と読めてしまい、鍵が壊れても気づけない。
+    const trimEnd = async () => {
+      const box = await v1Clips().nth(0).boundingBox()
+      await page.mouse.move(box.x + box.width - 3, box.y + box.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(box.x + box.width + 80, box.y + box.height / 2, { steps: 5 })
+      await page.mouse.up()
+      await page.waitForTimeout(400)
+    }
+    const razorCut = async () => {
+      await page.keyboard.press('c')
+      await v1Clips().nth(0).click({ position: { x: 30, y: 8 } })
+      await page.waitForTimeout(400)
+      await page.keyboard.press('v')
+    }
+    const undo = async () => {
+      await page.keyboard.press('Control+z')
+      await page.waitForTimeout(500)
+    }
+    await trimEnd()
+    assert(
+      Math.abs((await clipLayout())[0].w - before[0].w) > 3,
+      '鍵なしでも長さが変わらない＝確認になっていない（つまむ場所が違う疑い）'
+    )
+    await undo()
+    await razorCut()
+    assert(
+      (await v1Clips().count()) === before.length + 1,
+      '鍵なしでも分割できない＝確認になっていない（カッターが効いていない疑い）'
+    )
+    await undo()
+    await v1Clips().nth(0).click()
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(400)
+    assert(
+      (await v1Clips().count()) === before.length - 1,
+      '鍵なしでも削除できない＝確認になっていない（キー割当が違う疑い）'
+    )
+    await undo()
+    await v1Clips().nth(0).click()
+    await page.keyboard.press('Control+d')
+    await page.waitForTimeout(400)
+    assert(
+      (await v1Clips().count()) === before.length + 1,
+      '鍵なしでも複製できない＝確認になっていない'
+    )
+    await undo()
+    assert((await v1Clips().count()) === before.length, '確認の前に状態を戻せていない')
+
+    // ここからが本題。同じ操作が、鍵をかけると全部できなくなること。
     await lock.click()
     await page.waitForTimeout(300)
-    // 端をつまんで伸ばす
-    const box = await v1Clips().nth(0).boundingBox()
-    await page.mouse.move(box.x + box.width - 3, box.y + box.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(box.x + box.width + 80, box.y + box.height / 2, { steps: 5 })
-    await page.mouse.up()
-    await page.waitForTimeout(400)
+    await trimEnd()
     near((await clipLayout())[0].w, before[0].w, 3, '鍵をかけたのに長さが変わった')
-    // カッターで分割
-    await page.keyboard.press('c')
-    await v1Clips().nth(0).click({ position: { x: 30, y: 8 } })
-    await page.waitForTimeout(400)
-    await page.keyboard.press('v')
+    await razorCut()
     assert((await v1Clips().count()) === before.length, '鍵をかけたのに分割できた')
-    // 削除と複製
     await v1Clips().nth(0).click()
     await page.keyboard.press('Delete')
     await page.waitForTimeout(400)
@@ -1911,13 +1964,27 @@ try {
     await resetProject()
     const lock = trackHead('A1').locator('button[title="ロック"]').first()
     const n0 = await v1Clips().count()
+    const cutAudio = async () => {
+      await page.keyboard.press('c')
+      const audio = page.locator('[data-tid="A1"] .audio-clip:not(.se-ghost)').first()
+      await audio.click({ position: { x: 40, y: 8 } })
+      await page.waitForTimeout(400)
+      await page.keyboard.press('v')
+    }
+    // ★先に「鍵なしなら切れる」ことを確かめる。切れないなら、鍵ではなく
+    //   カッターが効いていないだけで合格してしまう。
+    await cutAudio()
+    assert(
+      (await v1Clips().count()) === n0 + 1,
+      '鍵なしでも切れない＝確認になっていない（カッターが効いていない疑い）'
+    )
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(500)
+    assert((await v1Clips().count()) === n0, '確認の前に状態を戻せていない')
+
     await lock.click()
     await page.waitForTimeout(300)
-    await page.keyboard.press('c')
-    const audio = page.locator('[data-tid="A1"] .audio-clip:not(.se-ghost)').first()
-    await audio.click({ position: { x: 40, y: 8 } })
-    await page.waitForTimeout(400)
-    await page.keyboard.press('v')
+    await cutAudio()
     assert((await v1Clips().count()) === n0, '音声側の鍵が効かず、本編が分割された')
     await lock.click()
     await page.waitForTimeout(300)

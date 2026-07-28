@@ -713,26 +713,71 @@ try {
     if (w1 <= w0 * 1.2) throw new Error(`拡大できていない（${w0} → ${w1}px）`)
   })
 
-  await measure('再生ヘッドを掴んで動かす', async () => {
-    const rb = await page.locator('.ruler').boundingBox()
-    const step = (visR - visL) / 40
-    await page.mouse.move(visL, rb.y + rb.height / 2)
-    await page.mouse.down()
-    for (let i = 1; i <= 40; i++) {
-      await page.mouse.move(visL + i * step, rb.y + rb.height / 2)
-      await page.waitForTimeout(8)
+  /** 再生ヘッドの画面上の位置（動いたかを確かめるのに使う） */
+  const headX = async () => (await page.locator('.playhead').first().boundingBox())?.x ?? NaN
+  await measure(
+    '再生ヘッドを掴んで動かす',
+    async () => {
+      const rb = await page.locator('.ruler').boundingBox()
+      const step = (visR - visL) / 40
+      const x0 = await headX()
+      await page.mouse.move(visL, rb.y + rb.height / 2)
+      await page.mouse.down()
+      for (let i = 1; i <= 40; i++) {
+        await page.mouse.move(visL + i * step, rb.y + rb.height / 2)
+        await page.waitForTimeout(8)
+      }
+      await page.mouse.up()
+      await page.waitForTimeout(300)
+      if (Math.abs((await headX()) - x0) < 10) throw new Error('再生ヘッドが動いていない')
+    },
+    // わざと間違える: 押して離すだけで動かさない
+    async () => {
+      const rb = await page.locator('.ruler').boundingBox()
+      const x0 = await headX()
+      await page.mouse.move(visL, rb.y + rb.height / 2)
+      await page.mouse.down()
+      await page.mouse.up()
+      await page.waitForTimeout(300)
+      if (Math.abs((await headX()) - x0) < 10) throw new Error('再生ヘッドが動いていない')
     }
-    await page.mouse.up()
-    await page.waitForTimeout(300)
-  })
+  )
 
-  await measure('タイムラインを横にスクロールする', async () => {
-    await page.mouse.move(visMid, inner.y + 60)
-    for (let i = 0; i < 20; i++) {
-      await page.mouse.wheel(160, 0)
-      await page.waitForTimeout(25)
+  /** テロップ全部の画面上の位置（一緒に動いたかを確かめるのに使う） */
+  const telopPos = () =>
+    page
+      .locator('.telop-clip')
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)).join(','))
+  /** 一番左のクリップの画面上の位置（横スクロールしたかを確かめるのに使う） */
+  const firstClipX = async () =>
+    (await page.locator('[data-tid="V1"] .video-clip').first().boundingBox())?.x ?? NaN
+  await measure(
+    'タイムラインを横にスクロールする',
+    async () => {
+      const x0 = await firstClipX()
+      await page.mouse.move(visMid, inner.y + 60)
+      for (let i = 0; i < 20; i++) {
+        await page.mouse.wheel(160, 0)
+        await page.waitForTimeout(25)
+      }
+      if (Math.abs((await firstClipX()) - x0) < 10) throw new Error('横にスクロールしていない')
+      for (let i = 0; i < 20; i++) await page.mouse.wheel(-160, 0) // 戻す
+      await page.waitForTimeout(300)
+    },
+    // わざと間違える: タイムラインの外（プレビューの上）でホイールする。
+    // ※縦にホイールしても横に動くので、それでは「間違い」にならない
+    //   （このアプリはただのホイール＝横スクロール）。
+    async () => {
+      const pv = await page.locator('.monitor-stage').first().boundingBox()
+      const x0 = await firstClipX()
+      await page.mouse.move(pv.x + pv.width / 2, pv.y + pv.height / 2)
+      for (let i = 0; i < 20; i++) {
+        await page.mouse.wheel(160, 0)
+        await page.waitForTimeout(25)
+      }
+      if (Math.abs((await firstClipX()) - x0) < 10) throw new Error('横にスクロールしていない')
     }
-  })
+  )
 
   await measure('テロップを掴んで動かす', async () => {
     const tel = page.locator('.telop-clip')
@@ -805,14 +850,26 @@ try {
     await page.waitForTimeout(400)
     const ed = page.locator('.telop-editor textarea, .telop-editor input').first()
     if (!(await ed.count())) throw new Error('打ち直す欄が出ない')
+    const before = await ed.inputValue()
     for (const ch of 'あいうえおかきくけこ') {
       await page.keyboard.type(ch)
       await page.waitForTimeout(12)
     }
+    const after = await ed.inputValue()
+    if (after === before) throw new Error('文字が入っていない')
     await page.keyboard.press('Escape')
     await page.waitForTimeout(300)
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(300)
+  },
+  // わざと間違える: 打ち直す欄を開かずに打つ（どこにも入らない）
+  async () => {
+    const tel = page.locator('.telop-overlay > *').first()
+    const before = (await tel.textContent()) ?? ''
+    await page.keyboard.type('あいうえお')
+    await page.waitForTimeout(400)
+    const after = (await tel.textContent()) ?? ''
+    if (after === before) throw new Error('文字が入っていない')
   })
 
   await measure('全部選んでまとめて動かす', async () => {
@@ -829,6 +886,7 @@ try {
     }, vw2)
     if (i2 < 0) throw new Error('掴めるクリップが画面に無い')
     const t = all.nth(i2)
+    const tp0 = await telopPos()
     await page.keyboard.press('Control+a')
     await page.waitForTimeout(400)
     const b = await t.boundingBox()
@@ -847,18 +905,58 @@ try {
       els.map((e) => Math.round(e.getBoundingClientRect().x)).join(',')
     )
     if (l0 === l1) throw new Error('まとめて動かせていない')
+    // 「まとめて」なので、テロップも一緒に動いていること
+    if ((await telopPos()) === tp0) throw new Error('クリップだけ動いてテロップが残っている')
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(500)
     await page.keyboard.press('Escape')
+  },
+  // わざと間違える: 全選択せずに動かす（クリップだけ動いてテロップは残る）
+  async () => {
+    await page.keyboard.press('Escape')
+    const all = page.locator('[data-tid="V1"] .video-clip')
+    const t = all.nth(Math.floor((await all.count()) / 2))
+    const b = await t.boundingBox()
+    const tp0 = await telopPos()
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 20; i++) {
+      await page.mouse.move(b.x + b.width / 2 + i * 5, b.y + b.height / 2)
+      await page.waitForTimeout(8)
+    }
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    if ((await telopPos()) === tp0) throw new Error('クリップだけ動いてテロップが残っている')
   })
 
-  await measure('再生してみる（3秒）', async () => {
-    await seekTo0()
-    await page.keyboard.press('Space')
-    await page.waitForTimeout(3000)
-    await page.keyboard.press('Space')
-    await page.waitForTimeout(300)
-  })
+  await measure(
+    '再生してみる（3秒）',
+    async () => {
+      await seekTo0()
+      const x0 = await headX()
+      await page.keyboard.press('Space')
+      await page.waitForTimeout(3000)
+      await page.keyboard.press('Space')
+      await page.waitForTimeout(300)
+      if (Math.abs((await headX()) - x0) < 5) throw new Error('再生が進んでいない')
+    },
+    // わざと間違える: 再生を始めずに待つだけ
+    async () => {
+      await seekTo0()
+      const x0 = await headX()
+      await page.waitForTimeout(3000)
+      if (Math.abs((await headX()) - x0) < 5) throw new Error('再生が進んでいない')
+    }
+  )
+
+  // 自己点検はここまで（この先は「測る」ではなく「壊れていないか見る」なので、
+  // わざと間違える対象ではない）
+  if (SELFCHECK) {
+    const bad = rows.filter((r) => r.verdict !== 'ok').length
+    console.log(`\n自己点検: ${rows.length - bad} / ${rows.length} 項目が、わざと間違えると落ちる`)
+    if (!KEEP) await app.close()
+    process.exit(bad ? 1 : 0)
+  }
 
   // ---- 4. 動作: 50回編集して元に戻す -----------------------------------
   const rb = await page.locator('.ruler').boundingBox()
