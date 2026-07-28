@@ -42,6 +42,7 @@ const CACHE = join(ROOT, 'e2e', '.cache')
 const SHOTS = join(ROOT, 'e2e', 'bench-shots')
 const KEEP = process.argv.includes('--keep')
 const DO_EXPORT = !process.argv.includes('--no-export')
+const DO_LIMITS = !process.argv.includes('--no-limits')
 const MINUTES = Number((process.argv.find((a) => a.startsWith('--min=')) ?? '').slice(6)) || 60
 const TELOPS = 200
 const EDITS = 50
@@ -135,23 +136,43 @@ async function makeLongVideo(minutes) {
   return out
 }
 
-/** テロップぶんの内容を作る。長さも文字数もバラつかせて実際に近づける。 */
-function makeCues(count, totalSec) {
+/**
+ * テロップぶんの内容を作る。長さも文字数もバラつかせて実際に近づける。
+ * chars: 1枚あたりのだいたいの文字数（限界を探すときに増やす）
+ */
+function makeCues(count, totalSec, chars = 12) {
   const gap = totalSec / count
   const words = ['ここ大事', 'なるほど', 'えっ', 'そういうこと', '待って', '結論から言うと']
+  const fill = (i) => {
+    let t = ''
+    let k = i
+    while (t.length < chars) {
+      t += words[k++ % words.length] + (t.length % 37 < 6 ? '\n' : '')
+    }
+    return t.slice(0, chars)
+  }
   return Array.from({ length: count }, (_, i) => ({
     id: i + 1,
-    start: +(i * gap + 0.5).toFixed(2),
-    end: +(i * gap + 0.5 + 1.2 + (i % 5) * 0.4).toFixed(2),
-    text: words[i % words.length] + (i % 3 === 0 ? '\n' + words[(i + 2) % words.length] : ''),
+    start: +(i * gap + 0.2).toFixed(2),
+    end: +(i * gap + 0.2 + Math.min(gap * 0.8, 1.2 + (i % 5) * 0.4)).toFixed(2),
+    text: fill(i),
     track: 'V2'
   }))
 }
 
-function makeProject(video, totalSec) {
-  const dir = mkdtempSync(join(tmpdir(), 'giftcut-bench-'))
-  const userData = join(dir, 'userData')
-  mkdirSync(userData, { recursive: true })
+/** 動画をn個のクリップに切り分けた状態を作る（切った直後と同じ形） */
+function makeSegments(count, totalSec) {
+  const len = totalSec / count
+  return Array.from({ length: count }, (_, i) => ({
+    id: i + 1,
+    srcId: 1,
+    srcStart: +(i * len).toFixed(3),
+    srcEnd: +((i + 1) * len).toFixed(3)
+  }))
+}
+
+/** プロジェクトの中身を組み立てる（枚数・文字数・クリップ数を変えられる） */
+function buildProject(video, totalSec, { telops = TELOPS, chars = 12, clips = 1 } = {}) {
   const project = {
     version: 1,
     videoPath: video,
@@ -167,8 +188,8 @@ function makeProject(video, totalSec) {
       { id: 'A3', name: 'A3', kind: 'audio' }
     ],
     trackStates: {},
-    segments: [{ id: 1, srcId: 1, srcStart: 0, srcEnd: totalSec }],
-    cues: makeCues(TELOPS, totalSec),
+    segments: makeSegments(clips, totalSec),
+    cues: makeCues(telops, totalSec, chars),
     seClips: [],
     imgClips: [],
     vClips: [],
@@ -178,7 +199,18 @@ function makeProject(video, totalSec) {
     iconOffset: { x: 0, y: 0 },
     iconScale: 1
   }
-  const json = JSON.stringify(project)
+  return project
+}
+
+function makeProject(video, totalSec) {
+  const dir = mkdtempSync(join(tmpdir(), 'giftcut-bench-'))
+  const userData = join(dir, 'userData')
+  mkdirSync(userData, { recursive: true })
+  // 1分に1カットくらいは入っている想定にする。クリップが1つだけだと、
+  // 掴んで動かしても磁石で元の位置へ戻るので「動かせていない」ことに気づけない。
+  const json = JSON.stringify(
+    buildProject(video, totalSec, { clips: Math.max(6, Math.round(totalSec / 60)) })
+  )
   // 自動保存から復元する経路で開く。ファイル選択ダイアログを触らずに済み、
   // しかも本番と同じ読み込み経路をそのまま通せる。
   writeFileSync(join(userData, 'giftcut-autosave.json'), json, 'utf-8')
@@ -193,7 +225,7 @@ function makeProject(video, totalSec) {
 const rows = []
 let pageRef = null
 let stepNo = 0
-const TOTAL_STEPS = DO_EXPORT ? 14 : 11
+const TOTAL_STEPS = 11 + (DO_LIMITS ? 3 : 0) + (DO_EXPORT ? 4 : 0)
 
 function row(lens, what, detail, verdict) {
   rows.push({ lens, what, detail, verdict })
@@ -325,7 +357,7 @@ try {
   fx = makeProject(video, totalSec)
   console.log(
     `\n\x1b[1m負荷チェック\x1b[0m  ${MINUTES}分 / テロップ${TELOPS}枚 / プロジェクト ${fmt(fx.bytes / 1024, 0)} KB` +
-      `${DO_EXPORT ? ' / 書き出しあり' : ' / 書き出しなし'}\n`
+      `${DO_LIMITS ? ' / 限界さがしあり' : ''}${DO_EXPORT ? ' / 書き出しあり' : ''}\n`
   )
 
   app = await electron.launch({
@@ -382,13 +414,19 @@ try {
       requestAnimationFrame(tick)
     })
     const t0 = nowSec()
-    await fn()
+    let failed = null
+    try {
+      await fn()
+    } catch (e) {
+      failed = e?.message ?? String(e) // 操作そのものが成立しなかった
+    }
     const elapsed = nowSec() - t0
     const frames = await page.evaluate(() => {
       window.__sampling = false
       return window.__frames
     })
     const s = frameStats(frames)
+    if (failed) return done('動作', name, `操作が成立しなかった: ${failed}`, 'ng')
     if (!s) return done('動作', name, '（描画が記録できなかった）', 'warn')
     const detail =
       `中央値 ${fmt(s.median)}ms / 95% ${fmt(s.p95)}ms / 最悪 ${fmt(s.worst)}ms` +
@@ -458,8 +496,11 @@ try {
   const visMid = (visL + visR) / 2
 
   await measure('クリップを掴んで動かす', async () => {
-    const b = await clip.boundingBox()
-    const x0 = b.x + Math.min(60, b.width / 2)
+    // 端のクリップは磁石で元の位置へ戻る。真ん中あたりを掴む。
+    const all = page.locator('[data-tid="V1"] .video-clip')
+    const t = all.nth(Math.floor((await all.count()) / 2))
+    const b = await t.boundingBox()
+    const x0 = b.x + Math.min(20, b.width / 2)
     await page.mouse.move(x0, b.y + b.height / 2)
     await page.mouse.down()
     for (let i = 1; i <= 40; i++) {
@@ -468,9 +509,12 @@ try {
     }
     await page.mouse.up()
     await page.waitForTimeout(300)
+    const b2 = await t.boundingBox()
+    if (!b2 || Math.abs(b2.x - b.x) <= 5) throw new Error('掴んで動かせていない')
     await page.keyboard.press('Control+z') // 元に戻しておく
     await page.waitForTimeout(500)
   })
+  void clip
 
   await measure('タイムラインを拡大・縮小する', async () => {
     await page.mouse.move(visMid, inner.y + 40)
@@ -596,7 +640,165 @@ try {
   )
   await shot('元に戻したあと')
 
-  // ---- 6. 書き出し（目と耳） -------------------------------------------
+  // ---- 6. どこまで耐えるか（限界さがし） --------------------------------
+  // 「重いかどうか」だけだと、どこまで足していいのか分からない。
+  // 現実にありうる範囲から少しずつ上げて、崩れる手前を見つける。
+  if (DO_LIMITS) {
+    /** 別の中身のプロジェクトを開いて、開く時間・触ったときのコマ落ち・メモリを見る */
+    async function probe(path) {
+      await app.evaluate((_e, p) => {
+        globalThis.__e2e.open = [p]
+      }, path)
+      const t0 = nowSec()
+      await page.keyboard.press('Control+o')
+      await page.waitForTimeout(500)
+      const cont = page.locator('.modal-btn', { hasText: 'このまま続ける' })
+      if (await cont.count()) {
+        await cont.click()
+        await page.waitForTimeout(200)
+      }
+      try {
+        await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 120000 })
+      } catch {
+        return { openSec: nowSec() - t0, p95: NaN, heap: NaN, ok: false, note: '開けなかった' }
+      }
+      await page.waitForTimeout(1200)
+      const openSec = nowSec() - t0
+
+      // 掴んで動かしてみて、そのあいだのコマ落ちを見る。
+      // 端のクリップは磁石で元の位置に戻るので、真ん中あたりのものを掴む。
+      const clips = page.locator('[data-tid="V1"] .video-clip')
+      const nClips = await clips.count()
+      const target = clips.nth(Math.min(nClips - 1, Math.floor(nClips / 2)))
+      await target.scrollIntoViewIfNeeded().catch(() => {})
+      let c = await target.boundingBox()
+      if (!c) return { openSec, lag: NaN, worst: NaN, heap: NaN, ok: false, note: 'クリップが見つからない' }
+      // クリップ数が多いと1個が数pxしかなく、掴もうとしても外れる。
+      // 人間も同じことをするので、掴める幅になるまで拡大してから測る。
+      for (let g = 0; g < 12 && c.width < 24; g++) {
+        await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2)
+        await page.mouse.wheel(0, -120)
+        await page.waitForTimeout(140)
+        await target.scrollIntoViewIfNeeded().catch(() => {})
+        c = (await target.boundingBox()) ?? c
+      }
+      if (c.width < 8) return { openSec, lag: NaN, worst: NaN, heap: NaN, ok: false, note: '拡大しても掴める幅にならない' }
+      await page.evaluate(() => {
+        window.__frames = []
+        window.__sampling = true
+        let last = performance.now()
+        const tick = (t) => {
+          window.__frames.push(t - last)
+          last = t
+          if (window.__sampling) requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      })
+      // 動かせたかは「並び全体が変わったか」で見る。
+      // n番目のクリップを見張ると、動かした結果ずれた別のクリップが
+      // 同じ番号に来てしまい、動いていないように見える。
+      const layout = () =>
+        clips.evaluateAll((els) =>
+          els.map((e) => Math.round(e.getBoundingClientRect().x) + ':' + Math.round(e.getBoundingClientRect().width)).join(',')
+        )
+      const before = await layout()
+      const x0 = c.x + c.width / 2
+      const MOVES = 30
+      const SLEEP = 8
+      const dx = Math.max(3, Math.min(8, (c.width * 1.5) / MOVES)) // 1.5クリップぶん動かす
+      await page.mouse.move(x0, c.y + c.height / 2)
+      await page.mouse.down()
+      const tDrag = nowSec()
+      for (let i = 1; i <= MOVES; i++) {
+        await page.mouse.move(x0 + i * dx, c.y + c.height / 2)
+        await page.waitForTimeout(SLEEP)
+      }
+      const dragSec = nowSec() - tDrag
+      await page.mouse.up()
+      await page.waitForTimeout(300)
+      // 本当に掴めたかを確かめる。掴めていないと「何も起きない＝軽い」に見えてしまう
+      // （実際、最初はこれで全部の設定が「平気」と出ていた）。
+      const moved = (await layout()) !== before
+      await page.keyboard.press('Control+z')
+      await page.waitForTimeout(400)
+      const frames = await page.evaluate(() => {
+        window.__sampling = false
+        return window.__frames
+      })
+      const s = frameStats(frames) ?? { p95: NaN, worst: NaN, janky: 0 }
+      const h = await heap()
+      // 1回のマウス移動あたり、待ち時間を差し引いて何ミリ秒余計にかかったか。
+      // これがアプリ側の手間そのもの（コマ落ちの分布より素直に効く）。
+      const lag = (dragSec * 1000 - MOVES * SLEEP) / MOVES
+      // 開くのに30秒／1操作あたり50ms超かかるようなら、そこから先は実用に耐えない
+      const ok = moved && openSec <= 30 && lag <= 50
+      return { openSec, lag, worst: s.worst, heap: h, ok, note: moved ? '' : '掴めなかった' }
+    }
+
+    const sweeps = [
+      {
+        name: 'テロップの枚数',
+        key: 'telops',
+        values: [200, 500, 1000, 2000, 4000],
+        label: (v) => `${v}枚`,
+        base: { clips: 12 }
+      },
+      {
+        name: 'テロップ1枚の文字数',
+        key: 'chars',
+        values: [12, 40, 120, 400, 1000],
+        label: (v) => `1枚 ${v}字`,
+        base: { telops: 300, clips: 12 }
+      },
+      {
+        name: 'クリップの数',
+        key: 'clips',
+        values: [50, 200, 500, 1000, 2000],
+        label: (v) => `${v}個`,
+        base: { telops: 100 }
+      }
+    ]
+
+    for (const sw of sweeps) {
+      let lastOk = null
+      let broke = null
+      for (const v of sw.values) {
+        const opts = { ...sw.base, [sw.key]: v }
+        const p = join(fx.dir, `limit-${sw.key}-${v}.gcproj`)
+        writeFileSync(p, JSON.stringify(buildProject(video, totalSec, opts)), 'utf-8')
+        await say('動作', `どこまで耐えるか: ${sw.name}`, `${sw.label(v)} を開いて触ってみる`)
+        const r = await probe(p)
+        const line =
+          `${sw.label(v)}: 開く ${fmt(r.openSec)}秒 / 1操作 ${fmt(r.lag)}ms` +
+          ` / 最悪のコマ ${fmt(r.worst)}ms / メモリ ${mb(r.heap)}`
+        console.log(`    ${r.ok ? '·' : '×'} ${line}${r.note ? ' … ' + r.note : ''}`)
+        if (r.ok) lastOk = { v, r }
+        else {
+          broke = { v, r }
+          break
+        }
+      }
+      const detail = broke
+        ? `${lastOk ? sw.label(lastOk.v) : '最小の設定'} までは平気 / ${sw.label(broke.v)} で崩れる` +
+          `（開く ${fmt(broke.r.openSec)}秒・1操作 ${fmt(broke.r.lag)}ms${broke.r.note ? '・' + broke.r.note : ''}）`
+        : `試した上限 ${sw.label(sw.values[sw.values.length - 1])} まで平気` +
+          `（そこで 開く ${fmt(lastOk.r.openSec)}秒・1操作 ${fmt(lastOk.r.lag)}ms・メモリ ${mb(lastOk.r.heap)}）`
+      await done('動作', `どこまで耐えるか: ${sw.name}`, detail, broke ? 'warn' : 'ok')
+    }
+
+    // 元のプロジェクトに戻しておく（このあとの書き出しを本来の条件でやるため）
+    await app.evaluate((_e, p) => {
+      globalThis.__e2e.open = [p]
+    }, fx.gcproj)
+    await page.keyboard.press('Control+o')
+    await page.waitForTimeout(600)
+    const cont2 = page.locator('.modal-btn', { hasText: 'このまま続ける' })
+    if (await cont2.count()) await cont2.click()
+    await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 120000 })
+    await page.waitForTimeout(1200)
+  }
+
+  // ---- 7. 書き出し（目と耳） -------------------------------------------
   if (DO_EXPORT) {
     await say('耳', `${MINUTES}分ぶんを書き出す`, '完走するか・音が抜けないかを見る')
     const t0 = nowSec()
