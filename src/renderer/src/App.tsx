@@ -7039,6 +7039,8 @@ export default function App(): JSX.Element {
     const t0 = L.tStart
     const len = L.tEnd - L.tStart
     const src = srcOfSeg(L.seg)
+    // 掴んでいる間は切片の並びが変わらないので、位置の計算は最初の1回だけにする
+    const dragLayout = layoutSegs(segsRef.current)
     let moved = false
     const modeOf = (ev: { altKey: boolean; ctrlKey: boolean; metaKey: boolean }): SegDropMode =>
       ev.altKey ? 'copy' : ev.ctrlKey || ev.metaKey ? 'insert' : 'move'
@@ -7119,10 +7121,14 @@ export default function App(): JSX.Element {
           (mode === 'copy' ? '複製 ' : mode === 'insert' ? '割り込み ' : '') + formatTime(nt)
       })
       // このまま離すと丸ごと消えるクリップに印を付ける（割り込みは押し出すので対象外）
-      setOverwriteIds(
+      //
+      // ★掴んでいる間、切片の並びは変わらない。毎回すべての切片の位置を
+      //   計算し直すと、クリップが多いほど手が止まる（1000個で1操作75ms）。
+      //   掴んだ時点で1回だけ計算して使い回す。
+      const next =
         mode === 'insert'
           ? []
-          : layoutSegs(segsRef.current)
+          : dragLayout
               .filter(
                 (o) =>
                   o.seg.id !== L.seg.id &&
@@ -7131,6 +7137,9 @@ export default function App(): JSX.Element {
                   o.tEnd <= nt + len + 1e-6
               )
               .map((o) => o.seg.id)
+      // 中身が同じなら配列を作り直さない（同じでも描き直しが起きるため）
+      setOverwriteIds((prev) =>
+        prev.length === next.length && prev.every((id, i) => id === next[i]) ? prev : next
       )
     }
     // マウスの動きは1フレームに1回へまとめる（クリップが多いほど効く）
