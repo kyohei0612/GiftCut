@@ -723,10 +723,22 @@ try {
       name: '再生位置',
       // 前の項目が動かした再生位置が残っていると、次の項目が
       // 「そこに映っているはずの物」を別の時刻で探すことになる
-      read: () => page.evaluate(() => (document.querySelector('.tc-cur')?.textContent ?? '').trim()),
+      // 秒までで見る。**フレーム単位の差は無視する。**
+      // 目盛りを押して戻すので1フレームずれることがあり、そこで止めても意味が無い
+      // （見たいのは「5秒のまま次の項目へ行っていないか」）。
+      read: () =>
+        page.evaluate(() =>
+          (document.querySelector('.tc-cur')?.textContent ?? '').trim().split(':').slice(0, 3).join(':')
+        ),
       restore: async () => {
-        // Home では戻らない（キーが割り当てられていない）。目盛りの先頭を押す
-        await seekTo(0)
+        // Home では戻らない（キーが割り当てられていない）ので目盛りの先頭を押す。
+        // **クリップの位置から計算してはいけない。** 読み込み直した直後は
+        // タイムラインが空で、クリップを探しに行くと待ち続けて実行ごと落ちる
+        // （実際、通しがここで止まった）。
+        const rb = await page.locator('.ruler').boundingBox().catch(() => null)
+        const inner = await page.locator('.track-inner').boundingBox().catch(() => null)
+        if (!rb || !inner) return
+        await page.mouse.click(inner.x + 2, rb.y + rb.height / 2)
         await page.waitForTimeout(300)
       }
     },
