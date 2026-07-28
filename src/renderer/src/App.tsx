@@ -45,6 +45,31 @@ import {
   type IconItem
 } from './lib/iconLibrary'
 import type { UpdateState } from '../../preload/index.d'
+import {
+  Toasts,
+  PromptModal,
+  ConfirmModal,
+  type Toast,
+  type PromptState,
+  type ConfirmState
+} from './components/Overlays'
+import {
+  SilenceCutDialog,
+  DuckingDialog,
+  type SilenceCutState
+} from './components/dialogs/AudioDialogs'
+import {
+  ExportSettingsDialog,
+  ExportProgressBox,
+  RestorePrompt,
+  TemplatePicker,
+  type RestoreState,
+  type ExportOpts
+} from './components/dialogs/ProjectDialogs'
+import {
+  ShortcutSettings,
+  IconAssignSettings
+} from './components/dialogs/SettingsDialogs'
 import CropModal from './components/CropModal'
 import StylePanel from './components/StylePanel'
 import TelopText from './components/TelopText'
@@ -2025,11 +2050,11 @@ export default function App(): JSX.Element {
   const [showExportDialog, setShowExportDialog] = useState(false)
   // fps は 'source'＝素材と同じ（既定）。素材が60fpsなのに黙って30に落ちるのを防ぐため、
   // 実数への解決は書き出し直前に行い、main へは従来どおり数値だけを渡す。
-  const [exportOpts, setExportOpts] = useState<{
-    resP: 2160 | 1080 | 720 | 480
-    fps: 24 | 30 | 60 | 'source'
-    quality: 'high' | 'med' | 'low'
-  }>({ resP: 1080, fps: 'source', quality: 'high' })
+  const [exportOpts, setExportOpts] = useState<ExportOpts>({
+    resP: 1080,
+    fps: 'source',
+    quality: 'high'
+  })
   // 素材fps（未取得なら既定30）。29.97 のような小数もそのまま使う（main が分数で ffmpeg に渡す）
   const srcFpsForExport = (): number => (Number.isFinite(fps) && fps > 0 ? fps : FPS)
   // 表示用: 整数なら「60」、そうでなければ「29.97」
@@ -2038,7 +2063,7 @@ export default function App(): JSX.Element {
   const resolveExportFps = (): number =>
     exportOpts.fps === 'source' ? srcFpsForExport() : exportOpts.fps
   // ---- トースト通知（OS標準alertの置き換え。右下にふわっと出て自動で消える）----
-  const [toasts, setToasts] = useState<{ id: number; msg: string; type: 'success' | 'error' | 'info' }[]>([])
+  const [toasts, setToasts] = useState<Toast[]>([])
   const toastIdRef = useRef(1)
   // お知らせは「積み上げない・すぐ消える」を守る。
   // 以前は4秒×無制限だったので、続けて操作すると3つ4つと積み上がって
@@ -2054,11 +2079,7 @@ export default function App(): JSX.Element {
     )
   }
   // ---- テキスト入力モーダル（OS標準promptの置き換え）----
-  const [promptState, setPromptState] = useState<{
-    title: string
-    value: string
-    onOk: (v: string) => void
-  } | null>(null)
+  const [promptState, setPromptState] = useState<PromptState | null>(null)
   function askText(title: string, defaultValue: string, onOk: (v: string) => void): void {
     setPromptState({ title, value: defaultValue, onOk })
   }
@@ -2564,14 +2585,7 @@ export default function App(): JSX.Element {
   // ---- 確認モーダル（OS標準 confirm / メッセージボックスの置き換え）----
   // OS のダイアログは見た目も文言の作法もアプリと揃わないうえ、
   // window.confirm はレンダラを丸ごと止めるので再生や書き出しの進行も巻き添えになる。
-  const [confirmState, setConfirmState] = useState<{
-    title: string
-    body: string
-    okLabel: string
-    cancelLabel: string
-    danger: boolean
-    resolve: (ok: boolean) => void
-  } | null>(null)
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   function askConfirm(o: {
     title: string
     body: string
@@ -6033,15 +6047,8 @@ export default function App(): JSX.Element {
   // 最後に「保存済み」となった内容。×ボタンの未保存確認はこれと現在の内容を比べる
   // （isDirty() は履歴デバウンス基準で450ms後に false へ戻るため、閉じる判定には使えない）。
   const savedJsonRef = useRef<string | null>(null)
-  const [restorePrompt, setRestorePrompt] = useState<{
-    data: unknown
-    videoExists: boolean
-    savedAt?: string
-    /** 1つ前の下書き。落ちる原因になった操作ごと戻ってこないための逃げ道。 */
-    prev?: { data: unknown; videoExists: boolean; savedAt?: string }
-    /** 最後の自動保存が読めず、1つ前だけが残っていた場合 */
-    onlyPrev?: boolean
-  } | null>(null)
+  // 形は components/dialogs/ProjectDialogs.tsx の RestoreState 側に置いてある
+  const [restorePrompt, setRestorePrompt] = useState<RestoreState | null>(null)
   // ★依存配列を空にしてタイマーを一度だけ作る（毎レンダー再生成だと再生/編集中に一度も発火しないバグ）。
   //   最新state参照は ref 経由（projectJson/hasProjectContent は毎レンダー再代入）。
   const projectJsonRef = useRef(projectJson)
@@ -7286,16 +7293,15 @@ export default function App(): JSX.Element {
   // 判定は音の大きさだけ（文字起こしは使わない）。
   // どこまでを無音とするか・前後にどれだけ余白を残すかは人によって違うので、
   // 「バツっと切りたい人」「少し余白がほしい人」の両方を設定で受ける。
-  const [silenceCut, setSilenceCut] = useState<{
-    /** 探している最中 */
-    busy: boolean
-    /** 見つけた無音（素材の時間） */
-    found: { start: number; dur: number }[] | null
-    noiseDb: number
-    minSec: number
-    pad: number
-    minLen: number
-  }>({ busy: false, found: null, noiseDb: -35, minSec: 0.35, pad: 0.15, minLen: 0.4 })
+  // 形と説明は components/dialogs/AudioDialogs.tsx の SilenceCutState 側に置いてある
+  const [silenceCut, setSilenceCut] = useState<SilenceCutState>({
+    busy: false,
+    found: null,
+    noiseDb: -35,
+    minSec: 0.35,
+    pad: 0.15,
+    minLen: 0.4
+  })
   const [silenceOpen, setSilenceOpen] = useState(false)
   // ---- ダッキング（声が入っている間だけ BGM を下げる）----
   //
@@ -13252,362 +13258,76 @@ export default function App(): JSX.Element {
       )}
 
       {/* ===== 書き出し中オーバーレイ ===== */}
-      {/* 書き出し設定ダイアログ */}
+      {/* 出入りのダイアログは components/dialogs/ProjectDialogs.tsx */}
       {showExportDialog && (
-        <div className="export-overlay" onPointerDown={() => setShowExportDialog(false)}>
-          <div className="restore-box" onPointerDown={(e) => e.stopPropagation()}>
-            <div className="restore-title">書き出し設定</div>
-            <div className="sp-row">
-              <span className="sp-label">📤 書き出す解像度</span>
-              <select
-                className="pq-select pq-export"
-                value={exportOpts.resP}
-                onChange={(e) =>
-                  setExportOpts((o) => ({ ...o, resP: Number(e.target.value) as 2160 | 1080 | 720 | 480 }))
-                }
-              >
-                <option value={2160}>4K（2160p）</option>
-                <option value={1080}>フルHD（1080p）</option>
-                <option value={720}>HD（720p）</option>
-                <option value={480}>SD（480p）</option>
-              </select>
-            </div>
-            <div className="sp-row">
-              <span className="sp-label">フレームレート</span>
-              <select
-                className="pq-select"
-                value={String(exportOpts.fps)}
-                onChange={(e) => {
-                  const v = e.target.value
-                  setExportOpts((o) => ({
-                    ...o,
-                    fps: v === 'source' ? 'source' : (Number(v) as 24 | 30 | 60)
-                  }))
-                }}
-                title="「素材と同じ」なら素材のフレームレートをそのまま保つ（60fps素材が30fpsに落ちない）"
-              >
-                <option value="source">素材と同じ（{fpsLabel(srcFpsForExport())}fps）</option>
-                <option value="24">24fps</option>
-                <option value="30">30fps</option>
-                <option value="60">60fps</option>
-              </select>
-            </div>
-            <div className="sp-row">
-              <span className="sp-label">画質</span>
-              <select
-                className="pq-select"
-                value={exportOpts.quality}
-                onChange={(e) =>
-                  setExportOpts((o) => ({ ...o, quality: e.target.value as 'high' | 'med' | 'low' }))
-                }
-              >
-                <option value="high">高画質（ファイル大）</option>
-                <option value="med">標準</option>
-                <option value="low">軽量（ファイル小）</option>
-              </select>
-            </div>
-            <div className="tpl-hint" style={{ marginTop: 4 }}>
-              形式は保存ダイアログの拡張子（.mp4 / .mov）で選べます。H.264 / AAC。
-            </div>
-            <div className="restore-btns">
-              <button className="btn small" onClick={() => setShowExportDialog(false)}>
-                キャンセル
-              </button>
-              <button
-                className="btn small primary"
-                onClick={() => {
-                  setShowExportDialog(false)
-                  void exportProject()
-                }}
-              >
-                この設定で書き出す
-              </button>
-            </div>
-          </div>
-        </div>
+        <ExportSettingsDialog
+          opts={exportOpts}
+          onChange={(patch) => setExportOpts((o) => ({ ...o, ...patch }))}
+          sourceFpsLabel={fpsLabel(srcFpsForExport())}
+          onExport={() => {
+            setShowExportDialog(false)
+            void exportProject()
+          }}
+          onClose={() => setShowExportDialog(false)}
+        />
       )}
       {exportStatus && (
-        <div className="export-overlay">
-          <div className="export-box">
-            <div className="export-spinner" />
-            <div className="export-msg">
-              {exportStatus}
-              {exportPct != null && <span className="export-pct">　{exportPct}%</span>}
-            </div>
-            {exportPct != null && (
-              <div className="export-bar">
-                <div className="export-bar-fill" style={{ width: `${exportPct}%` }} />
-              </div>
-            )}
-            <button
-              className="export-cancel"
-              onClick={() => {
-                setExportStatus('キャンセル中…')
-                void window.giftcut.cancelExport()
-              }}
-            >
-              キャンセル
-            </button>
-          </div>
-        </div>
+        <ExportProgressBox
+          status={exportStatus}
+          percent={exportPct}
+          onCancel={() => {
+            setExportStatus('キャンセル中…')
+            void window.giftcut.cancelExport()
+          }}
+        />
       )}
-
-      {/* ===== クラッシュ復帰プロンプト ===== */}
       {restorePrompt && (
-        <div className="export-overlay">
-          <div className="restore-box">
-            <div className="restore-title">前回の作業が残っています</div>
-            <div className="restore-msg">
-              {restorePrompt.onlyPrev
-                ? '最後の自動保存が読めませんでした。その1つ前なら残っています。'
-                : '自動保存された編集内容が見つかりました。復元しますか？'}
-              {restorePrompt.savedAt && (
-                <div className="restore-when">最後に自動保存: {restorePrompt.savedAt}</div>
-              )}
-              {!restorePrompt.videoExists && (
-                <div className="restore-warn">
-                  ※ 元の動画ファイルが見つからないため、テロップ/カット情報のみ復元されます。
-                </div>
-              )}
-            </div>
-            <div className="restore-btns">
-              <button
-                className="btn"
-                onClick={() => {
-                  void window.giftcut.autosaveClear()
-                  setRestorePrompt(null)
-                }}
-              >
-                破棄して新規
-              </button>
-              {/* 落ちる原因になった操作ごと戻ってきてしまうと逃げ場が無い。
-                  1世代前も選べるようにしておく。 */}
-              {restorePrompt.prev && (
-                <button
-                  className="btn"
-                  title={
-                    restorePrompt.prev.savedAt
-                      ? `${restorePrompt.prev.savedAt} の内容に戻します`
-                      : undefined
-                  }
-                  onClick={() => {
-                    const p = restorePrompt.prev!
-                    setRestorePrompt(null)
-                    void applyProjectData(p.data, p.videoExists, null)
-                  }}
-                >
-                  1つ前の状態で復元
-                </button>
-              )}
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  const r = restorePrompt
-                  setRestorePrompt(null)
-                  void applyProjectData(r.data, r.videoExists, null)
-                }}
-              >
-                復元する
-              </button>
-            </div>
-          </div>
-        </div>
+        <RestorePrompt
+          state={restorePrompt}
+          onDiscard={() => {
+            void window.giftcut.autosaveClear()
+            setRestorePrompt(null)
+          }}
+          onRestore={(data, videoExists) => {
+            setRestorePrompt(null)
+            void applyProjectData(data, videoExists, null)
+          }}
+        />
       )}
-
-      {/* テンプレート選択（起動時 or ファイル→テンプレートを開く） */}
       {templatePicker && (
-        <div className="export-overlay">
-          <div className="restore-box">
-            <div className="restore-title">
-              {templatePicker.startup ? 'テンプレートから始める' : 'テンプレートを開く'}
-            </div>
-            <div className="restore-msg">
-              {templatePicker.startup
-                ? '保存済みのテンプレートを選ぶか、空で開始できます。'
-                : 'テンプレートフォルダ内のテンプレートを選んで開きます（新規プロジェクト扱い）。'}
-            </div>
-            <div className="tpl-picker-list">
-              {templatePicker.items.map((t) => (
-                <button key={t.path} className="tpl-picker-item" onClick={() => void pickTemplate(t.path)}>
-                  📄 {t.name}
-                </button>
-              ))}
-            </div>
-            <div className="restore-btns">
-              <button className="btn" onClick={() => setTemplatePicker(null)}>
-                {templatePicker.startup ? '空で始める' : '閉じる'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <TemplatePicker
+          items={templatePicker.items}
+          startup={templatePicker.startup}
+          onPick={(path) => void pickTemplate(path)}
+          onClose={() => setTemplatePicker(null)}
+        />
       )}
 
-      {/* ===== 無音カット ===== */}
+      {/* 音まわりのダイアログは components/dialogs/AudioDialogs.tsx */}
       {silenceOpen && (
-        <div className="export-overlay" onClick={() => setSilenceOpen(false)}>
-          <div className="restore-box sil-box" onClick={(e) => e.stopPropagation()}>
-            <div className="restore-title">喋っていない所をまとめて切る</div>
-            <div className="restore-msg">
-              音の大きさだけで判断します。切る前に「どこを・何秒切るか」を出すので、
-              数字を動かして納得してから実行してください。
-            </div>
-            <div className="sil-rows">
-              <label className="sil-row">
-                <span>これより静かなら無音</span>
-                <input
-                  type="range"
-                  min={-60}
-                  max={-15}
-                  step={1}
-                  value={silenceCut.noiseDb}
-                  onChange={(e) =>
-                    setSilenceCut((s) => ({ ...s, noiseDb: Number(e.target.value), found: null }))
-                  }
-                />
-                <b>{silenceCut.noiseDb} dB</b>
-              </label>
-              <label className="sil-row">
-                <span>この長さ以上を無音とみなす</span>
-                <input
-                  type="range"
-                  min={0.1}
-                  max={2}
-                  step={0.05}
-                  value={silenceCut.minSec}
-                  onChange={(e) =>
-                    setSilenceCut((s) => ({ ...s, minSec: Number(e.target.value), found: null }))
-                  }
-                />
-                <b>{silenceCut.minSec.toFixed(2)} 秒</b>
-              </label>
-              {/* バツっと切りたい人と、少し余白がほしい人の両方がいる */}
-              <label className="sil-row">
-                <span>前後に残す余白</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={0.6}
-                  step={0.01}
-                  value={silenceCut.pad}
-                  onChange={(e) => setSilenceCut((s) => ({ ...s, pad: Number(e.target.value) }))}
-                />
-                <b>
-                  {silenceCut.pad === 0 ? 'なし（バツっと切る）' : `${silenceCut.pad.toFixed(2)} 秒`}
-                </b>
-              </label>
-              <label className="sil-row">
-                <span>これより短い所は切らない</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  value={silenceCut.minLen}
-                  onChange={(e) => setSilenceCut((s) => ({ ...s, minLen: Number(e.target.value) }))}
-                />
-                <b>{silenceCut.minLen.toFixed(2)} 秒</b>
-              </label>
-            </div>
-            <div className="sil-result">
-              {/* 「見つからない」と「見つけたが条件で外れた」を分けて出す。
-                  一緒にすると、どの数字をゆるめればいいのか分からない */}
-              {silenceCut.busy
-                ? '調べています…'
-                : silenceCut.found === null
-                  ? '「調べる」を押すと、どこが無音かを探します。'
-                  : silenceCut.found.length === 0
-                    ? '無音が1か所も見つかりませんでした。上の2つ（静かさ・長さ）をゆるめてください。'
-                    : silenceCuts.length === 0
-                      ? `無音は ${silenceCut.found.length} か所ありましたが、下の2つ（余白・最短）で全部外れました。`
-                      : `${silenceCuts.length} か所 / 合計 ${totalCutLen(silenceCuts).toFixed(1)} 秒 短くなります（無音は ${silenceCut.found.length} か所）`}
-            </div>
-            <div className="restore-btns">
-              <button className="btn" onClick={() => void findSilences()} disabled={silenceCut.busy}>
-                {silenceCut.found === null ? '調べる' : 'もう一度調べる'}
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={applySilenceCut}
-                disabled={!silenceCuts.length || silenceCut.busy}
-              >
-                切って詰める
-              </button>
-              <button className="btn" onClick={() => setSilenceOpen(false)}>
-                閉じる
-              </button>
-            </div>
-          </div>
-        </div>
+        <SilenceCutDialog
+          state={silenceCut}
+          onChange={(patch) => setSilenceCut((st) => ({ ...st, ...patch }))}
+          cuts={silenceCuts}
+          totalSec={totalCutLen(silenceCuts)}
+          onFind={() => void findSilences()}
+          onApply={applySilenceCut}
+          onClose={() => setSilenceOpen(false)}
+        />
       )}
-
-      {/* ===== ダッキング（声に合わせて BGM を下げる）===== */}
       {duckOpen && (
-        <div className="export-overlay" onClick={() => setDuckOpen(false)}>
-          <div className="restore-box sil-box" onClick={(e) => e.stopPropagation()}>
-            <div className="restore-title">声に合わせて BGM を下げる</div>
-            <div className="restore-msg">
-              喋っている間だけ下げます。判定は無音カットと同じ「静かな所」の裏返しなので、
-              声を拾えていないときは、下の「調べ直す」で静かさのしきい値を変えてください。
-            </div>
-            <div className="sil-rows">
-              <label className="sil-row">
-                <span>どれだけ下げるか</span>
-                <input
-                  type="range"
-                  min={-24}
-                  max={0}
-                  step={1}
-                  value={duckOpts.amountDb}
-                  onChange={(e) =>
-                    setDuckOpts((d) => ({ ...d, amountDb: Number(e.target.value) }))
-                  }
-                />
-                <b>{duckOpts.amountDb === 0 ? '下げない' : `${duckOpts.amountDb} dB`}</b>
-              </label>
-              <label className="sil-row">
-                <span>下がりきるまで</span>
-                <input
-                  type="range"
-                  min={0.02}
-                  max={1}
-                  step={0.01}
-                  value={duckOpts.attack}
-                  onChange={(e) => setDuckOpts((d) => ({ ...d, attack: Number(e.target.value) }))}
-                />
-                <b>{duckOpts.attack.toFixed(2)} 秒</b>
-              </label>
-              <label className="sil-row">
-                <span>戻りきるまで</span>
-                <input
-                  type="range"
-                  min={0.05}
-                  max={2}
-                  step={0.05}
-                  value={duckOpts.release}
-                  onChange={(e) => setDuckOpts((d) => ({ ...d, release: Number(e.target.value) }))}
-                />
-                <b>{duckOpts.release.toFixed(2)} 秒</b>
-              </label>
-            </div>
-            <div className="sil-result">
-              {silenceCut.busy
-                ? '声のある所を調べています…'
-                : !silenceCut.found
-                  ? '声のある所がまだ分かりません。「調べ直す」を押してください。'
-                  : duckEnv.length === 0
-                    ? '声が見つかりませんでした（無音カットの設定で静かさを変えて調べ直してください）。'
-                    : `声のある所 ${voiceRegions(silenceCut.found, totalSegLen(segments)).length} か所に合わせて下げます。再生すると、そのまま聴けます。`}
-            </div>
-            <div className="restore-btns">
-              <button className="btn" onClick={() => void findSilences()} disabled={silenceCut.busy}>
-                調べ直す
-              </button>
-              <button className="btn btn-primary" onClick={() => setDuckOpen(false)}>
-                閉じる
-              </button>
-            </div>
-          </div>
-        </div>
+        <DuckingDialog
+          opts={duckOpts}
+          onChange={(patch) => setDuckOpts((d) => ({ ...d, ...patch }))}
+          busy={silenceCut.busy}
+          found={!!silenceCut.found}
+          voiceCount={
+            silenceCut.found ? voiceRegions(silenceCut.found, totalSegLen(segments)).length : 0
+          }
+          hasEnvelope={duckEnv.length > 0}
+          onFind={() => void findSilences()}
+          onClose={() => setDuckOpen(false)}
+        />
       )}
 
       {/* SE 再生用の隠し audio 要素。全クリップぶん常設すると Chromium のメディア要素上限に
@@ -13622,149 +13342,48 @@ export default function App(): JSX.Element {
           <audio key={clip.id} src={toGcUrl(clip.path)} preload="auto" ref={seRefCb(clip.id)} />
         ))}
 
-      {/* ===== 環境設定（ショートカット）===== */}
+      {/* 設定のダイアログは components/dialogs/SettingsDialogs.tsx */}
       {prefsOpen && (
-        <div
-          className="prefs-overlay"
-          onClick={() => {
+        <ShortcutSettings
+          actions={ACTION_LIST}
+          groups={['ファイル', 'ツール', '再生', '編集']}
+          shortcuts={shortcuts}
+          capturingId={capturingId}
+          onCapture={setCapturingId}
+          onReset={resetShortcuts}
+          onClose={() => {
             setPrefsOpen(false)
             setCapturingId(null)
           }}
-        >
-          <div className="prefs-box" onClick={(e) => e.stopPropagation()}>
-            <div className="prefs-head">
-              <span>環境設定 — キーボードショートカット</span>
-              <button
-                className="prefs-close"
-                onClick={() => {
-                  setPrefsOpen(false)
-                  setCapturingId(null)
-                }}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="prefs-body">
-              {['ファイル', 'ツール', '再生', '編集'].map((group) => (
-                <div key={group} className="prefs-group">
-                  <div className="prefs-group-title">{group}</div>
-                  {ACTION_LIST.filter((a) => a.group === group).map((a) => {
-                    const combo = shortcuts[a.id]
-                    const conflict = (Object.keys(shortcuts) as ShortcutId[]).some(
-                      (k) => k !== a.id && shortcuts[k] === combo
-                    )
-                    return (
-                      <div className="prefs-row" key={a.id}>
-                        <span className="prefs-label">{a.label}</span>
-                        <button
-                          className={`prefs-key ${capturingId === a.id ? 'capturing' : ''} ${conflict ? 'conflict' : ''}`}
-                          onClick={() => setCapturingId(a.id)}
-                          title={conflict ? '他のショートカットと重複しています' : ''}
-                        >
-                          {capturingId === a.id ? 'キーを押す…' : formatCombo(combo)}
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
-            <div className="prefs-foot">
-              <span className="prefs-hint">
-                行のキーをクリック → 新しいキーを押す（Esc でキャンセル）
-              </span>
-              <button className="btn" onClick={resetShortcuts}>
-                ショートカットをリセット
-              </button>
-            </div>
-          </div>
-        </div>
+          formatCombo={formatCombo}
+        />
       )}
-
-      {/* ===== アイコン設定（色ごとに画像を割当）===== */}
-      {iconSettingsOpen && (
-        <div className="prefs-overlay" onClick={() => setIconSettingsOpen(false)}>
-          <div className="prefs-box" onClick={(e) => e.stopPropagation()}>
-            <div className="prefs-head">
-              <span>アイコン設定 — 色／レーンごとに画像を割当</span>
-              <button className="prefs-close" onClick={() => setIconSettingsOpen(false)}>
-                ✕
-              </button>
-            </div>
-            <div className="prefs-body">
-              <div className="prefs-hint" style={{ marginBottom: 10 }}>
-                「アイコン」タブで追加した画像を割り当て。優先順位は 個別D&amp;D → 色 → レーン。
-              </div>
-              {iconLibrary.length === 0 && (
-                <div className="sp-label" style={{ marginBottom: 10 }}>
-                  先に「アイコン」タブで画像を追加してください。
-                </div>
+      {iconSettingsOpen &&
+        (() => {
+          // 使用中の色だけ出す（全色ズラッと並べない）。
+          // 割当済みの色は使っていなくても出す＝解除できるように。
+          const usedLabels = new Set(cues.map((c) => c.label))
+          return (
+            <IconAssignSettings
+              library={iconLibrary}
+              colorRows={LABEL_COLORS.filter(
+                (l) => usedLabels.has(l.color) || iconAssign[l.color]
               )}
-              {(() => {
-                // 画像選択行（色/レーン共用）
-                const picker = (cur: string | undefined, pick: (img: string | null) => void): JSX.Element => (
-                  <div className="assign-picker">
-                    <button className={`assign-thumb ${!cur ? 'on' : ''}`} onClick={() => pick(null)} title="なし">
-                      ✕
-                    </button>
-                    {iconLibrary.map((it) => (
-                      <button
-                        key={it.id}
-                        className={`assign-thumb ${cur === it.image ? 'on' : ''}`}
-                        onClick={() => pick(it.image)}
-                        title={it.name}
-                      >
-                        <img src={it.image} alt="" />
-                      </button>
-                    ))}
-                  </div>
-                )
-                // 使用中の色だけ表示（全色ズラッと並べない）。割当済みの色は使ってなくても出す＝解除できるように。
-                const usedLabels = new Set(cues.map((c) => c.label))
-                const colorRows = LABEL_COLORS.filter(
-                  (l) => usedLabels.has(l.color) || iconAssign[l.color]
-                )
-                // テロップを置けるレーン（V1=動画を除く映像トラック）
-                const telopLanes = tracks.filter((t) => t.kind === 'video' && t.id !== 'V1')
-                return (
-                  <>
-                    <div className="sp-subhead"><span>色ごと（使用中の色のみ表示）</span></div>
-                    {colorRows.length === 0 && (
-                      <div className="sp-label" style={{ marginBottom: 8 }}>
-                        テロップがまだありません。テロップに色を付けるとここに出ます。
-                      </div>
-                    )}
-                    {colorRows.map((l) => (
-                      <div className="assign-row" key={l.color}>
-                        <span className="lg-swatch" style={{ background: l.color }} />
-                        <span className="assign-name">{l.name}</span>
-                        {picker(iconAssign[l.color], (img) => setIconForColor(l.color, img))}
-                      </div>
-                    ))}
-                    <div className="sp-subhead" style={{ marginTop: 12 }}>
-                      <span>レーンごと（そのトラックのテロップ全部に表示）</span>
-                    </div>
-                    {telopLanes.map((t) => (
-                      <div className="assign-row" key={t.id}>
-                        <span className="assign-name" style={{ minWidth: 64 }}>
-                          {t.id === 'V2' ? 'V2 テロップ' : t.name || t.id}
-                        </span>
-                        {picker(laneIconAssign[t.id], (img) => setIconForLane(t.id, img))}
-                      </div>
-                    ))}
-                  </>
-                )
-              })()}
-            </div>
-            <div className="prefs-foot">
-              <span className="prefs-hint">画像は「アイコン」タブで管理（追加・削除）</span>
-              <button className="btn" onClick={() => setIconSettingsOpen(false)}>
-                閉じる
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+              laneRows={tracks
+                .filter((t) => t.kind === 'video' && t.id !== 'V1')
+                .map((t) => ({
+                  id: t.id,
+                  label: t.id === 'V2' ? 'V2 テロップ' : t.name || t.id
+                }))}
+              colorAssign={iconAssign}
+              laneAssign={laneIconAssign}
+              onAssignColor={setIconForColor}
+              onAssignLane={setIconForLane}
+              hasTelop={cues.length > 0}
+              onClose={() => setIconSettingsOpen(false)}
+            />
+          )
+        })()}
 
       {/* ===== アイコン画像のクロップ（ライブラリ追加時）===== */}
       {cropSrc && (
@@ -13816,84 +13435,17 @@ export default function App(): JSX.Element {
         </>
       )}
 
-      {/* ===== トースト通知 ===== */}
-      <div className="toast-wrap">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast toast-${t.type}`}>
-            <span className="toast-ico">
-              {t.type === 'success' ? '✓' : t.type === 'error' ? '!' : 'i'}
-            </span>
-            <span className="toast-msg">{t.msg}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* ===== テキスト入力モーダル（prompt置き換え）===== */}
+      {/* 重ねて出す小物（お知らせ・文字入力・確認）は components/Overlays.tsx。
+          形だけの部品なので、状態はここ（App）が持ったまま渡す。 */}
+      <Toasts items={toasts} />
       {promptState && (
-        <div className="modal-overlay" onClick={() => setPromptState(null)}>
-          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">{promptState.title}</div>
-            <input
-              className="modal-input"
-              autoFocus
-              value={promptState.value}
-              onChange={(e) =>
-                setPromptState((s) => (s ? { ...s, value: e.target.value } : s))
-              }
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  promptState.onOk(promptState.value)
-                  setPromptState(null)
-                } else if (e.key === 'Escape') setPromptState(null)
-              }}
-            />
-            <div className="modal-actions">
-              <button className="modal-btn ghost" onClick={() => setPromptState(null)}>
-                キャンセル
-              </button>
-              <button
-                className="modal-btn primary"
-                onClick={() => {
-                  promptState.onOk(promptState.value)
-                  setPromptState(null)
-                }}
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
+        <PromptModal
+          state={promptState}
+          onChange={(v) => setPromptState((st) => (st ? { ...st, value: v } : st))}
+          onClose={() => setPromptState(null)}
+        />
       )}
-
-      {/* ===== 確認モーダル（OS標準ダイアログの置き換え）===== */}
-      {confirmState && (
-        <div className="modal-overlay" onClick={() => closeConfirm(false)}>
-          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">{confirmState.title}</div>
-            <div className="modal-body">{confirmState.body}</div>
-            <div className="modal-actions">
-              <button className="modal-btn ghost" onClick={() => closeConfirm(false)}>
-                {confirmState.cancelLabel}
-              </button>
-              <button
-                className={`modal-btn ${confirmState.danger ? 'danger' : 'primary'}`}
-                autoFocus
-                onClick={() => closeConfirm(true)}
-                // Enter=実行 / Escape=中止。ボタンにフォーカスがあるので
-                // キーだけで閉じられる（OS ダイアログと同じ操作感）。
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    e.stopPropagation() // 裏のタイムラインの Esc 処理まで走らせない
-                    closeConfirm(false)
-                  }
-                }}
-              >
-                {confirmState.okLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {confirmState && <ConfirmModal state={confirmState} onClose={closeConfirm} />}
 
       {/* ===== タブの並び順（タブを右クリック）===== */}
       {tabMenu && (

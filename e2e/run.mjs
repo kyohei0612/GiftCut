@@ -3604,6 +3604,10 @@ try {
     const pop = popWindows()[0]
     assert(pop, '別ウィンドウが開かない')
     const clips = () => page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)').count()
+    // 分割はクリップの途中でしかできない。ここへ来るまでに再生ヘッドが
+    // どこにあるかは、前の項目次第で変わる（絞って回すと 0 秒のまま）。
+    // 見たいのは「別ウィンドウでもキーが効くか」なので、位置は自分で決める。
+    await seekTo(7)
     const before = await clips()
     // 別ウィンドウを選んでから、そちらで Ctrl+K（分割）を押す
     await pop.locator('.pane-pop-root').first().click({ position: { x: 5, y: 5 } })
