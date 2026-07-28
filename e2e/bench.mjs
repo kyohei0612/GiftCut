@@ -655,7 +655,25 @@ try {
   await measure('クリップを掴んで動かす', async () => {
     // 端のクリップは磁石で元の位置へ戻る。真ん中あたりを掴む。
     const all = page.locator('[data-tid="V1"] .video-clip')
-    const t = all.nth(Math.floor((await all.count()) / 2))
+    // ★「真ん中の帯」ではなく「画面に見えている帯」を選ぶ。
+    //   見えない帯は作らない作りなので、並び順の真ん中が窓の外にあることがある
+    //   （実際 x=1764 の画面外を掴んで、何も起きていなかった）。
+    const vwA = (page.viewportSize() ?? { width: 1280 }).width
+    const iA = await all.evaluateAll((els, w) => {
+      const hit = []
+      for (let i = 0; i < els.length; i++) {
+        const r = els[i].getBoundingClientRect()
+        if (r.x > 200 && r.x + r.width < w - 200) hit.push(i)
+      }
+      if (hit.length) return hit[Math.floor(hit.length / 2)]
+      for (let i = 0; i < els.length; i++) {
+        const r = els[i].getBoundingClientRect()
+        if (r.x < w - 250 && r.x + r.width > 250) return i
+      }
+      return -1
+    }, vwA)
+    if (iA < 0) throw new Error('掴める帯が画面に無い')
+    const t = all.nth(iA)
     let b = await t.boundingBox()
     // 細いクリップは掴めない。人と同じで、掴める幅まで拡大してから動かす。
     for (let g = 0; g < 12 && b.width < 24; g++) {
@@ -685,7 +703,11 @@ try {
     }
     await page.mouse.up()
     await page.waitForTimeout(300)
-    if ((await layout()) === l0) throw new Error('掴んで動かせていない')
+    const l1 = await layout()
+    if (l1 === l0)
+      throw new Error(
+        `掴んで動かせていない（掴んだ所 x=${Math.round(x0)} 幅=${Math.round(b.width)} 1回=${dx}px×40 / 帯 ${l0.split(',').length}本）`
+      )
     await page.keyboard.press('Control+z') // 元に戻しておく
     await page.waitForTimeout(500)
   },
