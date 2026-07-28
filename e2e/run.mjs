@@ -720,6 +720,16 @@ try {
       }
     },
     {
+      name: '再生位置',
+      // 前の項目が動かした再生位置が残っていると、次の項目が
+      // 「そこに映っているはずの物」を別の時刻で探すことになる
+      read: () => page.evaluate(() => (document.querySelector('.tc-cur')?.textContent ?? '').trim()),
+      restore: async () => {
+        await page.keyboard.press('Home')
+        await page.waitForTimeout(300)
+      }
+    },
+    {
       name: 'タイムラインの拡大率',
       // 積み上がると「クリップ1つぶんの幅」が変わり、同じ距離を動かしたつもりが
       // 磁石に吸い戻される（負荷チェックでも同じ失敗をした）
@@ -2522,6 +2532,9 @@ try {
   }
 
   await check('プレビューで、画像も重ねた動画も無い所を掴むと本編の映像が動く', async () => {
+    // 前の項目が残した状態（クリップが増えている・再生位置が違う）に
+    // 頼っていて、絞って回すと落ちていた。自分で用意する。
+    await resetProject()
     await seekTo(12) // 画像は 1〜5秒。そこを外す
     const vid = page.locator('.screen-video').first()
     const before = await vid.evaluate((el) => el.style.transform)
@@ -2653,6 +2666,65 @@ try {
   // =========================================================================
   section('設定のコピーと貼り付け（プレミアの属性ペースト相当）')
   await resetProject()
+
+  await check('テロップの見た目を変えると、プレビューにもすぐ出る', async () => {
+    // 見た目まわりは確認が1つも無かった。ここが空いていると、
+    // 「設定は変わったのに画面は変わらない」に誰も気づけない。
+    await resetProject()
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(400)
+    await seekTo(2)
+    const shown = page.locator('.telop-overlay .telop-textmain').first()
+    assert(await shown.count(), 'プレビューに文字が出ていない')
+    // 文字の大きさは cqh（画面の高さ基準）で指定されているので、
+    // 計算後の font-size ではなく**実際に描かれた高さ**で見る
+    const sizeOf = async () => (await shown.boundingBox())?.height ?? 0
+    const before = await sizeOf()
+    assert(before > 0, '文字の大きさが取れない')
+    // 文字の大きさを変える。**つまみ（range）ではなく数値の欄**を使う
+    // （range は普通の入力では動かない）。行が複数あるので、数値欄を持つ行を選ぶ。
+    const row = page
+      .locator('.sp-row')
+      .filter({ hasText: 'サイズ' })
+      .filter({ has: page.locator('input.sp-num') })
+      .first()
+    const num = row.locator('input.sp-num').first()
+    assert(await num.count(), '文字の大きさの入力が見つからない')
+    // 入力の数字は「1080基準の大きさ」で、画面上の高さとは基準が違う。
+    // いまの値を読んでから増やす（画面の高さを渡すと、逆に小さくなる）
+    const cur = Number(await num.inputValue())
+    assert(cur > 0, `文字の大きさを読めない（${cur}）`)
+    await num.fill(String(Math.round(cur * 1.8)))
+    await num.press('Enter')
+    await page.waitForTimeout(600)
+    const after = await sizeOf()
+    assert(after > before * 1.2, `大きさを変えてもプレビューが変わらない（${before} → ${after}）`)
+  })
+
+  await check('変えた見た目は、保存して開き直しても残っている', async () => {
+    // クリップの色が保存で消えた前科がある（読み込みの許可リスト漏れ）。
+    // 見た目の項目は数が多く、1つ漏れても気づけないので、実際に往復させる。
+    const size = (await page.locator('.telop-overlay .telop-textmain').first().boundingBox())?.height ?? 0
+    assert(size > 0, '前の項目で大きさを変えられていない')
+    await page.keyboard.press('Control+s')
+    await page.waitForTimeout(1600)
+    // 開き直す
+    await setDialogFiles([fx.gcproj], null)
+    await page.keyboard.press('Control+o')
+    await page.waitForTimeout(2500)
+    const cont = page.locator('.modal-btn', { hasText: 'このまま続ける' })
+    if (await cont.count()) {
+      await cont.click()
+      await page.waitForTimeout(1500)
+    }
+    await seekTo(2)
+    await page.waitForTimeout(600)
+    const back = (await page.locator('.telop-overlay .telop-textmain').first().boundingBox())?.height ?? 0
+    near(back, size, 2, `開き直したら文字の大きさが戻ってしまった（${size} → ${back}）`)
+    // この項目は「保存したファイル」を開いた状態で終わる。そのままだと
+    // 以降の項目が別の中身を見ることになるので、用意した状態へ戻しておく。
+    await resetProject()
+  })
 
   await check('テロップの位置をコピーして、他のテロップにも貼れる', async () => {
     // プレビュー上で1つ目のテロップを動かし、その位置を他へ写す
