@@ -254,9 +254,44 @@ function createWindow(): void {
     mainWindow.close()
   })
 
+  // パネルを別ウィンドウ（別モニター）へ出すための穴。
+  //
+  // 開けるのは**自前のパネル用ウィンドウだけ**。外部のURLは今まで通り
+  // 既定のブラウザへ渡して、アプリの中では開かない（開けてしまうと、
+  // 素材に紛れ込んだリンクを踏んだときにアプリの中でページが開く）。
   mainWindow.webContents.setWindowOpenHandler((details) => {
+    if (details.frameName.startsWith('gc-pane-')) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          backgroundColor: '#1b1b1e',
+          autoHideMenuBar: true,
+          minWidth: 260,
+          minHeight: 200,
+          webPreferences: {
+            preload: join(__dirname, '../preload/index.js'),
+            sandbox: false,
+            contextIsolation: true
+          }
+        }
+      }
+    }
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // 本体を閉じたら、出したパネルも一緒に閉じる。
+  // 残ると、中身が動かないウィンドウだけが画面に取り残される。
+  const panes = new Set<BrowserWindow>()
+  mainWindow.webContents.on('did-create-window', (win) => {
+    panes.add(win)
+    win.on('closed', () => panes.delete(win))
+  })
+  mainWindow.on('closed', () => {
+    for (const w of panes) {
+      if (!w.isDestroyed()) w.destroy()
+    }
+    panes.clear()
   })
 
   // dev: electron-vite が渡す URL / prod: ビルド済み HTML

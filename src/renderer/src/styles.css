@@ -592,6 +592,59 @@ body {
   color: var(--muted);
   background: transparent;
 }
+/* 別ウィンドウへ出したパネル。窓いっぱいに広げる。
+   本体の中では幅や高さを指定しているが、別ウィンドウでは窓の大きさが
+   そのままパネルの大きさなので、指定を上書きする。 */
+.pane-pop-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #16181d);
+  color: var(--text);
+}
+.pane-pop-root > .panel,
+.pane-pop-root > .timeline {
+  width: auto !important;
+  height: auto !important;
+  flex: 1 1 auto !important;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+}
+.pane-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px 5px 12px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+/* メニューの1行に「切り離す」と「別ウィンドウ（⧉）」を並べる */
+.ctx-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.ctx-row .ctx-item {
+  flex: 1 1 auto;
+}
+.ctx-pop {
+  flex: 0 0 auto;
+  width: 30px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 6px;
+}
+.ctx-pop:hover {
+  color: var(--text);
+  background: #ffffff14;
+}
 /* 「≫」の中の並び替えコーナー */
 .tab-sort {
   padding: 2px 4px 4px;
@@ -1762,6 +1815,8 @@ body {
 }
 .tl-toolbar {
   height: 34px;
+  /* 狭いと中身がはみ出して、上の見出しに重なる（別ウィンドウで実際に重なった） */
+  overflow: hidden;
   background: var(--head);
   border-bottom: 1px solid var(--line);
   display: flex;
@@ -1812,6 +1867,8 @@ body {
   margin-left: 10px;
   font-size: 11px;
   color: var(--muted);
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 .tl-zoom input {
   width: 120px;
@@ -1820,6 +1877,11 @@ body {
   margin-left: auto;
   font-size: 11px;
   color: var(--muted);
+  /* 狭いときは折り返さずに切る。折り返すと縦に伸びて、上の見出しへはみ出す */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 .tl-body {
   flex: 1 1 auto;

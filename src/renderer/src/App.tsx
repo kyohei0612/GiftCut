@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { parseSrt, buildSrt, formatTime, type Cue } from './lib/srt'
 import {
   anchorFrac,
@@ -767,6 +768,138 @@ function PanelTabs({
         ≫
       </button>
     </div>
+  )
+}
+
+/**
+ * パネルの置き場所。別ウィンドウへ出しているときだけ、中身をそちらへ差し込む。
+ * 出していないときは、今までどおりその場に置く（何も挟まらない）。
+ */
+function PaneHost({
+  id,
+  title,
+  popped,
+  onClose,
+  children
+}: {
+  id: string
+  title: string
+  popped: boolean
+  onClose: () => void
+  children: React.ReactNode
+}): JSX.Element {
+  if (!popped) return <>{children}</>
+  return (
+    <PaneWindow id={id} title={title} onClose={onClose}>
+      {children}
+    </PaneWindow>
+  )
+}
+
+/**
+ * パネルを**アプリの外**（別ウィンドウ・別モニター）へ出す。
+ *
+ * 画面の中で浮かせる「切り離し」とは別物。作業中はパネルを2枚目のモニターへ
+ * 逃がしたい、という要望から作った。
+ *
+ * 作りは `window.open` した別ウィンドウへ React のポータルで中身を差し込む形。
+ * **同じレンダラーのまま**なので、状態はそのまま共有される（別ウィンドウで
+ * 選んだクリップが本体側でも選ばれている、という当たり前の動きになる）。
+ *
+ * 気を付けたところ:
+ *   - 別 document なので CSS は引き継がれない。style と link を写す
+ *   - 掴んで動かす処理は、どれも本体側の window に耳を付けている。
+ *     別ウィンドウの中で動かしたぶんが届かないと**掴んだまま固まる**ので、
+ *     pointer 系だけ本体へ流す（座標はどちらも同じ窓の中で測るのでずれない）
+ *   - キーは流さない。流すと、別ウィンドウの文字入力がショートカットとして
+ *     二重に効いてしまう（文字を打つたびに削除や分割が走る）
+ *   - ウィンドウを閉じたら自動で元の場所へ戻す（閉じ忘れで行方不明にしない）
+ *
+ * ※ App の中で定義してはいけない（PanelTabs と同じ理由）。
+ */
+function PaneWindow({
+  id,
+  title,
+  onClose,
+  children
+}: {
+  id: string
+  title: string
+  onClose: () => void
+  children: React.ReactNode
+}): JSX.Element | null {
+  const [host, setHost] = useState<HTMLElement | null>(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  useEffect(() => {
+    const w = window.open(
+      '',
+      `gc-pane-${id}`,
+      `width=${Math.min(760, Math.round(window.innerWidth * 0.42))},height=${Math.min(
+        820,
+        Math.round(window.innerHeight * 0.7)
+      )}`
+    )
+    if (!w) {
+      closeRef.current()
+      return
+    }
+    const doc = w.document
+    doc.title = `GiftCut - ${title}`
+    for (const node of document.querySelectorAll('style, link[rel="stylesheet"]')) {
+      doc.head.appendChild(node.cloneNode(true))
+    }
+    doc.body.className = document.body.className
+    doc.body.style.margin = '0'
+    doc.body.style.background = getComputedStyle(document.body).backgroundColor
+    const root = doc.createElement('div')
+    root.className = 'pane-pop-root'
+    doc.body.appendChild(root)
+    setHost(root)
+    // 掴んで動かすぶんを本体へ流す
+    const forward = (ev: PointerEvent): void => {
+      window.dispatchEvent(new PointerEvent(ev.type, ev))
+    }
+    for (const t of ['pointermove', 'pointerup', 'pointercancel']) {
+      w.addEventListener(t, forward as EventListener, true)
+    }
+    // メニューを閉じる処理も本体側にあるので、押した合図だけ流す
+    const forwardClick = (): void => {
+      window.dispatchEvent(new MouseEvent('click'))
+    }
+    w.addEventListener('click', forwardClick, true)
+    // 閉じたら元の場所へ戻す。
+    // beforeunload は閉じ方によっては飛んでこない（実際、閉じても戻らなかった）。
+    // 閉じたかどうかを見張るのが確実。
+    const watch = window.setInterval(() => {
+      if (w.closed) {
+        window.clearInterval(watch)
+        closeRef.current()
+      }
+    }, 400)
+    return () => {
+      window.clearInterval(watch)
+      for (const t of ['pointermove', 'pointerup', 'pointercancel']) {
+        w.removeEventListener(t, forward as EventListener, true)
+      }
+      w.removeEventListener('click', forwardClick, true)
+      if (!w.closed) w.close()
+    }
+    // 開くのは1回だけ。title が変わっても開き直さない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+  if (!host) return null
+  return createPortal(
+    <>
+      <div className="pane-pop-head">
+        <span className="float-title">{title}</span>
+        <button className="float-dock" title="本体へ戻す" onClick={() => closeRef.current()}>
+          ⇤ 戻す
+        </button>
+      </div>
+      {children}
+    </>,
+    host
   )
 }
 
@@ -2328,6 +2461,26 @@ export default function App(): JSX.Element {
   }
   function dockPane(id: PaneId): void {
     setFloating((p) => {
+      const n = { ...p }
+      delete n[id]
+      return n
+    })
+  }
+  // ---- アプリの外（別ウィンドウ・別モニター）へ出す ----
+  //
+  // 画面の中で浮かせる「切り離し」とは別物。2枚目のモニターへ逃がすためのもの。
+  // 覚えさせない（localStorage に残さない）。起動しただけで勝手に別ウィンドウが
+  // 開くと、モニターを外して起動したときに画面の外へ出たまま行方不明になる。
+  const [popped, setPopped] = useState<Partial<Record<PaneId, true>>>({})
+  const isPopped = (id: PaneId): boolean => !!popped[id]
+  function popPane(id: PaneId): void {
+    // 中で浮いたまま外へ出すと、戻す先が分からなくなる。先に元へ戻す
+    dockPane(id)
+    setPopped((p) => ({ ...p, [id]: true }))
+    showToast(`${PANE_LABEL[id]} を別ウィンドウで開きました。閉じると元に戻ります。`)
+  }
+  function unpopPane(id: PaneId): void {
+    setPopped((p) => {
       const n = { ...p }
       delete n[id]
       return n
@@ -9937,6 +10090,7 @@ export default function App(): JSX.Element {
       {/* ===== ワークスペース ===== */}
       <div className="workspace">
         <div className="upper">
+          <PaneHost id="left" title={PANE_LABEL.left} popped={isPopped('left')} onClose={() => unpopPane('left')}>
           {/* --- 左: プロパティ --- */}
           <section
             className={`panel ${isFloating('left') ? 'pane-float' : ''}`}
@@ -10613,9 +10767,11 @@ export default function App(): JSX.Element {
               )}
             </div>
           </section>
+          </PaneHost>
 
           <div className="resizer resizer-v" onPointerDown={(e) => startResize('left', e)} />
 
+          <PaneHost id="preview" title={PANE_LABEL.preview} popped={isPopped('preview')} onClose={() => unpopPane('preview')}>
           {/* --- 中央: プログラムモニター / オーディオミキサー --- */}
           <section
             className={`panel monitor ${isFloating('preview') ? 'pane-float' : ''}`}
@@ -11148,9 +11304,11 @@ export default function App(): JSX.Element {
               </div>
             </div>
           </section>
+          </PaneHost>
 
           <div className="resizer resizer-v" onPointerDown={(e) => startResize('right', e)} />
 
+          <PaneHost id="right" title={PANE_LABEL.right} popped={isPopped('right')} onClose={() => unpopPane('right')}>
           {/* --- 右: プロジェクト --- */}
           <section
             className={`panel ${isFloating('right') ? 'pane-float' : ''}`}
@@ -11932,10 +12090,12 @@ export default function App(): JSX.Element {
               </div>
             )}
           </section>
+          </PaneHost>
         </div>
 
         <div className="resizer resizer-h" onPointerDown={(e) => startResize('timeline', e)} />
 
+        <PaneHost id="timeline" title={PANE_LABEL.timeline} popped={isPopped('timeline')} onClose={() => unpopPane('timeline')}>
         {/* ===== タイムライン ===== */}
         <section
           className={`timeline ${isFloating('timeline') ? 'pane-float' : ''}`}
@@ -13089,6 +13249,7 @@ export default function App(): JSX.Element {
             </div>
           </div>
         </section>
+        </PaneHost>
       </div>
 
       {/* ===== ステータスバー ===== */}
@@ -13635,21 +13796,51 @@ export default function App(): JSX.Element {
                 >
                   {isFloating(pane) ? '⇤ 元の場所に戻す' : '⇱ このパネルを切り離す'}
                 </button>
+                {/* 画面の中で浮かせるのとは別に、アプリの外（別モニター）へも出せる */}
+                <button
+                  className="ctx-item"
+                  onClick={() => {
+                    if (isPopped(pane)) unpopPane(pane)
+                    else popPane(pane)
+                    setTabMenu(null)
+                  }}
+                >
+                  {isPopped(pane) ? '⇤ 本体へ戻す' : '⧉ 別ウィンドウで開く'}
+                </button>
                 <div className="ctx-sep" />
+                {/* 他のパネルも、ここから切り離し（⇱）と別ウィンドウ（⧉）を選べる。
+                    左パネルとタイムラインにはタブの右クリックが無いので、
+                    ここが唯一の入口になる。 */}
                 {(['left', 'preview', 'right', 'timeline'] as PaneId[])
                   .filter((id) => id !== pane)
                   .map((id) => (
-                    <button
-                      key={id}
-                      className="ctx-item"
-                      onClick={() => {
-                        if (isFloating(id)) dockPane(id)
-                        else undockPane(id)
-                        setTabMenu(null)
-                      }}
-                    >
-                      {isFloating(id) ? `⇤ ${PANE_LABEL[id]} を戻す` : `⇱ ${PANE_LABEL[id]} を切り離す`}
-                    </button>
+                    <div className="ctx-row" key={id}>
+                      <button
+                        className="ctx-item"
+                        onClick={() => {
+                          if (isFloating(id)) dockPane(id)
+                          else undockPane(id)
+                          setTabMenu(null)
+                        }}
+                      >
+                        {isFloating(id) ? `⇤ ${PANE_LABEL[id]} を戻す` : `⇱ ${PANE_LABEL[id]} を切り離す`}
+                      </button>
+                      <button
+                        className="ctx-pop"
+                        title={
+                          isPopped(id)
+                            ? `${PANE_LABEL[id]} を本体へ戻す`
+                            : `${PANE_LABEL[id]} を別ウィンドウで開く`
+                        }
+                        onClick={() => {
+                          if (isPopped(id)) unpopPane(id)
+                          else popPane(id)
+                          setTabMenu(null)
+                        }}
+                      >
+                        {isPopped(id) ? '⇤' : '⧉'}
+                      </button>
+                    </div>
                   ))}
               </>
             )

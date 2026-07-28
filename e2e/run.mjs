@@ -666,6 +666,14 @@ try {
    */
   async function resetProject() {
     if (SHOT_ONLY) return
+    // 別ウィンドウへ出したパネルが残っていると、本体からはそのパネルが
+    // 丸ごと消えたままになる。以降の項目は探している物を見つけられない。
+    for (const w of app.windows()) {
+      if (w === page) continue
+      console.log('  \x1b[90m別ウィンドウが残っていたので閉じます\x1b[0m')
+      await w.close().catch(() => {})
+      await page.waitForTimeout(800)
+    }
     // 画面の配置は、何も編集していなくてもずれる（タブが切り替わるだけでずれる）。
     // なので dirty の判定より先に見る。
     const drift = await layoutDrifted()
@@ -2699,6 +2707,72 @@ try {
     assert((await page.locator('.pane-float').count()) === 0, '元に戻っていない')
     const saved = await page.evaluate(() => localStorage.getItem('giftcut.floatPanes'))
     assert(saved !== null, '切り離しの状態が保存されていない')
+  })
+
+  // =========================================================================
+  section('パネルを別ウィンドウ（別モニター）へ出す')
+  await resetProject()
+
+  /** いま開いている別ウィンドウ（本体を除く） */
+  const popWindows = () => app.windows().filter((w) => w !== page)
+
+  await check('タブの右クリックから、パネルを別ウィンドウで開ける', async () => {
+    const before = await page.locator('.panel-tabs-strip').count()
+    await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const item = page.locator('.ctx-item', { hasText: '別ウィンドウで開く' }).first()
+    assert(await item.count(), 'メニューに「別ウィンドウで開く」が無い')
+    await item.click()
+    await page.waitForTimeout(2000)
+    const pops = popWindows()
+    assert(pops.length === 1, `別ウィンドウが開いていない（${pops.length}枚）`)
+    const pop = pops[0]
+    await pop.waitForSelector('.pane-pop-root .panel', { timeout: 15000 })
+    // 中身が本当に入っているか（枠だけ出て中が空、では意味が無い）
+    const tabs = await pop.locator('.pane-pop-root .tab').allTextContents()
+    assert(tabs.includes('プロジェクト'), `別ウィンドウにタブが出ていない（${tabs.join(',')}）`)
+    // スタイルが写っていないと、素の HTML が並んだだけの見た目になる
+    const bg = await pop
+      .locator('.pane-pop-root')
+      .evaluate((el) => getComputedStyle(el).backgroundColor)
+    assert(bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent', `見た目が写っていない（${bg}）`)
+    // 本体側からは消えて、残りが広がる
+    const after = await page.locator('.panel-tabs-strip').count()
+    assert(after === before - 1, `本体からパネルが消えていない（${before} → ${after}）`)
+  })
+
+  await check('別ウィンドウの中でも、掴んで動かす操作が効く', async () => {
+    // 掴んで動かす処理は本体側の window に耳を付けている。別ウィンドウの中で
+    // 動かしたぶんが届かないと、掴んだまま固まる。タブの並べ替えで確かめる。
+    const pop = popWindows()[0]
+    assert(pop, '別ウィンドウが無い')
+    const strip = pop.locator('.panel-tabs-strip').first()
+    const before = await strip.locator('.tab').allTextContents()
+    const a = await strip.locator('.tab').nth(0).boundingBox()
+    const b = await strip.locator('.tab').nth(1).boundingBox()
+    await pop.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
+    await pop.mouse.down()
+    const goal = b.x + b.width + 6
+    for (let i = 1; i <= 8; i++)
+      await pop.mouse.move(
+        a.x + a.width / 2 + ((goal - (a.x + a.width / 2)) * i) / 8,
+        a.y + a.height / 2
+      )
+    await pop.mouse.up()
+    await pop.waitForTimeout(500)
+    const after = await strip.locator('.tab').allTextContents()
+    assert(after[0] === before[1], `別ウィンドウで並べ替えできない（${before.join(',')} → ${after.join(',')}）`)
+  })
+
+  await check('別ウィンドウを閉じると、パネルが本体へ戻る', async () => {
+    const before = await page.locator('.panel-tabs-strip').count()
+    const pop = popWindows()[0]
+    assert(pop, '別ウィンドウが無い')
+    await pop.close()
+    await page.waitForTimeout(1500)
+    assert(popWindows().length === 0, '別ウィンドウが残っている')
+    const after = await page.locator('.panel-tabs-strip').count()
+    assert(after === before + 1, `本体へ戻っていない（${before} → ${after}）`)
   })
 
   // =========================================================================
