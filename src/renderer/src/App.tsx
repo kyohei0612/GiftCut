@@ -120,6 +120,34 @@ const TRACK_PAD_ROWS = 2
 const AUTOSAVE_MS = 5 * 60 * 1000
 
 /**
+ * 重い下準備（サムネ・波形・尺）を、同時に走る数を絞って順に流す。
+ *
+ * 素材ビンに並んだぶんだけ一斉に ffmpeg を起こしていたため、
+ * 2000件のプロジェクトを開くのに69秒かかっていた（実測）。
+ * 数を絞れば、先頭から順に出そろい、その間も操作できる。
+ */
+function makeJobQueue(limit: number): (job: () => Promise<unknown>) => void {
+  const waiting: (() => Promise<unknown>)[] = []
+  let running = 0
+  const pump = (): void => {
+    while (running < limit && waiting.length) {
+      const job = waiting.shift() as () => Promise<unknown>
+      running++
+      void job().finally(() => {
+        running--
+        pump()
+      })
+    }
+  }
+  return (job) => {
+    waiting.push(job)
+    pump()
+  }
+}
+// 同時に4本まで。増やすと出そろうのは速いが、その間アプリ全体が重くなる。
+const mediaQueue = makeJobQueue(4)
+
+/**
  * マウスの動きを「1フレームに1回」へまとめる。
  *
  * マウスは1秒に100回以上動くが、画面は60回しか描き替わらない。
@@ -901,17 +929,24 @@ export default function App(): JSX.Element {
   // 解析中のパス（同じファイルの波形解析を二重・三重に走らせないため）。
   // mediaMetaRef は effect 経由で遅れて更新されるので、同一tick内の重複はこれで防ぐ。
   const metaInFlightRef = useRef<Set<string>>(new Set())
+  // サムネを作った（作りかけの）ファイル。同じものを何度も作らないため。
+  const thumbDoneRef = useRef<Set<string>>(new Set())
   // 素材の尺と波形を用意する（動画・音声のみ。取り込み時に呼ぶ）
   function prepareMediaMeta(path: string, kind: 'video' | 'audio' | 'image'): void {
     if (kind === 'image') return
     if (mediaMetaRef.current[path]?.wave) return // 既に解析済み
     if (metaInFlightRef.current.has(path)) return // 解析中（波形解析は全長デコードで重い）
     metaInFlightRef.current.add(path)
-    void window.giftcut.getDuration(path).then((r) => {
-      if (r?.ok && r.duration)
-        setMediaMeta((prev) => ({ ...prev, [path]: { ...prev[path], dur: r.duration } }))
-    })
-    void window.giftcut
+    // 波形は全長デコードで重い。同時に走る数を絞らないと、素材が多いほど
+    // 開いた直後にアプリ全体が止まる（2000件で69秒かかっていた）。
+    mediaQueue(() =>
+      window.giftcut.getDuration(path).then((r) => {
+        if (r?.ok && r.duration)
+          setMediaMeta((prev) => ({ ...prev, [path]: { ...prev[path], dur: r.duration } }))
+      })
+    )
+    mediaQueue(() =>
+      window.giftcut
       .generateWaveform(path)
       .then((r) => {
         if (r?.ok && r.min && r.max)
@@ -923,7 +958,8 @@ export default function App(): JSX.Element {
             }
           }))
       })
-      .finally(() => metaInFlightRef.current.delete(path))
+        .finally(() => metaInFlightRef.current.delete(path))
+    )
   }
   const [selectedMediaId, setSelectedMediaId] = useState<number | null>(null)
   const mediaIdCounter = useRef(1)
@@ -5147,12 +5183,17 @@ export default function App(): JSX.Element {
   }
   // 動画アイテムのサムネを非同期生成して反映
   function genThumbFor(id: number, path: string): void {
-    void window.giftcut.generateThumbnail(path).then((th) => {
-      if (th?.ok && th.path) {
-        const url = toGcUrl(th.path)
-        setMediaItems((prev) => prev.map((m) => (m.id === id ? { ...m, thumb: url } : m)))
-      }
-    })
+    // 同じファイルを何度も作らない／同時に走らせない（ビンが多いと詰まる）
+    if (thumbDoneRef.current.has(path)) return
+    thumbDoneRef.current.add(path)
+    mediaQueue(() =>
+      window.giftcut.generateThumbnail(path).then((th) => {
+        if (th?.ok && th.path) {
+          const url = toGcUrl(th.path)
+          setMediaItems((prev) => prev.map((m) => (m.id === id || m.path === path ? { ...m, thumb: url } : m)))
+        }
+      })
+    )
   }
   function addMediaPaths(paths: string[], folder?: string): void {
     if (!paths.length) return
