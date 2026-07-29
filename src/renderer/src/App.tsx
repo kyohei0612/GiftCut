@@ -72,6 +72,8 @@ import {
 } from './components/dialogs/SettingsDialogs'
 import { ContextMenu } from './components/ContextMenu'
 import { TelopTemplatesTab } from './components/panels/TelopTemplatesTab'
+import { TransitionsTab } from './components/panels/TransitionsTab'
+import { ProjectBinTab } from './components/panels/ProjectBinTab'
 import { SeLibraryTab, seMoveTarget } from './components/panels/SeLibraryTab'
 import { IconLibraryTab, ICON_LIB } from './components/panels/IconLibraryTab'
 import CropModal from './components/CropModal'
@@ -11179,131 +11181,38 @@ export default function App(): JSX.Element {
               }}
               onReorder={(ids) => setTabOrder((p) => ({ ...p, right: ids }))}
             />
+            {/* --- 右: プロジェクト（素材の置き場）--- 中身は components/panels/ProjectBinTab.tsx */}
             {rightTab === 'project' && (
-            <div className="panel-body" ref={rightBodyRef} onDoubleClick={addFilesToProject}>
-              <div className="bin-toolbar">
-                <button className="btn small" onClick={addFilesToProject} title="ファイルを追加">
-                  ＋ ファイル追加
-                </button>
-                <button className="btn small" onClick={addFolderToProject} title="フォルダごと追加（SE等）">
-                  📂 フォルダから一括追加
-                </button>
-                <button className="btn small" onClick={handleImportSrt} title="SRT（テロップ）を読み込む">
-                  🗒 SRT
-                </button>
-              </div>
-
-              {/* メディアライブラリ（アイコン/サムネ表示） */}
-              {mediaItems.length === 0 ? (
-                <div className="empty">
-                  ダブルクリックでファイル追加
-                  <br />
-                  📁ボタンでフォルダ丸ごと追加（SE等）
-                </div>
-              ) : (
-                <div className="media-lib">
-                  {(['video', 'audio', 'image'] as const).map((kind) => {
-                    const items = mediaItems.filter((m) => m.kind === kind)
-                    if (!items.length) return null
-                    const label = kind === 'video' ? '動画' : kind === 'audio' ? 'SE / 音声' : '画像'
-                    const ico = kind === 'video' ? '🎬' : kind === 'audio' ? '🔊' : '🖼'
-                    return accSec(
-                      'project',
-                      kind,
-                      `${ico} ${label}`,
-                      items.length,
-                      <div className="media-grid">
-                          {items.map((m) => (
-                            <div
-                              key={m.id}
-                              className={`media-card ${m.path === videoPath ? 'media-active' : ''} ${selectedMediaId === m.id ? 'media-sel' : ''}`}
-                              title={
-                                m.kind === 'video'
-                                  ? 'タイムラインへドラッグ=置いた位置に配置（Ctrl=挿入）/ ダブルクリック=読み込み'
-                                  : m.kind === 'audio'
-                                    ? 'タイムラインにドラッグでSE/BGM配置'
-                                    : 'タイムラインの映像トラック(V2/V3)へドラッグで画像を配置'
-                              }
-                              draggable={true}
-                              onDragStart={(e) => beginMediaDrag(m, e)}
-                              onDragEnd={() => {
-                                draggingMediaRef.current = null
-                                setSeGhost(null)
-                                setVideoGhost(null)
-                                setImgGhost(null)
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedMediaId(m.id)
-                              }}
-                              onDoubleClick={(e) => {
-                                e.stopPropagation()
-                                if (m.kind !== 'video') return
-                                // 何も読み込んでいなければ読み込む。既に編集中なら
-                                // タイムラインを壊さない（ダブルクリックで全消しは事故になる）。
-                                if (!videoPath) void loadVideo(m.path)
-                                else
-                                  showToast(
-                                    'タイムラインへドラッグして配置してください（Ctrl+ドロップで挿入）。'
-                                  )
-                              }}
-                            >
-                              <button
-                                className="media-del"
-                                title="プロジェクトから削除"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  removeMedia(m.id)
-                                }}
-                              >
-                                ✕
-                              </button>
-                              <div className="media-thumb">
-                                {m.thumb ? (
-                                  <img src={m.thumb} alt="" />
-                                ) : (
-                                  <span className="media-thumb-ico">{ico}</span>
-                                )}
-                              </div>
-                              <div className="media-card-name">{m.name}</div>
-                              {m.folder && <div className="media-card-sub">📁 {m.folder}</div>}
-                            </div>
-                          ))}
-                        </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {srtPath && (
-                <div className="bin" style={{ marginTop: 8 }}>
-                  <div className="bin-row">
-                    <span className="bin-ico">🗒</span>
-                    <span className="bin-name">{srtPath.split(/[\\/]/).pop()}</span>
-                    <span className="bin-meta">{cues.length}項目</span>
-                  </div>
-                </div>
-              )}
-
-              {/* カラーラベル */}
-              {labelGroups.length > 0 && (
-                <div className="label-groups">
-                  <div className="lg-head">カラーラベル（クリックでまとめて選択）</div>
-                  {labelGroups.map((g) => (
-                    <div
-                      key={g.color}
-                      className="lg-row"
-                      onClick={() => selectByLabel(g.color)}
-                      title={`${g.name} を全て選択`}
-                    >
-                      <span className="lg-swatch" style={{ background: g.color }} />
-                      <span className="lg-name">{g.name}</span>
-                      <span className="lg-count">{g.count}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+              <ProjectBinTab
+                bodyRef={rightBodyRef}
+                accSec={accSec}
+                items={mediaItems}
+                activePath={videoPath}
+                selectedId={selectedMediaId}
+                srtName={srtPath ? (srtPath.split(/[\\/]/).pop() ?? null) : null}
+                cueCount={cues.length}
+                labelGroups={labelGroups}
+                onAddFiles={addFilesToProject}
+                onAddFolder={addFolderToProject}
+                onImportSrt={handleImportSrt}
+                onSelect={setSelectedMediaId}
+                onOpenVideo={(m) => {
+                  // 何も読み込んでいなければ読み込む。既に編集中なら
+                  // タイムラインを壊さない（ダブルクリックで全消しは事故になる）。
+                  if (!videoPath) void loadVideo(m.path)
+                  else
+                    showToast('タイムラインへドラッグして配置してください（Ctrl+ドロップで挿入）。')
+                }}
+                onRemove={removeMedia}
+                onDragStart={beginMediaDrag}
+                onDragEnd={() => {
+                  draggingMediaRef.current = null
+                  setSeGhost(null)
+                  setVideoGhost(null)
+                  setImgGhost(null)
+                }}
+                onPickLabel={selectByLabel}
+              />
             )}
 
             {/* --- テロップテンプレ --- 中身は components/panels/TelopTemplatesTab.tsx */}
@@ -11441,237 +11350,86 @@ export default function App(): JSX.Element {
               />
             )}
 
-            {/* --- トランジション（動画クリップ＝頭/尻フェード ＋ テロップ＝出入りの動き）--- */}
-            {rightTab === 'transition' && (
-              <div className="panel-body" ref={rightBodyRef}>
-                {/* タイムラインでトランジション枠を選択中 → そのトランジションだけを編集/削除 */}
-                {selectedTrans &&
-                  (() => {
-                    const seg = segments.find((s) => s.id === selectedTrans.segId)
-                    const t =
-                      selectedTrans.kind === 'xfade'
-                        ? seg?.xfade
-                        : selectedTrans.kind === 'in'
-                          ? seg?.transIn
-                          : seg?.transOut
-                    if (!seg || !t) return null
-                    const place =
-                      selectedTrans.kind === 'xfade'
-                        ? '間（クリップ同士）'
-                        : selectedTrans.kind === 'in'
-                          ? '頭（クリップ開始）'
-                          : '尻（クリップ終わり）'
-                    return (
-                      <div className="sel-trans">
-                        <div className="sel-trans-head">
-                          <span className="sel-trans-title">🎯 {place}</span>
-                          <button
-                            className="btn small danger"
-                            onClick={deleteSelectedTrans}
-                            title="このトランジションを削除（Delete）"
-                          >
-                            削除
-                          </button>
-                        </div>
-                        <div className="sp-row">
-                          <span className="sp-label">種類</span>
-                          <div className="seg seg-wrap">
-                            {TRANS_TYPES.map((x) => (
-                              <button
-                                key={x.type}
-                                className={`seg-btn ${t.type === x.type ? 'seg-on' : ''}`}
-                                onClick={() => setSelectedTransType(x.type)}
-                                title={x.label}
-                              >
-                                {x.ico}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="sp-row">
-                          <span className="sp-label">長さ</span>
-                          <input
-                            type="range"
-                            min={0.05}
-                            max={2}
-                            step={0.05}
-                            value={t.dur}
-                            onChange={(e) => updateSelectedTransDur(Number(e.target.value))}
-                          />
-                          <span className="sp-val">{t.dur.toFixed(2)}s</span>
-                        </div>
-                        <button className="btn small" onClick={() => setSelectedTrans(null)}>
-                          選択を解除
-                        </button>
-                        <div className="tpl-divider" />
-                      </div>
-                    )
-                  })()}
-                {/* タイムラインでテロップの出入り帯を選択中 → そのアニメだけ編集/削除（動画と同じ仕組み） */}
-                {selectedTelopTrans &&
-                  (() => {
-                    const cue = cues.find((c) => c.id === selectedTelopTrans.cueId)
-                    const anim = cue?.style.anim
-                    if (!cue || !anim) return null
-                    const isIn = selectedTelopTrans.kind === 'in'
-                    const type = isIn ? anim.in : anim.out
-                    const dur = isIn ? anim.inDur : anim.outDur
-                    return (
-                      <div className="sel-trans">
-                        <div className="sel-trans-head">
-                          <span className="sel-trans-title">
-                            💬 テロップ {isIn ? '頭（出現）' : '尻（消失）'}
-                          </span>
-                          <button
-                            className="btn small danger"
-                            onClick={deleteSelectedTelopTrans}
-                            title="このアニメを削除（Delete）"
-                          >
-                            削除
-                          </button>
-                        </div>
-                        <div className="sp-row">
-                          <span className="sp-label">種類</span>
-                          <div className="seg seg-wrap">
-                            {TELOP_MOTIONS.map((m) => (
-                              <button
-                                key={m.type}
-                                className={`seg-btn ${type === m.type ? 'seg-on' : ''}`}
-                                onClick={() => setTelopTransType(m.type)}
-                                title={m.label}
-                              >
-                                {m.ico}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="sp-row">
-                          <span className="sp-label">長さ</span>
-                          <input
-                            type="range"
-                            min={0.05}
-                            max={2}
-                            step={0.05}
-                            value={dur}
-                            onChange={(e) => updateTelopTransDur(Number(e.target.value))}
-                          />
-                          <span className="sp-val">{dur.toFixed(2)}s</span>
-                        </div>
-                        <button className="btn small" onClick={() => setSelectedTelopTrans(null)}>
-                          選択を解除
-                        </button>
-                        <div className="tpl-divider" />
-                      </div>
-                    )
-                  })()}
-                {!selectedTrans && !selectedTelopTrans && (
-                  <div className="tpl-hint">
-                    下のトランジションを<b>タイムラインへドラッグ</b>。落とす<b>マウス位置</b>で置き場所が決まります。
-                    置いた<b>帯をクリック</b>で長さ・種類の変更／削除、<b>帯の端をドラッグ</b>で長さ変更。
-                  </div>
-                )}
-                <div className="sp-row">
-                  <span className="sp-label">新規の長さ</span>
-                  <input
-                    type="range"
-                    min={0.05}
-                    max={2}
-                    step={0.05}
-                    value={transDur}
-                    onChange={(e) => setTransDur(Number(e.target.value))}
+            {/* --- トランジション --- 中身は components/panels/TransitionsTab.tsx。
+                動画クリップもテロップも「頭・間・尻のどこにでも置ける」同じ扱い。 */}
+            {rightTab === 'transition' &&
+              (() => {
+                // 選んでいる帯を、動画側とテロップ側で同じ形にしてから渡す
+                const seg = selectedTrans && segments.find((s) => s.id === selectedTrans.segId)
+                const vt = !seg
+                  ? null
+                  : selectedTrans!.kind === 'xfade'
+                    ? seg.xfade
+                    : selectedTrans!.kind === 'in'
+                      ? seg.transIn
+                      : seg.transOut
+                const videoBand =
+                  seg && vt && selectedTrans
+                    ? {
+                        ico: '🎯',
+                        place:
+                          selectedTrans.kind === 'xfade'
+                            ? '間（クリップ同士）'
+                            : selectedTrans.kind === 'in'
+                              ? '頭（クリップ開始）'
+                              : '尻（クリップ終わり）',
+                        type: vt.type,
+                        dur: vt.dur,
+                        kinds: TRANS_TYPES,
+                        onType: (t: string) => setSelectedTransType(t as TransType),
+                        onDur: updateSelectedTransDur,
+                        onDelete: deleteSelectedTrans,
+                        onDeselect: () => setSelectedTrans(null)
+                      }
+                    : null
+                const cue =
+                  selectedTelopTrans && cues.find((c) => c.id === selectedTelopTrans.cueId)
+                const anim = cue ? cue.style.anim : null
+                const isIn = selectedTelopTrans?.kind === 'in'
+                const telopBand =
+                  cue && anim && selectedTelopTrans
+                    ? {
+                        ico: '💬',
+                        place: `テロップ ${isIn ? '頭（出現）' : '尻（消失）'}`,
+                        type: isIn ? anim.in : anim.out,
+                        dur: isIn ? anim.inDur : anim.outDur,
+                        kinds: TELOP_MOTIONS,
+                        onType: (t: string) => setTelopTransType(t as AnimIn),
+                        onDur: updateTelopTransDur,
+                        onDelete: deleteSelectedTelopTrans,
+                        onDeselect: () => setSelectedTelopTrans(null)
+                      }
+                    : null
+                return (
+                  <TransitionsTab
+                    bodyRef={rightBodyRef}
+                    accSec={accSec}
+                    selectedVideoBand={videoBand}
+                    selectedTelopBand={telopBand}
+                    newDur={transDur}
+                    onNewDur={setTransDur}
+                    videoKinds={TRANS_TYPES}
+                    telopKinds={TELOP_MOTIONS}
+                    onDragStartVideo={(x, e) => {
+                      draggingTransRef.current = { type: x.type as TransType }
+                      setDragChip(e, x.ico, x.label)
+                    }}
+                    onDragEndVideo={() => {
+                      draggingTransRef.current = null
+                      setTransDrop(null)
+                    }}
+                    onDragStartTelop={(m, e) => {
+                      draggingTelopAnimRef.current = { type: m.type as AnimIn }
+                      setDragChip(e, m.ico, m.label)
+                    }}
+                    onDragEndTelop={() => {
+                      draggingTelopAnimRef.current = null
+                      setTelopDrop(null)
+                    }}
+                    onToggleEmphasis={toggleTelopEmphasis}
                   />
-                  <span className="sp-val">{transDur.toFixed(2)}s</span>
-                </div>
-                {accSec(
-                  'transition',
-                  'video',
-                  '🎬 動画クリップ',
-                  null,
-                  <>
-                    <div className="tpl-hint">
-                      どの種類も<b>頭・間・尻のどこにでも</b>置けます。
-                      <b>カットの境目＝間</b>／クリップ本体の<b>前半＝頭・後半＝尻</b>。
-                    </div>
-                    <div className="fx-list">
-                      {TRANS_TYPES.map((x) => (
-                        <button
-                          key={x.type}
-                          className="fx-item fx-draggable"
-                          draggable
-                          onDragStart={(e) => {
-                            draggingTransRef.current = { type: x.type }
-                            setDragChip(e, x.ico, x.label)
-                          }}
-                          onDragEnd={() => {
-                            draggingTransRef.current = null
-                            setTransDrop(null)
-                          }}
-                          title={`${x.label}。クリップの頭/間/尻へドラッグ`}
-                        >
-                          <span className="fx-ico">{x.ico}</span>
-                          <span className="fx-name">{x.label}</span>
-                          <span className="fx-drag-hint">⠿</span>
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-                {accSec(
-                  'transition',
-                  'telop',
-                  '💬 テロップ',
-                  null,
-                  <>
-                    <div className="tpl-hint">
-                      テロップの<b>頭＝出現 / 尻＝消失 / 間＝隣のテロップとの切替</b>。
-                    </div>
-                    <div className="fx-list">
-                      {TELOP_MOTIONS.map((m) => (
-                        <button
-                          key={m.type}
-                          className="fx-item fx-draggable"
-                          draggable
-                          onDragStart={(e) => {
-                            draggingTelopAnimRef.current = { type: m.type }
-                            setDragChip(e, m.ico, m.label)
-                          }}
-                          onDragEnd={() => {
-                            draggingTelopAnimRef.current = null
-                            setTelopDrop(null)
-                          }}
-                          title={`${m.label}。テロップの頭/尻/間へドラッグ`}
-                        >
-                          <span className="fx-ico">{m.ico}</span>
-                          <span className="fx-name">{m.label}</span>
-                          <span className="fx-drag-hint">⠿</span>
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-                {accSec(
-                  'transition',
-                  'effect',
-                  '✨ エフェクト（テロップ強調）',
-                  null,
-                  <>
-                    <div className="tpl-hint">
-                      選択中のテロップに<b>クリックでON/OFF</b>（クリップ全体にかかる動き）。
-                    </div>
-                    <div className="fx-list">
-                      <button className="fx-item" onClick={() => toggleTelopEmphasis('shake')}>
-                        <span className="fx-ico">〰️</span>
-                        <span className="fx-name">揺れ</span>
-                      </button>
-                      <button className="fx-item" onClick={() => toggleTelopEmphasis('pulse')}>
-                        <span className="fx-ico">❤️</span>
-                        <span className="fx-name">脈動</span>
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+                )
+              })()}
           </section>
           </PaneHost>
         </div>
