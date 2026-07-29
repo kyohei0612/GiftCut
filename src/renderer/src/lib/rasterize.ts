@@ -5,6 +5,8 @@ import {
   anchorFlex,
   anchorTranslate,
   animTransform,
+  animFilter,
+  animClip,
   buildTelopSVG,
   hexToRgba,
   ICON_BASE_PX,
@@ -33,7 +35,9 @@ function innerHtml(
   const scale = height / 1080
   // アニメ層（opacity/transform）。無ければ素通し
   const animOpen = anim
-    ? `<div style="display:inline-block;opacity:${anim.opacity.toFixed(3)};transform:${animTransform(anim, 'px', scale)};transform-origin:center;">`
+    ? `<div style="display:inline-block;opacity:${anim.opacity.toFixed(3)};transform:${animTransform(anim, 'px', scale)};transform-origin:center;` +
+      `${animFilter(anim, scale) ? `filter:${animFilter(anim, scale)};` : ''}` +
+      `${animClip(anim) ? `clip-path:${animClip(anim)};` : ''}">`
     : ''
   const animClose = anim ? '</div>' : ''
   const fs = s.fontSize * scale

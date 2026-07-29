@@ -109,16 +109,21 @@ describe('そのまま再現できるプリセットか', () => {
       })
     ).toBe(true)
   })
-  it('他が混ざっていれば再現できない', () => {
-    expect(
-      isFullyCopyable({
-        name: 'x',
-        effects: [
-          { matchName: 'AE.ADBE Motion', params: [] },
-          { matchName: 'AE.ADBE Gaussian Blur 2', params: [] }
-        ]
-      })
-    ).toBe(false)
+  it('ぼかし・色調整・切り抜き・基本3D も持てる（テロップは CSS で出せるため）', () => {
+    for (const n of [
+      'AE.ADBE Gaussian Blur 2',
+      'AE.ADBE ProcAmp',
+      'AE.ADBE AECrop',
+      'AE.ADBE Basic 3D'
+    ]) {
+      expect(isFullyCopyable({ name: 'x', effects: [{ matchName: n, params: [] }] })).toBe(true)
+    }
+  })
+
+  it('画素をぐにゃりと動かす系は、まだ再現できない', () => {
+    for (const n of ['AE.ADBE Wave Warp', 'AE.ADBE Turbulent Displace', 'AE.ADBE Lens Flare']) {
+      expect(isFullyCopyable({ name: 'x', effects: [{ matchName: n, params: [] }] })).toBe(false)
+    }
   })
 })
 

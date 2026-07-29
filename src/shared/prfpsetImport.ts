@@ -37,8 +37,16 @@ const OPACITY = 'AE.ADBE Opacity'
  * 中身（位置・スケール・回転・不透明度）は同じ意味なので、同じように読める。
  */
 const GEOMETRY = 'AE.ADBE Geometry2'
+/** 基本3D。スウィベル（横回転）とチルト（縦回転） */
+const BASIC3D = 'AE.ADBE Basic 3D'
+/** 色調整。明度だけ持ってくる（コントラスト・彩度・色相はまだ） */
+const PROCAMP = 'AE.ADBE ProcAmp'
+/** ガウスぼかし */
+const GBLUR = 'AE.ADBE Gaussian Blur 2'
+/** 切り抜き。**タイプライターや「光」系の正体はこれ** */
+const CROP = 'AE.ADBE AECrop'
 
-const HANDLED = new Set([MOTION, OPACITY, GEOMETRY])
+const HANDLED = new Set([MOTION, OPACITY, GEOMETRY, BASIC3D, PROCAMP, GBLUR, CROP])
 
 /** そのプリセットが、こちらで持てるエフェクトだけでできているか */
 export function isFullyCopyable(p: PrPreset): boolean {
@@ -106,10 +114,46 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
           // 度どうしなのでそのまま
           motion.skew = toKeys(x)
           break
+        case 'スウィベル':
+          motion.roty = toKeys(x)
+          break
+        case 'チルト':
+          motion.rotx = toKeys(x)
+          break
+        case '明度':
+          // ProcAmp は 0 が無調整（-100〜100）。CSS の brightness は 1 が無調整
+          motion.bright = toKeys(scaleKeys(x, 0.01, 1))
+          break
+        case 'ブラー':
+          // px どうし。1080基準でそのまま
+          motion.blur = toKeys(x)
+          break
+        case '左':
+          motion.cl = toKeys(scaleKeys(x, 0.01))
+          break
+        case '上':
+          motion.ct = toKeys(scaleKeys(x, 0.01))
+          break
+        case '右':
+          motion.cr = toKeys(scaleKeys(x, 0.01))
+          break
+        case '下':
+          motion.cb = toKeys(scaleKeys(x, 0.01))
+          break
         case '歪曲軸':
         case 'アンチフリッカー':
         case 'シャッター角度':
         case 'サンプリング':
+        case '画像までの距離':
+        case '鏡面ハイライト':
+        case 'プレビュー':
+        case 'エッジをぼかす':
+        case 'ズーム':
+        case 'コントラスト':
+        case '色相':
+        case '彩度':
+        case '分割比':
+        case 'ブラーの方向':
           // 見た目にほぼ効かない・こちらに概念が無い。動いていても無視してよい
           break
         default:

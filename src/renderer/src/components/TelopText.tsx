@@ -3,6 +3,9 @@ import {
   anchorFlex,
   anchorTranslate,
   animTransform,
+  animFilter,
+  animClip,
+  NEUTRAL_ANIM,
   type Motion,
   buildTelopSVG,
   computeTelopAnim,
@@ -101,13 +104,20 @@ export default function TelopText({
   const anim =
     animT != null && hasMotion(motion)
       ? applyMotion(
-          animBase ?? { opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0, scx: 1, skew: 0 },
+          animBase ?? NEUTRAL_ANIM,
           motion,
           animT
         )
       : animBase
   const animLayer: React.CSSProperties = anim
-    ? { opacity: anim.opacity, transform: animTransform(anim, 'cqh'), transformOrigin: 'center' }
+    ? {
+        opacity: anim.opacity,
+        transform: animTransform(anim, 'cqh'),
+        transformOrigin: 'center',
+        // 明るさ・ぼかし・切り抜きは transform では出せないので別に渡す
+        ...(animFilter(anim) ? { filter: animFilter(anim) } : null),
+        ...(animClip(anim) ? { clipPath: animClip(anim) } : null)
+      }
     : {}
 
   const commonTransform = `translate(${cqh(iconOffsetX)}, ${cqh(iconOffsetY)}) scale(${iconScale})`

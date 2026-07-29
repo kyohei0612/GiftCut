@@ -24,4 +24,17 @@ export interface Motion {
   scx?: Keys
   /** 歪曲（度）。斜体と同じ skewX で傾ける。Premiere の「歪曲」 */
   skew?: Keys
+  /** 横回転（度・Y軸）。Premiere の基本3D「スウィベル」 */
+  roty?: Keys
+  /** 縦回転（度・X軸）。基本3D「チルト」 */
+  rotx?: Keys
+  /** 明るさ（1=そのまま）。ProcAmp の明度 */
+  bright?: Keys
+  /** ぼかし（px・1080基準）。ガウスぼかし */
+  blur?: Keys
+  /** 切り抜き（各辺 0..1）。タイプライターや「光」系に要る */
+  cl?: Keys
+  ct?: Keys
+  cr?: Keys
+  cb?: Keys
 }

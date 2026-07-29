@@ -127,9 +127,27 @@ export interface AnimState {
   scx: number
   /** 歪曲（度）。斜体と同じ skewX で傾ける。Premiere の「歪曲」に当たる */
   skew: number
+  /**
+   * 3D回転（度）。横回転＝スウィベル（Y軸）、縦回転＝チルト（X軸）。
+   * **テロップは HTML を PNG に焼く経路なので、CSS の 3D 変形がそのまま使える。**
+   */
+  roty: number
+  rotx: number
+  /** 明るさ（1=そのまま）。CSS filter の brightness */
+  bright: number
+  /** ぼかし（px。1080基準）。CSS filter の blur */
+  blur: number
+  /** 切り抜き（各辺 0..1）。CSS の clip-path: inset。「光」系や打ち込み演出に要る */
+  crop: { l: number; t: number; r: number; b: number }
 }
+/** 何も付いていない状態。呼ぶ側が毎回書くと、項目を足したとき直し漏れる */
+export const NEUTRAL_ANIM: AnimState = {
+  opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0, scx: 1, skew: 0,
+  roty: 0, rotx: 0, bright: 1, blur: 0, crop: { l: 0, t: 0, r: 0, b: 0 }
+}
+
 export function computeTelopAnim(anim: TelopAnim | undefined, animT: number, clipDur: number): AnimState {
-  const st: AnimState = { opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0, scx: 1, skew: 0 }
+  const st: AnimState = { ...NEUTRAL_ANIM, crop: { ...NEUTRAL_ANIM.crop } }
   if (!anim) return st
   const clampp = (v: number): number => Math.min(1, Math.max(0, v))
   const easeOut = (p: number): number => 1 - Math.pow(1 - p, 3)
@@ -189,10 +207,36 @@ export function animTransform(s: AnimState, unit: 'cqh' | 'px', pxScale = 1): st
   // いつも書くと、動きの無いテロップの transform まで変わって差分が読みにくくなる。
   const sx = Math.abs(s.scx - 1) > 1e-4 ? ` scaleX(${s.scx.toFixed(4)})` : ''
   const sk = Math.abs(s.skew) > 1e-4 ? ` skewX(${(-s.skew).toFixed(2)}deg)` : ''
+  // 3D回転。**perspective が無いと、ただ横に潰れるだけで奥行きが出ない**
+  const d3 =
+    Math.abs(s.roty) > 1e-4 || Math.abs(s.rotx) > 1e-4
+      ? ` perspective(${unit === 'cqh' ? '100cqh' : `${(1080 * pxScale).toFixed(0)}px`})` +
+        ` rotateY(${s.roty.toFixed(2)}deg) rotateX(${s.rotx.toFixed(2)}deg)`
+      : ''
   return (
     `translate(${u(s.tx)}, ${u(s.ty)}) scale(${s.sc.toFixed(4)}) ` +
-    `rotate(${s.rot.toFixed(2)}deg)${sx}${sk}`
+    `rotate(${s.rot.toFixed(2)}deg)${sx}${sk}${d3}`
   )
+}
+
+/**
+ * 明るさとぼかし（CSS filter）。付いていなければ空。
+ * **動画クリップと違い、テロップは ffmpeg の制約を受けない**（HTML を焼くので、
+ * CSS が持っている物はそのまま出せる）。
+ */
+export function animFilter(s: AnimState, pxScale = 1): string {
+  const parts: string[] = []
+  if (Math.abs(s.bright - 1) > 1e-4) parts.push(`brightness(${s.bright.toFixed(4)})`)
+  if (s.blur > 1e-4) parts.push(`blur(${(s.blur * pxScale).toFixed(2)}px)`)
+  return parts.join(' ')
+}
+
+/** 切り抜き（CSS clip-path）。付いていなければ空。タイプライターや「光」系に要る */
+export function animClip(s: AnimState): string {
+  const c = s.crop
+  if (c.l < 1e-4 && c.t < 1e-4 && c.r < 1e-4 && c.b < 1e-4) return ''
+  const pc = (v: number): string => `${(Math.min(0.999, Math.max(0, v)) * 100).toFixed(2)}%`
+  return `inset(${pc(c.t)} ${pc(c.r)} ${pc(c.b)} ${pc(c.l)})`
 }
 
 // テロップ用フォント一覧。
@@ -1258,13 +1302,10 @@ import type { Motion } from '../../../shared/telopMotion'
 
 export const hasMotion = (m?: Motion): boolean =>
   !!m &&
-  (hasKeys(m.tx) ||
-    hasKeys(m.ty) ||
-    hasKeys(m.sc) ||
-    hasKeys(m.rot) ||
-    hasKeys(m.op) ||
-    hasKeys(m.scx) ||
-    hasKeys(m.skew))
+  (
+    [m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.skew,
+     m.roty, m.rotx, m.bright, m.blur, m.cl, m.ct, m.cr, m.cb] as (Keys | undefined)[]
+  ).some(hasKeys)
 
 /** 出入りのアニメの上に、自分で打った動きを重ねる */
 export function applyMotion(st: AnimState, m: Motion | undefined, animT: number): AnimState {
@@ -1276,7 +1317,17 @@ export function applyMotion(st: AnimState, m: Motion | undefined, animT: number)
     rot: st.rot + valueAt(m!.rot, animT, 0),
     opacity: st.opacity * valueAt(m!.op, animT, 1),
     scx: st.scx * valueAt(m!.scx, animT, 1),
-    skew: st.skew + valueAt(m!.skew, animT, 0)
+    skew: st.skew + valueAt(m!.skew, animT, 0),
+    roty: st.roty + valueAt(m!.roty, animT, 0),
+    rotx: st.rotx + valueAt(m!.rotx, animT, 0),
+    bright: st.bright * valueAt(m!.bright, animT, 1),
+    blur: st.blur + valueAt(m!.blur, animT, 0),
+    crop: {
+      l: st.crop.l + valueAt(m!.cl, animT, 0),
+      t: st.crop.t + valueAt(m!.ct, animT, 0),
+      r: st.crop.r + valueAt(m!.cr, animT, 0),
+      b: st.crop.b + valueAt(m!.cb, animT, 0)
+    }
   }
 }
 
@@ -1302,12 +1353,25 @@ export function sanitizeMotion(v: unknown): Motion | undefined {
     rot: sanitizeKeys(o.rot),
     op: sanitizeKeys(o.op),
     scx: sanitizeKeys(o.scx),
-    skew: sanitizeKeys(o.skew)
+    skew: sanitizeKeys(o.skew),
+    roty: sanitizeKeys(o.roty),
+    rotx: sanitizeKeys(o.rotx),
+    bright: sanitizeKeys(o.bright),
+    blur: sanitizeKeys(o.blur),
+    cl: sanitizeKeys(o.cl),
+    ct: sanitizeKeys(o.ct),
+    cr: sanitizeKeys(o.cr),
+    cb: sanitizeKeys(o.cb)
   }
   return hasMotion(m) ? m : undefined
 }
 
 /** そのテロップに打たれている印の時刻（クリップ先頭からの秒） */
 export function motionKeyTimes(m?: Motion): number[] {
-  return m ? keyTimesOf(m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.skew) : []
+  return m
+    ? keyTimesOf(
+        m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.skew,
+        m.roty, m.rotx, m.bright, m.blur, m.cl, m.ct, m.cr, m.cb
+      )
+    : []
 }
