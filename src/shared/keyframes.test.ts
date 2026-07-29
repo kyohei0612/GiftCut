@@ -8,6 +8,7 @@ import {
   nextKeyTime,
   hasKeys,
   keysToExpr,
+  sanitizeKeys,
   type Keys
 } from './keyframes'
 
@@ -121,6 +122,47 @@ describe('ffmpeg の式（プレビューと同じ折れ線になること）', 
     )((c: boolean, a: number, b: number) => (c ? a : b), (a: number, b: number) => a < b, t)
   }
 
+
+  // ---- ベジェ（Premiere / AE から写し取った動き）----
+  //
+  // 式では三次方程式を解けないので折れ線に潰している。**潰した式と、画面で
+  // 見ている値が一致するか**がすべて。ここが開くと写し取った意味が無くなる。
+  it('ベジェの区間も、式と画面の値が一致する', () => {
+    const k: Keys = [
+      { t: 0, v: 0, to: { speed: 0, influence: 1 / 3 } },
+      { t: 1, v: 100, ti: { speed: 0, influence: 1 / 3 } }
+    ]
+    const expr = keysToExpr(k, 0, 't', 30)
+    for (let t = 0; t <= 1.0001; t += 0.02) {
+      expect(evalExpr(expr, t)).toBeCloseTo(valueAt(k, t, 0), 0)
+    }
+  })
+
+  it('接線が付いていても、まっすぐな区間は式を刻まない（長くなるだけ）', () => {
+    // 速度＝直線の傾き＝実質リニア。読み込んだ素材の6割がこれ
+    const straight: Keys = [
+      { t: 0, v: 0, to: { speed: 100, influence: 1 / 6 } },
+      { t: 1, v: 100, ti: { speed: 100, influence: 1 / 6 } }
+    ]
+    const curvy: Keys = [
+      { t: 0, v: 0, to: { speed: 0, influence: 1 / 3 } },
+      { t: 1, v: 100, ti: { speed: 0, influence: 1 / 3 } }
+    ]
+    expect(keysToExpr(straight, 0, 't', 30).length).toBeLessThan(
+      keysToExpr(curvy, 0, 't', 30).length / 4
+    )
+  })
+
+  it('端は打った値そのもの（刻んでも動かない）', () => {
+    const k: Keys = [
+      { t: 0, v: 20, to: { speed: 0, influence: 0.5 } },
+      { t: 2, v: 80, ti: { speed: 0, influence: 0.5 } }
+    ]
+    const expr = keysToExpr(k, 0, 't', 30)
+    expect(evalExpr(expr, 0)).toBeCloseTo(20, 3)
+    expect(evalExpr(expr, 2)).toBeCloseTo(80, 3)
+  })
+
   it('キーが無ければ、ただの数', () => {
     expect(keysToExpr(undefined, 1.25, 't')).toBe('1.25')
   })
@@ -157,5 +199,31 @@ describe('ffmpeg の式（プレビューと同じ折れ線になること）', 
 
   it('時刻の変数名は呼ぶ側が決められる（zoompan は on/fps を使う）', () => {
     expect(keysToExpr(K, 1, '(on/30)')).toContain('(on/30)')
+  })
+})
+
+describe('保存して開き直したとき、接線が残るか', () => {
+  // **拾い忘れると、写し取った動きが開き直した瞬間にただの直線に戻る。**
+  // しかも動いてはいるので、見ただけでは気づけない。
+  it('接線を拾う', () => {
+    const k = sanitizeKeys([
+      { t: 0, v: 0, to: { speed: 3, influence: 0.25 } },
+      { t: 1, v: 10, ti: { speed: 0, influence: 1 / 3 } }
+    ])
+    expect(k?.[0].to).toEqual({ speed: 3, influence: 0.25 })
+    expect(k?.[1].ti?.speed).toBe(0)
+  })
+  it('壊れた接線は付けない（直線になるだけで落ちない）', () => {
+    const k = sanitizeKeys([
+      { t: 0, v: 0, to: { speed: 'x', influence: 0.25 } },
+      { t: 1, v: 10, ti: null }
+    ])
+    expect(k?.[0].to).toBeUndefined()
+    expect(k?.[1].ti).toBeUndefined()
+    expect(k?.length).toBe(2)
+  })
+  it('影響は 0〜1 に収める', () => {
+    const k = sanitizeKeys([{ t: 0, v: 0, to: { speed: 1, influence: 9 } }])
+    expect(k?.[0].to?.influence).toBe(1)
   })
 })

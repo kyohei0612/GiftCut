@@ -14,6 +14,11 @@
 // プレビューと書き出しで別々に計算すると、聴いた音と書き出した音が違う、と
 // 同じ種類の事故になる。
 
+// ベジェのつなぎ方（Premiere / AE から写し取った動きを再現するための入れ物）。
+// 計算そのものは bezierKeys.ts に置いてある。
+import { bezierValueAt, flattenBezier, isStraight, type Tangent } from './bezierKeys'
+export type { Tangent } from './bezierKeys'
+
 export type Easing = 'linear' | 'hold' | 'ease'
 
 export interface Key<T> {
@@ -22,6 +27,15 @@ export interface Key<T> {
   v: T
   /** 次のキーまでのつなぎ方。既定は linear */
   e?: Easing
+  /**
+   * 接線（速度＋影響）。**Premiere / AE から写し取った動きはここに入る。**
+   * 付いていれば linear/hold/ease より優先して、ベジェとして扱う。
+   *
+   * 手で打つぶんは今までどおり e だけを使う（増やすと操作が難しくなるので、
+   * ベジェは「向こうから持ってきた動きを再現する」ための入れ物）。
+   */
+  ti?: Tangent
+  to?: Tangent
 }
 
 /** 数値のキーフレーム列。時刻の昇順で持つ */
@@ -31,6 +45,18 @@ export type Keys = Key<number>[]
 function easeInOut(k: number): number {
   return k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2
 }
+
+/** ベジェの計算に渡す形へ（持ち方が違うだけで中身は同じ） */
+const bz = (k: Key<number>): { t: number; v: number; in?: Tangent; out?: Tangent } => ({
+  t: k.t,
+  v: k.v,
+  in: k.ti,
+  out: k.to
+})
+
+/** その区間をベジェとして扱うか（接線が付いていて、かつ実際に曲がっているか） */
+const curved = (a: Key<number>, b: Key<number>): boolean =>
+  (!!a.to || !!b.ti) && a.e !== 'hold' && !isStraight(bz(a), bz(b))
 
 /**
  * その時刻の値。
@@ -49,6 +75,8 @@ export function valueAt(keys: Keys | undefined, t: number, fallback: number): nu
     // （hold のとき、境目でどちらの値かが書き出しの式とズレる）
     if (t >= a.t && t < b.t) {
       if (a.e === 'hold') return a.v
+      // 接線が付いていればベジェ（向こうから写し取った動き）。無ければ今までどおり
+      if (a.to || b.ti) return bezierValueAt(bz(a), bz(b), t)
       const span = b.t - a.t
       const k = span <= 0 ? 1 : (t - a.t) / span
       const p = a.e === 'ease' ? easeInOut(k) : k
@@ -97,14 +125,49 @@ export function hasKeys(keys: Keys | undefined): boolean {
 }
 
 /**
+ * ベジェの区間を折れ線に潰す（式にする前の下ごしらえ）。
+ *
+ * ffmpeg の式では三次方程式を解けないので、曲がった区間だけ刻んで直線でつなぐ。
+ * まっすぐな区間はそのまま（刻んでも同じ物が増えて式が長くなるだけ）。
+ */
+function flattenForExpr(keys: Keys, fps: number): Keys {
+  if (!keys.some((k, i) => i < keys.length - 1 && curved(k, keys[i + 1]))) return keys
+  const out: Keys = []
+  for (let i = 0; i < keys.length - 1; i++) {
+    const a = keys[i]
+    const b = keys[i + 1]
+    if (!curved(a, b)) {
+      out.push(a)
+      continue
+    }
+    // 端の値は打った値そのもの。間だけ刻む
+    for (const p of flattenBezier([bz(a), bz(b)], fps).slice(0, -1)) {
+      out.push({ t: p.t, v: p.v })
+    }
+  }
+  out.push(keys[keys.length - 1])
+  return out
+}
+
+/**
  * ffmpeg の式にする。**プレビューと同じ折れ線**を、そのまま式で表す。
  *
  * 時刻の変数名は呼ぶ側が決める（zoompan なら `on/FPS`、overlay なら `t`）。
  * 区間ごとに if を重ねる形。キーが少ないので式は短く収まる。
+ *
+ * 接線（ベジェ）が付いている区間は、先に折れ線へ潰してから式にする。
+ * 刻みは fps に合わせる＝**実際に描かれるコマと同じ細かさ**なので、
+ * 画面で見ている物と同じ絵になる。
  */
-export function keysToExpr(keys: Keys | undefined, fallback: number, timeVar: string): string {
+export function keysToExpr(
+  keys: Keys | undefined,
+  fallback: number,
+  timeVar: string,
+  fps = 30
+): string {
   if (!keys || keys.length === 0) return String(round(fallback))
   if (keys.length === 1) return String(round(keys[0].v))
+  keys = flattenForExpr(keys, fps)
   let expr = String(round(keys[keys.length - 1].v)) // 最後のキーより後ろは、その値のまま
   // 後ろから前へ包んでいく（if(lt(t,境目), 手前の式, 奥の式)）
   for (let i = keys.length - 2; i >= 0; i--) {
@@ -148,9 +211,21 @@ export function sanitizeKeys(v: unknown): Keys | undefined {
     .map((k) => ({
       t: Math.max(0, k.t),
       v: k.v,
-      ...(k.e === 'hold' || k.e === 'ease' ? { e: k.e } : null)
+      ...(k.e === 'hold' || k.e === 'ease' ? { e: k.e } : null),
+      // 接線も拾う。**拾い忘れると、写し取った動きが開き直した瞬間に
+      // ただの直線に戻る**（しかも動いてはいるので気づきにくい）
+      ...(tangent(k.ti) ? { ti: tangent(k.ti) } : null),
+      ...(tangent(k.to) ? { to: tangent(k.to) } : null)
     }))
   return ok.length ? sortKeys(ok) : undefined
+}
+
+/** 接線の検査。壊れていたら付けない（付けないと直線になるだけで、落ちない） */
+function tangent(v: unknown): Tangent | undefined {
+  if (!v || typeof v !== 'object') return undefined
+  const o = v as Tangent
+  if (!Number.isFinite(o.speed) || !Number.isFinite(o.influence)) return undefined
+  return { speed: o.speed, influence: Math.min(1, Math.max(0, o.influence)) }
 }
 
 /** いくつかの項目に打たれた印の時刻を、重複なくまとめる（タイムラインに出すため） */
