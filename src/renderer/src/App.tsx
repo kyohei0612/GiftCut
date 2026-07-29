@@ -3487,13 +3487,10 @@ export default function App(): JSX.Element {
     if (s.tracks) setTracks(s.tracks)
     if (s.trackStates) setTrackStates(s.trackStates)
     if (s.ratio) setRatio(s.ratio)
-    // 戻したら選択は外す。
-    //
-    // 「選んだままにしてほしい」（戻すたび選び直しになる）という要望はあるが、
-    // **選択を残すと Ctrl+A →Delete が全部消さなくなる**ことが確認で分かった。
-    // 消える方の事故の方が大きいので、いまは外す方を採る。
-    // 直すなら、まず Ctrl+A と Delete が前の選択に影響されない形にしてから。
-    setSelectedIds([])
+    // 戻したあとも、残っている物は選んだままにする。
+    // 毎回外すと、打っている最中に戻すたび選び直しになる（手数が増える）。
+    // 消えた物だけ選択から外す。
+    setSelectedIds((prev) => prev.filter((id) => s.cues.some((c) => c.id === id)))
     setEditingId(null) // Undo/Redoで消えたテロップの編集画面が残らないように
     clearSegSel()
     setHistTick((t) => t + 1)
@@ -7909,10 +7906,27 @@ export default function App(): JSX.Element {
     clearSegSel()
   }
   /** 選んでいる空きを詰める。選択に空きが1つも無ければ false。 */
+  /**
+   * 選んでいる「空き」を詰める。**空きだけを選んでいるときに限る。**
+   *
+   * クリップも一緒に選ばれているのに詰めてしまうと、Delete が
+   * 「空きを詰めただけで、クリップは何も消えない」動きになる。
+   * 実際に Ctrl+A（全部選択）→ Delete で、空きが1つでもあると
+   * 本編のクリップが消えなくなっていた。
+   */
   function closeSelectedGaps(): boolean {
     const ids = new Set([...selectedVideoIds, ...selectedAudioIds])
-    const gap = segsRef.current.find((s) => s.gap && ids.has(s.id))
+    const picked = segsRef.current.filter((s) => ids.has(s.id))
+    const gap = picked.find((s) => s.gap)
     if (!gap) return false
+    // 空き以外も選ばれている＝「消す」が主目的。詰める動作は取らない
+    const onlyGaps =
+      picked.every((s) => s.gap) &&
+      !selectedIds.length &&
+      !selectedSeIds.length &&
+      !selectedImgIds.length &&
+      !selectedVClipIds.length
+    if (!onlyGaps) return false
     clearSegSel()
     return closeGap(gap.id)
   }

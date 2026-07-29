@@ -1315,6 +1315,42 @@ try {
     assert((await v1Clips().count()) > 0, 'Ctrl+Z で戻らない')
   })
 
+  await check('空きがあっても、全部選んで消せば全部消える', async () => {
+    // 空きが1つでも混じっていると、Delete が「空きを詰める」だけで止まり、
+    // クリップが1つも消えないことがあった（選んでいる物の種類で動きが変わっていた）。
+    // クリップを動かして空きを作ってから、全部選んで消す。
+    await resetProject()
+    await dragBy(v1Clips().nth(1), (await clipW()) * 0.5)
+    await page.waitForTimeout(600)
+    await page.keyboard.press('Control+a')
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(600)
+    assert((await v1Clips().count()) === 0, `本編のクリップが残っている`)
+    assert((await page.locator('.telop-clip').count()) === 0, '文字が残っている')
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(600)
+  })
+
+  await check('空きだけを選んだときは、今までどおり詰まる', async () => {
+    // 上の直しで「空きを選んで Delete＝詰める」が効かなくなっていないかを見る
+    await resetProject()
+    await dragBy(v1Clips().nth(1), (await clipW()) * 0.5)
+    await page.waitForTimeout(600)
+    const before = await clipLayout()
+    const gap = page.locator('.gap-clip').first()
+    assert(await gap.count(), '空きができていない')
+    await gap.click()
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(600)
+    const after = await clipLayout()
+    assert(
+      after.length === before.length && after[1].x < before[1].x - 5,
+      `空きが詰まっていない（${before.map((c) => c.x)} → ${after.map((c) => c.x)}）`
+    )
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(600)
+  })
+
   await check('音量つまみを触った直後の矢印キーで、再生位置が動く（つまみが動かない）', async () => {
     await v1Clips().nth(0).click()
     await page.waitForTimeout(200)
