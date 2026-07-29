@@ -734,6 +734,21 @@ try {
       }
     },
     {
+      // 左パネルは プロパティ / モーション の2枚。モーションを開いたまま次の項目へ
+      // 行くと、文字の見た目をいじる欄が出ておらず、後の項目が別の物を見る。
+      name: '左パネルのタブ',
+      read: () =>
+        page.evaluate(() => {
+          const s = document.querySelectorAll('.panel-tabs')
+          return (s[0]?.querySelector('.tab-on')?.textContent ?? '').trim()
+        }),
+      restore: async () => {
+        const t = page.locator('.panel-tabs .tab', { hasText: 'プロパティ' }).first()
+        if (await t.count()) await t.click()
+        await page.waitForTimeout(200)
+      }
+    },
+    {
       name: '右パネルのタブ',
       // 素材ビンは右パネルが「プロジェクト」のときだけ描かれる。
       // トランジションの持ち手を触ると勝手に「設定」へ切り替わる

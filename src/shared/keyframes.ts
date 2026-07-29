@@ -152,3 +152,10 @@ export function sanitizeKeys(v: unknown): Keys | undefined {
     }))
   return ok.length ? sortKeys(ok) : undefined
 }
+
+/** いくつかの項目に打たれた印の時刻を、重複なくまとめる（タイムラインに出すため） */
+export function keyTimesOf(...lists: (Keys | undefined)[]): number[] {
+  const set = new Set<number>()
+  for (const ks of lists) for (const k of ks ?? []) set.add(Math.round(k.t * 1e4) / 1e4)
+  return [...set].sort((a, b) => a - b)
+}

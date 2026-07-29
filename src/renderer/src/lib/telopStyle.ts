@@ -1235,7 +1235,7 @@ export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): T
 // 両方が付いていたら**重ねる**（出入りで入ってきて、そのあと自分の動きで流れる）。
 // 位置は足し算、大きさは掛け算、回転は足し算、透明度は掛け算。
 import type { Keys } from '../../../shared/keyframes'
-import { valueAt, hasKeys, sanitizeKeys } from '../../../shared/keyframes'
+import { valueAt, hasKeys, sanitizeKeys, keyTimesOf } from '../../../shared/keyframes'
 
 export interface Motion {
   /** 横位置（1080基準px。右が＋） */
@@ -1288,4 +1288,9 @@ export function sanitizeMotion(v: unknown): Motion | undefined {
     op: sanitizeKeys(o.op)
   }
   return hasMotion(m) ? m : undefined
+}
+
+/** そのテロップに打たれている印の時刻（クリップ先頭からの秒） */
+export function motionKeyTimes(m?: Motion): number[] {
+  return m ? keyTimesOf(m.tx, m.ty, m.sc, m.rot, m.op) : []
 }

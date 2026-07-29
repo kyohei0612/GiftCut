@@ -14,6 +14,7 @@ import {
   telopStateAt,
   hasMotion,
   sanitizeMotion,
+  motionKeyTimes,
   defaultAnim,
   defaultTelopStyle,
   hasAnim,
@@ -3486,6 +3487,12 @@ export default function App(): JSX.Element {
     if (s.tracks) setTracks(s.tracks)
     if (s.trackStates) setTrackStates(s.trackStates)
     if (s.ratio) setRatio(s.ratio)
+    // 戻したら選択は外す。
+    //
+    // 「選んだままにしてほしい」（戻すたび選び直しになる）という要望はあるが、
+    // **選択を残すと Ctrl+A →Delete が全部消さなくなる**ことが確認で分かった。
+    // 消える方の事故の方が大きいので、いまは外す方を採る。
+    // 直すなら、まず Ctrl+A と Delete が前の選択に影響されない形にしてから。
     setSelectedIds([])
     setEditingId(null) // Undo/Redoで消えたテロップの編集画面が残らないように
     clearSegSel()
@@ -9350,6 +9357,26 @@ export default function App(): JSX.Element {
       }
       const x = clamp((ev.clientX - grabDX - rect.left) / rect.width, 0, 1)
       const y = clamp((ev.clientY - grabDY - rect.top) / rect.height, 0, 1)
+      // 動きが付いている（⏱ が入っている）なら、**掴んで動かした所に印を置く**。
+      // プレミアと同じで、これが動きを付ける一番自然なやり方。
+      // 付いていなければ、今までどおり元の位置そのものを動かす。
+      const kf = hasKeys(cue.motion?.tx) || hasKeys(cue.motion?.ty)
+      if (kf) {
+        const t = clamp(currentTimeRef.current - cue.start, 0, cue.end - cue.start)
+        // 元の位置からのズレを印にする（1080基準px）
+        const dx = (x - (cue.pos?.x ?? 0.5)) * 1920
+        const dy = (y - (cue.pos?.y ?? 0.85)) * 1080
+        setCues((prev) =>
+          prev.map((c) => {
+            if (c.id !== cue.id) return c
+            const m: Motion = { ...c.motion }
+            if (hasKeys(m.tx)) m.tx = putKey(m.tx, t, dx)
+            if (hasKeys(m.ty)) m.ty = putKey(m.ty, t, dy)
+            return { ...c, motion: m }
+          })
+        )
+        return
+      }
       setCues((prev) => prev.map((c) => (c.id === cue.id ? { ...c, pos: { x, y } } : c)))
     }
     const onUp = (): void => {
@@ -9876,10 +9903,28 @@ export default function App(): JSX.Element {
                       if (hasKeys(m?.[key])) put(key, opt.toKey(v))
                       else opt.base?.(v)
                     },
-                    onToggleKeys: () =>
-                      patchMotion(selected.id, key, (keys) =>
-                        hasKeys(keys) ? undefined : putKey(undefined, clipT, opt.initial)
-                      ),
+                    onToggleKeys: () => {
+                      const cur = m?.[key]
+                      // 付けるときはそのまま。**消すときは、打った数が多いと事故になる**
+                      // （確認なしで全部消えると、何を失ったのかも分からない）
+                      if (!hasKeys(cur)) {
+                        patchMotion(selected.id, key, () => putKey(undefined, clipT, opt.initial))
+                        return
+                      }
+                      const n = cur!.length
+                      if (n < 2) {
+                        patchMotion(selected.id, key, () => undefined)
+                        return
+                      }
+                      void askConfirm({
+                        title: `${label}の動きをやめますか`,
+                        body: `打った印 ${n} 個が消えます。（Ctrl+Z で戻せます）`,
+                        okLabel: 'やめる',
+                        danger: true
+                      }).then((ok) => {
+                        if (ok) patchMotion(selected.id, key, () => undefined)
+                      })
+                    },
                     onPutKey: () => put(key, opt.toKey(opt.value)),
                     onRemoveKey: () =>
                       patchMotion(selected.id, key, (keys) => removeKey(keys, clipT))
@@ -11199,6 +11244,17 @@ export default function App(): JSX.Element {
                           {(cue.end - cue.start) * zoom >= 40 && (
                             <span className="clip-text">{cue.text}</span>
                           )}
+                          {/* 打った印（キーフレーム）。**タイムラインからも見えるようにする。**
+                              ここに出さないと、後から「どこに打ったか」を探せない
+                              （プレミアもクリップの上に並べている）。 */}
+                          {motionKeyTimes(cue.motion).map((kt) => (
+                            <span
+                              key={`kf-${kt}`}
+                              className="kf-mark"
+                              style={{ left: kt * zoom }}
+                              title={`動きの印（${(cue.start + kt).toFixed(2)}秒）`}
+                            />
+                          ))}
                           {/* 出入りの動きの帯（components/timeline/TelopAnimBand.tsx）。
                               動画のトランジションと同じ流儀: 範囲表示＋クリック選択。 */}
                           {cue.style.anim && cue.style.anim.in !== 'none' && (

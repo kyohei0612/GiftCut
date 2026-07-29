@@ -3869,7 +3869,7 @@ input[type="range"] {
 .mo-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding: 4px 2px;
   border-bottom: 1px solid var(--line);
 }
@@ -3880,11 +3880,16 @@ input[type="range"] {
 .mo-label {
   font-size: 12px;
   color: var(--muted);
-  width: 68px;
+  width: 52px;
   flex: 0 0 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .mo-val {
-  width: 68px;
+  width: 56px;
+  flex: 0 1 auto;
+  min-width: 0;
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -3904,7 +3909,8 @@ input[type="range"] {
 .mo-keys {
   margin-left: auto;
   display: flex;
-  gap: 2px;
+  gap: 1px;
+  flex: 0 0 auto; /* ここは絶対に縮めない（印を打つボタンに手が届かなくなる） */
 }
 .mo-watch,
 .mo-kbtn {
@@ -3914,7 +3920,7 @@ input[type="range"] {
   color: var(--muted);
   font-size: 11px;
   cursor: pointer;
-  padding: 2px 5px;
+  padding: 2px 3px;
 }
 .mo-watch.on {
   color: var(--accent-2);
@@ -3931,4 +3937,19 @@ input[type="range"] {
 /* いまちょうど印の上にいるとき */
 .mo-diamond.on {
   color: var(--accent-2);
+}
+
+/* タイムラインの帯に出る「動きの印」。プレミアと同じく、どこに打ったかが帯から分かる */
+.kf-mark {
+  position: absolute;
+  top: 2px;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  background: var(--playhead);
+  border: 1px solid #0008;
+  transform: rotate(45deg);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 5;
 }

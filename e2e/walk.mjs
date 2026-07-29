@@ -249,15 +249,22 @@ await note(
 
 // 9 --------------------------------------------------------------------------
 await rowX.locator('.mo-watch').click()
-await page.waitForTimeout(600)
+await page.waitForTimeout(700)
 {
+  const modal = page.locator('.modal-box')
+  const asked = (await modal.count()) > 0
+  const body = asked ? (await modal.first().textContent())?.replace(/\s+/g, ' ').trim() : ''
+  if (asked) {
+    await page.locator('.modal-btn.danger, .modal-btn.primary').first().click()
+    await page.waitForTimeout(600)
+  }
   const r = await rowState('位置 X')
   await note(
     '⏱ をもう一度押して動きをやめる',
-    '打った印が消える。消す前に確認があるとなお良い',
-    r.on ? 'まだ動きが付いたまま' : '印が全部消えた（確認は出ない）',
-    r.on ? 'おかしい' : '気になる',
-    '何個も打ったあとで押すと、確認なしで全部消える'
+    '消える前に「何個消えるか」を聞く',
+    asked ? `確認が出た: ${body?.slice(0, 60)}` : '確認なしで全部消えた',
+    asked && !r?.on ? 'ok' : '気になる',
+    '何個も打ったあとで押すと、確認なしでは何を失ったのかも分からない'
   )
 }
 
@@ -271,8 +278,9 @@ await page.waitForTimeout(900)
     'Ctrl+Z で戻したあと、選んでいたテロップは選ばれたままか',
     '選んだままで、そのまま続けられる',
     stillSelected ? '選ばれたまま' : '選択が外れて、モーション欄が空になる',
-    stillSelected ? 'ok' : '気になる',
-    '戻すたびに選び直しになる。打っている最中は何度も戻すので手数が増える'
+    stillSelected ? 'ok' : '気になる（保留）',
+    '戻すたび選び直しになる。ただし**選択を残すと Ctrl+A→Delete が全部消さなくなる**' +
+      'ことが確認で分かったので、先にそちらを直してから'
   )
   // 選び直して、動きが戻っているかを見る
   if (!stillSelected) {
