@@ -127,3 +127,37 @@ describe('時刻の刻み', () => {
     expect(PR_TICKS_PER_SEC).toBe(254016000000)
   })
 })
+
+describe('トランスフォーム（動きはこちらに付いていることが多い）', () => {
+  const tf = (name: string, keys: { t: number; v: number }[][]): PrPreset => ({
+    name: 'テスト',
+    effects: [{ matchName: 'AE.ADBE Geometry2', params: [{ name, value: [], keys }] }]
+  })
+
+  it('位置・スケールは「モーション」と同じように読める', () => {
+    const { motion, skipped } = toMotion(tf('位置', [[key(0, 1.5), key(0.2, 0.5)], [key(0, 0.5), key(0.2, 0.5)]]))
+    expect(motion.tx?.map((k) => k.v)).toEqual([1920, 0])
+    expect(skipped).toEqual([])
+  })
+
+  // **これが 03.SLIDE_R2 のような「弾む」演出の正体。**
+  it('スケール(幅): 横だけ伸び縮みする', () => {
+    const { motion } = toMotion(tf('スケール (幅)', [[key(0, 200), key(0.3, 98.8)]]))
+    expect(motion.scx?.map((k) => k.v)).toEqual([2, 0.988])
+  })
+
+  it('歪曲: 度どうしなのでそのまま', () => {
+    const { motion } = toMotion(tf('歪曲', [[key(0, 0), key(0.3, -5.9)]]))
+    expect(motion.skew?.map((k) => k.v)).toEqual([0, -5.9])
+  })
+
+  it('見た目に効かない項目は、知らせずに捨てる', () => {
+    for (const n of ['歪曲軸', 'アンチフリッカー', 'シャッター角度', 'サンプリング']) {
+      expect(toMotion(tf(n, [[key(0, 0), key(1, 90)]])).skipped).toEqual([])
+    }
+  })
+
+  it('トランスフォームだけのプリセットも、そのまま再現できる扱い', () => {
+    expect(isFullyCopyable({ name: 'x', effects: [{ matchName: 'AE.ADBE Geometry2', params: [] }] })).toBe(true)
+  })
+})

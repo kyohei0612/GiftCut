@@ -119,9 +119,17 @@ export interface AnimState {
   ty: number
   sc: number
   rot: number
+  /**
+   * 横だけの拡大（1=そのまま）。縦横同じ倍率の sc とは別に持つ。
+   * Premiere の「スケール(幅)」に当たる。**弾む・伸びる演出はこれが要る**
+   * （滑り込みながら横に潰れて戻る、という動きが作れない）。
+   */
+  scx: number
+  /** 歪曲（度）。斜体と同じ skewX で傾ける。Premiere の「歪曲」に当たる */
+  skew: number
 }
 export function computeTelopAnim(anim: TelopAnim | undefined, animT: number, clipDur: number): AnimState {
-  const st: AnimState = { opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0 }
+  const st: AnimState = { opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0, scx: 1, skew: 0 }
   if (!anim) return st
   const clampp = (v: number): number => Math.min(1, Math.max(0, v))
   const easeOut = (p: number): number => 1 - Math.pow(1 - p, 3)
@@ -177,7 +185,14 @@ export function computeTelopAnim(anim: TelopAnim | undefined, animT: number, cli
 export function animTransform(s: AnimState, unit: 'cqh' | 'px', pxScale = 1): string {
   const u = (v: number): string =>
     unit === 'cqh' ? `${(v / 1080) * 100}cqh` : `${(v * pxScale).toFixed(2)}px`
-  return `translate(${u(s.tx)}, ${u(s.ty)}) scale(${s.sc.toFixed(4)}) rotate(${s.rot.toFixed(2)}deg)`
+  // 横だけの拡大と歪曲は、**付いているときだけ**足す。
+  // いつも書くと、動きの無いテロップの transform まで変わって差分が読みにくくなる。
+  const sx = Math.abs(s.scx - 1) > 1e-4 ? ` scaleX(${s.scx.toFixed(4)})` : ''
+  const sk = Math.abs(s.skew) > 1e-4 ? ` skewX(${(-s.skew).toFixed(2)}deg)` : ''
+  return (
+    `translate(${u(s.tx)}, ${u(s.ty)}) scale(${s.sc.toFixed(4)}) ` +
+    `rotate(${s.rot.toFixed(2)}deg)${sx}${sk}`
+  )
 }
 
 // テロップ用フォント一覧。
@@ -1237,21 +1252,19 @@ export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): T
 import type { Keys } from '../../../shared/keyframes'
 import { valueAt, hasKeys, sanitizeKeys, keyTimesOf } from '../../../shared/keyframes'
 
-export interface Motion {
-  /** 横位置（1080基準px。右が＋） */
-  tx?: Keys
-  /** 縦位置（1080基準px。下が＋） */
-  ty?: Keys
-  /** 大きさ（1=そのまま） */
-  sc?: Keys
-  /** 回転（度） */
-  rot?: Keys
-  /** 透明度（0..1） */
-  op?: Keys
-}
+// 形は shared/telopMotion に置いてある（画面を持たない側からも作るため）。
+export type { Motion } from '../../../shared/telopMotion'
+import type { Motion } from '../../../shared/telopMotion'
 
 export const hasMotion = (m?: Motion): boolean =>
-  !!m && (hasKeys(m.tx) || hasKeys(m.ty) || hasKeys(m.sc) || hasKeys(m.rot) || hasKeys(m.op))
+  !!m &&
+  (hasKeys(m.tx) ||
+    hasKeys(m.ty) ||
+    hasKeys(m.sc) ||
+    hasKeys(m.rot) ||
+    hasKeys(m.op) ||
+    hasKeys(m.scx) ||
+    hasKeys(m.skew))
 
 /** 出入りのアニメの上に、自分で打った動きを重ねる */
 export function applyMotion(st: AnimState, m: Motion | undefined, animT: number): AnimState {
@@ -1261,7 +1274,9 @@ export function applyMotion(st: AnimState, m: Motion | undefined, animT: number)
     ty: st.ty + valueAt(m!.ty, animT, 0),
     sc: st.sc * valueAt(m!.sc, animT, 1),
     rot: st.rot + valueAt(m!.rot, animT, 0),
-    opacity: st.opacity * valueAt(m!.op, animT, 1)
+    opacity: st.opacity * valueAt(m!.op, animT, 1),
+    scx: st.scx * valueAt(m!.scx, animT, 1),
+    skew: st.skew + valueAt(m!.skew, animT, 0)
   }
 }
 
@@ -1285,12 +1300,14 @@ export function sanitizeMotion(v: unknown): Motion | undefined {
     ty: sanitizeKeys(o.ty),
     sc: sanitizeKeys(o.sc),
     rot: sanitizeKeys(o.rot),
-    op: sanitizeKeys(o.op)
+    op: sanitizeKeys(o.op),
+    scx: sanitizeKeys(o.scx),
+    skew: sanitizeKeys(o.skew)
   }
   return hasMotion(m) ? m : undefined
 }
 
 /** そのテロップに打たれている印の時刻（クリップ先頭からの秒） */
 export function motionKeyTimes(m?: Motion): number[] {
-  return m ? keyTimesOf(m.tx, m.ty, m.sc, m.rot, m.op) : []
+  return m ? keyTimesOf(m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.skew) : []
 }

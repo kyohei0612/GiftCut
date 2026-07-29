@@ -31,10 +31,18 @@ export type { Motion } from './telopMotion'
 /** 向こうの MatchName */
 const MOTION = 'AE.ADBE Motion'
 const OPACITY = 'AE.ADBE Opacity'
+/**
+ * 「トランスフォーム」エフェクト。**動きはこちらに付いていることが多い。**
+ * 素の「モーション」ではなくこちらを使うと、歪曲やシャッター角度が足せるため。
+ * 中身（位置・スケール・回転・不透明度）は同じ意味なので、同じように読める。
+ */
+const GEOMETRY = 'AE.ADBE Geometry2'
 
-/** そのプリセットが Motion と Opacity だけでできているか（＝そのまま再現できる） */
+const HANDLED = new Set([MOTION, OPACITY, GEOMETRY])
+
+/** そのプリセットが、こちらで持てるエフェクトだけでできているか */
 export function isFullyCopyable(p: PrPreset): boolean {
-  return p.effects.every((e) => e.matchName === MOTION || e.matchName === OPACITY)
+  return p.effects.every((e) => HANDLED.has(e.matchName))
 }
 
 /** 値と接線に同じ倍率を掛ける（速度は「値/秒」なので同じ倍率でよい） */
@@ -67,7 +75,7 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
   const motion: Motion = {}
   const skipped: string[] = []
   for (const e of p.effects) {
-    if (e.matchName !== MOTION && e.matchName !== OPACITY) {
+    if (!HANDLED.has(e.matchName)) {
       if (e.params.some((q) => q.keys.length)) skipped.push(e.matchName)
       continue
     }
@@ -88,6 +96,21 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
           break
         case '不透明度':
           motion.op = toKeys(scaleKeys(x, 0.01))
+          break
+        case 'スケール (幅)':
+        case 'スケール（幅）':
+          // 横だけの拡大。100 が等倍
+          motion.scx = toKeys(scaleKeys(x, 0.01))
+          break
+        case '歪曲':
+          // 度どうしなのでそのまま
+          motion.skew = toKeys(x)
+          break
+        case '歪曲軸':
+        case 'アンチフリッカー':
+        case 'シャッター角度':
+        case 'サンプリング':
+          // 見た目にほぼ効かない・こちらに概念が無い。動いていても無視してよい
           break
         default:
           // アンカーポイントやアンチフリッカーなど。動きが付いていれば知らせる

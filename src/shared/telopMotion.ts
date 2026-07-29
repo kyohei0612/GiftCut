@@ -17,4 +17,11 @@ export interface Motion {
   rot?: Keys
   /** 透明度（0..1） */
   op?: Keys
+  /**
+   * 横だけの拡大（1=そのまま）。Premiere の「スケール(幅)」。
+   * **弾む・伸びる演出に要る**（滑り込みながら横に潰れて戻る、が作れない）
+   */
+  scx?: Keys
+  /** 歪曲（度）。斜体と同じ skewX で傾ける。Premiere の「歪曲」 */
+  skew?: Keys
 }

@@ -100,7 +100,11 @@ export default function TelopText({
   // 「いまどこにいるか」を見ながら打つものなので、隠すと打てない。
   const anim =
     animT != null && hasMotion(motion)
-      ? applyMotion(animBase ?? { opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0 }, motion, animT)
+      ? applyMotion(
+          animBase ?? { opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0, scx: 1, skew: 0 },
+          motion,
+          animT
+        )
       : animBase
   const animLayer: React.CSSProperties = anim
     ? { opacity: anim.opacity, transform: animTransform(anim, 'cqh'), transformOrigin: 'center' }
