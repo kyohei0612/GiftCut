@@ -78,6 +78,7 @@ import { PropertiesPanel, RESET_TRANSFORM } from './components/panels/Properties
 import { AudioMixer, PreviewScrub, TransportBar } from './components/panels/PreviewBars'
 import { TimelineToolbar } from './components/timeline/TimelineToolbar'
 import { TrackHeaders } from './components/timeline/TrackHeaders'
+import { ClipBand } from './components/timeline/ClipBand'
 import type { Adjust, Crop } from './components/panels/PropertyRows'
 import { SeLibraryTab, seMoveTarget } from './components/panels/SeLibraryTab'
 import { IconLibraryTab, ICON_LIB } from './components/panels/IconLibraryTab'
@@ -11299,17 +11300,17 @@ export default function App(): JSX.Element {
                       vClips
                         .filter((c) => c.track === tr.id)
                         .map((clip) => (
-                          <div
+                          <ClipBand
                             key={`vc-${clip.id}`}
-                            className={`clip video-clip vclip ${selectedVClipIds.includes(clip.id) ? 'clip-selected' : ''}`}
-                            style={{
-                              // ラベルカラーはクリップ全体を塗る（種類ごとの色より優先）。線だと見つけにくい。
-                              background: clip.label || undefined,
-                              left: clip.tStart * zoom,
-                              width: Math.max(vcLen(clip) * zoom - 1, 12)
-                            }}
+                            className="video-clip vclip"
+                            label={clip.label}
+                            left={clip.tStart * zoom}
+                            width={Math.max(vcLen(clip) * zoom - 1, 12)}
+                            selected={selectedVClipIds.includes(clip.id)}
                             title={`${clip.name}（音声は ${pairedAudioOf(clip.track)} に連動）`}
                             onPointerDown={(e) => onVClipPointerDown(clip, e)}
+                            onTrimLeft={(e) => onVClipPointerDown(clip, e, 'l')}
+                            onTrimRight={(e) => onVClipPointerDown(clip, e, 'r')}
                             onContextMenu={(e) => {
                               e.preventDefault()
                               e.stopPropagation()
@@ -11324,37 +11325,29 @@ export default function App(): JSX.Element {
                               })
                             }}
                           >
-                            <div
-                              className="clip-trim clip-trim-l"
-                              onPointerDown={(e) => onVClipPointerDown(clip, e, 'l')}
-                            />
                             {(() => {
                               const th = mediaItems.find((m) => m.path === clip.path)?.thumb
                               return th ? <img className="clip-thumb" src={th} alt="" /> : null
                             })()}
                             <span className="clip-text">🎬 {clip.name}</span>
-                            <div
-                              className="clip-trim clip-trim-r"
-                              onPointerDown={(e) => onVClipPointerDown(clip, e, 'r')}
-                            />
-                          </div>
+                          </ClipBand>
                         ))}
                     {/* 映像レイヤーの音声（対の音声トラックに同じ位置・同じ長さで表示。掴めば映像も動く） */}
                     {tr.kind === 'audio' &&
                       vClips
                         .filter((c) => 'A' + trackNum(c.track) === tr.id)
                         .map((clip) => (
-                          <div
+                          <ClipBand
                             key={`vca-${clip.id}`}
-                            className={`clip audio-clip vclip-audio ${selectedVClipIds.includes(clip.id) ? 'clip-selected' : ''} ${clip.muted ? 'clip-muted' : ''}`}
-                            style={{
-                              // ラベルカラーはクリップ全体を塗る（種類ごとの色より優先）。線だと見つけにくい。
-                              background: clip.label || undefined,
-                              left: clip.tStart * zoom,
-                              width: Math.max(vcLen(clip) * zoom - 1, 12)
-                            }}
+                            className={`audio-clip vclip-audio ${clip.muted ? 'clip-muted' : ''}`}
+                            label={clip.label}
+                            left={clip.tStart * zoom}
+                            width={Math.max(vcLen(clip) * zoom - 1, 12)}
+                            selected={selectedVClipIds.includes(clip.id)}
                             title={`${clip.name} の音声（${clip.track} の映像とリンク）`}
                             onPointerDown={(e) => onVClipPointerDown(clip, e)}
+                            onTrimLeft={(e) => onVClipPointerDown(clip, e, 'l')}
+                            onTrimRight={(e) => onVClipPointerDown(clip, e, 'r')}
                             onContextMenu={(e) => {
                               e.preventDefault()
                               e.stopPropagation()
@@ -11369,10 +11362,6 @@ export default function App(): JSX.Element {
                               })
                             }}
                           >
-                            <div
-                              className="clip-trim clip-trim-l"
-                              onPointerDown={(e) => onVClipPointerDown(clip, e, 'l')}
-                            />
                             {mediaMeta[clip.path]?.wave ? (
                               <WaveformCanvas
                                 min={mediaMeta[clip.path]!.wave!.min}
@@ -11392,11 +11381,7 @@ export default function App(): JSX.Element {
                               <span className="clip-text audio-loading">波形解析中…</span>
                             )}
                             {clip.muted && <span className="clip-mute-badge">🔇 消音</span>}
-                            <div
-                              className="clip-trim clip-trim-r"
-                              onPointerDown={(e) => onVClipPointerDown(clip, e, 'r')}
-                            />
-                          </div>
+                          </ClipBand>
                         ))}
                     {/* 画像クリップ（映像トラックの静止画。移動/右端リサイズ/削除可） */}
                     {tr.kind === 'video' &&
@@ -11404,17 +11389,17 @@ export default function App(): JSX.Element {
                       imgClips
                         .filter((c) => c.track === tr.id && inView(c.tStart, c.tStart + c.duration))
                         .map((clip) => (
-                          <div
+                          <ClipBand
                             key={`img-${clip.id}`}
-                            className={`clip img-clip ${selectedImgIds.includes(clip.id) ? 'clip-selected' : ''}`}
-                            style={{
-                              // ラベルカラーはクリップ全体を塗る（種類ごとの色より優先）。線だと見つけにくい。
-                              background: clip.label || undefined,
-                              left: clip.tStart * zoom,
-                              width: Math.max(clip.duration * zoom - 1, 12)
-                            }}
+                            className="img-clip"
+                            label={clip.label}
+                            left={clip.tStart * zoom}
+                            width={Math.max(clip.duration * zoom - 1, 12)}
+                            selected={selectedImgIds.includes(clip.id)}
                             title={`${clip.name}（ドラッグで移動・左右端で長さ変更・Deleteで削除）`}
                             onPointerDown={(e) => onImgPointerDown(clip, e)}
+                            onTrimLeft={(e) => onImgPointerDown(clip, e, 'l')}
+                            onTrimRight={(e) => onImgPointerDown(clip, e, 'r')}
                             onContextMenu={(e) => {
                               e.preventDefault()
                               e.stopPropagation()
@@ -11428,33 +11413,20 @@ export default function App(): JSX.Element {
                                 name: clip.name
                               })
                             }}
+                            deleteTitle="画像を削除"
+                            onDelete={(e) => {
+                              e.stopPropagation()
+                              // ロック中は消さない（Delete キー側は守っているので揃える）
+                              if (trackStates[clip.track]?.locked) {
+                                showToast('このトラックはロックされています。')
+                                return
+                              }
+                              setImgClips((prev) => prev.filter((c) => c.id !== clip.id))
+                              setSelectedImgIds([])
+                            }}
                           >
-                            <div
-                              className="clip-trim clip-trim-l"
-                              onPointerDown={(e) => onImgPointerDown(clip, e, 'l')}
-                            />
                             <span className="clip-text">🖼 {clip.name}</span>
-                            <button
-                              className="se-del"
-                              title="画像を削除"
-                              onPointerDown={(e) => {
-                                e.stopPropagation()
-                                // ロック中は消さない（Delete キー側は守っているので揃える）
-                                if (trackStates[clip.track]?.locked) {
-                                  showToast('このトラックはロックされています。')
-                                  return
-                                }
-                                setImgClips((prev) => prev.filter((c) => c.id !== clip.id))
-                                setSelectedImgIds([])
-                              }}
-                            >
-                              ✕
-                            </button>
-                            <div
-                              className="clip-trim clip-trim-r"
-                              onPointerDown={(e) => onImgPointerDown(clip, e, 'r')}
-                            />
-                          </div>
+                          </ClipBand>
                         ))}
                     {/* 画像配置ゴースト */}
                     {imgGhost && imgGhost.track === tr.id && (
@@ -11803,18 +11775,17 @@ export default function App(): JSX.Element {
                       : []
                     ).map(
                       (clip) => (
-                        <div
+                        <ClipBand
                           key={clip.id}
-                          className={`clip se-clip ${selectedSeIds.includes(clip.id) ? 'clip-selected' : ''}`}
-                          style={{
-                            left: clip.tStart * zoom,
-                            width: Math.max(clip.duration * zoom - 1, 12),
-                            // ラベルカラーはクリップ全体を塗る（他の種類と同じ扱い）。
-                            // ここだけ抜けていて、色を選んでも見た目が変わらなかった。
-                            background: clip.label || undefined
-                          }}
+                          className="se-clip"
+                          label={clip.label}
+                          left={clip.tStart * zoom}
+                          width={Math.max(clip.duration * zoom - 1, 12)}
+                          selected={selectedSeIds.includes(clip.id)}
                           title={`${clip.name}（ドラッグで移動・左右端で長さ変更・Deleteで削除）`}
                           onPointerDown={(e) => onSePointerDown(clip, e)}
+                          onTrimLeft={(e) => onSePointerDown(clip, e, 'l')}
+                          onTrimRight={(e) => onSePointerDown(clip, e, 'r')}
                           onContextMenu={(e) => {
                             e.preventDefault()
                             e.stopPropagation()
@@ -11828,33 +11799,20 @@ export default function App(): JSX.Element {
                               name: clip.name
                             })
                           }}
+                          deleteTitle="削除"
+                          onDelete={(e) => {
+                            e.stopPropagation()
+                            // ロック中は消さない（Delete キー側は守っているので揃える）
+                            if (trackStates[clip.track]?.locked) {
+                              showToast('このトラックはロックされています。')
+                              return
+                            }
+                            setSeClips((prev) => prev.filter((c) => c.id !== clip.id))
+                            setSelectedSeIds([])
+                          }}
                         >
-                          <div
-                            className="clip-trim clip-trim-l"
-                            onPointerDown={(e) => onSePointerDown(clip, e, 'l')}
-                          />
                           <span className="clip-text">🔊 {clip.name}</span>
-                          <div
-                            className="clip-trim clip-trim-r"
-                            onPointerDown={(e) => onSePointerDown(clip, e, 'r')}
-                          />
-                          <button
-                            className="se-del"
-                            title="削除"
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              // ロック中は消さない（Delete キー側は守っているので揃える）
-                              if (trackStates[clip.track]?.locked) {
-                                showToast('このトラックはロックされています。')
-                                return
-                              }
-                              setSeClips((prev) => prev.filter((c) => c.id !== clip.id))
-                              setSelectedSeIds([])
-                            }}
-                          >
-                            ✕
-                          </button>
-                        </div>
+                        </ClipBand>
                       )
                     )}
                     {/* SE/BGM配置ゴースト（ドラッグ中の半透明プレビュー・対象トラックに表示）*/}
