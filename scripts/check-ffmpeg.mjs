@@ -73,6 +73,37 @@ if (!ways.includes('libopenh264') && !ways.includes('libx264')) {
   )
 }
 
+// ---- 書き出しで使うフィルタが、同梱版に本当にあるか ----
+//
+// **一覧に載っている＝使える、ではない**の逆で、こちらは「無い物を使っていないか」。
+// eq（GPL 専用）を使っていて、配布物でだけ書き出しが止まっていた。
+// 開発機は PATH の GPL 版を拾うので、起動しても書き出しても気づけない。
+//
+// 増やしたらここにも足すこと。足し忘れても、配布物を作るときに check:packaged が
+// 実際に焼いて止まる（こちらはもっと手前で、原因つきで止めるためのもの）。
+const USED_FILTERS = [
+  'trim', 'setpts', 'scale', 'pad', 'setsar', 'fps', 'settb', 'crop', 'zoompan',
+  'lutyuv', 'colorchannelmixer', 'alphaextract', 'alphamerge', 'split',
+  'rotate', 'hflip', 'vflip', 'transpose', 'overlay', 'concat', 'xfade', 'fade',
+  'color', 'tpad', 'format', 'loop',
+  'atrim', 'asetpts', 'aformat', 'volume', 'adelay', 'amix', 'anullsrc',
+  'atempo', 'afade', 'loudnorm', 'silencedetect', 'astats'
+]
+const flt = spawnSync(ff, ['-hide_banner', '-filters'], { encoding: 'utf-8' })
+const fltText = (flt.stdout ?? '') + (flt.stderr ?? '')
+const missing = USED_FILTERS.filter(
+  (f) => !new RegExp(`^\\s*\\S+\\s+${f}\\s`, 'm').test(fltText)
+)
+if (missing.length) {
+  problems.push(
+    [
+      `書き出しで使うフィルタが同梱版にありません: ${missing.join(', ')}`,
+      '    GPL 専用のフィルタ（eq など）は LGPL 版に入っていません。',
+      '    開発機の ffmpeg では通るので、ここで止めないと配布物でだけ失敗します。'
+    ].join('\n')
+  )
+}
+
 const ver = /ffmpeg version (\S+)/.exec(text)?.[1] ?? '不明'
 
 // ---- ライセンスの表示が、いま置いてある物と合っているか ----

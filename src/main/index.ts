@@ -31,6 +31,9 @@ import { checkProject, formatProjectProblems } from '../shared/projectCheck'
 // クリップ・画像の動き（キーフレーム）。**画面と同じ折れ線を式にする**ので、
 // 焼き方をここで別に考えない（別々に書くと、見た絵と出来た絵が違う事故になる）。
 import { hasClipMotion, zoompanFilter, type ClipMotion } from '../shared/clipMotion'
+// 色調整のフィルタ。**GPL 専用の eq は使えない**（同梱は LGPL 版）ので、
+// 同じ計算を lutyuv で書いてある。
+import { colorAdjustFilter } from '../shared/colorAdjust'
 // 本体ウィンドウの大きさ・位置（初回の既定と、前回の形の引き継ぎ）
 import { nextBounds, MIN_SIZE, type WindowState } from '../shared/windowBounds'
 // プロジェクトの持ち出し（素材ごと ZIP に入れる／展開してパスを繋ぎ直す）
@@ -1978,12 +1981,11 @@ app.whenReady().then(() => {
           const d = Math.min(tout.dur, extLenN)
           fade += `,fade=t=out:st=${(extLenN - d).toFixed(3)}:d=${d.toFixed(3)}:color=${dipCol(tout.type)}`
         }
-        // 色調整（明るさ/コントラスト/彩度）。CSS filter に合わせ b は加算(b-1)、c/s は倍率。黒ブランクには不要。
+        // 色調整（明るさ/コントラスト/彩度）。組み立ては shared/colorAdjust。
+        // **eq は使わない**（GPL 専用で、同梱の LGPL 版には入っていない）。
         const adj = s.adjust
-        const eq =
-          adj && (Math.abs(adj.b - 1) > 1e-3 || Math.abs(adj.c - 1) > 1e-3 || Math.abs(adj.s - 1) > 1e-3)
-            ? `,eq=brightness=${(adj.b - 1).toFixed(3)}:contrast=${adj.c.toFixed(3)}:saturation=${adj.s.toFixed(3)}`
-            : ''
+        const cf = colorAdjustFilter(adj)
+        const eq = cf ? `,${cf}` : ''
         // 変形（回転/反転）。scalePad の前に適用＝回転後に出力サイズへフィット。
         // 90°刻みは transpose（劣化なし）、自由角度は rotate フィルタ（黒埋め）。
         let xf = ''
@@ -2306,9 +2308,8 @@ app.whenReady().then(() => {
           `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
           `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1${rotF}${zm}${cr}`
         if (hasEq) {
-          // eq はアルファ非対応なので、透明を退避して色調整後に戻す
-          const a = adj as { b: number; c: number; s: number }
-          const eqf = `eq=brightness=${(a.b - 1).toFixed(3)}:contrast=${a.c.toFixed(3)}:saturation=${a.s.toFixed(3)}`
+          // 色調整はアルファ非対応（YUV で計算する）なので、透明を退避して後で戻す
+          const eqf = colorAdjustFilter(adj)
           filter += `${useV(idx)}${geom},split[vg${k}a][vg${k}b];`
           filter += `[vg${k}a]alphaextract[va${k}];`
           filter += `[vg${k}b]${eqf}[vcc${k}];`
@@ -2401,10 +2402,9 @@ app.whenReady().then(() => {
         // 透明を保持するため rgba に統一（回転/pad の余白と不透明度が効くように）
         const geom = `format=rgba${ixf},scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1${irotF}${izm}${icr}`
         if (hasEq) {
-          // eq はアルファ非対応（YUV/GRAYのみ）で、通すと透明が不透明の黒に落ちる。
+          // 色調整はアルファ非対応（YUV で計算する）ので、通すと透明が不透明の黒に落ちる。
           // アルファを取り出して退避し、色調整後に merge して戻す。
-          const a = iadj as { b: number; c: number; s: number }
-          const eqf = `eq=brightness=${(a.b - 1).toFixed(3)}:contrast=${a.c.toFixed(3)}:saturation=${a.s.toFixed(3)}`
+          const eqf = colorAdjustFilter(iadj)
           filter += `${useV(idx)}${geom},split[ig${k}a][ig${k}b];`
           filter += `[ig${k}a]alphaextract[ia${k}];`
           filter += `[ig${k}b]${eqf}[ic${k}];`

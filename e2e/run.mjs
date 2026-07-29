@@ -2618,6 +2618,43 @@ try {
     await resetProject()
   })
 
+  await check('色調整を掛けたクリップが、書き出しでも明るくなる', async () => {
+    // **配布物でだけ書き出しが止まっていた所。** 色調整に GPL 専用の eq を
+    // 使っていて、同梱の LGPL 版には入っていなかった。
+    // 開発機は PATH の GPL 版を拾うので、画面でも書き出しでも気づけない。
+    //
+    // ここでは「エラーにならない」だけでなく、**本当に明るくなったか**まで見る。
+    // 通っただけなら、フィルタが黙って無視されていても合格してしまう。
+    await resetProject()
+    await v1Clips().nth(1).click() // 2つ目の切片（5〜10秒。重なる物が無い区間がある）
+    await page.waitForTimeout(400)
+    const bright = page.locator('.sp-row').filter({ hasText: '明るさ' }).locator('input[type="range"]').first()
+    assert(await bright.count(), '「明るさ」のつまみが見つからない')
+    await bright.fill('1.6')
+    await page.waitForTimeout(500)
+
+    const out = join(outDir, 'adjust.mp4')
+    await setDialogFiles(null, out)
+    await page.keyboard.press('Control+m')
+    await page.waitForSelector('.export-overlay')
+    await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
+    await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
+    assert(existsSync(out), '書き出しファイルができていない（色調整のフィルタが通っていない）')
+
+    // 同じ時刻の「元動画そのまま」と比べて、明るくなっているか
+    const T = 9
+    const got = await exactFrame(out, T, join(outDir, 'adj-got.png'), 'scale=320:180')
+    const src = await exactFrame(fx.video, T, join(outDir, 'adj-src.png'), 'scale=320:180')
+    const a = await avgColor(got)
+    const b = await avgColor(src)
+    assert(
+      a.y > b.y + 5,
+      `書き出した絵が明るくなっていない（元 ${b.y} → 書き出し ${a.y}）＝色調整が効いていない`
+    )
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
   await check('動きを付けた画像が、書き出しでも置いた場所から動かない', async () => {
     // 画像は元が1枚しか無いので、書き出しでは**尺のぶんだけ増やしてから**動かす。
     // 増やしたものは時刻0から並ぶので、置いた時刻へずらし直す必要がある。
