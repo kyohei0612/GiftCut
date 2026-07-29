@@ -4142,6 +4142,40 @@ try {
   section('プレビューの再生バー')
   await resetProject()
 
+  await check('プレビューを軽い画質に切り替えると、本当に軽い映像が作られる', async () => {
+    // **同梱の ffmpeg で作れるか**を見る確認。
+    //
+    // ここは長い間どこも見ていなかった。作る指定が `libx264` 固定だったが、
+    // 同梱の ffmpeg は LGPL 版で x264 が入っていないので、配布物では必ず失敗する。
+    // しかも**失敗しても原本のまま再生され続ける**ので、画面上は何も起きない
+    // （＝使う人には「軽くならないアプリ」に見えるだけで、原因が出ない）。
+    const vid = page.locator('.screen-video').first()
+    const srcOf = () => vid.evaluate((el) => el.getAttribute('src') ?? '')
+    const before = await srcOf()
+    assert(before, 'プレビューに映像が出ていない')
+
+    await page.locator('.pq-preview').first().selectOption('360')
+    // 変換は ffmpeg を起動するので少し待つ（素材は15秒なのですぐ終わる）
+    //
+    // **「変わったか」では見ない。** 作れなくても原本のまま再生され続けるので、
+    // 別の理由で URL が変わっただけでも通ってしまう。
+    // 作った物の置き場（giftcut-proxies）を指しているか、で見る。
+    let after = before
+    for (let i = 0; i < 60; i++) {
+      await page.waitForTimeout(500)
+      after = await srcOf()
+      if (after.includes('giftcut-proxies')) break
+    }
+    assert(
+      after.includes('giftcut-proxies'),
+      `360p にしても軽い映像を再生していない（作れていない）\n      前: ${before}\n      後: ${after}`
+    )
+    // 元に戻す（次の項目が軽い映像を見ないように）
+    await page.locator('.pq-preview').first().selectOption('orig')
+    await page.waitForTimeout(600)
+    touchedRef.dirty = true
+  })
+
   await check('全体のどこを見ているかが、プレビューの下のバーで分かる', async () => {
     const head = page.locator('.preview-scrub-head')
     assert(await head.count(), '再生バーが無い')

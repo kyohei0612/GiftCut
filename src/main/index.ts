@@ -83,30 +83,71 @@ const FFPROBE = ffBin('ffprobe')
 // 実行して初めて落ちる。なので「1枚だけ焼いてみて、通ったものを使う」。
 //
 // 速さの割合はマシンによる。CPU が強いほど差は小さい（この開発機では 1.3倍）。
-type Enc = { v: string; args: (crf: number) => string[]; label: string }
+// args … 書き出し用（画質優先。crf は利用者が選んだ画質）。
+// fast … プロキシ用（速さ優先。画質は捨ててよい）。引数は作るプロキシの高さ。
+//
+// fast を分けているのは、プロキシが「編集中に見るだけ」の物だから。
+// 画質より**速く作れること・シークが速いこと**が要る。
+// 目安は今まで使っていた x264 crf30 と同じくらいの大きさ（60秒・360p で 7MB 前後）。
+type Enc = {
+  v: string
+  /** 書き出し用。crf は利用者が選んだ画質（18=きれい / 23=標準 / 28=軽い） */
+  args: (crf: number, size: { w: number; h: number; fps: number }) => string[]
+  fast: (h: number) => string[]
+  label: string
+}
+
+/**
+ * 画質の数字（crf）を**ビットレート**に読み替える。
+ *
+ * **OpenH264 は crf も -qp も理解しない。** 実際に -qp を 18 / 30 / 45 と変えても
+ * 出来上がりは 4.73MB のまま1バイトも動かなかった（既定の 2Mbps 固定）。
+ * ＝ GPU も x264 も無い PC では、画質の設定が何も効いていなかった。
+ * 効くのはビットレートだけなので、ここで読み替える。
+ *
+ * 1画素1コマあたり何ビット使うか（bpp）で考える。crf が 6 下がるごとに倍。
+ * 1080p30 でおおよそ: 18→11Mbps / 23→6Mbps / 28→3.5Mbps。
+ * OpenH264 は x264 より効率が悪いので、やや多めに渡す。
+ */
+function crfToBitrateK(crf: number, size: { w: number; h: number; fps: number }): number {
+  const bpp = 0.1 * Math.pow(2, (23 - crf) / 6)
+  const kbps = (size.w * size.h * size.fps * bpp) / 1000
+  return Math.max(500, Math.min(60000, Math.round(kbps)))
+}
 const ENCODERS: Enc[] = [
   {
     v: 'h264_nvenc',
     label: 'GPU（NVIDIA）',
     // -cq は libx264 の -crf に相当。同じ数字だと軽めに出るので少しだけ寄せる
-    args: (crf) => ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(crf)]
+    args: (crf) => ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(crf)],
+    // p1 = 一番速い。cq は 30 だと x264 crf30 より太るので 34（実測 9.7MB → 6.7MB）
+    fast: () => ['-c:v', 'h264_nvenc', '-preset', 'p1', '-rc', 'vbr', '-cq', '34']
   },
   {
     v: 'h264_qsv',
     label: 'GPU（Intel）',
-    args: (crf) => ['-c:v', 'h264_qsv', '-global_quality', String(crf)]
+    args: (crf) => ['-c:v', 'h264_qsv', '-global_quality', String(crf)],
+    fast: () => ['-c:v', 'h264_qsv', '-preset', 'veryfast', '-global_quality', '32']
   },
   {
     v: 'h264_amf',
     label: 'GPU（AMD）',
-    args: (crf) => ['-c:v', 'h264_amf', '-rc', 'cqp', '-qp_i', String(crf), '-qp_p', String(crf)]
+    args: (crf) => ['-c:v', 'h264_amf', '-rc', 'cqp', '-qp_i', String(crf), '-qp_p', String(crf)],
+    fast: () => [
+      '-c:v', 'h264_amf', '-quality', 'speed', '-rc', 'cqp', '-qp_i', '32', '-qp_p', '32'
+    ]
   },
   {
     // 開発機など、x264 入り（GPL）の ffmpeg があるときはこちらが一番きれい。
     // 配布物には入っていないので、実際に使われるのは開発中だけ。
     v: 'libx264',
     label: 'CPU',
-    args: (crf) => ['-c:v', 'libx264', '-crf', String(crf), '-preset', 'medium']
+    args: (crf) => ['-c:v', 'libx264', '-crf', String(crf), '-preset', 'medium'],
+    // fastdecode = 再生側を軽くする作り方。編集中のプレビューはここが効く
+    fast: () => [
+      '-c:v', 'libx264', '-crf', '30',
+      '-preset', 'veryfast', '-tune', 'fastdecode', '-sc_threshold', '0'
+    ]
   },
   {
     // GPU が1つも使えず、x264 も無い機械のための最後の砦。
@@ -116,7 +157,15 @@ const ENCODERS: Enc[] = [
     v: 'libopenh264',
     label: 'CPU（OpenH264）',
     // -crf は使えないので、品質の指定を量子化パラメータに読み替える
-    args: (crf) => ['-c:v', 'libopenh264', '-qp', String(Math.min(51, Math.max(0, crf)))]
+    // **-qp は効かない**（渡しても黙って無視される）。ビットレートで渡す
+    args: (crf, size) => {
+      const k = crfToBitrateK(crf, size)
+      return ['-c:v', 'libopenh264', '-b:v', `${k}k`, '-maxrate', `${Math.round(k * 1.5)}k`]
+    },
+    // **OpenH264 に -qp は無い**（渡しても黙って無視される。実際に -qp を
+    // 30/34/38 と変えても大きさが 15.2MB のまま動かなかった）。
+    // 効くのはビットレートだけなので、作る高さから決める
+    fast: (h) => ['-c:v', 'libopenh264', '-b:v', h >= 720 ? '2000k' : '800k']
   }
 ]
 /** 実際に1枚焼いてみて、そのエンコーダが本当に使えるか確かめる */
@@ -127,7 +176,7 @@ function tryEncoder(enc: Enc): Promise<boolean> {
       '-f', 'lavfi',
       '-i', 'color=c=black:s=320x240',
       '-frames:v', '1',
-      ...enc.args(23),
+      ...enc.args(23, { w: 320, h: 240, fps: 30 }),
       '-f', 'null',
       '-'
     ])
@@ -1387,26 +1436,28 @@ app.whenReady().then(() => {
       p.on('error', () => resolve(0))
     })
     const tmp = join(proxyDir, key + '.tmp.mp4')
+    // 焼くのに使う物は、書き出しと**同じ選び方**（実際に1枚焼けた物）を使い回す。
+    //
+    // 以前はここだけ `libx264` を直に書いていたが、**同梱の ffmpeg には x264 が
+    // 入っていない**（LGPL 版。GPL 版を同梱するとソース公開の義務が付くので避けた）。
+    // 開発機は PATH の ffmpeg を拾ってしまうので気づけず、配布物でだけ
+    // 「プレビュー解像度を 720/360 にすると作れない」状態になっていた。
+    //
+    // プロキシは画質が要らないので GPU が一番向いている（速い・画質は捨ててよい）。
+    const enc = await videoEncoder()
     const args = [
       '-y',
       '-i',
       videoPath,
       '-vf',
       `scale=-2:${proxyH}`, // 編集用の解像度（書き出しは原本フル画質）
-      '-c:v',
-      'libx264',
-      '-preset',
-      'veryfast',
-      '-tune',
-      'fastdecode',
       '-g',
       '15', // キーフレーム0.5秒間隔（30fps基準）＝シーク高速
       '-keyint_min',
       '15',
-      '-sc_threshold',
-      '0',
-      '-crf',
-      '30',
+      // ここから '-pix_fmt' の手前までが「焼く物の指定」。
+      // CPU でやり直すときはこの範囲だけを差し替えるので、間に別の指定を挟まないこと
+      ...enc.fast(proxyH),
       '-pix_fmt',
       'yuv420p',
       '-c:a',
@@ -1417,44 +1468,60 @@ app.whenReady().then(() => {
       '+faststart',
       tmp
     ]
-    return await new Promise((resolve) => {
-      const ff = spawn(FFMPEG, args)
-      let err = ''
-      ff.stderr.on('data', (d) => {
-        const s = d.toString()
-        err += s
-        const m = /time=(\d+):(\d+):(\d+\.\d+)/.exec(s)
-        if (m && durSec > 0) {
-          const cur = +m[1] * 3600 + +m[2] * 60 + parseFloat(m[3])
-          const pct = Math.min(99, Math.max(0, Math.round((cur / durSec) * 100)))
-          !e.sender.isDestroyed() && e.sender.send('video:proxy:progress', { path: videoPath, percent: pct })
-        }
-      })
-      ff.on('error', (er) => resolve({ ok: false, error: 'ffmpeg起動失敗: ' + er.message }))
-      ff.on('close', (code) => {
-        if (code === 0 && existsSync(tmp)) {
-          try {
-            renameSync(tmp, outPath)
-          } catch (er) {
-            resolve({ ok: false, error: String(er) })
-            return
+    /** 1回焼いてみる。進捗もここから送る */
+    const runOnce = (a: string[]): Promise<{ code: number | null; err: string }> =>
+      new Promise((resolve) => {
+        const ff = spawn(FFMPEG, a)
+        let err = ''
+        ff.stderr.on('data', (d) => {
+          const s = d.toString()
+          err += s
+          const m = /time=(\d+):(\d+):(\d+\.\d+)/.exec(s)
+          if (m && durSec > 0) {
+            const cur = +m[1] * 3600 + +m[2] * 60 + parseFloat(m[3])
+            const pct = Math.min(99, Math.max(0, Math.round((cur / durSec) * 100)))
+            !e.sender.isDestroyed() &&
+              e.sender.send('video:proxy:progress', { path: videoPath, percent: pct })
           }
-          allowFile(outPath)
-          proxyInUse.add(key + '.mp4') // 使用中なので prune の対象外にする
-          // 古いプロキシを掃除（userData に無制限に溜まるのを防ぐ）。総容量ベースのLRU。
-          pruneProxyCache(proxyDir)
-          !e.sender.isDestroyed() && e.sender.send('video:proxy:progress', { path: videoPath, percent: 100 })
-          resolve({ ok: true, path: outPath })
-        } else {
-          try {
-            rmSync(tmp, { force: true })
-          } catch {
-            /* 無視 */
-          }
-          resolve({ ok: false, error: 'プロキシ生成失敗 (code ' + code + ')\n' + err.slice(-300) })
-        }
+        })
+        ff.on('error', (er) => resolve({ code: -1, err: 'ffmpeg起動失敗: ' + er.message }))
+        ff.on('close', (code) => resolve({ code, err }))
       })
-    })
+
+    let r = await runOnce(args)
+    // GPU で焼いていて失敗したら CPU でやり直す（書き出しと同じ考え方）。
+    // 起動時は通っても、書き出しと同時に走るとドライバの同時本数を超えて落ちることがある。
+    if (r.code !== 0 && ['h264_nvenc', 'h264_qsv', 'h264_amf'].includes(enc.v)) {
+      const x264 = ENCODERS.find((en) => en.v === 'libx264')!
+      const oh264 = ENCODERS.find((en) => en.v === 'libopenh264')!
+      const cpu = (await tryEncoder(x264)) ? x264 : oh264
+      console.warn(`[プロキシ] GPU で失敗したので ${cpu.label} でやり直します`)
+      const fixed = [...args]
+      const from = fixed.indexOf('-c:v')
+      const to = fixed.indexOf('-pix_fmt')
+      if (from >= 0 && to > from) fixed.splice(from, to - from, ...cpu.fast(proxyH))
+      r = await runOnce(fixed)
+    }
+    if (r.code === 0 && existsSync(tmp)) {
+      try {
+        renameSync(tmp, outPath)
+      } catch (er) {
+        return { ok: false, error: String(er) }
+      }
+      allowFile(outPath)
+      proxyInUse.add(key + '.mp4') // 使用中なので prune の対象外にする
+      // 古いプロキシを掃除（userData に無制限に溜まるのを防ぐ）。総容量ベースのLRU。
+      pruneProxyCache(proxyDir)
+      !e.sender.isDestroyed() &&
+        e.sender.send('video:proxy:progress', { path: videoPath, percent: 100 })
+      return { ok: true, path: outPath }
+    }
+    try {
+      rmSync(tmp, { force: true })
+    } catch {
+      /* 無視 */
+    }
+    return { ok: false, error: 'プロキシ生成失敗 (code ' + r.code + ')\n' + r.err.slice(-300) }
   })
 
   // 波形のピーク値を解析（PCMのバケットごとの min/max を返す）。
@@ -2399,7 +2466,7 @@ app.whenReady().then(() => {
       ...audioMap,
       '-r',
       fpsArg,
-      ...(await videoEncoder()).args(crf),
+      ...(await videoEncoder()).args(crf, { w: width, h: height, fps: outFps }),
       '-pix_fmt',
       'yuv420p',
       '-c:a',
@@ -2513,7 +2580,8 @@ ${detail}` : ""),
           const fixed = [...args]
           const from = fixed.indexOf('-c:v')
           const to = fixed.indexOf('-pix_fmt')
-          if (from >= 0 && to > from) fixed.splice(from, to - from, ...cpu.args(crf))
+          if (from >= 0 && to > from)
+            fixed.splice(from, to - from, ...cpu.args(crf, { w: width, h: height, fps: outFps }))
           const ff2 = spawn(FFMPEG, fixed, { cwd: tmp })
           currentExportFf = ff2
           let err2 = ''
