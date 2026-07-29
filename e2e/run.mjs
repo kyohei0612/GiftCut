@@ -612,6 +612,15 @@ try {
     })
   }
 
+  /** 書き出した動画から、その時刻の1枚を抜く（動いているかを目で比べるため） */
+  async function grabFrame(video, sec, out) {
+    await new Promise((res) => {
+      const p = spawn('ffmpeg', ['-y', '-ss', String(sec), '-i', video, '-frames:v', '1', out])
+      p.on('close', res)
+    })
+    return out
+  }
+
   /** 画像の平均色（0〜255）。赤くなったか、暗くなったかを測る。 */
   async function avgColor(f) {
     const p = spawn('ffmpeg', ['-i', f, '-vf', 'signalstats,metadata=print', '-f', 'null', '-'])
@@ -2181,6 +2190,88 @@ try {
     // 元のタブへ戻しておく（次の項目が探す物が変わらないように）
     await strip.locator('.tab', { hasText: 'プロジェクト' }).first().click()
     await page.waitForTimeout(300)
+  })
+
+  // =========================================================================
+  section('モーション（キーフレームで動かす）')
+  await resetProject()
+
+  await check('テロップに動きを付けると、プレビューで本当に動く', async () => {
+    // 「0秒でここ、あとでそこ」と置いたら、その間を流れる。
+    // プレミアと同じ操作: ⏱ を押す → 再生ヘッドを動かす → 値を変える
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(300)
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    await page.waitForTimeout(300)
+    const row = page.locator('.mo-row').filter({ hasText: '位置 X' }).first()
+    assert(await row.count(), 'モーションタブに「位置 X」が無い')
+
+    // テロップは 1〜3秒。頭で ⏱ を押し、いまの位置に印が置かれる
+    await seekTo(1.2)
+    await page.waitForTimeout(300)
+    await row.locator('.mo-watch').click()
+    await page.waitForTimeout(300)
+    assert(
+      (await row.locator('.mo-watch.on').count()) === 1,
+      '⏱ を押しても動きが付いた状態にならない'
+    )
+    const xAt = async () =>
+      (await page.locator('.telop-overlay .telop-textmain').first().boundingBox())?.x ?? null
+    const x0 = await xAt()
+    assert(x0 != null, '文字がプレビューに出ていない')
+
+    // 後ろの時刻で値を変える → そこに印が置かれ、間が流れる
+    await seekTo(2.6)
+    await page.waitForTimeout(300)
+    const val = row.locator('.mo-val')
+    await val.fill('300')
+    await val.press('Enter')
+    await page.waitForTimeout(500)
+    const x1 = await xAt()
+    // 300px は元の位置（画面の真ん中＝960）より左なので、左へ動くのが正しい
+    assert(x1 != null && x1 < x0 - 20, `後ろの時刻で左へ動いていない（${x0} → ${x1}）`)
+
+    // 途中は「その間」にいる（＝なめらかにつながっている）
+    await seekTo(1.9)
+    await page.waitForTimeout(400)
+    const xMid = await xAt()
+    assert(
+      xMid != null && xMid < x0 - 5 && xMid > x1 + 5,
+      `間が流れていない（${x0} / ${xMid} / ${x1}）`
+    )
+    touchedRef.dirty = true
+  })
+
+  await check('付けた動きは、保存して開き直しても残っている', async () => {
+    // 保存の拾い忘れで動きだけ静かに消える、という事故を防ぐ
+    await page.keyboard.press('Control+s')
+    await page.waitForTimeout(1600)
+    const data = JSON.parse(readFileSync(fx.gcproj, 'utf-8'))
+    const withMotion = (data.cues ?? []).filter((c) => c.motion)
+    assert(withMotion.length > 0, '保存した中身に動きが入っていない')
+    assert(
+      Array.isArray(withMotion[0].motion.tx) && withMotion[0].motion.tx.length >= 2,
+      `印が2つ以上入っていない: ${JSON.stringify(withMotion[0].motion)}`
+    )
+  })
+
+  await check('書き出した動画でも、テロップが同じように動く', async () => {
+    // **ここが本番。** プレビューで動いても書き出しで動かなければ意味が無い
+    // （ダッキングで「聴いた音と書き出した音が違う」を潰したのと同じ理由）。
+    const out = join(outDir, 'motion.mp4')
+    await setDialogFiles(null, out)
+    await page.keyboard.press('Control+m')
+    await page.waitForSelector('.export-overlay')
+    await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
+    await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
+    assert(existsSync(out), '書き出しファイルができていない')
+    // 動いている区間の前と後ろを1枚ずつ抜き、**違う絵になっている**ことを見る
+    const a = join(outDir, 'motion-a.png')
+    const b = join(outDir, 'motion-b.png')
+    await grabFrame(out, 1.3, a)
+    await grabFrame(out, 2.5, b)
+    const same = await similarity(a, b)
+    assert(same < 0.999, `書き出した動画でテロップが動いていない（一致度 ${same}）`)
   })
 
   // =========================================================================

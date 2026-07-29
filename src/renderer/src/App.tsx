@@ -11,11 +11,15 @@ import {
   anchorFrac,
   buildTelopSVG,
   computeTelopAnim,
+  telopStateAt,
+  hasMotion,
+  sanitizeMotion,
   defaultAnim,
   defaultTelopStyle,
   hasAnim,
   hexToRgba,
   type AnimIn,
+  type Motion,
   type TelopAnim,
   type TelopStyle,
   type TextRun
@@ -76,6 +80,7 @@ import { MenuBar } from './components/MenuBar'
 import { TelopTemplatesTab } from './components/panels/TelopTemplatesTab'
 import { TransitionsTab } from './components/panels/TransitionsTab'
 import { ProjectBinTab } from './components/panels/ProjectBinTab'
+import { MotionTab, type MotionRow } from './components/panels/MotionTab'
 import { PropertiesPanel, RESET_TRANSFORM } from './components/panels/PropertiesPanel'
 import { AudioMixer, PreviewScrub, TransportBar } from './components/panels/PreviewBars'
 import { TimelineToolbar } from './components/timeline/TimelineToolbar'
@@ -120,6 +125,8 @@ import {
   type SplitSeg
 } from '../../shared/timeline'
 import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
+// キーフレーム（時間で変わる値）。プレビューも書き出しも同じ計算を使う
+import { valueAt, putKey, removeKey, hasKeys, type Keys } from '../../shared/keyframes'
 // 書き出しに渡す中身の組み立て（画面に依らない・単体で確かめてある）
 import { buildExportPayload } from '../../shared/exportPayload'
 // 押されたキーをどの操作に割り当てるか（受ける/受けないの判断もこちら）
@@ -2530,6 +2537,8 @@ export default function App(): JSX.Element {
   const [loudnormLUFS, setLoudnormLUFS] = useState<number | null>(-14)
 
   // ---- 右パネル（プロジェクト/テロップ/エフェクト/トランジション）----
+  // 左パネルのタブ（プロパティ＝見た目の設定 / モーション＝時間で変わる動き）
+  const [leftTab, setLeftTab] = useState<'props' | 'motion'>('props')
   const [rightTab, setRightTab] = useState<
     'project' | 'telop' | 'icon' | 'se' | 'transition'
   >('project')
@@ -4658,7 +4667,7 @@ export default function App(): JSX.Element {
     for (const c of shown) {
       const avatar = iconForCue(c)
       const asc = avatar ? iconScale : 1
-      const st = hasAnim(c.style.anim) ? computeTelopAnim(c.style.anim!, t - c.start, c.end - c.start) : undefined
+      const st = telopStateAt(c.style.anim, c.motion, t - c.start, c.end - c.start)
       const png = await renderCueToPng(
         c, size.width, size.height, avatar, asc, st, iconSide, iconOffset.x, iconOffset.y, iconAuto
       )
@@ -5492,7 +5501,10 @@ export default function App(): JSX.Element {
           track:
             typeof c.track === 'string' && /^V\d+$/.test(c.track) && c.track !== 'V1'
               ? c.track
-              : undefined
+              : undefined,
+          // 自分で打った動き（モーション）。ここで拾い忘れると、保存して開き直した
+          // 瞬間に動きだけ静かに消える（クリップの色で同じ事故があった）
+          motion: sanitizeMotion(c.motion)
         }))
       : []
     const loadedSegs: VSeg[] = Array.isArray(d.segments)
@@ -7567,6 +7579,36 @@ export default function App(): JSX.Element {
   const motionLabel = (t: AnimIn): string =>
     TELOP_MOTIONS.find((m) => m.type === t)?.label ?? String(t)
   // cue の anim を patch（in/out どちらか）。全て none になったら anim ごと外す。
+  /**
+   * テロップの「動き」（キーフレーム）を1項目だけ書き換える。
+   * 印が全部無くなったら、その項目ごと捨てる（＝固定値に戻る）。
+   */
+  function patchMotion(
+    cueId: number,
+    key: keyof Motion,
+    fn: (keys: Keys | undefined) => Keys | undefined
+  ): void {
+    // 履歴は cues の変化を見て自動で積まれる（ここで積むと二重になる）
+    setCues((prev) =>
+      prev.map((c) => {
+        if (c.id !== cueId) return c
+        const next: Motion = { ...c.motion, [key]: fn(c.motion?.[key]) }
+        return { ...c, motion: hasMotion(next) ? next : undefined }
+      })
+    )
+  }
+  /** テロップの位置（フレーム内の割合）を書き換える */
+  function patchCuePos(cueId: number, patch: { x?: number; y?: number }): void {
+    setCues((prev) =>
+      prev.map((c) => (c.id === cueId ? { ...c, pos: { ...c.pos, ...patch } } : c))
+    )
+  }
+  /** テロップの大きさ（倍率）を書き換える */
+  function patchCueScale(cueId: number, scale: number): void {
+    setCues((prev) =>
+      prev.map((c) => (c.id === cueId ? { ...c, scale: Math.max(0.05, scale) } : c))
+    )
+  }
   function patchCueAnim(cueId: number, patch: Partial<TelopAnim>): void {
     setCues((prev) =>
       prev.map((c) => {
@@ -8671,14 +8713,22 @@ export default function App(): JSX.Element {
   }, [])
 
   // アニメの「変化する区間」の分割点（ローカル秒）を返す。中間の静止区間は1枚で済ませる。
-  function animBreakpoints(anim: TelopAnim, dur: number, fps: number): number[] {
+  function animBreakpoints(
+    anim: TelopAnim | undefined,
+    motion: Motion | undefined,
+    dur: number,
+    fps: number
+  ): number[] {
     const step = 1 / fps
     const set = new Set<number>([0])
     const addRange = (a: number, b: number): void => {
       for (let t = a; t < b - 1e-4; t += step) set.add(Math.round(t / step) * step)
     }
-    if (anim.emphasis !== 'none') addRange(0, dur)
-    else {
+    // 自分で打った動き（モーション）が付いていたら、全区間を刻む。
+    // どこで値が変わるか決め打ちできないので、通しで並べるしかない。
+    if (hasMotion(motion) || anim?.emphasis === 'shake' || anim?.emphasis === 'pulse') {
+      addRange(0, dur)
+    } else if (anim) {
       if (anim.in !== 'none') addRange(0, Math.min(anim.inDur, dur))
       if (anim.out !== 'none') addRange(Math.max(0, dur - anim.outDur), dur)
     }
@@ -8733,7 +8783,7 @@ export default function App(): JSX.Element {
         const avatar = iconForCue(c)
         const asc = avatar ? iconScale : 1
         const dur = c.end - c.start
-        if (!hasAnim(c.style.anim)) {
+        if (!hasAnim(c.style.anim) && !hasMotion(c.motion)) {
           const png = await renderCueToPng(
             c,
             size.width,
@@ -8749,11 +8799,11 @@ export default function App(): JSX.Element {
           frames.push({ png, start: c.start, end: c.end })
         } else {
           // アニメあり: 変化する区間を時間分割し、各瞬間のPNGを短い区間で並べる
-          const bps = animBreakpoints(c.style.anim!, dur, 15)
+          const bps = animBreakpoints(c.style.anim, c.motion, dur, 15)
           for (let k = 0; k < bps.length; k++) {
             const t0 = bps[k]
             const t1 = k + 1 < bps.length ? bps[k + 1] : dur
-            const st = computeTelopAnim(c.style.anim!, t0, dur)
+            const st = telopStateAt(c.style.anim, c.motion, t0, dur)
             const png = await renderCueToPng(
               c,
               size.width,
@@ -9774,9 +9824,139 @@ export default function App(): JSX.Element {
               該当する1つだけを渡す（テロップ → 効果音 → 動画 → 音声 → 映像レイヤー → 画像）。 */}
           <section className="panel" style={{ width: leftW, flex: '0 0 auto' }}>
             <div className="panel-tabs">
-              <span className="tab tab-on">プロパティ</span>
+              <span
+                className={`tab ${leftTab === 'props' ? 'tab-on' : ''}`}
+                onClick={() => setLeftTab('props')}
+              >
+                プロパティ
+              </span>
+              {/* プレミアと同じで、動きは別のタブにまとめる。
+                  プロパティ（見た目の設定）と混ぜると、どちらも探しにくくなる。 */}
+              <span
+                className={`tab ${leftTab === 'motion' ? 'tab-on' : ''}`}
+                onClick={() => setLeftTab('motion')}
+              >
+                モーション
+              </span>
             </div>
-            {(() => {
+            {leftTab === 'motion' ? (
+              selected ? (
+                (() => {
+                  const clipT = clamp(currentTime - selected.start, 0, selected.end - selected.start)
+                  const m = selected.motion
+                  const put = (k: keyof Motion, v: number): void =>
+                    patchMotion(selected.id, k, (keys) => putKey(keys, clipT, v))
+                  const row = (
+                    key: keyof Motion,
+                    label: string,
+                    opt: {
+                      value: number
+                      unit?: string
+                      step: number
+                      min: number
+                      max: number
+                      /** ⏱ が消えている状態での書き込み先（位置と拡大は元の値がある） */
+                      base?: (v: number) => void
+                      /** 表示値 → キーに入れる値（位置は元の値との差、拡大は倍率） */
+                      toKey: (v: number) => number
+                      /** ⏱ を付けた瞬間に置く値 */
+                      initial: number
+                    }
+                  ): MotionRow => ({
+                    key,
+                    label,
+                    value: opt.value,
+                    unit: opt.unit,
+                    step: opt.step,
+                    min: opt.min,
+                    max: opt.max,
+                    keys: m?.[key],
+                    editableWithoutKeys: !!opt.base,
+                    onValue: (v) => {
+                      if (hasKeys(m?.[key])) put(key, opt.toKey(v))
+                      else opt.base?.(v)
+                    },
+                    onToggleKeys: () =>
+                      patchMotion(selected.id, key, (keys) =>
+                        hasKeys(keys) ? undefined : putKey(undefined, clipT, opt.initial)
+                      ),
+                    onPutKey: () => put(key, opt.toKey(opt.value)),
+                    onRemoveKey: () =>
+                      patchMotion(selected.id, key, (keys) => removeKey(keys, clipT))
+                  })
+                  // 位置は「フレームの中の場所」で見せる（0..1 を 1080基準px に直す）
+                  const px = (frac: number): number => Math.round(frac * 1920)
+                  const py = (frac: number): number => Math.round(frac * 1080)
+                  return (
+                    <MotionTab
+                      title={selected.text.slice(0, 16) || 'テロップ'}
+                      hint="⏱ を押すと動きが付きます。再生ヘッドを動かして値を変えると、その位置に印（◆）が置かれます。"
+                      clipTime={clipT}
+                      onSeekClipTime={(t) => seekTo(selected.start + t)}
+                      rows={[
+                        row('tx', '位置 X', {
+                          value: px(selected.pos.x) + valueAt(m?.tx, clipT, 0),
+                          unit: 'px',
+                          step: 1,
+                          min: -4000,
+                          max: 4000,
+                          base: (v) => patchCuePos(selected.id, { x: v / 1920 }),
+                          toKey: (v) => v - px(selected.pos.x),
+                          initial: 0
+                        }),
+                        row('ty', '位置 Y', {
+                          value: py(selected.pos.y) + valueAt(m?.ty, clipT, 0),
+                          unit: 'px',
+                          step: 1,
+                          min: -4000,
+                          max: 4000,
+                          base: (v) => patchCuePos(selected.id, { y: v / 1080 }),
+                          toKey: (v) => v - py(selected.pos.y),
+                          initial: 0
+                        }),
+                        row('sc', '拡大', {
+                          value: Math.round((selected.scale ?? 1) * valueAt(m?.sc, clipT, 1) * 100),
+                          unit: '%',
+                          step: 1,
+                          min: 5,
+                          max: 800,
+                          base: (v) => patchCueScale(selected.id, v / 100),
+                          toKey: (v) => v / 100 / (selected.scale ?? 1),
+                          initial: 1
+                        }),
+                        row('rot', '回転', {
+                          value: valueAt(m?.rot, clipT, 0),
+                          unit: '°',
+                          step: 1,
+                          min: -360,
+                          max: 360,
+                          toKey: (v) => v,
+                          initial: 0
+                        }),
+                        row('op', '不透明度', {
+                          value: Math.round(valueAt(m?.op, clipT, 1) * 100),
+                          unit: '%',
+                          step: 1,
+                          min: 0,
+                          max: 100,
+                          toKey: (v) => v / 100,
+                          initial: 1
+                        })
+                      ]}
+                    />
+                  )
+                })()
+              ) : (
+                <div className="panel-body">
+                  <div className="empty">
+                    タイムラインでテロップを選ぶと
+                    <br />
+                    動きを付けられます
+                  </div>
+                </div>
+              )
+            ) : (
+              (() => {
               const se = selectedSeIds.length
                 ? seClips.find((c) => c.id === selectedSeIds[0])
                 : undefined
@@ -9961,7 +10141,8 @@ export default function App(): JSX.Element {
                   }
                 />
               )
-            })()}
+            })()
+            )}
           </section>
 
           </PaneHost>
@@ -10236,6 +10417,7 @@ export default function App(): JSX.Element {
                         scale={c.scale}
                         animT={currentTime - c.start}
                         clipDur={c.end - c.start}
+                        motion={c.motion}
                         selected={isSelected(c.id)}
                         playing={playing}
                         onResizeStart={(e, corner) => onTelopResizeStart(c, e, corner)}

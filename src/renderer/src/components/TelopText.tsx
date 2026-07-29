@@ -3,8 +3,11 @@ import {
   anchorFlex,
   anchorTranslate,
   animTransform,
+  type Motion,
   buildTelopSVG,
   computeTelopAnim,
+  applyMotion,
+  hasMotion,
   computeTelopCss,
   ICON_BASE_PX,
   LINE_BASE,
@@ -26,6 +29,7 @@ interface Props {
   pos?: { x: number; y: number }
   scale?: number // テロップ全体の拡縮倍率（Premiere式リサイズ）。既定1
   animT?: number // クリップ内ローカル時間（秒）。アニメ計算用
+  motion?: Motion // 自分で打った動き（キーフレーム）
   clipDur?: number // クリップ長（秒）
   selected?: boolean
   playing?: boolean // 再生中か（再生中は選択中でもアニメを再生する）
@@ -54,6 +58,7 @@ export default function TelopText({
   scale = 1,
   animT,
   clipDur,
+  motion,
   selected,
   playing,
   onPointerDown,
@@ -86,10 +91,17 @@ export default function TelopText({
 
   // アニメ状態（プレビューは再生ヘッド位置から算出）。
   // 再生中は選択中でもアニメを再生。停止中に選択している時だけ、編集しやすいよう完全表示にする。
-  const anim =
+  const animBase =
     (playing || !selected) && style.anim && animT != null && clipDur != null
       ? computeTelopAnim(style.anim, animT, clipDur)
       : null
+  // 自分で打った動きは、**止めて選んでいる間も出す**。
+  // 出入りのアニメは編集の邪魔になるので止めているが、モーションは
+  // 「いまどこにいるか」を見ながら打つものなので、隠すと打てない。
+  const anim =
+    animT != null && hasMotion(motion)
+      ? applyMotion(animBase ?? { opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0 }, motion, animT)
+      : animBase
   const animLayer: React.CSSProperties = anim
     ? { opacity: anim.opacity, transform: animTransform(anim, 'cqh'), transformOrigin: 'center' }
     : {}

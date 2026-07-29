@@ -3844,3 +3844,91 @@ input[type="range"] {
   background: var(--panel-2);
   color: var(--text);
 }
+
+/* ---- モーション（キーフレーム）タブ ---- */
+.mo-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 2px 2px;
+}
+.mo-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mo-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.mo-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--line);
+}
+/* 動きが付いている行は、ひと目で分かるようにする */
+.mo-row.mo-on .mo-label {
+  color: var(--accent-2);
+}
+.mo-label {
+  font-size: 12px;
+  color: var(--muted);
+  width: 68px;
+  flex: 0 0 auto;
+}
+.mo-val {
+  width: 68px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 2px 4px;
+  text-align: right;
+}
+.mo-val:disabled {
+  opacity: 0.4;
+}
+.mo-unit {
+  font-size: 11px;
+  color: var(--muted);
+  width: 20px;
+}
+.mo-keys {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+}
+.mo-watch,
+.mo-kbtn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 5px;
+}
+.mo-watch.on {
+  color: var(--accent-2);
+  border-color: var(--accent);
+}
+.mo-kbtn:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.mo-kbtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+/* いまちょうど印の上にいるとき */
+.mo-diamond.on {
+  color: var(--accent-2);
+}

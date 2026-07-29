@@ -1,4 +1,4 @@
-import { defaultTelopStyle, type TelopStyle, type TextRun } from './telopStyle'
+import { defaultTelopStyle, type Motion, type TelopStyle, type TextRun } from './telopStyle'
 import { DEFAULT_LABEL } from './labels'
 
 export interface Cue {
@@ -14,6 +14,8 @@ export interface Cue {
   pos: { x: number; y: number } // フレーム内の中心位置（0-1）。既定は下中央
   track?: string // 配置トラック（V2/V3）。未指定は V2 扱い
   scale?: number // テロップ全体の拡縮倍率（Premiere式：リサイズはこれを変え、fontSize/縁/影の数値は固定）。既定1
+  /** 自分で打った動き（キーフレーム）。プレミアの「モーション」に当たる */
+  motion?: Motion
 }
 
 function toSeconds(t: string): number {

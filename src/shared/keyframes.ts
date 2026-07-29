@@ -129,3 +129,26 @@ export function keysToExpr(keys: Keys | undefined, fallback: number, timeVar: st
 function round(n: number): number {
   return Math.round(n * 1e4) / 1e4
 }
+
+/**
+ * 保存ファイルから読み直すときの検査。
+ * 人の手で書き換えられることも、古い版が混ざることもあるので、
+ * **形が合っている物だけ通す**。壊れていたら「動き無し」に落とす（落ちない）。
+ */
+export function sanitizeKeys(v: unknown): Keys | undefined {
+  if (!Array.isArray(v)) return undefined
+  const ok = v
+    .filter(
+      (k): k is Key<number> =>
+        !!k &&
+        typeof k === 'object' &&
+        Number.isFinite((k as Key<number>).t) &&
+        Number.isFinite((k as Key<number>).v)
+    )
+    .map((k) => ({
+      t: Math.max(0, k.t),
+      v: k.v,
+      ...(k.e === 'hold' || k.e === 'ease' ? { e: k.e } : null)
+    }))
+  return ok.length ? sortKeys(ok) : undefined
+}

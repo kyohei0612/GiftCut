@@ -1225,3 +1225,67 @@ export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): T
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="overflow:visible;display:block"><defs>${defs}</defs><g${skew}>${body}</g></svg>`
   return { svg, w: W, h: H, textW: Math.ceil(maxW), textH: Math.ceil(textH), pad }
 }
+
+// ---- モーション（キーフレームで動かす）----
+//
+// 出入りのアニメ（in/out/emphasis）は「決まった動き」を選ぶもの。
+// モーションは**自分で位置や大きさを打つ**もので、プレミアの「モーション」に当たる。
+//   例: 0秒で右端、10秒で左端 → 右から左へ流れるテロップ
+//
+// 両方が付いていたら**重ねる**（出入りで入ってきて、そのあと自分の動きで流れる）。
+// 位置は足し算、大きさは掛け算、回転は足し算、透明度は掛け算。
+import type { Keys } from '../../../shared/keyframes'
+import { valueAt, hasKeys, sanitizeKeys } from '../../../shared/keyframes'
+
+export interface Motion {
+  /** 横位置（1080基準px。右が＋） */
+  tx?: Keys
+  /** 縦位置（1080基準px。下が＋） */
+  ty?: Keys
+  /** 大きさ（1=そのまま） */
+  sc?: Keys
+  /** 回転（度） */
+  rot?: Keys
+  /** 透明度（0..1） */
+  op?: Keys
+}
+
+export const hasMotion = (m?: Motion): boolean =>
+  !!m && (hasKeys(m.tx) || hasKeys(m.ty) || hasKeys(m.sc) || hasKeys(m.rot) || hasKeys(m.op))
+
+/** 出入りのアニメの上に、自分で打った動きを重ねる */
+export function applyMotion(st: AnimState, m: Motion | undefined, animT: number): AnimState {
+  if (!hasMotion(m)) return st
+  return {
+    tx: st.tx + valueAt(m!.tx, animT, 0),
+    ty: st.ty + valueAt(m!.ty, animT, 0),
+    sc: st.sc * valueAt(m!.sc, animT, 1),
+    rot: st.rot + valueAt(m!.rot, animT, 0),
+    opacity: st.opacity * valueAt(m!.op, animT, 1)
+  }
+}
+
+/** その瞬間の見た目（出入りのアニメ＋自分で打った動き）。プレビューも書き出しもこれを使う */
+export function telopStateAt(
+  anim: TelopAnim | undefined,
+  motion: Motion | undefined,
+  animT: number,
+  clipDur: number
+): AnimState | undefined {
+  if (!hasAnim(anim) && !hasMotion(motion)) return undefined
+  return applyMotion(computeTelopAnim(anim, animT, clipDur), motion, animT)
+}
+
+/** 保存ファイルから読み直すときの検査（壊れていたら「動き無し」に落とす） */
+export function sanitizeMotion(v: unknown): Motion | undefined {
+  if (!v || typeof v !== 'object') return undefined
+  const o = v as Record<string, unknown>
+  const m: Motion = {
+    tx: sanitizeKeys(o.tx),
+    ty: sanitizeKeys(o.ty),
+    sc: sanitizeKeys(o.sc),
+    rot: sanitizeKeys(o.rot),
+    op: sanitizeKeys(o.op)
+  }
+  return hasMotion(m) ? m : undefined
+}
