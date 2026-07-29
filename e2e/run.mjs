@@ -2326,6 +2326,111 @@ try {
     assert(same < 0.999, `書き出した動画でテロップが動いていない（一致度 ${same}）`)
   })
 
+  await check('動画クリップにも動きを付けられる（時間で寄っていく）', async () => {
+    // テロップと同じ操作で、動画そのものを動かせる（切り抜きの「話者にシュッと寄る」）。
+    // **プレビューの transform を直に読む**。見た目の変化を絵で測ると、
+    // 元動画の中身が動いただけでも通ってしまう。
+    await resetProject()
+    await v1Clips().nth(0).click() // 1つ目の切片（0〜5秒）
+    await page.waitForTimeout(300)
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    await page.waitForTimeout(300)
+    const row = page.locator('.mo-row').filter({ hasText: '拡大' }).first()
+    assert(await row.count(), 'モーションタブに「拡大」が無い（クリップ用の行が出ていない）')
+
+    /** プレビューの動画に掛かっている拡大率（transform から読む） */
+    const scaleNow = async () => {
+      const tr = await page.evaluate(
+        () => document.querySelector('.screen-video')?.style.transform ?? ''
+      )
+      const m = /scale\(([\d.]+)\)/.exec(tr)
+      return m ? Number(m[1]) : 1
+    }
+
+    await seekTo(0.4)
+    await row.locator('.mo-watch').click() // ⏱ ＝ いまの位置に印
+    await page.waitForTimeout(300)
+    assert(
+      (await row.locator('.mo-watch.on').count()) === 1,
+      '⏱ を押しても動きが付いた状態にならない'
+    )
+    const s0 = await scaleNow()
+    assert(Math.abs(s0 - 1) < 0.02, `印を置いただけで拡大が変わっている（${s0}）`)
+
+    // 後ろの時刻で 200% にする → そこに印が置かれ、間が寄っていく
+    await seekTo(3)
+    const val = row.locator('.mo-val')
+    await val.fill('200')
+    await val.press('Enter')
+    await page.waitForTimeout(400)
+    const s1 = await scaleNow()
+    assert(Math.abs(s1 - 2) < 0.05, `後ろの時刻で2倍になっていない（${s1}）`)
+
+    // 途中は「その間」にいる（＝なめらかにつながっている）
+    await seekTo(1.7)
+    await page.waitForTimeout(300)
+    const sMid = await scaleNow()
+    assert(sMid > s0 + 0.1 && sMid < s1 - 0.1, `間が寄っていない（${s0} / ${sMid} / ${s1}）`)
+
+    // タイムラインの帯にも印が出ている（後から「どこに打ったか」を探せる）
+    const marks = await v1Clips().nth(0).locator('.kf-mark').count()
+    assert(marks === 2, `帯に出ている印が2つではない（${marks}個）`)
+    touchedRef.dirty = true
+  })
+
+  await check('拡大の動きは1倍未満にできない（書き出せない値を画面から打たせない）', async () => {
+    // zoompan は寄る方しか焼けない。**画面だけ引けてしまうと、書き出しでだけ絵が違う**
+    // という一番たちの悪いズレになるので、入力の側で止める。
+    const row = page.locator('.mo-row').filter({ hasText: '拡大' }).first()
+    const val = row.locator('.mo-val')
+    assert(
+      (await val.getAttribute('min')) === '100',
+      '動きが付いているのに、拡大の下限が100%になっていない'
+    )
+    await seekTo(2)
+    await val.fill('50')
+    await val.press('Enter')
+    await page.waitForTimeout(400)
+    const tr = await page.evaluate(
+      () => document.querySelector('.screen-video')?.style.transform ?? ''
+    )
+    const s = Number(/scale\(([\d.]+)\)/.exec(tr)?.[1] ?? 1)
+    assert(s >= 1, `1倍未満になってしまった（${s}）`)
+    touchedRef.dirty = true
+  })
+
+  await check('クリップの動きも、保存して開き直せば残っている', async () => {
+    // 読み込みは1項目ずつ拾う作りなので、**書き忘れると開いた瞬間に動きだけ消える**。
+    // テロップの色で実際にやらかしている型の事故。
+    //
+    // ※ 数値欄にカーソルが残っているとショートカットは1つも通らない（文字入力が
+    //    優先される作り）。先に欄から離れる＝人がやるのと同じ順序にする。
+    await page.locator('.mo-head').first().click()
+    await page.waitForTimeout(200)
+    await page.keyboard.press('Control+s')
+    await page.waitForTimeout(1600)
+    const data = JSON.parse(readFileSync(fx.gcproj, 'utf-8'))
+    const withMotion = (data.segments ?? []).filter((s) => s.motion)
+    assert(withMotion.length > 0, '保存した中身にクリップの動きが入っていない')
+    assert(
+      Array.isArray(withMotion[0].motion.sc) && withMotion[0].motion.sc.length >= 2,
+      `印が2つ以上入っていない: ${JSON.stringify(withMotion[0].motion)}`
+    )
+    // 開き直して、画面にも残っているか（保存はできていても読めていない、が起きる）
+    await setDialogFiles([fx.gcproj], null)
+    await page.keyboard.press('Control+o')
+    await page.waitForTimeout(2500)
+    const cont = page.locator('.modal-btn', { hasText: 'このまま続ける' })
+    if (await cont.count()) {
+      await cont.click()
+      await page.waitForTimeout(1500)
+    }
+    const marks = await v1Clips().nth(0).locator('.kf-mark').count()
+    assert(marks >= 2, `開き直したら帯の印が消えた（${marks}個）`)
+    // 保存したファイルを開いた状態で終わると、以降の項目が別の中身を見る
+    await resetProject()
+  })
+
   // =========================================================================
   section('更新（アプリが自動で新しくなる）')
   await resetProject()

@@ -88,6 +88,7 @@ import { TimelineToolbar } from './components/timeline/TimelineToolbar'
 import { TrackHeaders } from './components/timeline/TrackHeaders'
 import { ClipBand } from './components/timeline/ClipBand'
 import { TelopAnimBand } from './components/timeline/TelopAnimBand'
+import { KeyMarks } from './components/timeline/KeyMarks'
 import { TimeRuler, HoverGuide, Marquee, MarkerFlags, Playhead } from './components/timeline/Ruler'
 import type { Adjust, Crop } from './components/panels/PropertyRows'
 import { SeLibraryTab, seMoveTarget } from './components/panels/SeLibraryTab'
@@ -4037,10 +4038,16 @@ export default function App(): JSX.Element {
   interface ReframeTarget {
     kind: 'video' | 'img' | 'vclip'
     id: number
+    /** 固定値のズーム（動きの印が無いときはこれがそのまま画面に出る） */
     zoom: { scale: number; x: number; y: number }
     rotate: number
     track: string
     name: string
+    /** 動き（キーフレーム）。付いていれば掴んで動かした先が印になる */
+    motion?: ClipMotion
+    /** タイムライン上の始まりと長さ（＝クリップの先頭からの時刻を出すため） */
+    tStart: number
+    len: number
   }
   const reframeTarget: ReframeTarget | null = (() => {
     // 映像レイヤーを1つ選択中ならそれを最優先（画像より手前の操作対象）
@@ -4055,7 +4062,10 @@ export default function App(): JSX.Element {
         zoom: vc.zoom ?? DEFAULT_ZOOM,
         rotate: vc.rotate ?? 0,
         track: vc.track,
-        name: vc.name
+        name: vc.name,
+        motion: vc.motion,
+        tStart: vc.tStart,
+        len: vcLen(vc)
       }
     const img =
       selectedImgIds.length === 1 ? imgClips.find((c) => c.id === selectedImgIds[0]) : undefined
@@ -4066,17 +4076,21 @@ export default function App(): JSX.Element {
         zoom: img.zoom ?? DEFAULT_ZOOM,
         rotate: img.rotate ?? 0,
         track: img.track,
-        name: img.name
+        name: img.name,
+        motion: img.motion,
+        tStart: img.tStart,
+        len: img.duration
       }
     // 選択している切片を優先する（画像・映像レイヤーは選択から取っているのに、
     // 動画切片だけ再生ヘッド位置から取っていたため、3番目の切片を選んで枠を
     // ドラッグすると再生ヘッドのある1番目が拡大されていた）。
     // 選択が無いときだけ従来どおり再生ヘッド位置の切片を対象にする。
-    const selSeg = selectedVideoIds.length
-      ? segLayout.find((l) => selectedVideoIds.includes(l.seg.id))?.seg
+    const selL = selectedVideoIds.length
+      ? segLayout.find((l) => selectedVideoIds.includes(l.seg.id))
       : undefined
     const src = tToSource(segLayout, currentTime)
-    const seg = selSeg ?? (src ? segLayout[src.index]?.seg : undefined)
+    const L = selL ?? (src ? segLayout[src.index] : undefined)
+    const seg = L?.seg
     if (!seg) return null
     return {
       kind: 'video' as const,
@@ -4084,7 +4098,10 @@ export default function App(): JSX.Element {
       zoom: seg.zoom ?? DEFAULT_ZOOM,
       rotate: seg.rotate ?? 0,
       track: 'V1',
-      name: srcOfSeg(seg)?.name ?? videoName ?? '動画'
+      name: srcOfSeg(seg)?.name ?? videoName ?? '動画',
+      motion: seg.motion,
+      tStart: L!.tStart,
+      len: L!.len
     }
   })()
   const reframeTargetRef = useRef(reframeTarget)
@@ -4529,13 +4546,41 @@ export default function App(): JSX.Element {
     if (!rect) return
     const cx = rect.left + rect.width / 2
     const cy = rect.top + rect.height / 2
-    const start = { ...tgt.zoom }
-    const apply = (z: { scale: number; x: number; y: number }): void =>
+    // 動きが付いている項目は、固定値ではなく**その時刻の印**を動かす。
+    // 固定値の方を触ると、打った印はそのままなので「掴んだのに動かない」ことになる。
+    // 掴み始めの値も、いま画面に出ている値（＝印を反映した値）から取る。
+    const m = tgt.motion
+    const clipT = clamp(currentTimeRef.current - tgt.tStart, 0, Math.max(0, tgt.len))
+    const start = zoomAt(tgt.zoom, m, clipT)
+    const setFixed = (z: { scale: number; x: number; y: number }): void =>
       tgt.kind === 'video'
         ? setSegZoom(tgt.id, z)
         : tgt.kind === 'vclip'
           ? setVClipZoom(tgt.id, z)
           : setImgZoom(tgt.id, z)
+    const apply = (z: { scale: number; x: number; y: number }): void => {
+      const fixed = { ...z }
+      if (hasKeys(m?.sc)) {
+        const v = Math.max(MIN_MOTION_SCALE, z.scale)
+        patchClipMotion(tgt.kind, tgt.id, 'sc', (k) => putKey(k, clipT, v))
+        fixed.scale = tgt.zoom.scale
+      }
+      if (hasKeys(m?.x)) {
+        patchClipMotion(tgt.kind, tgt.id, 'x', (k) => putKey(k, clipT, z.x))
+        fixed.x = tgt.zoom.x
+      }
+      if (hasKeys(m?.y)) {
+        patchClipMotion(tgt.kind, tgt.id, 'y', (k) => putKey(k, clipT, z.y))
+        fixed.y = tgt.zoom.y
+      }
+      // 印で受けた項目しか無ければ、固定値は触らない（触ると履歴が二重に積まれる）
+      if (
+        fixed.scale !== tgt.zoom.scale ||
+        fixed.x !== tgt.zoom.x ||
+        fixed.y !== tgt.zoom.y
+      )
+        setFixed(fixed)
+    }
     const sx = e.clientX
     const sy = e.clientY
     const startDist = Math.max(1, Math.hypot(e.clientX - cx, e.clientY - cy))
@@ -4586,7 +4631,10 @@ export default function App(): JSX.Element {
       zoom: o.clip.zoom ?? DEFAULT_ZOOM,
       rotate: o.clip.rotate ?? 0,
       track: o.clip.track,
-      name: o.clip.name
+      name: o.clip.name,
+      motion: o.clip.motion,
+      tStart: o.clip.tStart,
+      len: o.kind === 'img' ? o.clip.duration : vcLen(o.clip)
     }
     if (o.kind === 'img') setSelectedImgIds([o.clip.id])
     else setSelectedVClipIds([o.clip.id])
@@ -7628,6 +7676,57 @@ export default function App(): JSX.Element {
       })
     )
   }
+  /**
+   * 動画切片・画像・映像レイヤーの「動き」を1項目だけ書き換える。
+   * 印が全部無くなったら、その項目ごと捨てる（＝固定値に戻る）。テロップの patchMotion と同じ形。
+   */
+  function patchClipMotion(
+    kind: 'video' | 'img' | 'vclip',
+    id: number,
+    key: keyof ClipMotion,
+    fn: (keys: Keys | undefined) => Keys | undefined
+  ): void {
+    // 履歴は各リストの変化を見て自動で積まれる（ここで積むと二重になる）
+    const upd = <T extends { id: number; motion?: ClipMotion }>(c: T): T => {
+      if (c.id !== id) return c
+      const next: ClipMotion = { ...c.motion, [key]: fn(c.motion?.[key]) }
+      return { ...c, motion: hasClipMotion(next) ? next : undefined }
+    }
+    if (kind === 'video') setSegments((prev) => prev.map(upd))
+    else if (kind === 'img') setImgClips((prev) => prev.map(upd))
+    else setVClips((prev) => prev.map(upd))
+  }
+  /**
+   * ⏱ の入り切り。テロップもクリップも同じ動きにする（2か所に書くとどちらかだけ直る）。
+   *
+   * 付けるときは、いまの時刻に印を1つ置くだけ（見た目は変わらない）。
+   * **消すときは、打った数が多いと確認する**。確認なしで全部消えると、
+   * 何を失ったのかも分からない。
+   */
+  function toggleKeys(
+    label: string,
+    cur: Keys | undefined,
+    initial: number,
+    at: number,
+    patch: (fn: (keys: Keys | undefined) => Keys | undefined) => void
+  ): void {
+    if (!hasKeys(cur)) {
+      patch(() => putKey(undefined, at, initial))
+      return
+    }
+    if (cur!.length < 2) {
+      patch(() => undefined)
+      return
+    }
+    void askConfirm({
+      title: `${label}の動きをやめますか`,
+      body: `打った印 ${cur!.length} 個が消えます。（Ctrl+Z で戻せます）`,
+      okLabel: 'やめる',
+      danger: true
+    }).then((ok) => {
+      if (ok) patch(() => undefined)
+    })
+  }
   /** テロップの位置（フレーム内の割合）を書き換える */
   function patchCuePos(cueId: number, patch: { x?: number; y?: number }): void {
     setCues((prev) =>
@@ -9944,28 +10043,10 @@ export default function App(): JSX.Element {
                       if (hasKeys(m?.[key])) put(key, opt.toKey(v))
                       else opt.base?.(v)
                     },
-                    onToggleKeys: () => {
-                      const cur = m?.[key]
-                      // 付けるときはそのまま。**消すときは、打った数が多いと事故になる**
-                      // （確認なしで全部消えると、何を失ったのかも分からない）
-                      if (!hasKeys(cur)) {
-                        patchMotion(selected.id, key, () => putKey(undefined, clipT, opt.initial))
-                        return
-                      }
-                      const n = cur!.length
-                      if (n < 2) {
-                        patchMotion(selected.id, key, () => undefined)
-                        return
-                      }
-                      void askConfirm({
-                        title: `${label}の動きをやめますか`,
-                        body: `打った印 ${n} 個が消えます。（Ctrl+Z で戻せます）`,
-                        okLabel: 'やめる',
-                        danger: true
-                      }).then((ok) => {
-                        if (ok) patchMotion(selected.id, key, () => undefined)
-                      })
-                    },
+                    onToggleKeys: () =>
+                      toggleKeys(label, m?.[key], opt.initial, clipT, (fn) =>
+                        patchMotion(selected.id, key, fn)
+                      ),
                     onPutKey: () => put(key, opt.toKey(opt.value)),
                     onRemoveKey: () =>
                       patchMotion(selected.id, key, (keys) => removeKey(keys, clipT))
@@ -10032,10 +10113,127 @@ export default function App(): JSX.Element {
                     />
                   )
                 })()
+              ) : reframeTarget ? (
+                /* テロップを選んでいなければ、いま触っている映像の物（動画切片・画像・
+                   映像レイヤー）に動きを付ける。**対象の決め方はリフレーム枠と同じ**
+                   ＝プレビューで枠が出ている物が、そのままモーションの相手になる。
+
+                   項目が3つしか無いのは、書き出しで時間ごとに変えられるのが
+                   拡大・位置だけだから（回転と不透明度は ffmpeg 側に手が無い）。 */
+                (() => {
+                  const tgt = reframeTarget
+                  const clipT = clamp(currentTime - tgt.tStart, 0, Math.max(0, tgt.len))
+                  const m = tgt.motion
+                  const z = zoomAt(tgt.zoom, m, clipT)
+                  const put = (k: keyof ClipMotion, v: number): void =>
+                    patchClipMotion(tgt.kind, tgt.id, k, (keys) => putKey(keys, clipT, v))
+                  const setFixed = (patch: Partial<typeof tgt.zoom>): void => {
+                    const next = { ...tgt.zoom, ...patch }
+                    if (tgt.kind === 'video') setSegZoom(tgt.id, next)
+                    else if (tgt.kind === 'vclip') setVClipZoom(tgt.id, next)
+                    else setImgZoom(tgt.id, next)
+                  }
+                  const row = (
+                    key: keyof ClipMotion,
+                    label: string,
+                    opt: {
+                      /** 画面に出す値（印があればその瞬間の値） */
+                      value: number
+                      unit: string
+                      min: number
+                      max: number
+                      /** 画面の値 → 中に入れる値（％→倍率、px→フレーム比） */
+                      toKey: (v: number) => number
+                      /** ⏱ を消している間の書き込み先（固定値） */
+                      base: (v: number) => void
+                      /** ⏱ を付けた瞬間に置く値（既定はいまの値） */
+                      initial?: number
+                      /** ⏱ を付けた瞬間に、値が動いてしまうときの断り */
+                      turnOnNote?: string
+                    }
+                  ): MotionRow => ({
+                    key,
+                    label,
+                    value: opt.value,
+                    unit: opt.unit,
+                    step: 1,
+                    min: opt.min,
+                    max: opt.max,
+                    keys: m?.[key],
+                    // 拡大も位置も、印が無くても固定値として変えられる（今までどおり）
+                    editableWithoutKeys: true,
+                    onValue: (v) => {
+                      const val = opt.toKey(clamp(v, opt.min, opt.max))
+                      if (hasKeys(m?.[key])) put(key, val)
+                      else opt.base(val)
+                    },
+                    onToggleKeys: () => {
+                      if (opt.turnOnNote && !hasKeys(m?.[key])) showToast(opt.turnOnNote)
+                      toggleKeys(
+                        label,
+                        m?.[key],
+                        opt.initial ?? opt.toKey(opt.value),
+                        clipT,
+                        (fn) => patchClipMotion(tgt.kind, tgt.id, key, fn)
+                      )
+                    },
+                    onPutKey: () => put(key, opt.toKey(opt.value)),
+                    onRemoveKey: () =>
+                      patchClipMotion(tgt.kind, tgt.id, key, (keys) => removeKey(keys, clipT))
+                  })
+                  const zoomKeyed = hasKeys(m?.sc)
+                  return (
+                    <MotionTab
+                      title={`${tgt.kind === 'img' ? '🖼' : '🎬'} ${tgt.name}`}
+                      hint={
+                        zoomKeyed
+                          ? '拡大は1倍以上だけ動かせます（引く動きは書き出せないため）。'
+                          : '⏱ を押すと動きが付きます。再生ヘッドを動かして値を変えると、その位置に印（◆）が置かれます。'
+                      }
+                      clipTime={clipT}
+                      onSeekClipTime={(t) => seekTo(tgt.tStart + t)}
+                      rows={[
+                        row('sc', '拡大', {
+                          value: Math.round(z.scale * 100),
+                          unit: '%',
+                          // 印を打つと1倍未満へは行けない（zoompan が寄る方しか焼けない）。
+                          // 打っていなければ今までどおり引ける
+                          min: zoomKeyed ? 100 : 20,
+                          max: 800,
+                          toKey: (v) => v / 100,
+                          base: (v) => setFixed({ scale: v }),
+                          // 引いた状態（1倍未満）から動きを付けると、100% に上がる。
+                          // 黙って絵が変わるのが一番困るので、そのことを言う
+                          initial: Math.max(MIN_MOTION_SCALE, z.scale),
+                          turnOnNote:
+                            z.scale < MIN_MOTION_SCALE
+                              ? '拡大の動きは1倍以上だけです（引く動きは書き出せません）。100% から始めます。'
+                              : undefined
+                        }),
+                        row('x', '位置 X', {
+                          value: Math.round(z.x * 1920),
+                          unit: 'px',
+                          min: -1920,
+                          max: 1920,
+                          toKey: (v) => v / 1920,
+                          base: (v) => setFixed({ x: v })
+                        }),
+                        row('y', '位置 Y', {
+                          value: Math.round(z.y * 1080),
+                          unit: 'px',
+                          min: -1080,
+                          max: 1080,
+                          toKey: (v) => v / 1080,
+                          base: (v) => setFixed({ y: v })
+                        })
+                      ]}
+                    />
+                  )
+                })()
               ) : (
                 <div className="panel-body">
                   <div className="empty">
-                    タイムラインでテロップを選ぶと
+                    タイムラインで物を選ぶと
                     <br />
                     動きを付けられます
                   </div>
@@ -11285,17 +11483,12 @@ export default function App(): JSX.Element {
                           {(cue.end - cue.start) * zoom >= 40 && (
                             <span className="clip-text">{cue.text}</span>
                           )}
-                          {/* 打った印（キーフレーム）。**タイムラインからも見えるようにする。**
-                              ここに出さないと、後から「どこに打ったか」を探せない
-                              （プレミアもクリップの上に並べている）。 */}
-                          {motionKeyTimes(cue.motion).map((kt) => (
-                            <span
-                              key={`kf-${kt}`}
-                              className="kf-mark"
-                              style={{ left: kt * zoom }}
-                              title={`動きの印（${(cue.start + kt).toFixed(2)}秒）`}
-                            />
-                          ))}
+                          {/* 打った印（キーフレーム）。components/timeline/KeyMarks.tsx */}
+                          <KeyMarks
+                            times={motionKeyTimes(cue.motion)}
+                            zoom={zoom}
+                            clipStart={cue.start}
+                          />
                           {/* 出入りの動きの帯（components/timeline/TelopAnimBand.tsx）。
                               動画のトランジションと同じ流儀: 範囲表示＋クリック選択。 */}
                           {cue.style.anim && cue.style.anim.in !== 'none' && (
@@ -11382,6 +11575,11 @@ export default function App(): JSX.Element {
                               return th ? <img className="clip-thumb" src={th} alt="" /> : null
                             })()}
                             <span className="clip-text">🎬 {clip.name}</span>
+                            <KeyMarks
+                              times={clipMotionKeyTimes(clip.motion)}
+                              zoom={zoom}
+                              clipStart={clip.tStart}
+                            />
                           </ClipBand>
                         ))}
                     {/* 映像レイヤーの音声（対の音声トラックに同じ位置・同じ長さで表示。掴めば映像も動く） */}
@@ -11478,6 +11676,11 @@ export default function App(): JSX.Element {
                             }}
                           >
                             <span className="clip-text">🖼 {clip.name}</span>
+                            <KeyMarks
+                              times={clipMotionKeyTimes(clip.motion)}
+                              zoom={zoom}
+                              clipStart={clip.tStart}
+                            />
                           </ClipBand>
                         ))}
                     {/* 画像配置ゴースト */}
@@ -11592,6 +11795,11 @@ export default function App(): JSX.Element {
                               <span className="clip-speed">{segSpeed(L.seg)}x</span>
                             )}
                           </span>
+                          <KeyMarks
+                            times={clipMotionKeyTimes(L.seg.motion)}
+                            zoom={zoom}
+                            clipStart={L.tStart}
+                          />
                         </ClipBand>
                         )
                       )}
