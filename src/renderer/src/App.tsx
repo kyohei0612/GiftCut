@@ -71,6 +71,9 @@ import {
   IconAssignSettings
 } from './components/dialogs/SettingsDialogs'
 import { ContextMenu } from './components/ContextMenu'
+import { TelopTemplatesTab } from './components/panels/TelopTemplatesTab'
+import { SeLibraryTab, seMoveTarget } from './components/panels/SeLibraryTab'
+import { IconLibraryTab, ICON_LIB } from './components/panels/IconLibraryTab'
 import CropModal from './components/CropModal'
 import StylePanel from './components/StylePanel'
 import TelopText from './components/TelopText'
@@ -531,108 +534,6 @@ function initTrackStates(tracks: Track[]): Record<string, TrackState> {
 }
 // ゲイン(0..1) ↔ dB 表示
 const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10(g)).toFixed(1))
-
-
-// テロップテンプレの小カード（「あア」を本番と同じレイヤーエンジンで描画＝プレビューと見た目一致）
-const THUMB_TEXT = 'あア'
-const THUMB_FONT_1080 = 780 // 1080基準のフォントサイズ。62px高サムネで約45px表示（本家風にカードいっぱい）
-function TemplateCard({
-  tpl,
-  onApply,
-  onDelete,
-  onDragStartTpl,
-  onDragEndTpl,
-  fav,
-  onToggleFav,
-  curCat,
-  onSetCat,
-  catOptions,
-  onContextMenu
-}: {
-  tpl: TelopTemplate
-  onApply: () => void
-  onDelete?: () => void
-  onDragStartTpl?: () => void
-  onDragEndTpl?: () => void
-  fav?: boolean
-  onToggleFav?: () => void
-  curCat?: string
-  onSetCat?: (cat: string) => void
-  catOptions?: { key: string; label: string }[]
-  onContextMenu?: (e: React.MouseEvent) => void
-}): JSX.Element {
-  // 本番SVGエンジンで描画。viewBox(文字+装飾)を preserveAspectRatio=meet でカードにフィット
-  // ＝自動で最大サイズ表示（本家風にカードいっぱい）。scaleTelopStyle不要。
-  const tsvg = buildTelopSVG(tpl.style, THUMB_TEXT)
-  const bg = tpl.style.background
-  return (
-    <div
-      className="tpl-card"
-      onClick={onApply}
-      onContextMenu={onContextMenu}
-      title="クリックで適用 / 右クリックでフォルダ移動 / ドラッグで適用"
-      draggable
-      onDragStart={onDragStartTpl}
-      onDragEnd={onDragEndTpl}
-    >
-      {onDelete && (
-        <button
-          className="tpl-del"
-          title="削除"
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete()
-          }}
-        >
-          ✕
-        </button>
-      )}
-      {onToggleFav && (
-        <button
-          className={`tpl-fav ${fav ? 'on' : ''}`}
-          title={fav ? 'お気に入り解除' : 'お気に入りに追加'}
-          onClick={(e) => {
-            e.stopPropagation()
-            onToggleFav()
-          }}
-        >
-          {fav ? '★' : '☆'}
-        </button>
-      )}
-      {onSetCat && (
-        <select
-          className="tpl-cat"
-          title="カテゴリを変更"
-          value={curCat}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            e.stopPropagation()
-            onSetCat(e.target.value)
-          }}
-        >
-          {(catOptions ?? TELOP_CATS).map((c) => (
-            <option key={c.key} value={c.key}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-      )}
-      <div className="tpl-thumb">
-        <div
-          style={{
-            width: '94%',
-            height: '86%',
-            ...(bg.enabled
-              ? { background: hexToRgba(bg.color, bg.opacity), borderRadius: 4 }
-              : null)
-          }}
-          dangerouslySetInnerHTML={{ __html: tsvg.svg }}
-        />
-      </div>
-      <div className="tpl-name">{tpl.name}</div>
-    </div>
-  )
-}
 
 
 export default function App(): JSX.Element {
@@ -11405,402 +11306,139 @@ export default function App(): JSX.Element {
             </div>
             )}
 
-            {/* --- テロップテンプレ --- */}
+            {/* --- テロップテンプレ --- 中身は components/panels/TelopTemplatesTab.tsx */}
             {rightTab === 'telop' && (
-              <div className="panel-body" ref={rightBodyRef}>
-                <div className="tpl-hint">
-                  {selectedIds.length
-                    ? 'クリックで選択中のテロップに適用'
-                    : 'クリックで「次に足すテロップ」の既定スタイルに設定'}
-                </div>
-                <div className="bin-toolbar">
-                  <button className="btn small" onClick={saveCurrentAsTemplate}>
-                    ＋ 現在のスタイルを保存
-                  </button>
-                  <button className="btn small" title="新しいフォルダ（カテゴリ）を作成" onClick={addCustomCat}>
-                    📁＋ フォルダ作成
-                  </button>
-                  <button
-                    className="btn small"
-                    title="geba.json を再読み込み（再起動不要）"
-                    style={{ marginLeft: 'auto' }}
-                    onClick={refreshPresets}
-                  >
-                    ↻ 更新
-                  </button>
-                </div>
-                {/* アコーディオン（1つだけ展開・既定は全閉）。★お気に入り→マイ→プリセット→色カテゴリ */}
-                {(() => {
-                  const favs = [...userTemplates, ...BUILTIN_TEMPLATES, ...localTemplates].filter((t) =>
-                    isFav(t.name)
-                  )
-                  const cardsOf = (
-                    list: TelopTemplate[],
-                    keyPfx: string,
-                    withDel = false,
-                    withCat = false
-                  ): JSX.Element[] =>
-                    list.map((t, i) => (
-                      <TemplateCard
-                        key={keyPfx + i}
-                        tpl={t}
-                        onApply={() => applyTemplate(t.style)}
-                        onDelete={withDel ? () => deleteUserTemplate(i) : undefined}
-                        fav={isFav(t.name)}
-                        onToggleFav={() => toggleFav(t.name)}
-                        curCat={withCat ? catOf(t) : undefined}
-                        onSetCat={withCat ? (cat) => setTplCat(t.name, cat) : undefined}
-                        catOptions={allCats}
-                        onContextMenu={
-                          withCat
-                            ? (e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                setTplMenu({
-                                  x: e.clientX,
-                                  y: e.clientY,
-                                  name: t.name,
-                                  curCat: catOf(t)
-                                })
-                              }
-                            : undefined
-                        }
-                        onDragStartTpl={() => (draggingTemplateRef.current = t.style)}
-                        onDragEndTpl={() => (draggingTemplateRef.current = null)}
-                      />
-                    ))
-                  const secs: {
-                    key: string
-                    label: string
-                    cards: JSX.Element[]
-                    custom?: boolean
-                  }[] = []
-                  if (favs.length) secs.push({ key: 'fav', label: '★ お気に入り', cards: cardsOf(favs, 'f') })
-                  if (userTemplates.length)
-                    secs.push({ key: 'user', label: 'マイテンプレート', cards: cardsOf(userTemplates, 'u', true) })
-                  secs.push({ key: 'builtin', label: 'プリセット', cards: cardsOf(BUILTIN_TEMPLATES, 'b') })
-                  // 色4カテゴリ（中身がある時のみ）＋ ユーザー作成フォルダ（空でも表示）
-                  for (const c of allCats) {
-                    const items = localTemplates.filter((t) => catOf(t) === c.key)
-                    const isCustom = customCats.some((cc) => cc.key === c.key)
-                    if (items.length || isCustom)
-                      secs.push({
-                        key: c.key,
-                        label: c.label,
-                        cards: cardsOf(items, c.key, false, true),
-                        custom: isCustom
-                      })
-                  }
-                  return secs.map((s) => (
-                    <div key={s.key} ref={(el) => (tplSecRefs.current[s.key] = el)}>
-                      <button
-                        className={`tpl-acc ${openTplSec === s.key ? 'open' : ''}`}
-                        onClick={() => toggleTplSec(s.key)}
-                      >
-                        <span className="tpl-acc-ar">{openTplSec === s.key ? '▼' : '▶'}</span>
-                        {s.custom ? '📁 ' : ''}
-                        {s.label}（{s.cards.length}）
-                        {s.custom && (
-                          <span
-                            className="tpl-acc-del"
-                            title="フォルダを削除（中のテロップは元カテゴリへ戻る）"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              deleteCustomCat(s.key)
-                            }}
-                          >
-                            ✕
-                          </span>
-                        )}
-                      </button>
-                      {openTplSec === s.key &&
-                        (s.cards.length ? (
-                          <div className="tpl-grid">{s.cards}</div>
-                        ) : (
-                          <div className="tpl-hint" style={{ padding: '6px 2px' }}>
-                            空のフォルダです。テロップを右クリック→このフォルダを選ぶと入ります。
-                          </div>
-                        ))}
-                    </div>
-                  ))
-                })()}
-              </div>
+              <TelopTemplatesTab
+                bodyRef={rightBodyRef}
+                hasSelection={selectedIds.length > 0}
+                userTemplates={userTemplates}
+                builtinTemplates={BUILTIN_TEMPLATES}
+                localTemplates={localTemplates}
+                categories={allCats}
+                customCategories={customCats}
+                openSection={openTplSec}
+                sectionRefs={tplSecRefs}
+                isFav={isFav}
+                catOf={catOf}
+                onToggleSection={toggleTplSec}
+                onSaveCurrent={saveCurrentAsTemplate}
+                onAddFolder={addCustomCat}
+                onDeleteFolder={deleteCustomCat}
+                onRefresh={refreshPresets}
+                onApply={applyTemplate}
+                onDeleteUserTemplate={deleteUserTemplate}
+                onToggleFav={toggleFav}
+                onSetCat={setTplCat}
+                onCardContextMenu={(t, e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setTplMenu({ x: e.clientX, y: e.clientY, name: t.name, curCat: catOf(t) })
+                }}
+                onDragStartTpl={(style) => (draggingTemplateRef.current = style)}
+                onDragEndTpl={() => (draggingTemplateRef.current = null)}
+              />
             )}
 
-            {/* --- アイコン（画像置き場）--- */}
+            {/* --- アイコン（画像置き場）--- 中身は components/panels/IconLibraryTab.tsx */}
             {rightTab === 'icon' && (
-              <div className="panel-body" ref={rightBodyRef}>
-                <div className="bin-toolbar">
-                  <button className="btn small" onClick={addIconImages} title="画像を追加">
-                    ＋ 画像追加
-                  </button>
-                  <button className="btn small" title="新しいフォルダを作成" onClick={addIconFolder}>
-                    📁＋ フォルダ作成
-                  </button>
-                </div>
-                <div className="tpl-hint">
-                  テロップにドラッグ＆ドロップで前にアイコン表示。右クリックでフォルダ移動。
-                </div>
-                {iconLibrary.length === 0 ? (
-                  <div className="empty">
-                    ＋画像追加で
-                    <br />
-                    アイコン画像を登録
-                  </div>
-                ) : (
-                  (() => {
-                    // 実効フォルダ（移動先が消えていたら既定の置き場へ）
-                    const effIcon = (id: number): string => {
-                      const ov = iconOv[String(id)]
-                      return ov && iconFolders.some((f) => f.key === ov) ? ov : 'lib'
-                    }
-                    const iconCard = (it: { id: number; name: string; image: string }): JSX.Element => (
-                      <div
-                        key={it.id}
-                        className="icon-item"
-                        title={it.name + ' — テロップにドラッグ / クリックで選択テロップに適用 / 右クリックでフォルダ移動'}
-                        draggable
-                        onDragStart={() => (draggingIconRef.current = it.image)}
-                        onDragEnd={() => (draggingIconRef.current = null)}
-                        onClick={() => {
-                          if (selectedIds.length)
-                            setCues((prev) =>
-                              prev.map((c) =>
-                                isSelected(c.id)
-                                  ? { ...c, iconImage: it.image, personIcon: undefined }
-                                  : c
-                              )
-                            )
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          const cur = effIcon(it.id)
-                          const dests = [
-                            { key: 'lib', label: 'アイコン画像', custom: false },
-                            ...iconFolders.map((f) => ({ key: f.key, label: f.label, custom: true }))
-                          ]
-                          setOrgMenu({
-                            x: e.clientX,
-                            y: e.clientY,
-                            options: [
-                              ...dests.map((d) => ({
-                                label: `${cur === d.key ? '✓ ' : ''}${d.custom ? '📁 ' : ''}${d.label}`,
-                                checked: cur === d.key,
-                                act: () =>
-                                  setIconFolderOf(String(it.id), d.key === 'lib' ? null : d.key)
-                              })),
-                              {
-                                label: iconFavs.includes(String(it.id))
-                                  ? '★ お気に入り解除'
-                                  : '☆ お気に入りに追加',
-                                act: () => toggleIconFav(String(it.id))
-                              }
-                            ]
-                          })
-                        }}
-                      >
-                        <button
-                          className={`icon-fav ${iconFavs.includes(String(it.id)) ? 'on' : ''}`}
-                          title="お気に入り"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleIconFav(String(it.id))
-                          }}
-                        >
-                          {iconFavs.includes(String(it.id)) ? '★' : '☆'}
-                        </button>
-                        <button
-                          className="icon-del"
-                          title="ライブラリから削除"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            removeIconImage(it.id)
-                          }}
-                        >
-                          ✕
-                        </button>
-                        <img src={it.image} alt="" />
-                      </div>
+              <IconLibraryTab
+                library={iconLibrary}
+                folders={iconFolders}
+                moved={iconOv}
+                favorites={iconFavs}
+                bodyRef={rightBodyRef}
+                accSec={accSec}
+                onAddImages={addIconImages}
+                onAddFolder={addIconFolder}
+                onDeleteFolder={deleteIconFolder}
+                onDelete={removeIconImage}
+                onToggleFav={toggleIconFav}
+                onApplyToSelection={(image) => {
+                  if (!selectedIds.length) return
+                  setCues((prev) =>
+                    prev.map((c) =>
+                      isSelected(c.id) ? { ...c, iconImage: image, personIcon: undefined } : c
                     )
-                    const favList = iconLibrary.filter((it) => iconFavs.includes(String(it.id)))
-                    const libList = iconLibrary.filter((it) => effIcon(it.id) === 'lib')
-                    return (
-                      <>
-                        {favList.length > 0 &&
-                          accSec(
-                            'icon',
-                            'fav',
-                            '★ お気に入り',
-                            favList.length,
-                            <div className="icon-grid">{favList.map(iconCard)}</div>
-                          )}
-                        {iconFolders.map((f) => {
-                          const list = iconLibrary.filter((it) => effIcon(it.id) === f.key)
-                          return accSec(
-                            'icon',
-                            f.key,
-                            `📁 ${f.label}`,
-                            list.length,
-                            list.length ? (
-                              <div className="icon-grid">{list.map(iconCard)}</div>
-                            ) : (
-                              <div className="tpl-hint" style={{ padding: '6px 2px' }}>
-                                空のフォルダです。アイコンを右クリック→このフォルダを選ぶと入ります。
-                              </div>
-                            ),
-                            () => deleteIconFolder(f.key)
-                          )
-                        })}
-                        {libList.length > 0 &&
-                          accSec(
-                            'icon',
-                            'lib',
-                            '🖼 アイコン画像',
-                            libList.length,
-                            <div className="icon-grid">{libList.map(iconCard)}</div>
-                          )}
-                      </>
-                    )
-                  })()
-                )}
-              </div>
+                  )
+                }}
+                onDragStart={(image) => (draggingIconRef.current = image)}
+                onDragEnd={() => (draggingIconRef.current = null)}
+                onContextMenu={(it, cur, e) => {
+                  const dests = [
+                    { key: ICON_LIB, label: 'アイコン画像', custom: false },
+                    ...iconFolders.map((f) => ({ key: f.key, label: f.label, custom: true }))
+                  ]
+                  setOrgMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    options: [
+                      ...dests.map((d) => ({
+                        label: `${cur === d.key ? '✓ ' : ''}${d.custom ? '📁 ' : ''}${d.label}`,
+                        checked: cur === d.key,
+                        act: () =>
+                          setIconFolderOf(String(it.id), d.key === ICON_LIB ? null : d.key)
+                      })),
+                      {
+                        label: iconFavs.includes(String(it.id))
+                          ? '★ お気に入り解除'
+                          : '☆ お気に入りに追加',
+                        act: () => toggleIconFav(String(it.id))
+                      }
+                    ]
+                  })
+                }}
+              />
             )}
 
-            {/* --- エフェクト（テロップアニメのプリセット）--- */}
+            {/* --- SE（効果音の置き場）--- 中身は components/panels/SeLibraryTab.tsx */}
             {rightTab === 'se' && (
-              <div className="panel-body" ref={rightBodyRef}>
-                <div className="bin-toolbar">
-                  <button className="btn small" title="新しいフォルダを作成" onClick={addSeFolder}>
-                    📁＋ フォルダ作成
-                  </button>
-                  <button
-                    className="btn small"
-                    title="GiftCut/SE フォルダを再読み込み"
-                    style={{ marginLeft: 'auto' }}
-                    onClick={refreshSE}
-                  >
-                    ↻ 更新
-                  </button>
-                </div>
-                {seLibrary.length === 0 ? (
-                  <div className="empty">
-                    SEが見つかりません。
-                    <br />
-                    GiftCut/SE フォルダに mp3 を入れてください。
-                  </div>
-                ) : (
-                  (() => {
-                    const seCats = Array.from(new Set(seLibrary.map((s) => s.category)))
-                    // 実効フォルダ（移動先が消えていたら元カテゴリへ）
-                    const effSe = (s: { category: string; path: string }): string => {
-                      const ov = seOv[s.path]
-                      return ov && (seFolders.some((f) => f.key === ov) || seCats.includes(ov))
-                        ? ov
-                        : s.category
-                    }
-                    const seRow = (s: { category: string; name: string; path: string }): JSX.Element => (
-                      <div
-                        key={s.path}
-                        className="se-item"
-                        draggable
-                        onDragStart={(e) =>
-                          beginMediaDrag({ id: -1, path: s.path, name: s.name, kind: 'audio' }, e)
-                        }
-                        onDragEnd={() => {
-                          draggingMediaRef.current = null
-                          setSeGhost(null)
-                        }}
-                        onClick={() => previewSE(s.path)}
-                        onContextMenu={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          const cur = effSe(s)
-                          const dests = [
-                            ...seCats.map((c) => ({ key: c, label: c, custom: false })),
-                            ...seFolders.map((f) => ({ key: f.key, label: f.label, custom: true }))
-                          ]
-                          setOrgMenu({
-                            x: e.clientX,
-                            y: e.clientY,
-                            options: [
-                              ...dests.map((d) => ({
-                                label: `${cur === d.key ? '✓ ' : ''}${d.custom ? '📁 ' : ''}${d.label}`,
-                                checked: cur === d.key,
-                                act: () => setSeFolderOf(s.path, d.key === s.category ? null : d.key)
-                              })),
-                              {
-                                label: seFavs.includes(s.path)
-                                  ? '★ お気に入り解除'
-                                  : '☆ お気に入りに追加',
-                                act: () => toggleSeFav(s.path)
-                              }
-                            ]
-                          })
-                        }}
-                        title="ドラッグでタイムラインに配置 / クリックで試聴 / 右クリックでフォルダ移動"
-                      >
-                        <span className="se-play">🔊</span>
-                        <span className="se-name">{s.name}</span>
-                        <button
-                          className={`item-fav ${seFavs.includes(s.path) ? 'on' : ''}`}
-                          title="お気に入り"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleSeFav(s.path)
-                          }}
-                        >
-                          {seFavs.includes(s.path) ? '★' : '☆'}
-                        </button>
-                      </div>
-                    )
-                    const favList = seLibrary.filter((s) => seFavs.includes(s.path))
-                    return (
-                      <>
-                        <div className="tpl-hint">
-                          タイムラインへドラッグで配置 / クリックで試聴 / 右クリックでフォルダ移動
-                        </div>
-                        {favList.length > 0 &&
-                          accSec(
-                            'se',
-                            'fav',
-                            '★ お気に入り',
-                            favList.length,
-                            <div className="se-list">{favList.map(seRow)}</div>
-                          )}
-                        {seFolders.map((f) => {
-                          const list = seLibrary.filter((s) => effSe(s) === f.key)
-                          return accSec(
-                            'se',
-                            f.key,
-                            `📁 ${f.label}`,
-                            list.length,
-                            list.length ? (
-                              <div className="se-list">{list.map(seRow)}</div>
-                            ) : (
-                              <div className="tpl-hint" style={{ padding: '6px 2px' }}>
-                                空のフォルダです。SEを右クリック→このフォルダを選ぶと入ります。
-                              </div>
-                            ),
-                            () => deleteSeFolder(f.key)
-                          )
-                        })}
-                        {seCats.map((cat) => {
-                          const list = seLibrary.filter((s) => effSe(s) === cat)
-                          if (!list.length) return null
-                          return accSec(
-                            'se',
-                            cat,
-                            `📁 ${cat}`,
-                            list.length,
-                            <div className="se-list">{list.map(seRow)}</div>
-                          )
-                        })}
-                      </>
-                    )
-                  })()
-                )}
-              </div>
+              <SeLibraryTab
+                library={seLibrary}
+                folders={seFolders}
+                moved={seOv}
+                favorites={seFavs}
+                bodyRef={rightBodyRef}
+                accSec={accSec}
+                onAddFolder={addSeFolder}
+                onDeleteFolder={deleteSeFolder}
+                onRefresh={refreshSE}
+                onPreview={previewSE}
+                onMoveTo={setSeFolderOf}
+                onToggleFav={toggleSeFav}
+                onDragStart={(s, e) =>
+                  beginMediaDrag({ id: -1, path: s.path, name: s.name, kind: 'audio' }, e)
+                }
+                onDragEnd={() => {
+                  draggingMediaRef.current = null
+                  setSeGhost(null)
+                }}
+                onContextMenu={(s, cur, e) => {
+                  // 移動先の候補＝もとのフォルダ（SE/ の中の名前）＋自分で作ったフォルダ
+                  const dests = [
+                    ...Array.from(new Set(seLibrary.map((x) => x.category))).map((c) => ({
+                      key: c,
+                      label: c,
+                      custom: false
+                    })),
+                    ...seFolders.map((f) => ({ key: f.key, label: f.label, custom: true }))
+                  ]
+                  setOrgMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    options: [
+                      ...dests.map((d) => ({
+                        label: `${cur === d.key ? '✓ ' : ''}${d.custom ? '📁 ' : ''}${d.label}`,
+                        checked: cur === d.key,
+                        act: () => setSeFolderOf(s.path, seMoveTarget(s, d.key))
+                      })),
+                      {
+                        label: seFavs.includes(s.path) ? '★ お気に入り解除' : '☆ お気に入りに追加',
+                        act: () => toggleSeFav(s.path)
+                      }
+                    ]
+                  })
+                }}
+              />
             )}
 
             {/* --- トランジション（動画クリップ＝頭/尻フェード ＋ テロップ＝出入りの動き）--- */}
