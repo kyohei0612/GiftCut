@@ -122,6 +122,13 @@ import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
 import { buildExportPayload } from '../../shared/exportPayload'
 // 押されたキーをどの操作に割り当てるか（受ける/受けないの判断もこちら）
 import { comboFromEvent, resolveShortcut, shouldBlur } from '../../shared/keymap'
+// テンプレートを開いたとき、いまの設定とどう混ぜるか（置き換えない）
+import {
+  mergeFavorites,
+  mergeAssignments,
+  mergeFolders,
+  mergeNamed
+} from '../../shared/templateMerge'
 // ビンの素材が使用中か（＝クリップが残っているか）の判定
 import { mediaInUse, staleSourceIds } from '../../shared/mediaBin'
 import {
@@ -5366,51 +5373,42 @@ export default function App(): JSX.Element {
     if (d.iconAnchorPos && typeof d.iconAnchorPos.x === 'number' && typeof d.iconAnchorPos.y === 'number')
       setIconAnchorPos({ x: d.iconAnchorPos.x, y: d.iconAnchorPos.y })
     // 動画ズーム（リフレーム）は切片ごと（loadedSegs で復元済み）。旧グローバル videoZoom は無視。
-    // テロップの整理（★/カテゴリ/自作フォルダ）は「置換」ではなく「マージ」。
-    // 置換すると、育てたお気に入りとフォルダ分けがテンプレを1回開くだけで消える（Undo不可）。
+    //
+    // テロップの整理（★/分類/自作フォルダ/自作テロップ）とアイコンの割り当ては
+    // **置き換えではなく混ぜる**。混ぜ方の決まりは shared/templateMerge にあり、
+    // 「いまの設定が勝つ」向きも含めてテストで見張ってある。
+    // 置き換えにしていた頃は、テンプレを1回開くだけで育てた設定が全部消えた（戻せない）。
     if (d.telop) {
-      if (Array.isArray(d.telop.favorites)) {
-        const merged = Array.from(new Set([...favorites, ...d.telop.favorites]))
-        setFavorites(merged)
-        saveFavorites(merged)
+      const favs = mergeFavorites(favorites, d.telop.favorites)
+      if (favs !== favorites) {
+        setFavorites(favs)
+        saveFavorites(favs)
       }
-      if (d.telop.catOverrides && typeof d.telop.catOverrides === 'object') {
-        // 既存の割り当てを優先（テンプレは「まだ決まっていないものだけ」埋める）
-        const merged = { ...d.telop.catOverrides, ...catOverrides }
-        setCatOverrides(merged)
-        saveCatOverrides(merged)
+      const cats = mergeAssignments(catOverrides, d.telop.catOverrides)
+      if (cats !== catOverrides) {
+        setCatOverrides(cats)
+        saveCatOverrides(cats)
       }
-      if (Array.isArray(d.telop.customCats)) {
-        const seen = new Set(customCats.map((c: { key: string }) => c.key))
-        const merged = [
-          ...customCats,
-          ...d.telop.customCats.filter((c: { key: string }) => c && !seen.has(c.key))
-        ]
-        setCustomCats(merged)
-        saveCustomCats(merged)
+      const folders = mergeFolders(customCats, d.telop.customCats)
+      if (folders !== customCats) {
+        setCustomCats(folders)
+        saveCustomCats(folders)
       }
-    }
-    // 自作テロップテンプレ・アイコン割当・既定スタイルもテンプレから復元（名前重複はスキップ）
-    if (Array.isArray(d.telop?.userTemplates)) {
-      const have = new Set(userTemplates.map((t) => t.name))
-      const add = d.telop.userTemplates.filter(
-        (t: { name?: string }) => t && typeof t.name === 'string' && !have.has(t.name)
-      )
-      if (add.length) {
-        const merged = [...userTemplates, ...add]
-        setUserTemplates(merged)
-        saveUserTemplates(merged)
+      const tpls = mergeNamed(userTemplates, d.telop.userTemplates)
+      if (tpls.length !== userTemplates.length) {
+        setUserTemplates(tpls)
+        saveUserTemplates(tpls)
       }
     }
-    if (d.iconAssign && typeof d.iconAssign === 'object') {
-      const merged = { ...d.iconAssign, ...iconAssign }
-      setIconAssignState(merged)
-      saveIconAssign(merged)
+    const icons = mergeAssignments(iconAssign, d.iconAssign)
+    if (icons !== iconAssign) {
+      setIconAssignState(icons)
+      saveIconAssign(icons)
     }
-    if (d.laneIconAssign && typeof d.laneIconAssign === 'object') {
-      const merged = { ...d.laneIconAssign, ...laneIconAssign }
-      setLaneIconAssign(merged)
-      saveLS('giftcut.laneIconAssign', merged)
+    const laneIcons = mergeAssignments(laneIconAssign, d.laneIconAssign)
+    if (laneIcons !== laneIconAssign) {
+      setLaneIconAssign(laneIcons)
+      saveLS('giftcut.laneIconAssign', laneIcons)
     }
     if (d.newTelopStyle && typeof d.newTelopStyle === 'object') setNewTelopStyle(d.newTelopStyle)
     // 画面の配置（窓を出した形も含む）。テンプレの目的は「開始状態を揃える」こと
