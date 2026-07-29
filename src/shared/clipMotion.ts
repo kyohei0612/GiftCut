@@ -27,7 +27,7 @@
 // **固定の zoom は今までどおり1未満にできる**（従来の scale+pad で焼く）。
 // 打てないのは「動きのキー」だけ。
 
-import { valueAt, hasKeys, sanitizeKeys, keyTimesOf, type Keys } from './keyframes'
+import { valueAt, hasKeys, sanitizeKeys, keyTimesOf, keysToExpr, type Keys } from './keyframes'
 
 export interface Zoom {
   scale: number
@@ -62,13 +62,62 @@ export function zoomAt(zoom: Zoom | undefined, m: ClipMotion | undefined, t: num
   const base = zoom ?? NEUTRAL_ZOOM
   if (!hasClipMotion(m)) return base
   return {
-    // 拡大だけは1で止める。**書き出しの zoompan が1で止めるので、画面も同じにする**
-    scale: hasKeys(m!.sc)
-      ? Math.max(MIN_MOTION_SCALE, valueAt(m!.sc, t, base.scale))
-      : base.scale,
+    // **動きが1つでも付いていれば、拡大は1で止める。**
+    // 焼くのは zoompan で、これは1倍以上しか扱えない。位置だけ動かしたい人でも、
+    // 引いたまま（0.5倍など）では焼けないので、画面の方を書き出しに合わせる。
+    // 合わせないと「画面では小さいのに書き出すと大きい」になる。
+    scale: Math.max(MIN_MOTION_SCALE, valueAt(m!.sc, t, base.scale)),
     x: valueAt(m!.x, t, base.x),
     y: valueAt(m!.y, t, base.y)
   }
+}
+
+/**
+ * 書き出し（ffmpeg）の zoompan を組み立てる。**プレビューと同じ折れ線を式にする。**
+ *
+ * zoompan を使うのは「時間で拡大率を変えられる唯一のフィルタ」だから。
+ * 代わりに使っていた `scale`＋`crop` は、切り出す**大きさ**に時間の式を書けない
+ * （crop の w/h は最初に1回だけ評価される）。
+ *
+ * 座標の対応（いまの固定値の焼き方と1対1で合わせてある）:
+ *   固定: scale=W*s:H*s, crop=W:H:(iw-W)/2-x*W:(ih-H)/2-y*H
+ *   これを元の絵の座標に直すと、切り出し窓は
+ *     幅 = W/s、左 = W/2 - W/(2s) - x*W/s
+ *   zoompan の x は「元の絵の座標での窓の左上」なので、そのまま同じ式になる。
+ *
+ * 注意（実際に測って分かったこと）:
+ *   - zoompan は**出力の時刻を作り直す**（入れる前にずらしておいた時刻は消える）。
+ *     重ねる物は、この後ろで置き直すこと
+ *   - `s` の既定は hd720、`fps` の既定は 25。**両方必ず指定する**
+ *   - 静止画は1枚しか入って来ないので、frames に「尺×fps」を渡して増やす
+ */
+export function zoompanFilter(
+  zoom: Zoom | undefined,
+  m: ClipMotion | undefined,
+  o: {
+    width: number
+    height: number
+    /** 秒を表す式。zoompan で使えるのは出力フレーム番号 on だけなので `on/30` の形 */
+    timeExpr: string
+    /** ffmpeg へ渡す fps 表記（30 や 30000/1001） */
+    fpsArg: string
+    /** 入力1フレームから何フレーム出すか（動画=1、静止画=尺×fps） */
+    frames: number
+  }
+): string {
+  const base = zoom ?? NEUTRAL_ZOOM
+  const t = o.timeExpr
+  // 固定値も1で止める（zoomAt と同じ。画面と書き出しを一致させる）
+  const z = keysToExpr(m?.sc, Math.max(MIN_MOTION_SCALE, base.scale), t)
+  const zExpr = `max(1,${z})`
+  const xExpr = `iw/2-(iw/zoom/2)-(${keysToExpr(m?.x, base.x, t)})*iw/zoom`
+  const yExpr = `ih/2-(ih/zoom/2)-(${keysToExpr(m?.y, base.y, t)})*ih/zoom`
+  // 式にはカンマが入る（if(lt(t,1),a,b)）。フィルタの区切りと混ざらないよう ' で囲む
+  const q = (s: string): string => `'${s.replace(/'/g, '')}'`
+  return (
+    `zoompan=z=${q(zExpr)}:x=${q(xExpr)}:y=${q(yExpr)}` +
+    `:d=${Math.max(1, Math.round(o.frames))}:s=${o.width}x${o.height}:fps=${o.fpsArg}`
+  )
 }
 
 /** 保存ファイルから読み直すときの検査（壊れていたら「動き無し」に落とす。落ちない） */

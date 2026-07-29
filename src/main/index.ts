@@ -28,6 +28,9 @@ import {
 } from '../shared/filterGraph'
 // 保存するプロジェクトの整合性検査（参照切れ・長さ0・id重複など）
 import { checkProject, formatProjectProblems } from '../shared/projectCheck'
+// クリップ・画像の動き（キーフレーム）。**画面と同じ折れ線を式にする**ので、
+// 焼き方をここで別に考えない（別々に書くと、見た絵と出来た絵が違う事故になる）。
+import { hasClipMotion, zoompanFilter, type ClipMotion } from '../shared/clipMotion'
 // 本体ウィンドウの大きさ・位置（初回の既定と、前回の形の引き継ぎ）
 import { nextBounds, MIN_SIZE, type WindowState } from '../shared/windowBounds'
 // プロジェクトの持ち出し（素材ごと ZIP に入れる／展開してパスを繋ぎ直す）
@@ -323,6 +326,7 @@ interface ExportSeg {
   afadeIn?: number // 音声フェードイン秒
   afadeOut?: number // 音声フェードアウト秒
   zoom?: { scale: number; x: number; y: number } // リフレーム（切片ごと）
+  motion?: ClipMotion // 動き（キーフレーム）。付いていれば zoom は時間で変わる
   crop?: { l: number; t: number; r: number; b: number } // クロップ（各辺の切り抜き率, 切った領域は黒）
 }
 interface ExportSEClip {
@@ -348,6 +352,7 @@ interface ExportPayload {
     tStart: number
     duration: number
     zoom?: { scale: number; x: number; y: number }
+    motion?: ClipMotion
     rotate?: number
     flipH?: boolean
     flipV?: boolean
@@ -362,6 +367,7 @@ interface ExportPayload {
     srcStart: number
     srcEnd: number
     zoom?: { scale: number; x: number; y: number }
+    motion?: ClipMotion
     rotate?: number
     flipH?: boolean
     flipV?: boolean
@@ -1879,7 +1885,20 @@ app.whenReady().then(() => {
         // scalePad で出力サイズに整えた後に適用する（切片単位＝現セクションのみ反映）。
         let zm = ''
         const z = s.zoom
-        if (z && (Math.abs(z.scale - 1) > 1e-3 || z.x !== 0 || z.y !== 0)) {
+        if (hasClipMotion(s.motion)) {
+          // 動きが付いている切片だけ zoompan にする（時間で拡大率を変えられる唯一のフィルタ）。
+          // 時刻は**切片の頭から**。頭にディゾルブのぶん（headExt）が足してあるときは、
+          // その秒数だけ手前から流れているので引く。
+          // 直前が scalePad（末尾が fps=）なので、on/fps はそのまま秒になる。
+          const t = headExt > 0 ? `(on/${outFps}-${headExt.toFixed(3)})` : `on/${outFps}`
+          zm = `,${zoompanFilter(z, s.motion, {
+            width,
+            height,
+            timeExpr: t,
+            fpsArg,
+            frames: 1
+          })},setsar=1`
+        } else if (z && (Math.abs(z.scale - 1) > 1e-3 || z.x !== 0 || z.y !== 0)) {
           const zs = Math.max(0.05, z.scale)
           const zw = Math.round(width * zs)
           const zh = Math.round(height * zs)
@@ -2110,7 +2129,21 @@ app.whenReady().then(() => {
         }
         let zm = ''
         const z = vc.zoom
-        if (z && (Math.abs(z.scale - 1) > 1e-3 || z.x !== 0 || z.y !== 0)) {
+        if (hasClipMotion(vc.motion)) {
+          // 重ねる動画の動き。**zoompan は出力の時刻を作り直す**ので、
+          // 先に付けておいた「タイムライン上の開始時刻」が消える。後ろで置き直す。
+          // 前に fps= を挟むのは、素材が24fpsでも on/fps が秒になるようにするため。
+          zm =
+            `,fps=${fpsArg},` +
+            zoompanFilter(z, vc.motion, {
+              width,
+              height,
+              timeExpr: `on/${outFps}`,
+              fpsArg,
+              frames: 1
+            }) +
+            `,setpts=PTS-STARTPTS+${vc.tStart.toFixed(3)}/TB,format=rgba,setsar=1`
+        } else if (z && (Math.abs(z.scale - 1) > 1e-3 || z.x !== 0 || z.y !== 0)) {
           const zs = Math.max(0.05, z.scale)
           const zw = Math.round(width * zs)
           const zh = Math.round(height * zs)
@@ -2195,7 +2228,23 @@ app.whenReady().then(() => {
         }
         let izm = ''
         const iz = im.zoom
-        if (iz && (Math.abs(iz.scale - 1) > 1e-3 || iz.x !== 0 || iz.y !== 0)) {
+        if (hasClipMotion(im.motion)) {
+          // 静止画は1枚しか入って来ない。zoompan の d に「尺×fps」を渡して、
+          // その1枚から動く絵を作る（zoompan はもともとこれ用のフィルタ）。
+          // 出来た並びは時刻0から始まるので、置く時刻へずらし直す
+          // （ずらさないと、重ねる窓が開く頃には最後の1枚で止まっている）。
+          const idur = Math.max(0.05, im.duration)
+          izm =
+            ',' +
+            zoompanFilter(iz, im.motion, {
+              width,
+              height,
+              timeExpr: `on/${outFps}`,
+              fpsArg,
+              frames: idur * outFps
+            }) +
+            `,setpts=PTS-STARTPTS+${im.tStart.toFixed(3)}/TB,format=rgba,setsar=1`
+        } else if (iz && (Math.abs(iz.scale - 1) > 1e-3 || iz.x !== 0 || iz.y !== 0)) {
           const zs = Math.max(0.05, iz.scale)
           const zw = Math.round(width * zs)
           const zh = Math.round(height * zs)

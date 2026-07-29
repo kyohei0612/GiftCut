@@ -613,6 +613,21 @@ try {
     })
   }
 
+  /**
+   * その時刻の1枚を、**フレーム単位で正確に**抜く（＋任意の加工）。
+   *
+   * grabFrame は -ss を -i の前に置く速い抜き方で、キーフレームまでしか戻らない。
+   * 「寄った絵か」を比べるときは1フレームの取り違えが効くので、こちらを使う。
+   */
+  async function exactFrame(video, sec, out, vf) {
+    await new Promise((res) => {
+      const args = ['-y', '-i', video, '-ss', String(sec), '-frames:v', '1']
+      if (vf) args.push('-vf', vf)
+      args.push(out)
+      spawn('ffmpeg', args).on('close', res)
+    })
+    return out
+  }
   /** 書き出した動画から、その時刻の1枚を抜く（動いているかを目で比べるため） */
   async function grabFrame(video, sec, out) {
     await new Promise((res) => {
@@ -2428,6 +2443,105 @@ try {
     const marks = await v1Clips().nth(0).locator('.kf-mark').count()
     assert(marks >= 2, `開き直したら帯の印が消えた（${marks}個）`)
     // 保存したファイルを開いた状態で終わると、以降の項目が別の中身を見る
+    await resetProject()
+  })
+
+  await check('書き出した動画でも、クリップが本当に寄っている', async () => {
+    // **ここが本番。** プレビューで寄っても、書き出しで寄らなければ意味が無い。
+    //
+    // 「前と後ろの絵が違う」だけでは通ってしまう（元動画の中身が動いているので、
+    // 寄っていなくても違う絵になる）。そこで**元動画のその瞬間を自分で2倍に寄せた物**を
+    // 作り、書き出した絵がそちらに近いか、寄せていない物に近いかで判定する。
+    //
+    // 測る場所は**何も重なっていない所**にする。1つ目の切片（0〜5秒）は画像（1〜5秒）と
+    // テロップ（1〜3秒）が乗っていて、元動画と比べられない。2つ目（5〜10秒）の
+    // 後半なら、テロップ（6〜8秒）も終わっていて元動画の絵がそのまま出ている。
+    await v1Clips().nth(1).click() // 2つ目の切片（タイムライン 5〜10秒 ＝ 元動画の 5〜10秒）
+    await page.waitForTimeout(300)
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    await page.waitForTimeout(300)
+    const row = page.locator('.mo-row').filter({ hasText: '拡大' }).first()
+    await seekTo(5.2)
+    await row.locator('.mo-watch').click() // 5.2秒に 100% の印
+    await page.waitForTimeout(300)
+    await seekTo(9)
+    await row.locator('.mo-val').fill('200') // 9秒に 200% の印
+    await row.locator('.mo-val').press('Enter')
+    await page.waitForTimeout(400)
+    await page.locator('.mo-head').first().click() // 数値欄から出る（出ないとキーが通らない）
+    await page.waitForTimeout(200)
+
+    const out = join(outDir, 'clip-motion.mp4')
+    await setDialogFiles(null, out)
+    await page.keyboard.press('Control+m')
+    await page.waitForSelector('.export-overlay')
+    await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
+    await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
+    assert(existsSync(out), '書き出しファイルができていない（zoompan の式が通っていない可能性）')
+
+    const T = 9 // 2倍まで寄りきった時刻（この切片は 元動画の時刻＝タイムラインの時刻）
+    const small = 'scale=320:180'
+    const got = await exactFrame(out, T, join(outDir, 'cm-got.png'), small)
+    const want2x = await exactFrame(
+      fx.video,
+      T,
+      join(outDir, 'cm-2x.png'),
+      `crop=iw/2:ih/2,${small}`
+    )
+    const want1x = await exactFrame(fx.video, T, join(outDir, 'cm-1x.png'), small)
+    const s2 = await similarity(got, want2x)
+    const s1 = await similarity(got, want1x)
+    assert(
+      s2 > s1 + 0.05,
+      `書き出した絵が寄っていない（2倍に寄せた物との一致 ${s2} / 寄せていない物との一致 ${s1}）`
+    )
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
+  await check('動きを付けた画像が、書き出しでも置いた場所から動かない', async () => {
+    // 画像は元が1枚しか無いので、書き出しでは**尺のぶんだけ増やしてから**動かす。
+    // 増やしたものは時刻0から並ぶので、置いた時刻へずらし直す必要がある。
+    // ずらし忘れると「重なる窓が開く頃には最後の1枚で止まっている」＝
+    // 動かないのに書き出しは成功する、という気づけない壊れ方をする。
+    await page.locator('.img-clip').first().click() // 画像は 1〜5秒（V3）
+    await page.waitForTimeout(300)
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    await page.waitForTimeout(300)
+    const row = page.locator('.mo-row').filter({ hasText: '拡大' }).first()
+    assert(await row.count(), '画像を選んでもモーションタブに「拡大」が出ない')
+    await seekTo(1.2)
+    await row.locator('.mo-watch').click()
+    await page.waitForTimeout(300)
+    await seekTo(4.5)
+    await row.locator('.mo-val').fill('200')
+    await row.locator('.mo-val').press('Enter')
+    await page.waitForTimeout(400)
+    await page.locator('.mo-head').first().click()
+    await page.waitForTimeout(200)
+
+    const out = join(outDir, 'img-motion.mp4')
+    await setDialogFiles(null, out)
+    await page.keyboard.press('Control+m')
+    await page.waitForSelector('.export-overlay')
+    await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
+    await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
+    assert(existsSync(out), '書き出しファイルができていない')
+
+    const small = 'scale=320:180'
+    // その時刻の「元動画そのまま」とどれだけ同じか。画像が乗っていれば大きく下がる。
+    const bare = async (t) => {
+      const a = await exactFrame(out, t, join(outDir, `im-got-${t}.png`), small)
+      const b = await exactFrame(fx.video, t, join(outDir, `im-src-${t}.png`), small)
+      return similarity(a, b)
+    }
+    const before = await bare(0.5) // 画像が出る前（1秒より手前）
+    const during = await bare(4) // 画像が出ている最中（寄りきる手前）
+    const after = await bare(5.5) // 画像が終わった後
+    assert(before > 0.9, `画像が出る前なのに元動画と違う（${before}）＝前へはみ出している`)
+    assert(after > 0.9, `画像が終わった後なのに元動画と違う（${after}）＝後ろへはみ出している`)
+    assert(during < 0.9, `画像が出ている最中なのに元動画と同じ（${during}）＝画像が写っていない`)
+    touchedRef.dirty = true
     await resetProject()
   })
 

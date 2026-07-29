@@ -13,6 +13,8 @@
 //   - 尺は「素材の実尺で切り詰めた切片」から出す。画面の見た目から出すと、
 //     素材より長い切片があったときに書き出しとズレる
 
+import { hasClipMotion, type ClipMotion } from './clipMotion'
+
 export interface Zoom {
   scale: number
   x: number
@@ -54,6 +56,8 @@ export interface Seg {
   afadeIn?: number
   afadeOut?: number
   zoom?: Zoom
+  /** 動き（キーフレーム）。付いていれば zoom は時間で変わる */
+  motion?: ClipMotion
   crop?: Crop
 }
 
@@ -76,6 +80,7 @@ export interface VClip {
   srcStart: number
   srcEnd: number
   zoom?: Zoom
+  motion?: ClipMotion
   rotate?: number
   flipH?: boolean
   flipV?: boolean
@@ -94,6 +99,7 @@ export interface ImgClip {
   tStart: number
   duration: number
   zoom?: Zoom
+  motion?: ClipMotion
   rotate?: number
   flipH?: boolean
   flipV?: boolean
@@ -146,6 +152,7 @@ const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.m
 /** 数字の入る所だけを渡す（等倍・無調整は渡さない） */
 function visualOf(c: {
   zoom?: Zoom
+  motion?: ClipMotion
   rotate?: number
   flipH?: boolean
   flipV?: boolean
@@ -155,6 +162,8 @@ function visualOf(c: {
 }): Record<string, unknown> {
   return {
     zoom: isNeutralZoom(c.zoom) ? undefined : c.zoom,
+    // 印が1つも無ければ渡さない（渡すとフィルタが1段増えるだけ）
+    motion: hasClipMotion(c.motion) ? c.motion : undefined,
     rotate: c.rotate,
     flipH: c.flipH,
     flipV: c.flipV,
@@ -221,6 +230,7 @@ export function buildExportPayload(input: BuildInput): Record<string, unknown> {
         afadeIn: s.afadeIn,
         afadeOut: s.afadeOut,
         zoom: isNeutralZoom(s.zoom) ? undefined : s.zoom,
+        motion: hasClipMotion(s.motion) ? s.motion : undefined,
         crop: isNeutralCrop(s.crop) ? undefined : s.crop
       }
     }),
