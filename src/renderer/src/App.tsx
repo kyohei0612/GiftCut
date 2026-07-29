@@ -120,6 +120,8 @@ import {
 import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
 // 書き出しに渡す中身の組み立て（画面に依らない・単体で確かめてある）
 import { buildExportPayload } from '../../shared/exportPayload'
+// 押されたキーをどの操作に割り当てるか（受ける/受けないの判断もこちら）
+import { comboFromEvent, resolveShortcut, shouldBlur } from '../../shared/keymap'
 // ビンの素材が使用中か（＝クリップが残っているか）の判定
 import { mediaInUse, staleSourceIds } from '../../shared/mediaBin'
 import {
@@ -480,16 +482,6 @@ const ACTION_LIST: { id: ShortcutId; label: string; group: string }[] = [
 ]
 
 // KeyboardEvent → 正規化コンボ文字列（例: "ctrl+z", "shift+delete", "space", "arrowleft"）
-function comboFromEvent(e: KeyboardEvent): string {
-  const parts: string[] = []
-  if (e.ctrlKey || e.metaKey) parts.push('ctrl')
-  if (e.altKey) parts.push('alt')
-  if (e.shiftKey) parts.push('shift')
-  let key = e.key === ' ' ? 'space' : e.key.toLowerCase()
-  if (key === 'control' || key === 'shift' || key === 'alt' || key === 'meta') return ''
-  parts.push(key)
-  return parts.join('+')
-}
 // コンボを見やすい表記に（"ctrl+z" → "Ctrl+Z", "arrowleft" → "←"）
 function formatCombo(combo: string): string {
   const map: Record<string, string> = {
@@ -8260,50 +8252,30 @@ export default function App(): JSX.Element {
   // ================= キーボード（refで常に最新のハンドラを呼ぶ）=================
   const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {})
   keyHandlerRef.current = (e: KeyboardEvent): void => {
+    // 「このキーを受けるのか / 受けるならどの操作か」は shared/keymap で決める
+    // （文字を打っている最中の扱い、つまみの扱い、Backspace などの別名。
+    //   細かい決まりが溜まる所なので、画面を起動せずに確かめられるようにしてある）。
     const el = e.target as HTMLElement | null
-    const tag = el?.tagName
-    // 文字を打つ欄にフォーカスがあるときは、ショートカットを通さない。
-    //
-    // ただし **つまみ（input[type=range]）は文字を打つ欄ではない**。ここで一律に
-    // 止めていたため、音量つまみを触った直後に矢印キーを押すと、再生ヘッドではなく
-    // つまみの値が動いていた（スペースキーも再生に効かなかった）。
-    // つまみのときはショートカットを優先し、下で明示的にフォーカスを外す。
-    const isSlider = tag === 'INPUT' && (el as HTMLInputElement).type === 'range'
-    if ((tag === 'INPUT' && !isSlider) || tag === 'TEXTAREA' || tag === 'SELECT') return
-    if (capturingId) return // 環境設定でキー割当中は通常処理しない
-    if (exportStatus) return // 書き出し中は編集操作を受け付けない（進行中の処理と混線するため）
-    // モーダル表示中は Esc 以外を通さない（裏のタイムラインが勝手に動くのを防ぐ）
-    if (
-      (restorePrompt ||
+    const target = { tag: el?.tagName, type: (el as HTMLInputElement | null)?.type }
+    const id = resolveShortcut(e, target, {
+      shortcuts,
+      capturing: !!capturingId,
+      exporting: !!exportStatus,
+      // 何かを開いている間は Esc 以外を通さない（裏のタイムラインが勝手に動かないように）
+      modalOpen: !!(
+        restorePrompt ||
         templatePicker ||
         cropSrc ||
         showExportDialog ||
         prefsOpen ||
         promptState ||
         confirmState ||
-        iconSettingsOpen) &&
-      e.key !== 'Escape'
-    )
-      return
-    const combo = comboFromEvent(e)
-    if (!combo) return
-    // Backspace は delete/rippleDel の別名として扱う
-    const norm = combo.replace(/\bbackspace\b/, 'delete')
-    let id = (Object.keys(shortcuts) as ShortcutId[]).find(
-      (k) => shortcuts[k] === combo || shortcuts[k] === norm
-    )
-    // 削除は2種類（プレミアと同じ考え方）:
-    //   D / Delete / Backspace = 消すだけ。そこは空きになり、後ろは動かない。
-    //   F / Shift+Delete       = 消して詰める。後ろが前へ寄る。
-    if (!id && norm === 'delete') id = 'del'
-    if (!id && (combo === 'shift+delete' || combo === 'shift+backspace')) id = 'rippleDel'
-    // Ctrl+Shift+Z も「やり直し」の別名として受ける（Premiere/一般的な慣習）
-    if (!id && combo === 'ctrl+shift+z') id = 'redo'
+        iconSettingsOpen
+      )
+    }) as ShortcutId | null
     if (!id) return
     e.preventDefault()
-    // ショートカットとして処理すると決めた時点でフォーカスを手放す。
-    // 残したままだと、次のキーもボタンやつまみに吸われ続ける。
-    if (tag === 'BUTTON' || isSlider) el?.blur()
+    if (shouldBlur(target)) el?.blur()
 
     const dispatch: Record<ShortcutId, () => void> = {
       toolSelect: () => setTool('select'),
