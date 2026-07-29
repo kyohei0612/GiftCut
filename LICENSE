@@ -1,0 +1,14 @@
+Copyright (c) 2026 kyohei
+All rights reserved.
+
+このソフトウェアのソースコードは、閲覧できる状態で公開していますが、
+オープンソースではありません。
+
+複製・改変・再配布・商用利用は許可していません。
+利用を希望される場合はご連絡ください。
+
+---
+
+同梱している FFmpeg は、この条件の対象外です。
+FFmpeg は GNU Lesser General Public License version 3 に従います。
+詳しくは licenses/FFmpeg/ を参照してください。
