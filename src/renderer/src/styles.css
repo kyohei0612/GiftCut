@@ -588,6 +588,18 @@ body {
   min-height: 0;
   border: none;
 }
+/* 下書き（自動保存）が書けていない、という警告。
+   一番左に、消えない形で出す（落ちたときの備えが効いていないのは最優先の知らせ） */
+.status-ng {
+  background: #5a1f1f;
+  border: 1px solid #b04a4a;
+  color: #ffd9d9;
+  border-radius: 5px;
+  padding: 1px 8px;
+  margin-right: 8px;
+  font-weight: 600;
+  cursor: help;
+}
 /* ステータスバーに出す「いま別ウィンドウにあるパネル」 */
 .status-pop {
   background: var(--panel-2);

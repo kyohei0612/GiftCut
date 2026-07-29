@@ -373,15 +373,24 @@ describe('未保存の「＊」と自動保存', () => {
     ).toEqual([])
   })
 
-  it('自動保存は5分ごと（短すぎる指定に戻っていない）', async () => {
+  it('自動保存の間隔は1〜10分（落ちて失う量の上限）', async () => {
     const src = await import('./App?raw').then((m) => m.default as string)
-    const m = src.match(/const AUTOSAVE_MS = ([^\n]+)/)
-    expect(m, 'AUTOSAVE_MS が見つからない').not.toBeNull()
-    // 「5 * 60 * 1000」のような書き方もそのまま読めるようにする
+    // 既定値の行（`return 5 * 60 * 1000`）を読む。確認のときだけ縮められる作りなので、
+    // 定数そのものは式になっている
+    const m = src.match(/return ([\d\s*]+)\n\s*\}\)\(\)/)
+    expect(m, 'AUTOSAVE_MS の既定値が見つからない').not.toBeNull()
     const ms = m![1].split('*').reduce((a, b) => a * Number(b.trim()), 1)
-    expect(Number.isFinite(ms), `AUTOSAVE_MS を読み取れない: ${m![1]}`).toBe(true)
+    expect(Number.isFinite(ms), `既定値を読み取れない: ${m![1]}`).toBe(true)
     expect(ms, '自動保存の間隔が1分未満（毎回プロジェクト全体を書き出すことになる）').toBeGreaterThanOrEqual(60_000)
     expect(ms, '自動保存の間隔が10分超（落ちたときに失う量が大きすぎる）').toBeLessThanOrEqual(600_000)
+  })
+
+  it('自動保存の間隔を外から縮められる（確認のため）＋ 短すぎる値は受け付けない', async () => {
+    // 5分待つ確認は書けないので、確認のときだけ縮められるようにしてある。
+    // ただし**縮め放題にはしない**（0 や負の数を入れられると、書き込みが暴走する）。
+    const src = await import('./App?raw').then((m) => m.default as string)
+    expect(src, '外から間隔を変える口が無い').toContain('giftcut.autosaveMs')
+    expect(src, '下限（500ms）の歯止めが無い').toMatch(/v >= 500/)
   })
 
   it('待機中はプロジェクト全体を何度も文字列にしない', async () => {

@@ -57,6 +57,7 @@ export function StatusBar({
   playhead,
   shuttleRate,
   poppedPanes,
+  autosaveNg,
   onDock
 }: {
   telopCount: number
@@ -69,10 +70,26 @@ export function StatusBar({
   shuttleRate: number
   /** 別ウィンドウへ出しているパネル */
   poppedPanes: { id: string; label: string }[]
+  /** 下書き（自動保存）が書けていない。**消える通知だけにしない**ための常時表示 */
+  autosaveNg?: boolean
   onDock: (id: string) => void
 }): JSX.Element {
   return (
     <footer className="statusbar">
+      {/* 落ちたときの備えが効いていない、というのは一番先に知りたいこと。
+          一番左に、消えない形で出す */}
+      {autosaveNg && (
+        <span
+          className="status-ng"
+          title={
+            '落ちたときに戻すための下書きが書けていません。\n' +
+            'ディスクの空き・書き込みの許可（ウイルス対策ソフト）を確かめてください。\n' +
+            'いまの内容は Ctrl+S で保存してください。'
+          }
+        >
+          ⚠ 自動保存できていません
+        </span>
+      )}
       <span>{telopCount ? `${telopCount} テロップ` : 'テロップなし'}</span>
       <span>選択: {selectionSummary(selection)}</span>
       <span>ツール: {TOOL_LABEL[tool] ?? tool}</span>

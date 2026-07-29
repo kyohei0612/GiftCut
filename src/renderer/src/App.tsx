@@ -205,7 +205,22 @@ const TRACK_PAD_ROWS = 2
 // 自動保存（落ちたときの下書き）の間隔。
 // 落ちて失うのは最大でこの間隔ぶん。普通に閉じた場合は beforeunload で書き出すので
 // 取りこぼさない。短くすれば安心だが、そのぶん書き込みが増える。
-const AUTOSAVE_MS = 5 * 60 * 1000
+//
+// **確認のときだけ短くできるようにしてある。** 2分待つ確認は書けないので、
+// ここを外から縮められないと「自動保存が本当に走っているか」を誰も見ないままになる
+// （復元する側だけ見て安心する、という空振りが起きる）。
+const AUTOSAVE_MS = ((): number => {
+  try {
+    const v = Number(localStorage.getItem('giftcut.autosaveMs'))
+    if (Number.isFinite(v) && v >= 500) return v
+  } catch {
+    /* localStorage が使えない環境では既定のまま */
+  }
+  // 2分。落ちて失う上限がそのままこの数字になる。
+  // 中身が変わっていないときは文字列にすらしないので、待機中・再生中の負担はゼロ。
+  // 効くのは「編集し続けている間」だけで、そこは書いてよい所。
+  return 2 * 60 * 1000
+})()
 
 /**
  * 重い下準備（サムネ・波形・尺）を、同時に走る数を絞って順に流す。
@@ -6155,11 +6170,52 @@ export default function App(): JSX.Element {
     projectPath
   ])
 
-  // 自動保存（クラッシュしたときの下書き）。5分ごと。
+  // 自動保存（クラッシュしたときの下書き）。2分ごと。
   // 中身が変わっていなければ文字列にすらしない＝待機中・再生中はゼロ。
   // 間隔を縮めたければ AUTOSAVE_MS だけ変えればよい。落ちたときに失うのは
   // 最大でこの間隔ぶん（普通に閉じた場合は下の beforeunload で取りこぼさない）。
   const autosavedRevRef = useRef(-1)
+
+  /**
+   * 下書きを1回書く。**失敗を握りつぶさない。**
+   *
+   * 以前は結果を捨てていた。ディスクが一杯・書き込みを止められている（ウイルス対策）
+   * といった理由で書けなくても誰も気づかず、しかも「書いた」と記録してしまうので
+   * **次の回もやり直さない**。落ちて初めて「下書きが無い」と分かる、という
+   * 一番たちの悪い壊れ方をする。守っているつもりの網が破れていても分からない。
+   *
+   * 失敗したら記録を戻して次の回でやり直し、画面にも出し続ける（消える通知だけにしない）。
+   */
+  const autosaveNgRef = useRef(false)
+  const [autosaveNg, setAutosaveNg] = useState(false)
+  async function writeAutosave(json: string): Promise<void> {
+    const prev = lastAutosaveRef.current
+    lastAutosaveRef.current = json // 同じ内容で二重に書かない
+    let ok = false
+    try {
+      const r = await window.giftcut?.autosaveProject?.(json)
+      ok = !!r?.ok
+    } catch {
+      ok = false
+    }
+    if (ok) {
+      if (autosaveNgRef.current) {
+        autosaveNgRef.current = false
+        setAutosaveNg(false)
+        showToast('自動保存が復旧しました。')
+      }
+      return
+    }
+    // 書けなかった: 「書いた」記録を戻して、次の回にやり直せるようにする
+    lastAutosaveRef.current = prev
+    autosavedRevRef.current = -1
+    if (!autosaveNgRef.current) {
+      autosaveNgRef.current = true
+      setAutosaveNg(true)
+      showToast('自動保存できていません。手動で保存してください（Ctrl+S）。')
+    }
+  }
+
   useEffect(() => {
     const id = window.setInterval(() => {
       if (!hasContentRef.current()) return
@@ -6167,10 +6223,10 @@ export default function App(): JSX.Element {
       autosavedRevRef.current = projectRevRef.current
       const json = currentJsonRef.current()
       if (json === lastAutosaveRef.current) return
-      lastAutosaveRef.current = json
-      void window.giftcut?.autosaveProject?.(json)
+      void writeAutosave(json)
     }, AUTOSAVE_MS)
     return () => window.clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   // 終了/リロード直前に、その時点の内容を自動保存へ流し込む。
   // （間隔タイマーだけだと、閉じた瞬間に最大その間隔ぶんの編集が無警告で消える）
@@ -6181,8 +6237,7 @@ export default function App(): JSX.Element {
       if (!hasContentRef.current()) return
       const json = currentJsonRef.current()
       if (json !== lastAutosaveRef.current) {
-        lastAutosaveRef.current = json
-        void window.giftcut?.autosaveProject?.(json) // 最後のフラッシュ
+        void writeAutosave(json) // 最後のフラッシュ
       }
     }
     window.addEventListener('beforeunload', onBeforeUnload)
@@ -12132,6 +12187,7 @@ export default function App(): JSX.Element {
         poppedPanes={(['left', 'preview', 'right', 'timeline'] as PaneId[])
           .filter((id) => isPopped(id))
           .map((id) => ({ id, label: PANE_LABEL[id] }))}
+        autosaveNg={autosaveNg}
         onDock={(id) => unpopPane(id as PaneId)}
       />
 

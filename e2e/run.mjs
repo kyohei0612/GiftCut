@@ -2161,6 +2161,84 @@ try {
   section('2. 保存とプロジェクトの切り替え')
   await resetProject()
 
+  await check('編集していると、落ちたときのための下書きが勝手に書かれる', async () => {
+    // **ここが一番損害の大きい所。** 落ちて失うのは「最後に下書きを書いてから」の
+    // ぶんなので、下書きが書かれていなければ作業まるごと消える。
+    //
+    // 戻す側（下書きがあれば復元できる）は別の項目で見ているが、
+    // **アプリが自分で書いているか**は誰も見ていなかった。定期の書き込みが
+    // 壊れても全部緑のまま通る＝空振り合格になる。
+    //
+    // 5分は待てないので、確認のときだけ間隔を縮められるようにしてある。
+    const draft = join(fx.userData, 'giftcut-autosave.json')
+    rmSync(draft, { force: true })
+    await page.evaluate(() => localStorage.setItem('giftcut.autosaveMs', '1500'))
+    await page.reload()
+    await page.waitForSelector('.app', { timeout: 20000 })
+    await page.waitForTimeout(2000)
+    const cont = page.locator('.restore-btns button', { hasText: '復元' })
+    if (await cont.count()) {
+      await cont.first().click()
+      await page.waitForTimeout(1200)
+    }
+    rmSync(draft, { force: true }) // 起動時に書かれた物は数えない
+
+    await dragBy(v1Clips().nth(0), (await clipW()) * 0.3) // 何か編集する
+    let wrote = false
+    for (let i = 0; i < 20; i++) {
+      await page.waitForTimeout(500)
+      if (existsSync(draft)) {
+        wrote = true
+        break
+      }
+    }
+    assert(wrote, '編集しても下書きが書かれない（落ちたら全部消える）')
+    const saved = JSON.parse(readFileSync(draft, 'utf-8'))
+    assert(
+      Array.isArray(saved.segments) && saved.segments.length > 0,
+      `下書きの中身が空: ${Object.keys(saved).join(',')}`
+    )
+    touchedRef.dirty = true
+  })
+
+  await check('下書きが書けないときは、黙らずに知らせる', async () => {
+    // 書けない理由（ディスクが一杯・ウイルス対策に止められている）は人によるので、
+    // ここでは**書けなかったときの振る舞い**を見る。
+    // 黙って失敗されると、落ちて初めて「下書きが無い」と分かる。
+    //
+    // 画面側の窓口（window.giftcut）は差し替えられない作りなので、**本物の失敗**を
+    // 起こす: 書き込み先（一時ファイルの名前）をフォルダで塞ぐ。
+    // ディスクが一杯・書き込みを止められている、と同じ結果になる。
+    const blocker = join(fx.userData, 'giftcut-autosave.json.tmp')
+    rmSync(blocker, { recursive: true, force: true })
+    mkdirSync(blocker, { recursive: true })
+    await dragBy(v1Clips().nth(0), (await clipW()) * 0.2)
+    let shown = false
+    for (let i = 0; i < 20; i++) {
+      await page.waitForTimeout(500)
+      if ((await page.locator('.status-ng').count()) > 0) {
+        shown = true
+        break
+      }
+    }
+    assert(shown, '下書きが書けないのに、画面のどこにも出ない')
+    // 塞ぎを外すと、警告も消える（直ったのに出しっぱなしにしない）
+    rmSync(blocker, { recursive: true, force: true })
+    await dragBy(v1Clips().nth(0), (await clipW()) * 0.1)
+    let cleared = false
+    for (let i = 0; i < 20; i++) {
+      await page.waitForTimeout(500)
+      if ((await page.locator('.status-ng').count()) === 0) {
+        cleared = true
+        break
+      }
+    }
+    assert(cleared, '書けるようになっても警告が出たまま')
+    // 間隔を元に戻す（以降の項目が1.5秒ごとに書き込むのを避ける）
+    await page.evaluate(() => localStorage.removeItem('giftcut.autosaveMs'))
+    touchedRef.dirty = true
+  })
+
   await check('保存するとタイトルの「＊」が消える', async () => {
     // 見た目で確実に分かる編集をする（クリップを動かす）
     const before = await clipLayout()
