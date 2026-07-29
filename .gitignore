@@ -21,6 +21,8 @@ e2e/bench-shots/
 # どれも道具を回せば作り直せる（npm run walk / npm run bench / e2e）。
 e2e/walk/
 e2e/ui-shots/
+# 1コマずつの確認が作る動画と表（作り直せる）
+e2e/frames/
 
 e2e/bench-result.md
 e2e/ng-report.json

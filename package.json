@@ -23,7 +23,8 @@
     "dist:zip": "npm run check:ffmpeg && npm run build && electron-builder --win zip --config electron-builder.yml",
     "check:packaged": "node scripts/check-packaged.mjs",
     "release": "npm run verify && npm run check:ffmpeg && npm run build && electron-builder --win --config electron-builder.yml --publish always",
-    "walk": "node e2e/walk.mjs"
+    "walk": "node e2e/walk.mjs",
+    "frames": "vitest run --config vitest.frames.config.ts"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
