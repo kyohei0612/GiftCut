@@ -22,6 +22,10 @@ export function ClipBand({
   selected,
   onPointerDown,
   onContextMenu,
+  onDoubleClick,
+  onDragOver,
+  onDragLeave,
+  onDrop,
   onTrimLeft,
   onTrimRight,
   onDelete,
@@ -41,6 +45,11 @@ export function ClipBand({
   selected?: boolean
   onPointerDown?: (e: React.PointerEvent) => void
   onContextMenu?: (e: React.MouseEvent) => void
+  onDoubleClick?: (e: React.MouseEvent) => void
+  /** 帯の上に物を落とせる種類（テロップの出入りアニメなど）で使う */
+  onDragOver?: (e: React.DragEvent) => void
+  onDragLeave?: (e: React.DragEvent) => void
+  onDrop?: (e: React.DragEvent) => void
   /** 端を掴んだときの伸縮。渡さなければ、その端は掴めない */
   onTrimLeft?: (e: React.PointerEvent) => void
   onTrimRight?: (e: React.PointerEvent) => void
@@ -64,6 +73,10 @@ export function ClipBand({
       title={title}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
     >
       {onTrimLeft && <div className="clip-trim clip-trim-l" onPointerDown={onTrimLeft} />}
       {children}

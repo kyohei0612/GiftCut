@@ -3551,6 +3551,14 @@ try {
   await check('別ウィンドウの中でも、掴んで動かす操作が効く', async () => {
     // 掴んで動かす処理は本体側の window に耳を付けている。別ウィンドウの中で
     // 動かしたぶんが届かないと、掴んだまま固まる。タブの並べ替えで確かめる。
+    //
+    // 窓は前の項目が出していることが多いが、絞って回すと無いので、無ければ自分で出す。
+    if (!popWindows().length) {
+      await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
+      await page.waitForSelector('.ctx-menu')
+      await page.locator('.ctx-item', { hasText: 'このパネルを切り離す' }).first().click()
+      await page.waitForTimeout(2000)
+    }
     const pop = popWindows()[0]
     assert(pop, '別ウィンドウが無い')
     const strip = pop.locator('.panel-tabs-strip').first()
@@ -4370,8 +4378,6 @@ try {
 
   await check('タイムラインを拡大縮小しても、クリップの位置がずれない', async () => {
     await resetProject()
-    const inner = await page.locator('.track-inner').boundingBox()
-    const before = (await clipLayout()).map((c) => c.x - inner.x)
     const zoom = page.locator('.tl-zoom input[type="range"]').first()
     assert(await zoom.count(), '拡大のつまみが無い')
     // range のつまみは fill が効かないので、値を直接入れて React に伝える
@@ -4384,6 +4390,14 @@ try {
         setter.call(el, String(val))
         el.dispatchEvent(new Event('input', { bubbles: true }))
       }, v)
+    // **測る前に、拡大率を切りのいい値に決める。**
+    // ここへ来るまでの拡大率は前の項目次第で、全体表示（フィット）のあとだと
+    // 小数になっている。つまみは1刻みなので、読み取った値へ戻しても
+    // 元の小数には戻らず、比べると必ず数pxずれる。
+    await setRange(zoom, 30)
+    await page.waitForTimeout(500)
+    const inner = await page.locator('.track-inner').boundingBox()
+    const before = (await clipLayout()).map((c) => c.x - inner.x)
     const v0 = await zoom.inputValue()
     await setRange(zoom, Math.round(Number(v0) * 1.6))
     await page.waitForTimeout(500)

@@ -79,6 +79,7 @@ import { AudioMixer, PreviewScrub, TransportBar } from './components/panels/Prev
 import { TimelineToolbar } from './components/timeline/TimelineToolbar'
 import { TrackHeaders } from './components/timeline/TrackHeaders'
 import { ClipBand } from './components/timeline/ClipBand'
+import { TelopAnimBand } from './components/timeline/TelopAnimBand'
 import type { Adjust, Crop } from './components/panels/PropertyRows'
 import { SeLibraryTab, seMoveTarget } from './components/panels/SeLibraryTab'
 import { IconLibraryTab, ICON_LIB } from './components/panels/IconLibraryTab'
@@ -11159,17 +11160,18 @@ export default function App(): JSX.Element {
                         // 画面に出ていない帯は作らない（クリップと同じ。1000個で 68→33ms 効いた）
                         .filter((cue) => cueTrack(cue) === tr.id && inView(cue.start, cue.end))
                         .map((cue) => (
-                        <div
+                        <ClipBand
                           key={cue.id}
-                          className={`clip telop-clip ${isSelected(cue.id) ? 'clip-selected' : ''}`}
-                          style={{
-                            left: cue.start * zoom,
-                            width: Math.max((cue.end - cue.start) * zoom, 12),
-                            background: cue.label
-                          }}
+                          className="telop-clip"
+                          label={cue.label}
+                          left={cue.start * zoom}
+                          width={Math.max((cue.end - cue.start) * zoom, 12)}
+                          selected={isSelected(cue.id)}
                           title={cue.text}
                           onPointerDown={(e) => onClipPointerDown(cue, e)}
                           onContextMenu={(e) => onClipContextMenu(cue, e)}
+                          onTrimLeft={(e) => onTrimStart(cue, 'l', e)}
+                          onTrimRight={(e) => onTrimStart(cue, 'r', e)}
                           onDragOver={(e) => {
                             if (!draggingTelopAnimRef.current) return
                             e.preventDefault()
@@ -11203,10 +11205,6 @@ export default function App(): JSX.Element {
                             setEditingId(cue.id)
                           }}
                         >
-                          <div
-                            className="clip-trim clip-trim-l"
-                            onPointerDown={(e) => onTrimStart(cue, 'l', e)}
-                          />
                           {/* 帯が細いときは文字を出さない。
                               帯は最低12pxで描かれるので、引いた状態では
                               「ろ」「ク」のような**読めない断片**が並び、
@@ -11215,84 +11213,55 @@ export default function App(): JSX.Element {
                           {(cue.end - cue.start) * zoom >= 40 && (
                             <span className="clip-text">{cue.text}</span>
                           )}
-                          {/* テロップの出入りアニメ帯（動画トランジションと同じ流儀: 範囲表示＋クリック選択） */}
+                          {/* 出入りの動きの帯（components/timeline/TelopAnimBand.tsx）。
+                              動画のトランジションと同じ流儀: 範囲表示＋クリック選択。 */}
                           {cue.style.anim && cue.style.anim.in !== 'none' && (
-                            <div
-                              className={`ttrans ttrans-telop ${selectedTelopTrans?.cueId === cue.id && selectedTelopTrans.kind === 'in' ? 'ttrans-sel' : ''}`}
-                              style={{
-                                left: 0,
-                                width: Math.max(
-                                  Math.min(
-                                    cue.style.anim.inDur * zoom,
-                                    (cue.end - cue.start) * zoom * 0.5
-                                  ),
-                                  8
+                            <TelopAnimBand
+                              side="in"
+                              label={motionLabel(cue.style.anim.in)}
+                              dur={cue.style.anim.inDur}
+                              clipWidth={(cue.end - cue.start) * zoom}
+                              zoom={zoom}
+                              selected={
+                                selectedTelopTrans?.cueId === cue.id &&
+                                selectedTelopTrans.kind === 'in'
+                              }
+                              onSelect={() => selectTelopTrans(cue.id, 'in')}
+                              onResizeStart={(e, dir) =>
+                                startTransResize(
+                                  e,
+                                  cue.style.anim!.inDur,
+                                  dir,
+                                  (nd) => patchCueAnim(cue.id, { inDur: nd }),
+                                  cue.end - cue.start
                                 )
-                              }}
-                              title={`頭 ${motionLabel(cue.style.anim.in)} ${cue.style.anim.inDur.toFixed(2)}s（クリックで選択・Deleteで削除）`}
-                              onPointerDown={(e) => {
-                                e.stopPropagation()
-                                if (e.button === 0) selectTelopTrans(cue.id, 'in')
-                              }}
-                            >
-                              <span className="ttrans-lb">▶{motionLabel(cue.style.anim.in)}</span>
-                              <div
-                                className="ttrans-resize ttrans-resize-r"
-                                title="ドラッグで長さ変更"
-                                onPointerDown={(e) => {
-                                  selectTelopTrans(cue.id, 'in')
-                                  startTransResize(
-                                    e,
-                                    cue.style.anim!.inDur,
-                                    1,
-                                    (nd) => patchCueAnim(cue.id, { inDur: nd }),
-                                    cue.end - cue.start
-                                  )
-                                }}
-                              />
-                            </div>
+                              }
+                            />
                           )}
                           {cue.style.anim && cue.style.anim.out !== 'none' && (
-                            <div
-                              className={`ttrans ttrans-telop ttrans-telop-out ${selectedTelopTrans?.cueId === cue.id && selectedTelopTrans.kind === 'out' ? 'ttrans-sel' : ''}`}
-                              style={{
-                                right: 0,
-                                width: Math.max(
-                                  Math.min(
-                                    cue.style.anim.outDur * zoom,
-                                    (cue.end - cue.start) * zoom * 0.5
-                                  ),
-                                  8
+                            <TelopAnimBand
+                              side="out"
+                              label={motionLabel(cue.style.anim.out)}
+                              dur={cue.style.anim.outDur}
+                              clipWidth={(cue.end - cue.start) * zoom}
+                              zoom={zoom}
+                              selected={
+                                selectedTelopTrans?.cueId === cue.id &&
+                                selectedTelopTrans.kind === 'out'
+                              }
+                              onSelect={() => selectTelopTrans(cue.id, 'out')}
+                              onResizeStart={(e, dir) =>
+                                startTransResize(
+                                  e,
+                                  cue.style.anim!.outDur,
+                                  dir,
+                                  (nd) => patchCueAnim(cue.id, { outDur: nd }),
+                                  cue.end - cue.start
                                 )
-                              }}
-                              title={`尻 ${motionLabel(cue.style.anim.out)} ${cue.style.anim.outDur.toFixed(2)}s（クリックで選択・Deleteで削除）`}
-                              onPointerDown={(e) => {
-                                e.stopPropagation()
-                                if (e.button === 0) selectTelopTrans(cue.id, 'out')
-                              }}
-                            >
-                              <span className="ttrans-lb">{motionLabel(cue.style.anim.out)}◀</span>
-                              <div
-                                className="ttrans-resize ttrans-resize-l"
-                                title="ドラッグで長さ変更"
-                                onPointerDown={(e) => {
-                                  selectTelopTrans(cue.id, 'out')
-                                  startTransResize(
-                                    e,
-                                    cue.style.anim!.outDur,
-                                    -1,
-                                    (nd) => patchCueAnim(cue.id, { outDur: nd }),
-                                    cue.end - cue.start
-                                  )
-                                }}
-                              />
-                            </div>
+                              }
+                            />
                           )}
-                          <div
-                            className="clip-trim clip-trim-r"
-                            onPointerDown={(e) => onTrimStart(cue, 'r', e)}
-                          />
-                        </div>
+                        </ClipBand>
                       ))}
                     {/* 映像レイヤークリップ（V2以降の動画）。音声は対の音声トラックに連動表示。 */}
                     {tr.kind === 'video' &&
@@ -11463,10 +11432,12 @@ export default function App(): JSX.Element {
                         // 残って見えるため）。ただし当たり判定は残して、クリックで選べて
                         // Delete で詰められるようにする＝見た目は空き、操作は普通のクリップ。
                         L.seg.gap ? (
-                          <div
+                          <ClipBand
                             key={L.seg.id}
-                            className={`clip gap-clip ${isVideoSel(L.seg.id) ? 'clip-selected' : ''}`}
-                            style={{ left: L.tStart * zoom, width: Math.max(L.len * zoom - 1, 6) }}
+                            className="gap-clip"
+                            left={L.tStart * zoom}
+                            width={Math.max(L.len * zoom - 1, 6)}
+                            selected={isVideoSel(L.seg.id)}
                             title="空き（クリックして Delete で詰める）"
                             onPointerDown={(e) => onSegPointerDown(L, e, 'video')}
                             onContextMenu={(e) => {
@@ -11481,21 +11452,21 @@ export default function App(): JSX.Element {
                         ) : (
                         // 映像を消した区間(videoBlank)は帯を残す（点線＋バッジ）。
                         // 帯を消すと選択できず「戻す」導線に到達できないため、消音と同じ扱いにする。
-                        <div
+                        <ClipBand
                           key={L.seg.id}
-                          className={`clip video-clip ${L.seg.videoBlank ? 'clip-blank' : ''} ${isVideoSel(L.seg.id) ? 'clip-selected' : ''} ${overwriteIds.includes(L.seg.id) ? 'clip-overwrite' : ''}`}
-                          style={{
-                            left: L.tStart * zoom,
-                            width: Math.max(L.len * zoom - 1, 10),
-                            // ラベルカラーはクリップ全体を塗る（種類ごとの色より優先）。線だと見つけにくい。
-                            background: L.seg.label || undefined
-                          }}
+                          className={`video-clip ${L.seg.videoBlank ? 'clip-blank' : ''} ${overwriteIds.includes(L.seg.id) ? 'clip-overwrite' : ''}`}
+                          label={L.seg.label}
+                          left={L.tStart * zoom}
+                          width={Math.max(L.len * zoom - 1, 10)}
+                          selected={isVideoSel(L.seg.id)}
                           title={
                             L.seg.gap
                               ? '空白（映像なし・無音）'
                               : (srcOfSeg(L.seg)?.name ?? videoName ?? '')
                           }
                           onPointerDown={(e) => onSegPointerDown(L, e, 'video')}
+                          onTrimLeft={(e) => onSegTrimStart(L, 'l', e)}
+                          onTrimRight={(e) => onSegTrimStart(L, 'r', e)}
                           onContextMenu={(e) => {
                             e.preventDefault()
                             e.stopPropagation()
@@ -11511,10 +11482,6 @@ export default function App(): JSX.Element {
                             })
                           }}
                         >
-                          <div
-                            className="clip-trim clip-trim-l"
-                            onPointerDown={(e) => onSegTrimStart(L, 'l', e)}
-                          />
                           {/* サムネはその切片の元動画のものを出す（先頭固定にすると別動画の絵が出る） */}
                           {(() => {
                             const sp = srcOfSeg(L.seg)?.path
@@ -11542,11 +11509,7 @@ export default function App(): JSX.Element {
                               <span className="clip-speed">{segSpeed(L.seg)}x</span>
                             )}
                           </span>
-                          <div
-                            className="clip-trim clip-trim-r"
-                            onPointerDown={(e) => onSegTrimStart(L, 'r', e)}
-                          />
-                        </div>
+                        </ClipBand>
                         )
                       )}
                     {/* 動画ドロップの配置ゴースト（V1）: 上書き=青 / Ctrl挿入=緑。
@@ -11741,13 +11704,13 @@ export default function App(): JSX.Element {
                         const wf = ssrc?.waveform ?? (isPrimary || !ssrc ? waveform : null)
                         const sdur = ssrc?.duration || videoDuration
                         return (
-                          <div
+                          <ClipBand
                             key={L.seg.id}
-                            className={`clip audio-clip ${isAudioSel(L.seg.id) ? 'clip-selected' : ''} ${L.seg.muted ? 'clip-muted' : ''}`}
-                            style={{ left: L.tStart * zoom, width: Math.max(L.len * zoom - 1, 10),
-                              // ラベルカラーはクリップ全体を塗る（種類ごとの色より優先）
-                              background: L.seg.label || undefined
-                            }}
+                            className={`audio-clip ${L.seg.muted ? 'clip-muted' : ''}`}
+                            label={L.seg.label}
+                            left={L.tStart * zoom}
+                            width={Math.max(L.len * zoom - 1, 10)}
+                            selected={isAudioSel(L.seg.id)}
                             title={ssrc?.name ?? videoName ?? ''}
                             onPointerDown={(e) => onSegPointerDown(L, e, 'audio')}
                           >
@@ -11765,7 +11728,7 @@ export default function App(): JSX.Element {
                               <span className="clip-text audio-loading">波形解析中…</span>
                             )}
                             {L.seg.muted && <span className="clip-mute-badge">🔇 消音</span>}
-                          </div>
+                          </ClipBand>
                         )
                       })}
                     {(tr.kind === 'audio'
