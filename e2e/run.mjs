@@ -76,6 +76,7 @@ const AREA = [
   { re: /src\/main\/index\.ts/, words: ['別ウィンドウ', '保存', '書き出し', '起動'] },
   { re: /shared\/timeline/, words: ['動かす', '削除', '元に戻す', '空き'] },
   { re: /shared\/silenceCut/, words: ['無音'] },
+  { re: /shared\/keyframes|shared\/clipMotion/, words: ['モーション', '動き'] },
   { re: /shared\/ducking/, words: ['ダッキング', '音'] },
   { re: /shared\/filterGraph/, words: ['書き出し', '音'] },
   { re: /lib\/srt/, words: ['字幕', 'テロップ'] },

@@ -128,6 +128,14 @@ import {
 import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
 // キーフレーム（時間で変わる値）。プレビューも書き出しも同じ計算を使う
 import { valueAt, putKey, removeKey, hasKeys, type Keys } from '../../shared/keyframes'
+import {
+  zoomAt,
+  hasClipMotion,
+  sanitizeClipMotion,
+  clipMotionKeyTimes,
+  MIN_MOTION_SCALE,
+  type ClipMotion
+} from '../../shared/clipMotion'
 // 書き出しに渡す中身の組み立て（画面に依らない・単体で確かめてある）
 import { buildExportPayload } from '../../shared/exportPayload'
 // 押されたキーをどの操作に割り当てるか（受ける/受けないの判断もこちら）
@@ -295,6 +303,8 @@ interface VSeg {
   afadeIn?: number // 音声フェードイン（秒）
   afadeOut?: number // 音声フェードアウト（秒）
   zoom?: { scale: number; x: number; y: number } // リフレーム（拡大率＋中心オフセット, フレーム比）
+  // 動き（キーフレーム）。上の zoom を時間の関数にする。印が無ければ zoom は固定値のまま。
+  motion?: ClipMotion
   crop?: { l: number; t: number; r: number; b: number } // クロップ（各辺の切り抜き率 0..1。切った領域は黒）
   label?: string // ラベルカラー（テロップと同じ。素材の見分け用）
   gap?: boolean // タイムラインの空白（映像なし・無音）。「位置を指定して配置」した際の隙間埋め。
@@ -906,6 +916,7 @@ export default function App(): JSX.Element {
     track: string // 載っている映像トラック（V1以外）
     // 動画切片と同じ変形/調整（プレビューのリフレーム枠・プロパティで編集）
     zoom?: { scale: number; x: number; y: number }
+    motion?: ClipMotion // 動き（キーフレーム）。zoom を時間の関数にする
     rotate?: number
     flipH?: boolean
     flipV?: boolean
@@ -954,32 +965,38 @@ export default function App(): JSX.Element {
       prev.map((c) => (c.id === id ? { ...c, zoom: isNeutralZoom(z) ? undefined : z } : c))
     )
   }
-  // 映像レイヤーのCSS transform（回転/反転＋ズーム）
-  function vcXform(c: {
-    rotate?: number
-    flipH?: boolean
-    flipV?: boolean
-    zoom?: { scale: number; x: number; y: number }
-  }): string | undefined {
+  // 映像レイヤーのCSS transform（回転/反転＋ズーム）。
+  // localT はクリップの先頭からの秒。動きが付いていればその瞬間のズームになる
+  // （印が無ければ zoomAt は固定値をそのまま返すので、今までと同じ絵）。
+  function vcXform(
+    c: {
+      rotate?: number
+      flipH?: boolean
+      flipV?: boolean
+      zoom?: { scale: number; x: number; y: number }
+      motion?: ClipMotion
+    },
+    localT = 0
+  ): string | undefined {
     const parts: string[] = []
     if (c.rotate) parts.push(`rotate(${c.rotate}deg)`)
     if (c.flipH) parts.push('scaleX(-1)')
     if (c.flipV) parts.push('scaleY(-1)')
-    const z = c.zoom
-    if (z && !isNeutralZoom(z))
+    const z = zoomAt(c.zoom, c.motion, localT)
+    if (!isNeutralZoom(z))
       parts.push(
         `translate(${(z.x * 100).toFixed(3)}%, ${(z.y * 100).toFixed(3)}%) scale(${z.scale.toFixed(4)})`
       )
     return parts.length ? parts.join(' ') : undefined
   }
   // 画像のCSS transform（回転/反転＋ズーム）。動画切片と同じ合成順。
-  function imgXform(c: ImgClip): string | undefined {
+  function imgXform(c: ImgClip, localT = 0): string | undefined {
     const parts: string[] = []
     if (c.rotate) parts.push(`rotate(${c.rotate}deg)`)
     if (c.flipH) parts.push('scaleX(-1)')
     if (c.flipV) parts.push('scaleY(-1)')
-    const z = c.zoom
-    if (z && !isNeutralZoom(z))
+    const z = zoomAt(c.zoom, c.motion, localT)
+    if (!isNeutralZoom(z))
       parts.push(
         `translate(${(z.x * 100).toFixed(3)}%, ${(z.y * 100).toFixed(3)}%) scale(${z.scale.toFixed(4)})`
       )
@@ -1109,6 +1126,7 @@ export default function App(): JSX.Element {
     srcEnd: number
     srcDur?: number
     zoom?: { scale: number; x: number; y: number }
+    motion?: ClipMotion // 動き（キーフレーム）。zoom を時間の関数にする
     rotate?: number
     flipH?: boolean
     flipV?: boolean
@@ -3998,9 +4016,13 @@ export default function App(): JSX.Element {
     return src ? adjustCss(segments[src.index]?.adjust) : undefined
   })()
   // 再生ヘッド位置の切片のズーム（リフレーム）。編集/プレビュー対象。
+  // **動きが付いていれば、その瞬間の値**（印が無ければ今までどおり固定値がそのまま返る）。
   const curSegZoom = (() => {
     const src = tToSource(segLayout, currentTime)
-    return (src ? segments[src.index]?.zoom : undefined) ?? DEFAULT_ZOOM
+    const seg = src ? segments[src.index] : undefined
+    if (!seg) return DEFAULT_ZOOM
+    const L = segLayout[src!.index]
+    return zoomAt(seg.zoom ?? DEFAULT_ZOOM, seg.motion, currentTime - (L?.tStart ?? 0))
   })()
   // 再生ヘッド位置の切片のクロップ。編集/プレビュー対象。
   const curSegCrop = (() => {
@@ -5547,6 +5569,9 @@ export default function App(): JSX.Element {
             !isNeutralZoom(s.zoom)
               ? { scale: s.zoom.scale, x: s.zoom.x, y: s.zoom.y }
               : undefined,
+          // 自分で打った動き。ここで拾い忘れると、保存して開き直した瞬間に
+          // 動きだけ静かに消える（テロップの色・モーションで同じ事故がある）
+          motion: sanitizeClipMotion(s.motion),
           crop:
             s.crop &&
             typeof s.crop.l === 'number' &&
@@ -5677,6 +5702,7 @@ export default function App(): JSX.Element {
               !isNeutralZoom(c.zoom)
                 ? { scale: c.zoom.scale, x: c.zoom.x, y: c.zoom.y }
                 : undefined,
+            motion: sanitizeClipMotion(c.motion),
             rotate:
               typeof c.rotate === 'number' && c.rotate
                 ? ((c.rotate % 360) + 360) % 360 || undefined
@@ -5729,6 +5755,7 @@ export default function App(): JSX.Element {
               c.zoom && typeof c.zoom.scale === 'number' && !isNeutralZoom(c.zoom)
                 ? { scale: c.zoom.scale, x: c.zoom.x, y: c.zoom.y }
                 : undefined,
+            motion: sanitizeClipMotion(c.motion),
             rotate:
               typeof c.rotate === 'number' && c.rotate
                 ? ((c.rotate % 360) + 360) % 360 || undefined
@@ -10407,7 +10434,7 @@ export default function App(): JSX.Element {
                       preload="auto"
                       playsInline
                       style={{
-                        transform: vcXform(c),
+                        transform: vcXform(c, local),
                         filter: adjustCss(c.adjust),
                         clipPath: cropInset(c.crop),
                         // 👁非表示は「映像だけ消す」（音は鳴り続ける＝V1のvideoBlankと同じ扱い）
@@ -10445,7 +10472,7 @@ export default function App(): JSX.Element {
                       alt=""
                       title={`${c.name}（ドラッグで移動・四隅で拡大）`}
                       style={{
-                        transform: imgXform(c),
+                        transform: imgXform(c, currentTime - c.tStart),
                         filter: adjustCss(c.adjust),
                         clipPath: cropInset(c.crop),
                         opacity: c.opacity ?? 1
