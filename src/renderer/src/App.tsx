@@ -4604,10 +4604,17 @@ export default function App(): JSX.Element {
         const dist = Math.hypot(ev.clientX - cx, ev.clientY - cy)
         apply({ ...start, scale: clamp(start.scale * (dist / startDist), 0.2, 8) })
       } else {
+        // **枠の外まで自由に持っていける**（プレミアと同じ）。
+        // 以前はフレーム1つぶん（±1）で頭打ちにしていたため、画面の外へ
+        // 送り出す動きが作れなかった。9:16 では枠が狭いぶん特に効いて、
+        // 「クロップしても外に出せない」状態になっていた。
+        //
+        // 上限を残しているのは、掴み損ねて何万倍も飛ばしたときに戻れなくなるのを
+        // 避けるためだけ（フレーム10個ぶんあれば、送り出す演出には十分足りる）。
         apply({
           ...start,
-          x: clamp(start.x + (ev.clientX - sx) / rect.width, -1, 1),
-          y: clamp(start.y + (ev.clientY - sy) / rect.height, -1, 1)
+          x: clamp(start.x + (ev.clientX - sx) / rect.width, -10, 10),
+          y: clamp(start.y + (ev.clientY - sy) / rect.height, -10, 10)
         })
       }
     }
