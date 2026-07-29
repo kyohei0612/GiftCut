@@ -3006,8 +3006,13 @@ try {
   await check('変えた見た目は、保存して開き直しても残っている', async () => {
     // クリップの色が保存で消えた前科がある（読み込みの許可リスト漏れ）。
     // 見た目の項目は数が多く、1つ漏れても気づけないので、実際に往復させる。
+    //
+    // 文字が画面に出ていないと測れない。出ている所まで再生ヘッドを動かす
+    // （どこにいるかは前の項目次第なので、ここで自分で決める）。
+    await seekTo(2)
+    await page.waitForSelector('.telop-overlay .telop-textmain', { timeout: 8000 })
     const size = (await page.locator('.telop-overlay .telop-textmain').first().boundingBox())?.height ?? 0
-    assert(size > 0, '前の項目で大きさを変えられていない')
+    assert(size > 0, '文字がプレビューに出ていない')
     await page.keyboard.press('Control+s')
     await page.waitForTimeout(1600)
     // 開き直す
@@ -3582,6 +3587,14 @@ try {
   await check('切り離した状態は保存され、開き直すと同じ形で始まる', async () => {
     // 「今のこの状態」が戻らないと切り離す意味が無い。
     // 配置はプロジェクトの中身と一緒に保存し、開き直したら同じ形にする。
+    //
+    // 窓は前の項目が出していることが多いが、絞って回すと無いので、無ければ自分で出す。
+    if (!popWindows().length) {
+      await page.locator('.panel-tabs-strip').last().locator('.tab').first().click({ button: 'right' })
+      await page.waitForSelector('.ctx-menu')
+      await page.locator('.ctx-item', { hasText: 'このパネルを切り離す' }).first().click()
+      await page.waitForTimeout(2000)
+    }
     const pop = popWindows()[0]
     assert(pop, '別ウィンドウが無い')
     // いまの配置（切り離し中）を、開いているファイルへ保存する

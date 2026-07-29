@@ -71,6 +71,8 @@ import {
   IconAssignSettings
 } from './components/dialogs/SettingsDialogs'
 import { ContextMenu } from './components/ContextMenu'
+import { StatusBar } from './components/StatusBar'
+import { MenuBar } from './components/MenuBar'
 import { TelopTemplatesTab } from './components/panels/TelopTemplatesTab'
 import { TransitionsTab } from './components/panels/TransitionsTab'
 import { ProjectBinTab } from './components/panels/ProjectBinTab'
@@ -9587,161 +9589,130 @@ export default function App(): JSX.Element {
           )}
         </div>
       )}
-      {/* ===== メニューバー ===== */}
-      <div className="menubar">
-        <div className="menu-wrap">
-          <span
-            className={`menu-item ${fileMenuOpen ? 'menu-item-on' : ''}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              setFileMenuOpen((o) => !o)
-            }}
-          >
-            ファイル
-          </span>
-          {fileMenuOpen && (
-            <div className="menu-dropdown" onClick={(e) => e.stopPropagation()}>
-              <button
-                className="menu-drop-item"
-                onClick={() => {
+      {/* 一番上のメニューは components/MenuBar.tsx。ここでは並べる物だけを書く。
+          置くのは「パネルからは届かない操作」だけ（素材の追加・SRT読込・書き出しは
+          プロジェクトパネルとモードバーでできるので出さない）。 */}
+      <MenuBar
+        open={fileMenuOpen}
+        onToggle={() => setFileMenuOpen((o) => !o)}
+        rows={[
+          {
+            kind: 'item',
+            label: 'プロジェクトを開く…　(Ctrl+O)',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void openProjectFn()
+            }
+          },
+          // 最近使ったプロジェクト。保存先を覚えていなくてもここから開ける
+          recentProjects.length > 0 && { kind: 'label', label: '最近使ったプロジェクト' },
+          ...recentProjects.map(
+            (r) =>
+              ({
+                kind: 'recent',
+                label: r.name,
+                title: r.path,
+                onClick: () => {
                   setFileMenuOpen(false)
-                  void openProjectFn()
-                }}
-              >
-                プロジェクトを開く…　(Ctrl+O)
-              </button>
-              {/* 最近使ったプロジェクト。保存先を覚えていなくてもここから開ける。 */}
-              {recentProjects.length > 0 && (
-                <>
-                  <div className="menu-drop-label">最近使ったプロジェクト</div>
-                  {recentProjects.map((r) => (
-                    <button
-                      key={r.path}
-                      className="menu-drop-item menu-drop-recent"
-                      title={r.path}
-                      onClick={() => {
-                        setFileMenuOpen(false)
-                        void openProjectFn(r.path)
-                      }}
-                    >
-                      {r.name}
-                    </button>
-                  ))}
-                  <div className="menu-drop-sep" />
-                </>
-              )}
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  void saveProjectFn()
-                }}
-                title={
-                  projectPath ? `上書き保存: ${projectPath}` : '保存先を選んで保存します'
+                  void openProjectFn(r.path)
                 }
-              >
-                {projectPath ? 'プロジェクトを保存' : 'プロジェクトを保存…'}　(
-                {formatCombo(shortcuts.saveProject)})
-              </button>
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  void saveProjectFn(true)
-                }}
-              >
-                別名で保存…
-              </button>
-              <div className="menu-drop-sep" />
-              {/* 別PCへ渡す用。プロジェクトだけ渡しても素材が無ければ開けないので、
-                  使っている素材ごと1つの ZIP にまとめる。 */}
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  void packProjectFn()
-                }}
-                title="使っている素材を全部入れた ZIP を作ります。別のPCの GiftCut で開けば続きから編集できます"
-              >
-                素材ごとまとめて書き出す…（ZIP）
-              </button>
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  void openPackFn()
-                }}
-                title="まとめた ZIP を展開して開きます（素材はドキュメント/GiftCut/受け取ったプロジェクト に置きます）"
-              >
-                まとめたプロジェクトを開く…（ZIP）
-              </button>
-              <div className="menu-drop-sep" />
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  saveAsTemplateFn()
-                }}
-              >
-                テンプレートとして保存…
-              </button>
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  void openTemplateFn()
-                }}
-              >
-                テンプレートを開く…
-              </button>
-              <div className="menu-drop-sep" />
-              {/* ここに残しているのは「パネルからは届かない操作」だけ。
-                  素材の追加・SRT読込・書き出しは、プロジェクトパネルとモードバーで
-                  できるので、メニューには出さない（同じ物が2箇所にあると、
-                  どちらが正しいのかを毎回考えることになる）。 */}
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  void handleAppendVideo()
-                }}
-                title="選んだ動画をタイムラインのいちばん後ろに置きます"
-              >
-                動画をタイムライン末尾に置く…
-              </button>
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  void handleReplaceVideo()
-                }}
-                title="現在のカットを破棄して別の動画に置き換えます"
-              >
-                動画を差し替え…
-              </button>
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  void exportSrtFn()
-                }}
-              >
-                SRT を書き出し…
-              </button>
-              <div className="menu-drop-sep" />
-              <button
-                className="menu-drop-item"
-                onClick={() => {
-                  setFileMenuOpen(false)
-                  setPrefsOpen(true)
-                }}
-              >
-                環境設定（ショートカット）…
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+              }) as const
+          ),
+          recentProjects.length > 0 && { kind: 'sep' },
+          {
+            kind: 'item',
+            label: `${projectPath ? 'プロジェクトを保存' : 'プロジェクトを保存…'}　(${formatCombo(shortcuts.saveProject)})`,
+            title: projectPath ? `上書き保存: ${projectPath}` : '保存先を選んで保存します',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void saveProjectFn()
+            }
+          },
+          {
+            kind: 'item',
+            label: '別名で保存…',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void saveProjectFn(true)
+            }
+          },
+          { kind: 'sep' },
+          // 別PCへ渡す用。プロジェクトだけ渡しても素材が無ければ開けない
+          {
+            kind: 'item',
+            label: '素材ごとまとめて書き出す…（ZIP）',
+            title:
+              '使っている素材を全部入れた ZIP を作ります。別のPCの GiftCut で開けば続きから編集できます',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void packProjectFn()
+            }
+          },
+          {
+            kind: 'item',
+            label: 'まとめたプロジェクトを開く…（ZIP）',
+            title:
+              'まとめた ZIP を展開して開きます（素材はドキュメント/GiftCut/受け取ったプロジェクト に置きます）',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void openPackFn()
+            }
+          },
+          { kind: 'sep' },
+          {
+            kind: 'item',
+            label: 'テンプレートとして保存…',
+            onClick: () => {
+              setFileMenuOpen(false)
+              saveAsTemplateFn()
+            }
+          },
+          {
+            kind: 'item',
+            label: 'テンプレートを開く…',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void openTemplateFn()
+            }
+          },
+          { kind: 'sep' },
+          {
+            kind: 'item',
+            label: '動画をタイムライン末尾に置く…',
+            title: '選んだ動画をタイムラインのいちばん後ろに置きます',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void handleAppendVideo()
+            }
+          },
+          {
+            kind: 'item',
+            label: '動画を差し替え…',
+            title: '現在のカットを破棄して別の動画に置き換えます',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void handleReplaceVideo()
+            }
+          },
+          {
+            kind: 'item',
+            label: 'SRT を書き出し…',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void exportSrtFn()
+            }
+          },
+          { kind: 'sep' },
+          {
+            kind: 'item',
+            label: '環境設定（ショートカット）…',
+            onClick: () => {
+              setFileMenuOpen(false)
+              setPrefsOpen(true)
+            }
+          }
+        ]}
+      />
 
       {/* ===== モードバー ===== */}
       <div className="modebar">
@@ -11644,59 +11615,30 @@ export default function App(): JSX.Element {
         </PaneHost>
       </div>
 
-      {/* ===== ステータスバー ===== */}
-      <footer className="statusbar">
-        <span>{cues.length ? `${cues.length} テロップ` : 'テロップなし'}</span>
-        <span>
-          {/* 選択中の内訳（0の種別は出さない＝今なにを選んでいるか一目で分かる） */}
-          選択:{' '}
-          {[
-            selectedIds.length ? `テロップ${selectedIds.length}` : '',
-            selectedVideoIds.length ? `動画${selectedVideoIds.length}` : '',
-            selectedAudioIds.length ? `音声${selectedAudioIds.length}` : '',
-            selectedSeIds.length ? `SE/BGM${selectedSeIds.length}` : '',
-            selectedImgIds.length ? `画像${selectedImgIds.length}個` : '',
-            selectedVClipIds.length ? `映像レイヤー${selectedVClipIds.length}個` : '',
-            selectedTrans ? 'トランジション' : '',
-            selectedTelopTrans ? 'テロップアニメ' : '',
-            selectedMarkerId != null ? 'マーカー1個' : '',
-            selectedTrackId ? `トラック(${selectedTrackId})` : ''
-          ]
-            .filter(Boolean)
-            .join(' / ') || 'なし'}
-        </span>
-        <span>
-          ツール:{' '}
-          {tool === 'select'
-            ? '選択'
-            : tool === 'razor'
-              ? 'レザー'
-              : tool === 'trackFwd'
-                ? 'トラック選択(右)'
-                : 'トラック選択(左)'}
-        </span>
-        <span>比率 {ratio}</span>
-        <span>再生ヘッド {formatTimecode(currentTime, fps)}</span>
-        {playRateUI !== 0 && <span>シャトル {playRateUI}x</span>}
-        <span className="grow" />
-        {/* いま別ウィンドウへ出しているパネル。
-            出すと本体からは消えるので、どこへ行ったのか分からなくなる
-            （真ん中のプレビュー以外はその場に案内も残らない）。
-            押せばそのまま本体へ戻せる。 */}
-        {(['left', 'preview', 'right', 'timeline'] as PaneId[])
+      {/* 一番下の帯は components/StatusBar.tsx */}
+      <StatusBar
+        telopCount={cues.length}
+        selection={{
+          telop: selectedIds.length,
+          video: selectedVideoIds.length,
+          audio: selectedAudioIds.length,
+          se: selectedSeIds.length,
+          image: selectedImgIds.length,
+          vclip: selectedVClipIds.length,
+          trans: !!selectedTrans,
+          telopTrans: !!selectedTelopTrans,
+          marker: selectedMarkerId != null,
+          track: selectedTrackId
+        }}
+        tool={tool}
+        ratio={ratio}
+        playhead={formatTimecode(currentTime, fps)}
+        shuttleRate={playRateUI}
+        poppedPanes={(['left', 'preview', 'right', 'timeline'] as PaneId[])
           .filter((id) => isPopped(id))
-          .map((id) => (
-            <button
-              key={id}
-              className="status-pop"
-              title={`${PANE_LABEL[id]} を本体へ戻す`}
-              onClick={() => unpopPane(id)}
-            >
-              ⧉ {PANE_LABEL[id]}
-            </button>
-          ))}
-        <span>GiftCut</span>
-      </footer>
+          .map((id) => ({ id, label: PANE_LABEL[id] }))}
+        onDock={(id) => unpopPane(id as PaneId)}
+      />
 
       {/* ===== ドラッグ中の時間ツールチップ ===== */}
       {dragTip && (
