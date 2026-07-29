@@ -14,7 +14,8 @@ const SHORTCUTS = {
   undo: 'ctrl+z',
   redo: 'ctrl+y',
   playPause: 'space',
-  split: 'ctrl+k'
+  split: 'ctrl+k',
+  saveProject: 'ctrl+s'
 }
 const state = (over: Partial<KeyState> = {}): KeyState => ({
   shortcuts: SHORTCUTS,
@@ -61,6 +62,57 @@ describe('文字を打っている最中は通さない', () => {
     expect(shouldBlur({ tag: 'INPUT', type: 'range' })).toBe(true)
     expect(shouldBlur({ tag: 'BUTTON' })).toBe(true)
     expect(shouldBlur({ tag: 'DIV' })).toBe(false)
+  })
+})
+
+describe('文字を打っている最中でも保存だけは通す', () => {
+  const ctrlS = key('s', { ctrlKey: true })
+
+  it('報告された不具合: 数値欄に値を入れた直後でも Ctrl+S で保存できる', () => {
+    // モーションタブの数値欄で Enter → そのまま Ctrl+S が効かず、
+    // 欄の外をクリックしてからでないと保存できなかった
+    for (const tag of ['INPUT', 'TEXTAREA', 'SELECT']) {
+      expect(resolveShortcut(ctrlS, { tag, type: 'number' }, state())).toBe('saveProject')
+    }
+  })
+
+  it('元に戻す・やり直しは通さない（欄の中の取り消しと衝突する）', () => {
+    const t = { tag: 'INPUT', type: 'number' }
+    expect(resolveShortcut(key('z', { ctrlKey: true }), t, state())).toBeNull()
+    expect(resolveShortcut(key('y', { ctrlKey: true }), t, state())).toBeNull()
+    expect(resolveShortcut(key('z', { ctrlKey: true, shiftKey: true }), t, state())).toBeNull()
+  })
+
+  it('削除・再生・分割も、これまでどおり通さない', () => {
+    const t = { tag: 'INPUT', type: 'text' }
+    expect(resolveShortcut(key('d'), t, state())).toBeNull()
+    expect(resolveShortcut(key('Delete'), t, state())).toBeNull()
+    expect(resolveShortcut(key(' '), t, state())).toBeNull()
+    expect(resolveShortcut(key('k', { ctrlKey: true }), t, state())).toBeNull()
+  })
+
+  it('保存で受けても、フォーカスは欄に残す（続きが打てなくなるので）', () => {
+    expect(shouldBlur({ tag: 'INPUT', type: 'number' })).toBe(false)
+    expect(shouldBlur({ tag: 'TEXTAREA' })).toBe(false)
+  })
+
+  it('保存を「s」に割り当て直したら通さない（打った文字が保存になってしまう）', () => {
+    const s = state({ shortcuts: { ...SHORTCUTS, saveProject: 's' } })
+    expect(resolveShortcut(key('s'), { tag: 'INPUT', type: 'text' }, s)).toBeNull()
+    // 欄の外では、これまでどおり効く
+    expect(resolveShortcut(key('s'), {}, s)).toBe('saveProject')
+  })
+
+  it('変換の途中では保存しない（確定していない文字が入らないまま保存される）', () => {
+    const t = { tag: 'INPUT', type: 'text' }
+    expect(resolveShortcut(key('s', { ctrlKey: true, isComposing: true }), t, state())).toBeNull()
+  })
+
+  it('ダイアログを開いている間は、入力欄の保存も通さない', () => {
+    const t = { tag: 'INPUT', type: 'number' }
+    expect(resolveShortcut(ctrlS, t, state({ modalOpen: true }))).toBeNull()
+    expect(resolveShortcut(ctrlS, t, state({ capturing: true }))).toBeNull()
+    expect(resolveShortcut(ctrlS, t, state({ exporting: true }))).toBeNull()
   })
 })
 

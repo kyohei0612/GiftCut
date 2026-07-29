@@ -77,6 +77,9 @@ const AREA = [
   { re: /shared\/timeline/, words: ['動かす', '削除', '元に戻す', '空き'] },
   { re: /shared\/silenceCut/, words: ['無音'] },
   { re: /shared\/keyframes|shared\/clipMotion/, words: ['モーション', '動き'] },
+  // キーの受け方は章を問わず効いてくる。中でも「文字を打つ欄にいても保存は通す」を
+  // 見るのはモーション（数値欄に入れた直後に保存する）なので、そこも引く。
+  { re: /shared\/keymap/, words: ['ショートカット', 'キー', '保存', '動き'] },
   { re: /shared\/ducking/, words: ['ダッキング', '音'] },
   { re: /shared\/filterGraph/, words: ['書き出し', '音'] },
   { re: /lib\/srt/, words: ['字幕', 'テロップ'] },
@@ -2521,6 +2524,42 @@ try {
     const marks = await v1Clips().nth(0).locator('.kf-mark').count()
     assert(marks >= 2, `開き直したら帯の印が消えた（${marks}個）`)
     // 保存したファイルを開いた状態で終わると、以降の項目が別の中身を見る
+    await resetProject()
+  })
+
+  await check('数値欄にカーソルを残したままでも、Ctrl+S で保存できる', async () => {
+    // 報告された不具合: 値を入れた直後の Ctrl+S が効かず、欄の外を1回
+    // クリックしてからでないと保存できなかった。
+    // **「保存したつもり」を作る**ので、作業が消える事故に直結する。
+    //
+    // どのキーを受けるかの判断そのものは src/shared/keymap.test.ts で見ている。
+    // ここで見るのは**アプリに繋がっているか**（画面側に別の関門が残っていないか）。
+    await v1Clips().nth(0).click()
+    await page.waitForTimeout(300)
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    await page.waitForTimeout(300)
+    const row = page.locator('.mo-row').filter({ hasText: '拡大' }).first()
+    await seekTo(1)
+    await row.locator('.mo-watch').click()
+    await page.waitForTimeout(300)
+    await seekTo(3)
+    const val = row.locator('.mo-val')
+    await val.fill('150')
+    await val.press('Enter')
+    await page.waitForTimeout(400)
+    // ★ここで欄から出ない。カーソルを残したまま保存する
+    const focused = await page.evaluate(
+      () => (document.activeElement)?.className ?? ''
+    )
+    assert(focused.includes('mo-val'), `数値欄にカーソルが残っていない（${focused}）`)
+    await page.keyboard.press('Control+s')
+    await page.waitForTimeout(1800)
+    const data = JSON.parse(readFileSync(fx.gcproj, 'utf-8'))
+    assert(
+      (data.segments ?? []).some((s) => s.motion),
+      '欄にカーソルを残したまま保存しても、中身が書かれていない'
+    )
+    touchedRef.dirty = true
     await resetProject()
   })
 
