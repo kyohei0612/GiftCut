@@ -41,6 +41,12 @@ for (const f of ['ffmpeg/ffmpeg.exe', 'ffmpeg/ffprobe.exe']) {
 for (const d of ['SE', 'telop-presets']) {
   existsSync(join(res, d)) ? ng(`配布物に入ってはいけない: ${d}`) : ok(`入っていない: ${d}`)
 }
+// ライセンスの表示（LGPL は「使っていることを知らせ、本文を添える」ことを求める）。
+// **アプリのフォルダの一番上**に無いと、受け取った人が見つけられない。
+const appDir = join(ROOT, 'dist', 'win-unpacked')
+for (const f of ['licenses/FFmpeg/NOTICE.md', 'licenses/FFmpeg/LGPL-3.0.txt', 'licenses/FFmpeg/GPL-3.0.txt']) {
+  existsSync(join(appDir, f)) ? ok(`同梱: ${f}`) : ng(`ライセンスの表示が入っていない: ${f}`)
+}
 
 console.log('配布物を起動します…')
 const userData = mkdtempSync(join(tmpdir(), 'giftcut-pack-'))

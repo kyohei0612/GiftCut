@@ -15,7 +15,7 @@
 //   どちらも無いビルドを同梱すると、書き出せないアプリを配ることになる。
 // ============================================================================
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -74,6 +74,32 @@ if (!ways.includes('libopenh264') && !ways.includes('libx264')) {
 }
 
 const ver = /ffmpeg version (\S+)/.exec(text)?.[1] ?? '不明'
+
+// ---- ライセンスの表示が、いま置いてある物と合っているか ----
+//
+// LGPL は「使っていることを知らせ、本文を添える」ことを求める。
+// **ffmpeg を差し替えたのに表示が古いまま**だと、間違った版を案内することになる。
+// 版の文字列まで突き合わせて、ずれていたら止める。
+const NOTICE = join(ROOT, 'licenses', 'FFmpeg', 'NOTICE.md')
+if (!existsSync(NOTICE)) {
+  problems.push('ライセンスの表示がありません: licenses/FFmpeg/NOTICE.md')
+} else {
+  const notice = readFileSync(NOTICE, 'utf-8')
+  if (!notice.includes(ver)) {
+    problems.push(
+      `ライセンスの表示が古いです。同梱は ${ver} ですが、licenses/FFmpeg/NOTICE.md に
+` +
+        '    その版が書かれていません。差し替えたら表示も直してください。'
+    )
+  }
+  // version3 付き＝LGPL v3。本文が v3 でないと、間違った物を配ることになる
+  const v3 = /--enable-version3/.test(text)
+  const need = v3 ? ['LGPL-3.0.txt', 'GPL-3.0.txt'] : ['LGPL-2.1.txt']
+  for (const f of need) {
+    if (!existsSync(join(ROOT, 'licenses', 'FFmpeg', f)))
+      problems.push(`ライセンス本文がありません: licenses/FFmpeg/${f}（このビルドは ${v3 ? 'LGPL v3' : 'LGPL v2.1'}）`)
+  }
+}
 if (problems.length) {
   console.error(`同梱の ffmpeg に問題があります（${ver}）:`)
   for (const p of problems) console.error(`  ・${p}`)
@@ -82,3 +108,4 @@ if (problems.length) {
 console.log(`同梱の ffmpeg: ${ver}`)
 console.log(`H.264 で焼ける手段: ${ways.join(' / ')}`)
 console.log('ライセンス上の問題は見つかりませんでした（GPL でも nonfree でもない）。')
+console.log('表示: licenses/FFmpeg/NOTICE.md（同梱の版と一致）')
