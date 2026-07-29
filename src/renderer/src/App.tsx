@@ -75,6 +75,9 @@ import { TelopTemplatesTab } from './components/panels/TelopTemplatesTab'
 import { TransitionsTab } from './components/panels/TransitionsTab'
 import { ProjectBinTab } from './components/panels/ProjectBinTab'
 import { PropertiesPanel, RESET_TRANSFORM } from './components/panels/PropertiesPanel'
+import { AudioMixer, PreviewScrub, TransportBar } from './components/panels/PreviewBars'
+import { TimelineToolbar } from './components/timeline/TimelineToolbar'
+import { TrackHeaders } from './components/timeline/TrackHeaders'
 import type { Adjust, Crop } from './components/panels/PropertyRows'
 import { SeLibraryTab, seMoveTarget } from './components/panels/SeLibraryTab'
 import { IconLibraryTab, ICON_LIB } from './components/panels/IconLibraryTab'
@@ -10523,156 +10526,53 @@ export default function App(): JSX.Element {
               </div>
             </div>
 
-            {/* オーディオトラックミキサー */}
+            {/* オーディオトラックミキサー（components/panels/PreviewBars.tsx） */}
             {monitorTab === 'mixer' && (
-              <div className="mixer-stage">
-                <div className="mixer">
-                  {tracks.filter((t) => t.kind === 'audio').map((tr) => {
+              <AudioMixer
+                tracks={tracks
+                  .filter((t) => t.kind === 'audio')
+                  .map((tr) => {
                     const st = trackStates[tr.id] ?? newTrackState(tr.id)
-                    const g = st?.volume ?? 1
-                    return (
-                      <div className="mix-ch" key={tr.id}>
-                        <div className="mix-ms">
-                          <button
-                            className={`mix-msbtn ${st?.muted ? 'mix-mute' : ''}`}
-                            title="ミュート"
-                            onClick={() => toggleTrack(tr.id, 'muted')}
-                          >
-                            M
-                          </button>
-                          <button
-                            className={`mix-msbtn ${st?.solo ? 'mix-solo' : ''}`}
-                            title="ソロ"
-                            onClick={() => toggleTrack(tr.id, 'solo')}
-                          >
-                            S
-                          </button>
-                        </div>
-                        <div
-                          className="mix-fader"
-                          onPointerDown={(e) => startFader(e, (f) => setTrackVolume(tr.id, f))}
-                        >
-                          <div className="mix-fill" style={{ height: `${g * 100}%` }} />
-                          <div className="mix-knob" style={{ bottom: `${g * 100}%` }} />
-                        </div>
-                        <div className="mix-db">{gainToDb(g)} dB</div>
-                        <div className="mix-name">{tr.name}</div>
-                      </div>
-                    )
+                    return {
+                      id: tr.id,
+                      name: tr.name,
+                      muted: st.muted,
+                      solo: st.solo,
+                      volume: st.volume ?? 1
+                    }
                   })}
-                  {/* マスター */}
-                  <div className="mix-ch mix-master">
-                    <div className="mix-ms" />
-                    <div
-                      className="mix-fader"
-                      onPointerDown={(e) => startFader(e, (f) => setMasterVolume(clamp(f, 0, 1)))}
-                    >
-                      <div className="mix-fill" style={{ height: `${masterVolume * 100}%` }} />
-                      <div className="mix-knob" style={{ bottom: `${masterVolume * 100}%` }} />
-                    </div>
-                    <div className="mix-db">{gainToDb(masterVolume)} dB</div>
-                    <div className="mix-name">マスター</div>
-                  </div>
-                </div>
-              </div>
+                master={masterVolume}
+                onToggleMute={(id) => toggleTrack(id, 'muted')}
+                onToggleSolo={(id) => toggleTrack(id, 'solo')}
+                onVolume={setTrackVolume}
+                onMaster={(v) => setMasterVolume(clamp(v, 0, 1))}
+                startFader={startFader}
+                gainToDb={gainToDb}
+              />
             )}
-            {/* 全体のどこを見ているかを示すバー（プレミアと同じ役割）。
-                タイムラインを見に行かなくても位置が分かり、押した所へ飛べる。 */}
-            <div
-              className="preview-scrub"
-              onPointerDown={(e) => {
-                if (e.button !== 0) return
-                e.preventDefault()
-                // 位置は「バー本体」で測る。外枠には左右の余白があるので、
-                // 外枠で測るとつまみが余白ぶん右へずれる（押した所と合わなくなる）。
-                const track = e.currentTarget.querySelector('.preview-scrub-track')
-                const rect = (track ?? e.currentTarget).getBoundingClientRect()
-                const total = Math.max(0.001, duration)
-                const seekAt = (cx: number): void => {
-                  seekTo(clamp(((cx - rect.left) / rect.width) * total, 0, total))
-                }
-                stopPlayback()
-                seekAt(e.clientX)
-                const mv = (ev: PointerEvent): void => seekAt(ev.clientX)
-                const up = (): void => {
-                  window.removeEventListener('pointermove', mv)
-                  window.removeEventListener('pointerup', up)
-                }
-                window.addEventListener('pointermove', mv)
-                window.addEventListener('pointerup', up)
+            <PreviewScrub
+              currentTime={currentTime}
+              duration={duration}
+              onSeek={seekTo}
+              onScrubStart={stopPlayback}
+            />
+            <TransportBar
+              timecode={formatTimecode(currentTime, fps)}
+              info={transportInfo}
+              playing={playing}
+              onSkip={skipSec}
+              onStep={stepFrame}
+              onTogglePlay={togglePlay}
+              onScreenshot={() => void captureScreenshot()}
+              onJumpMarker={jumpMarker}
+              onAddMarker={addMarkerAtPlayhead}
+              keyHint={{
+                back: formatCombo(shortcuts.frameBack),
+                play: formatCombo(shortcuts.playPause),
+                fwd: formatCombo(shortcuts.frameFwd),
+                marker: formatCombo(shortcuts.addMarker)
               }}
-              title="押した所へ飛びます（掴んだまま動かすと早送り・巻き戻し）"
-            >
-              <div className="preview-scrub-track">
-                {/* 頭と尻は長めの印にする。どこが始まりでどこが終わりか一目で分かる */}
-                <span className="preview-scrub-edge preview-scrub-edge-l" />
-                <span className="preview-scrub-edge preview-scrub-edge-r" />
-                {/* だいたいの位置をつかむための目盛り */}
-                {Array.from({ length: 9 }, (_, i) => (
-                  <span key={i} className="preview-scrub-tick" style={{ left: `${(i + 1) * 10}%` }} />
-                ))}
-                {/* 再生位置。塗りつぶしはせず、つまみだけ出す */}
-                <div
-                  className="preview-scrub-head"
-                  style={{
-                    left: `${clamp((currentTime / Math.max(0.001, duration)) * 100, 0, 100)}%`
-                  }}
-                />
-              </div>
-            </div>
-            {/* プレビューの下は2段に分ける（プレミアと同じ考え方）。
-                1段目＝いま何秒か・どの画質か といった「状態」。
-                2段目＝再生などの「操作」で、再生ボタンを中央に置く。
-                1段に詰め込むと、一番よく使う再生ボタンが端に寄って毎回探すことになる。 */}
-            <div className="transport">
-              <div className="transport-info">
-                <span className="tc tc-cur">{formatTimecode(currentTime, fps)}</span>
-                <div className="transport-info-right">{transportInfo}</div>
-              </div>
-              <div className="transport-btns">
-                <button className="tbtn" onClick={() => skipSec(-10)} title="10秒戻る">
-                  «10
-                </button>
-                <button className="tbtn" onClick={() => skipSec(-5)} title="5秒戻る">
-                  «5
-                </button>
-                <button className="tbtn" onClick={() => stepFrame(-1)} title={`1フレーム戻る (${formatCombo(shortcuts.frameBack)})`}>
-                  ◁ǀ
-                </button>
-                <button className="tbtn tbtn-play" onClick={togglePlay} title={`再生 / 一時停止 (${formatCombo(shortcuts.playPause)})`}>
-                  {playing ? '⏸' : '▶'}
-                </button>
-                <button className="tbtn" onClick={() => stepFrame(1)} title={`1フレーム進む (${formatCombo(shortcuts.frameFwd)})`}>
-                  ǀ▷
-                </button>
-                <button className="tbtn" onClick={() => skipSec(5)} title="5秒進む">
-                  5»
-                </button>
-                <button className="tbtn" onClick={() => skipSec(10)} title="10秒進む">
-                  10»
-                </button>
-                <button
-                  className="tbtn tbtn-shot"
-                  onClick={() => void captureScreenshot()}
-                  title="今のプレビュー画面を画像で保存"
-                >
-                  📷
-                </button>
-                <button className="tbtn" onClick={() => jumpMarker(-1)} title="前のマーカーへ">
-                  ⟨🚩
-                </button>
-                <button
-                  className="tbtn tbtn-marker"
-                  onClick={addMarkerAtPlayhead}
-                  title={`再生ヘッド位置にマーカーを追加 (${formatCombo(shortcuts.addMarker)})`}
-                >
-                  🚩＋
-                </button>
-                <button className="tbtn" onClick={() => jumpMarker(1)} title="次のマーカーへ">
-                  🚩⟩
-                </button>
-              </div>
-            </div>
+            />
           </section>
           </PaneHost>
 
@@ -10965,113 +10865,45 @@ export default function App(): JSX.Element {
           className="timeline"
           style={{ height: timelineH, flex: '0 0 auto' }}
         >
-          <div className="tl-toolbar">
-            <button
-              className={`tool ${tool === 'select' ? 'tool-on' : ''}`}
-              title={`選択ツール (${formatCombo(shortcuts.toolSelect)})`}
-              onClick={() => setTool('select')}
-            >
-              ▤
-            </button>
-            <button
-              className={`tool ${tool === 'razor' ? 'tool-on' : ''}`}
-              title={`レザー / カット (${formatCombo(shortcuts.toolRazor)})`}
-              onClick={() => setTool('razor')}
-            >
-              {/* 使用頻度が高く、押し間違えると影響が大きいものには文字を付ける。
-                  アイコンだけだと初見で分からない（実際に「⎇」「↔」が分からなかった）。 */}
-              ✂ <span className="tool-text">カット</span>
-            </button>
-            <button
-              className={`tool ${snap ? 'tool-on' : ''}`}
-              title={`スナップ (${formatCombo(shortcuts.toggleSnap)})`}
-              onClick={toggleSnap}
-            >
-              🧲 <span className="tool-text">磁石</span>
-            </button>
-            <button
-              className={`tool ${tool === 'trackBack' ? 'tool-on' : ''}`}
-              title="トラック選択（左）: クリック位置から左を全選択 / Shiftでそのレーンだけ"
-              onClick={() => setTool(tool === 'trackBack' ? 'select' : 'trackBack')}
-            >
-              ⇤
-            </button>
-            <button
-              className={`tool ${tool === 'trackFwd' ? 'tool-on' : ''}`}
-              title="トラック選択（右）: クリック位置から右を全選択 / Shiftでそのレーンだけ"
-              onClick={() => setTool(tool === 'trackFwd' ? 'select' : 'trackFwd')}
-            >
-              ⇥
-            </button>
-            <span className="tl-sep" />
-            <button
-              className="tool"
-              title={`元に戻す (${formatCombo(shortcuts.undo)})`}
-              onClick={undo}
-              disabled={undoStackRef.current.length === 0 && !isDirty()}
-            >
-              ↶
-            </button>
-            <button
-              className="tool"
-              title={`やり直す (${formatCombo(shortcuts.redo)})`}
-              onClick={redo}
-              disabled={redoStackRef.current.length === 0}
-            >
-              ↷
-            </button>
-            <button
-              className="tool"
-              title={`再生ヘッドで分割 (${formatCombo(shortcuts.split)})`}
-              onClick={() => {
-                splitVideoAtPlayhead()
-                splitAtPlayhead('all')
-              }}
-            >
-              ⎇ <span className="tool-text">分割</span>
-            </button>
-            {/* 喋っていない所をまとめて切る。切り抜きでは毎回やる作業なので、
-                メニューの奥ではなくタイムラインの手元に置く */}
-            <button
-              className="tool tool-wide"
-              title="喋っていない所をまとめて切る"
-              onClick={() => {
-                setSilenceOpen(true)
-                if (!silenceCut.found && !silenceCut.busy) void findSilences()
-              }}
-            >
-              🔇 無音カット
-            </button>
-            <div className="tl-zoom">
-              <button
-                className="tool tool-sm"
-                title="タイムライン全体を表示（フィット）"
-                onClick={() => {
-                  fitTimelineZoom()
-                }}
-              >
-                ↔
-              </button>
-              <span>拡大</span>
-              <input
-                type="range"
-                min={6}
-                max={120}
-                value={zoom}
-                onChange={(e) => setZoom(Number(e.target.value))}
-                title="タイムラインの拡大率（Ctrl+ホイールでも操作可）"
-              />
-            </div>
-            <span className="tl-hint">
-              {tool === 'razor'
+          {/* 道具立ては components/timeline/TimelineToolbar.tsx */}
+          <TimelineToolbar
+            tool={tool}
+            onTool={setTool}
+            snap={snap}
+            onToggleSnap={toggleSnap}
+            canUndo={undoStackRef.current.length > 0 || isDirty()}
+            canRedo={redoStackRef.current.length > 0}
+            onUndo={undo}
+            onRedo={redo}
+            onSplit={() => {
+              splitVideoAtPlayhead()
+              splitAtPlayhead('all')
+            }}
+            onSilenceCut={() => {
+              setSilenceOpen(true)
+              if (!silenceCut.found && !silenceCut.busy) void findSilences()
+            }}
+            zoom={zoom}
+            onZoom={setZoom}
+            onFit={fitTimelineZoom}
+            hint={
+              tool === 'razor'
                 ? 'クリップをクリックで分割'
                 : videoGhost?.moving
                   ? 'ドラッグで移動 / Alt=複製 / Ctrl=割り込み（後続が後ろへずれる）'
                   : videoGhost
                     ? 'ドロップで上書き配置 / Ctrl押しながらで挿入（後続がシフト）'
-                  : `${formatCombo(shortcuts.undo)} 元に戻す / ${formatCombo(shortcuts.copy)}・${formatCombo(shortcuts.paste)} コピー貼付 / ${formatCombo(shortcuts.duplicate)} 複製 / ${formatCombo(shortcuts.split)} 分割 / ${formatCombo(shortcuts.addMarker)} マーカー`}
-            </span>
-          </div>
+                    : `${formatCombo(shortcuts.undo)} 元に戻す / ${formatCombo(shortcuts.copy)}・${formatCombo(shortcuts.paste)} コピー貼付 / ${formatCombo(shortcuts.duplicate)} 複製 / ${formatCombo(shortcuts.split)} 分割 / ${formatCombo(shortcuts.addMarker)} マーカー`
+            }
+            keyHint={{
+              select: formatCombo(shortcuts.toolSelect),
+              razor: formatCombo(shortcuts.toolRazor),
+              snap: formatCombo(shortcuts.toggleSnap),
+              undo: formatCombo(shortcuts.undo),
+              redo: formatCombo(shortcuts.redo),
+              split: formatCombo(shortcuts.split)
+            }}
+          />
 
           <div className="tl-body">
             {/* 左端のトラック高さ調整バー（丸グリップ2個：映像グループ／音声グループ）*/}
@@ -11089,115 +10921,28 @@ export default function App(): JSX.Element {
               ))}
             </div>
 
-            {/* トラックヘッダ */}
-            <div className="track-headers">
-              <div className="th-spacer">
-                <button className="th-add" title="映像トラックを追加" onClick={addVideoTrack}>
-                  ＋
-                </button>
-              </div>
-              {/* トラック側と同じ余白。ここがずれると、押した段と実際の段が食い違う */}
-              <div className="track-pad" style={{ height: padTop }} />
-              {tracks.map((tr) => {
-                // 状態が無いトラックがあっても落ちないようにする。
-                // トラックを足したのに状態を作り忘れると、ここで画面全体が落ちる。
-                const st = trackStates[tr.id] ?? newTrackState(tr.id)
-                return (
-                  <div
-                    key={tr.id}
-                    className={`th th-${tr.kind} ${selectedTrackId === tr.id ? 'th-selected' : ''}`}
-                    style={{ height: trackHOf(tr.kind) }}
-                    onClick={() => selectTrack(tr.id)}
-                    title="クリックでトラック選択（Deleteで削除）"
-                  >
-                    {/* 以前はここが「ターゲット切替」だったが、target はどこからも
-                        参照されない死んだフラグで、ヘッダー内で一番強い色（既定で
-                        V1/A1 が青く光る）が何の意味も持たない状態だった。しかも
-                        名前クリックがそれに占領されてリネームができなかった。
-                        クリック＝トラック選択、ダブルクリック＝名前の変更にする。 */}
-                    <span
-                      className="th-name"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        selectTrack(tr.id)
-                      }}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation()
-                        askText('トラック名を変更', tr.name, (v) => {
-                          const name = v.trim()
-                          if (!name) return
-                          setTracks((prev) =>
-                            prev.map((t) => (t.id === tr.id ? { ...t, name } : t))
-                          )
-                        })
-                      }}
-                      title={`${tr.name}（クリックでトラック選択 / ダブルクリックで名前を変更）`}
-                    >
-                      {/* 段の番号は絶対に見せる。名前は入るぶんだけ。
-                          以前は「V…」「A1 音…」と切れて、**どれが V2 で
-                          どれが V3 かも分からなかった**。番号と名前を分け、
-                          番号は縮まないようにする。 */}
-                      <b className="th-id">{tr.id}</b>
-                      {tr.name !== tr.id && <span className="th-label">{tr.name.replace(new RegExp(`^${tr.id}\\s*`), '')}</span>}
-                    </span>
-                    <span className="th-icons" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        className={`th-btn ${st.locked ? 'th-on' : ''}`}
-                        title="ロック"
-                        onClick={() => toggleTrack(tr.id, 'locked')}
-                      >
-                        {st.locked ? '🔒' : '🔓'}
-                      </button>
-                      {tr.kind === 'video' ? (
-                        <>
-                          <button
-                            className={`th-btn ${st.hidden ? 'th-off' : ''}`}
-                            title="表示/非表示"
-                            onClick={() => toggleTrack(tr.id, 'hidden')}
-                          >
-                            {st.hidden ? '🙈' : '👁'}
-                          </button>
-                          {/* 映像には M/S が無いが、空きを置いて列を揃える。
-                              揃っていないと、段によってボタンの位置がずれて毎回探すことになる。 */}
-                          <span className="th-ms th-ms-blank" aria-hidden="true" />
-                          <span className="th-ms th-ms-blank" aria-hidden="true" />
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className={`th-ms ${st.muted ? 'th-mute' : ''}`}
-                            title="ミュート"
-                            onClick={() => toggleTrack(tr.id, 'muted')}
-                          >
-                            M
-                          </button>
-                          <button
-                            className={`th-ms ${st.solo ? 'th-solo' : ''}`}
-                            title="ソロ"
-                            onClick={() => toggleTrack(tr.id, 'solo')}
-                          >
-                            S
-                          </button>
-                          {tr.id === EXTRA_AUDIO_TRACK && (
-                            <button
-                              className="th-ms th-bgm-add"
-                              title="このトラックに音声ファイル（BGM等）を追加"
-                              onClick={() => void addBgm()}
-                            >
-                              ♪＋
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </span>
-                  </div>
-                )
-              })}
-              <button className="th-add th-add-audio" title="音声トラックを追加" onClick={addAudioTrack}>
-                ＋
-              </button>
-              <div className="track-pad" style={{ height: padBottom }} />
-            </div>
+            {/* 段の見出し列は components/timeline/TrackHeaders.tsx */}
+            <TrackHeaders
+              tracks={tracks}
+              stateOf={(id) => trackStates[id] ?? newTrackState(id)}
+              selectedId={selectedTrackId}
+              heightOf={trackHOf}
+              padTop={padTop}
+              padBottom={padBottom}
+              bgmTrackId={EXTRA_AUDIO_TRACK}
+              onSelect={selectTrack}
+              onRename={(id, current) =>
+                askText('トラック名を変更', current, (v) => {
+                  const name = v.trim()
+                  if (!name) return
+                  setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, name } : t)))
+                })
+              }
+              onToggle={toggleTrack}
+              onAddVideoTrack={addVideoTrack}
+              onAddAudioTrack={addAudioTrack}
+              onAddBgm={() => void addBgm()}
+            />
 
             {/* トラック領域 */}
             <div
