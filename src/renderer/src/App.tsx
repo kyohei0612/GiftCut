@@ -5093,10 +5093,10 @@ export default function App(): JSX.Element {
       ...p,
       project: [...new Set([...(p.project ?? []), add[0].kind])]
     }))
-    // 動画のサムネを生成
-    add.filter((m) => m.kind === 'video').forEach((m) => genThumbFor(m.id, m.path))
-    // 取り込み時に尺と音声波形も用意する（配置前から波形が見える＝映像と音がリンクした状態）
-    add.forEach((m) => prepareMediaMeta(m.path, m.kind))
+    // サムネと波形は**見えている素材だけ**用意する（ビンが用意できたら onVisible が呼ぶ）。
+    // 全部ぶん用意していた頃は、フォルダ丸ごと追加で500件を超えると
+    // 1操作 94.5ms・1000件ごとに +26.7MB まで膨らんでいた。
+    // 波形は全長デコードなので、見てもいない素材のぶんまで抱えると効く。
     // 追加しただけではタイムラインに載せない。置く位置は自分で決めるもので、
     // 勝手に先頭へ置かれると2本目以降が後ろに回って並べ直しになる。
     // タイムラインへドラッグするか、ビンでダブルクリックすると読み込まれる。
@@ -5364,9 +5364,7 @@ export default function App(): JSX.Element {
         m.kind === 'image' ? { ...m, thumb: toGcUrl(m.path) } : m
       )
       setMediaItems(withThumb)
-      withThumb.filter((m) => m.kind === 'video').forEach((m) => genThumbFor(m.id, m.path))
-      // 尺と波形も用意し直す（ドラッグ時のゴーストに波形が出るように）
-      withThumb.forEach((m) => prepareMediaMeta(m.path, m.kind))
+      // サムネ・尺・波形は見えている物だけ用意する（onVisible が呼ぶ）
     }
     if (d.iconSide) setIconSide(d.iconSide)
     if (d.iconOffset && typeof d.iconOffset.x === 'number') setIconOffset(d.iconOffset)
@@ -5631,7 +5629,7 @@ export default function App(): JSX.Element {
         }))
       /* eslint-enable @typescript-eslint/no-explicit-any */
       setMediaItems(items)
-      items.filter((m) => m.kind === 'video').forEach((m) => genThumbFor(m.id, m.path))
+      // サムネは見えている物だけ作る（onVisible が呼ぶ）
     }
     setSelectedTrackId(null)
     // マーカー復元（t 昇順、idは振り直し）
@@ -10492,6 +10490,14 @@ export default function App(): JSX.Element {
                   setImgGhost(null)
                 }}
                 onPickLabel={selectByLabel}
+                onVisible={(vis) => {
+                  // 見えた物のサムネと波形をここで用意する。
+                  // どちらも「同じ物は1回だけ」なので、何度呼ばれても増えない。
+                  for (const m of vis) {
+                    if (m.kind === 'video') genThumbFor(m.id, m.path)
+                    prepareMediaMeta(m.path, m.kind)
+                  }
+                }}
               />
             )}
 

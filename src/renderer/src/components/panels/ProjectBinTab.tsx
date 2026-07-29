@@ -4,7 +4,9 @@
 // 読み込んだ SRT と、使っている色ラベルの一覧もここに出す
 // （「今このプロジェクトに何があるか」を1か所で見せるため）。
 
-import type { JSX } from 'react'
+import type { JSX, RefObject } from 'react'
+import { VirtualBlock } from '../VirtualBlock'
+import { useViewport } from '../useVirtual'
 
 export interface MediaItem {
   id: number
@@ -41,9 +43,10 @@ export function ProjectBinTab({
   onRemove,
   onDragStart,
   onDragEnd,
-  onPickLabel
+  onPickLabel,
+  onVisible
 }: {
-  bodyRef: React.Ref<HTMLDivElement>
+  bodyRef: RefObject<HTMLDivElement>
   accSec: (
     tab: string,
     key: string,
@@ -67,7 +70,12 @@ export function ProjectBinTab({
   onDragStart: (item: MediaItem, e: React.DragEvent) => void
   onDragEnd: () => void
   onPickLabel: (color: string) => void
+  /** いま見えている素材（サムネと波形は見えている物だけ用意する） */
+  onVisible?: (items: MediaItem[]) => void
 }): JSX.Element {
+  // 素材が何百件あっても、作るのは見えている行だけ。
+  // 全部作っていた頃は、別ファイル500件で1操作が 94.5ms まで落ちた。
+  const vp = useViewport(bodyRef)
   return (
     <div className="panel-body" ref={bodyRef} onDoubleClick={onAddFiles}>
       <div className="bin-toolbar">
@@ -98,8 +106,14 @@ export function ProjectBinTab({
               kind,
               `${KIND_ICO[kind]} ${KIND_LABEL[kind]}`,
               list.length,
-              <div className="media-grid">
-                {list.map((m) => (
+              <VirtualBlock
+                items={list}
+                viewport={vp}
+                className="media-grid"
+                grid={{ minWidth: 96, gap: 8 }}
+                onVisible={onVisible}
+              >
+                {(m) => (
                   <div
                     key={m.id}
                     className={`media-card ${m.path === activePath ? 'media-active' : ''} ${
@@ -136,10 +150,12 @@ export function ProjectBinTab({
                       )}
                     </div>
                     <div className="media-card-name">{m.name}</div>
-                    {m.folder && <div className="media-card-sub">📁 {m.folder}</div>}
+                    {/* フォルダ名は空でも場所を取る。高さが揃っていないと、
+                        見えていない行ぶんの空きと中身がずれる */}
+                    <div className="media-card-sub">{m.folder ? `📁 ${m.folder}` : ''}</div>
                   </div>
-                ))}
-              </div>
+                )}
+              </VirtualBlock>
             )
           })}
         </div>
