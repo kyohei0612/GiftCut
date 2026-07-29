@@ -823,7 +823,14 @@ app.whenReady().then(() => {
   // ※効果音ラボ由来のため配布ビルドにはSEフォルダを含めない（無ければ空を返す）。
   ipcMain.handle('se:list', () => {
     const AUDIO = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac']
-    const candidates = [join(process.cwd(), 'SE'), join(app.getAppPath(), 'SE')]
+    // 置き場。**userData も見る**のは、配布物では起動のされ方で cwd が変わるため
+    // （ショートカットから開くと、アプリのフォルダとは限らない）。
+    // 渡した相手に「ここへ入れて」と言える固定の場所が要る。
+    const candidates = [
+      join(process.cwd(), 'SE'),
+      join(app.getAppPath(), 'SE'),
+      join(app.getPath('userData'), 'SE')
+    ]
     const root = candidates.find((r) => existsSync(r))
     if (!root) return { ok: false, items: [] as { category: string; name: string; path: string }[] }
     const items: { category: string; name: string; path: string }[] = []
@@ -861,7 +868,12 @@ app.whenReady().then(() => {
 
   // ローカルのテロップテンプレ集（GiftCut/telop-presets/*.json）。Geba等・配布に含めない。
   ipcMain.handle('telop:presets', () => {
-    const candidates = [join(process.cwd(), 'telop-presets'), join(app.getAppPath(), 'telop-presets')]
+    // SE と同じ理由で userData も見る（起動のされ方に左右されない置き場）
+    const candidates = [
+      join(process.cwd(), 'telop-presets'),
+      join(app.getAppPath(), 'telop-presets'),
+      join(app.getPath('userData'), 'telop-presets')
+    ]
     const root = candidates.find((r) => existsSync(r))
     if (!root) return { ok: false, items: [] as unknown[] }
     const items: unknown[] = []
@@ -1152,10 +1164,38 @@ app.whenReady().then(() => {
   })
 
   // ---- プロジェクトテンプレート（GiftCut/テンプレート/*.gcproj）----
-  const templatesRoot = (): string => {
-    const cands = [join(process.cwd(), 'テンプレート'), join(app.getAppPath(), 'テンプレート')]
-    return cands.find((r) => existsSync(r)) || cands[0]
+  //
+  // 置き場は複数ある。**読むのは全部から、書くのは1つへ。**
+  //
+  //   開発フォルダ … 開発中はここに本物がある
+  //   resources/   … **配布物に同梱したぶん**（電子ビルダーがここへ置く）
+  //   userData/    … 渡した相手が自分で作ったぶん（同梱先は書けないことがある）
+  //
+  // resources を見ていなかったため、**同梱したのに相手のPCでは一覧が空**だった。
+  // 開発機は cwd に本物があるので気づけない（プロキシ・OpenH264 と同じ型の穴）。
+  const templateRoots = (): string[] => {
+    const cands = [
+      join(process.cwd(), 'テンプレート'),
+      join(app.getAppPath(), 'テンプレート'),
+      join(process.resourcesPath ?? '', 'テンプレート'),
+      join(app.getPath('userData'), 'テンプレート')
+    ]
+    // 同じ場所を2回読まない（開発中は cwd と appPath が同じになる）
+    const seen = new Set<string>()
+    return cands.filter((r) => {
+      if (!r || !existsSync(r)) return false
+      const k = normalize(r).toLowerCase()
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
   }
+  const templatesRoot = (): string => templateRoots()[0] || join(process.cwd(), 'テンプレート')
+  /** 自分で作ったテンプレートの書き込み先。同梱先は読み取り専用のことがあるので逃げ場を持つ */
+  const templateWriteRoot = (): string =>
+    app.isPackaged
+      ? join(app.getPath('userData'), 'テンプレート')
+      : join(process.cwd(), 'テンプレート')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const allowProjectMedia = (data: any): boolean => {
     let videoExists = false
@@ -1206,12 +1246,18 @@ app.whenReady().then(() => {
     return videoExists
   }
   ipcMain.handle('template:list', () => {
-    const root = templatesRoot()
-    if (!existsSync(root)) return { ok: true, items: [] as { name: string; path: string }[] }
     try {
-      const items = readdirSync(root)
-        .filter((f) => /\.(gcproj|json)$/i.test(f))
-        .map((f) => ({ name: f.replace(/\.(gcproj|json)$/i, ''), path: join(root, f) }))
+      const items: { name: string; path: string }[] = []
+      const seen = new Set<string>()
+      for (const root of templateRoots()) {
+        for (const f of readdirSync(root)) {
+          if (!/\.(gcproj|json)$/i.test(f)) continue
+          const name = f.replace(/\.(gcproj|json)$/i, '')
+          if (seen.has(name)) continue // 同じ名前は先に見つけた方（自分で作ったぶんが勝つ）
+          seen.add(name)
+          items.push({ name, path: join(root, f) })
+        }
+      }
       return { ok: true, items }
     } catch (e) {
       return { ok: false, items: [] as { name: string; path: string }[], error: String(e) }
@@ -1219,7 +1265,7 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('template:save', (_e, name: string, json: string) => {
     try {
-      const root = templatesRoot()
+      const root = templateWriteRoot()
       mkdirSync(root, { recursive: true })
       const safe = (String(name || 'テンプレート').replace(/[\\/:*?"<>|]/g, '_').trim() || 'テンプレート')
       const p = join(root, safe + '.gcproj')
@@ -1231,9 +1277,11 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('template:load', (_e, path: string) => {
     try {
-      const root = normalize(templatesRoot())
+      // 置き場が複数あるので、**どれかの下にあれば通す**（1つだけ見ていると、
+      // 同梱ぶんを開こうとして「不正なパス」で弾かれる）
       const p = normalize(String(path))
-      if (!p.startsWith(root)) return { ok: false, error: '不正なパス' }
+      const roots = [...templateRoots(), templateWriteRoot()].map((r) => normalize(r))
+      if (!roots.some((r) => p.startsWith(r))) return { ok: false, error: '不正なパス' }
       const data = JSON.parse(readFileSync(p, 'utf-8'))
       const videoExists = allowProjectMedia(data)
       return { ok: true, path: p, data, videoExists }

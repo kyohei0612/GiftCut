@@ -44,7 +44,14 @@ for (const d of ['SE', 'telop-presets']) {
 
 console.log('配布物を起動します…')
 const userData = mkdtempSync(join(tmpdir(), 'giftcut-pack-'))
-const app = await electron.launch({ executablePath: APP, args: [`--user-data-dir=${userData}`] })
+// **作業フォルダを配布物の中にする。** ここを開発フォルダのままにすると、
+// アプリが開発中の SE/ テロップ素材/ テンプレート/ を拾ってしまい、
+// 「相手のPCでは空になる」問題を見逃す（実際に見逃していた）。
+const app = await electron.launch({
+  executablePath: APP,
+  cwd: join(ROOT, 'dist', 'win-unpacked'),
+  args: [`--user-data-dir=${userData}`]
+})
 let page
 try {
   page = await app.firstWindow()
@@ -78,6 +85,22 @@ try {
   gen === 'ok' && existsSync(media)
     ? ok('同梱の ffmpeg で焼ける（GPUの無いPCでも書き出せる）')
     : ng(`同梱の ffmpeg で焼けない: ${gen}`)
+
+  // 同梱したテンプレートが、渡した相手の画面に本当に出るか。
+  //
+  // **入っている＝見つかる、ではない。** 実際、置き場は resources/ なのに
+  // アプリは cwd と app.asar しか見ておらず、同梱したのに一覧が空だった。
+  // 開発機は cwd に本物のフォルダがあるので、起動しても気づけない。
+  const tpl = await page.evaluate(() => window.giftcut.listTemplates())
+  tpl?.ok && (tpl.items?.length ?? 0) > 0
+    ? ok(`同梱のテンプレートが見える（${tpl.items.length}件）`)
+    : ng(`同梱のテンプレートが見えない（相手の画面では一覧が空になる）: ${JSON.stringify(tpl)}`)
+
+  // 配ってはいけない素材が、配布物から読めてしまわないか（入っていないことの裏取り）
+  const pre = await page.evaluate(() => window.giftcut.listTelopPresets())
+  ;(pre?.items?.length ?? 0) === 0
+    ? ok('再配布禁止のテロップ素材は入っていない')
+    : ng(`配布物からテロップ素材が読めてしまう（${pre.items.length}件）`)
 } catch (e) {
   ng(`起動して確かめられなかった: ${String(e.message).split('\n')[0]}`)
 } finally {
