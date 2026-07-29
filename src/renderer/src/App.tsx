@@ -80,6 +80,7 @@ import { TimelineToolbar } from './components/timeline/TimelineToolbar'
 import { TrackHeaders } from './components/timeline/TrackHeaders'
 import { ClipBand } from './components/timeline/ClipBand'
 import { TelopAnimBand } from './components/timeline/TelopAnimBand'
+import { TimeRuler, HoverGuide, Marquee, MarkerFlags, Playhead } from './components/timeline/Ruler'
 import type { Adjust, Crop } from './components/panels/PropertyRows'
 import { SeLibraryTab, seMoveTarget } from './components/panels/SeLibraryTab'
 import { IconLibraryTab, ICON_LIB } from './components/panels/IconLibraryTab'
@@ -117,6 +118,8 @@ import {
   type SplitSeg
 } from '../../shared/timeline'
 import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
+// 書き出しに渡す中身の組み立て（画面に依らない・単体で確かめてある）
+import { buildExportPayload } from '../../shared/exportPayload'
 // ビンの素材が使用中か（＝クリップが残っているか）の判定
 import { mediaInUse, staleSourceIds } from '../../shared/mediaBin'
 import {
@@ -8807,134 +8810,46 @@ export default function App(): JSX.Element {
       const expImgEnd = expImgs.length
         ? Math.max(...expImgs.map((c) => c.tStart + c.duration))
         : 0
-      // 尺はすべて「ソース実尺でクランプ済みの切片」から算出する（書き出しと計算がズレないように）
-      const clampedSegs = segments.map((s) =>
-        s.gap ? s : { ...s, srcEnd: Math.min(s.srcEnd, srcOfSeg(s)?.duration || s.srcEnd) }
-      )
-      const clampedTLen = totalSegLen(clampedSegs)
-      const expVc = vClips
-      const expVcEnd = expVc.length
-        ? Math.max(...expVc.map((c) => c.tStart + Math.max(0.05, c.srcEnd - c.srcStart)))
+      const expVcEnd = vClips.length
+        ? Math.max(...vClips.map((c) => c.tStart + Math.max(0.05, c.srcEnd - c.srcStart)))
         : 0
-      const extendSec = Math.max(0, Math.max(cueEnd, seEnd, expImgEnd, expVcEnd) - clampedTLen)
-      // 進捗%算出用の出力尺 = 残った切片の合計（速度反映）+ 引き伸ばし分
-      const outDurSec = clampedTLen + extendSec
-      const exportLayout = layoutSegs(clampedSegs)
-      // マルチソース: 入力に使う元動画一覧と、各切片→入力index の対応
+      // マルチソース: 入力に使う元動画一覧（切片の srcId はこの並びの番号に直る）
       const srcList = sourcesRef.current.length
         ? sourcesRef.current
         : videoPath
           ? [{ id: 0, path: videoPath }]
           : []
-      const srcIdxOf = (seg: VSeg): number => {
-        if (seg.srcId == null) return 0
-        const i = srcList.findIndex((s) => s.id === seg.srcId)
-        return i < 0 ? 0 : i
-      }
 
-      const res = await window.giftcut.exportVideo({
+      // 渡す中身の組み立ては shared/exportPayload（画面を起動せずに確かめられる）。
+      // 「見えていない物は焼かない」「重なりは下から」「等倍・無調整は渡さない」
+      // といった決まりはそちらに書いてある。
+      const payload = buildExportPayload({
         videoPath,
-        sources: srcList.map((s) => ({ path: s.path })),
-        width: size.width,
-        height: size.height,
+        sources: srcList,
+        size,
         frames,
-        extendSec,
-        // カットを反映: 残っている切片のソース範囲を連結（muted=消音, videoBlank=黒映像）
-        // xfade はここで実効長にクランプして渡す（main側は信じて使うだけ）
-        segments: clampedSegs.map((s, i) => {
-          const d = xfadeDurAt(exportLayout, i)
-          return {
-            srcIdx: srcIdxOf(s),
-            srcStart: s.srcStart,
-            srcEnd: s.srcEnd, // clampedSegs で既にソース実尺へクランプ済み（ギャップは対象外）
-            muted: !!s.muted,
-            // V1 の 👁 非表示はプレビューで真っ黒になるので、書き出しも同じにする
-            videoBlank: !!s.videoBlank || v1Hidden,
-            speed: segSpeed(s),
-            transIn: s.transIn,
-            transOut: s.transOut,
-            xfade: d > 0 ? { type: s.xfade?.type ?? 'fade', dur: d } : undefined,
-            adjust: isNeutralAdjust(s.adjust) ? undefined : s.adjust,
-            rotate: s.rotate,
-            flipH: s.flipH,
-            flipV: s.flipV,
-            vol: s.vol,
-            afadeIn: s.afadeIn,
-            afadeOut: s.afadeOut,
-            zoom: isNeutralZoom(s.zoom) ? undefined : s.zoom,
-            crop: isNeutralCrop(s.crop) ? undefined : s.crop
-          }
-        }),
-        // SE/BGM を位置・音量で焼き込み（各トラック音量×マスターを合成）
-        seClips: seClips.map((c) => ({
-          path: c.path,
-          tStart: c.tStart,
-          duration: c.duration,
-          srcOffset: c.srcOffset,
-          volume: clamp(c.volume * audioTrackGainForExport(c.track), 0, 4),
-          fadeIn: c.fadeIn,
-          fadeOut: c.fadeOut,
-          // 声に合わせて下げる指定。プレビューで使っているのと同じ折れ線を式にして渡す
-          duckExpr: c.duck && duckEnv.length ? envToFfmpegExpr(duckEnv) : undefined
-        })),
-        // 映像レイヤー（V2以降の動画）。下のトラックから順に重ねる＝上のトラックが前面。
-        // 音声はクリップ音量×トラックゲイン×フェードを焼き込む。
-        // 👁非表示は映像だけ消す（不透明度0）。音声は残す＝プレビューと同じ挙動。
-        vClips: vClips
-          .map((c) => (trackStates[c.track]?.hidden ? { ...c, opacity: 0 } : c))
-          .slice()
-          .sort(
-            (a, b) =>
-              tracks.findIndex((t) => t.id === b.track) - tracks.findIndex((t) => t.id === a.track)
-          )
-          .map((c) => ({
-            path: c.path,
-            tStart: c.tStart,
-            srcStart: c.srcStart,
-            srcEnd: c.srcEnd,
-            zoom: isNeutralZoom(c.zoom) ? undefined : c.zoom,
-            rotate: c.rotate,
-            flipH: c.flipH,
-            flipV: c.flipV,
-            opacity: c.opacity != null && c.opacity < 1 ? c.opacity : undefined,
-            adjust: isNeutralAdjust(c.adjust) ? undefined : c.adjust,
-            crop: isNeutralCrop(c.crop) ? undefined : c.crop,
-            volume: c.muted
-              ? 0
-              : clamp((c.vol ?? 1) * audioTrackGainForExport('A' + trackNum(c.track)), 0, 4),
-            fadeIn: c.afadeIn,
-            fadeOut: c.afadeOut
-          })),
-        // 画像クリップ（表示中トラックのみ焼き込み。テロップの下に重ねる）。
-        // 下のトラックから順に overlay＝上のトラック(V3)が前面（プレビューと同じ重なり順）。
-        images: imgClips
-          .filter((c) => !trackStates[c.track]?.hidden)
-          .slice()
-          .sort(
-            (a, b) =>
-              tracks.findIndex((t) => t.id === b.track) - tracks.findIndex((t) => t.id === a.track)
-          )
-          .map((c) => ({
-            path: c.path,
-            tStart: c.tStart,
-            duration: c.duration,
-            zoom: isNeutralZoom(c.zoom) ? undefined : c.zoom,
-            rotate: c.rotate,
-            flipH: c.flipH,
-            flipV: c.flipV,
-            opacity: c.opacity != null && c.opacity < 1 ? c.opacity : undefined,
-            adjust: isNeutralAdjust(c.adjust) ? undefined : c.adjust,
-            crop: isNeutralCrop(c.crop) ? undefined : c.crop
-          })),
-        // メイン音声(A1)トラックのゲイン×マスター
-        baseAudioVolume: audioTrackGainForExport('A1'),
-        // ラウドネス正規化（null=OFF）
+        segments,
+        seClips,
+        vClips,
+        imgClips,
+        tracks,
+        hidden: (id) => !!trackStates[id]?.hidden,
+        v1Hidden,
+        gainOf: audioTrackGainForExport,
+        speedOf: (seg) => segSpeed(seg as VSeg),
+        srcDurationOf: (seg) => srcOfSeg(seg as VSeg)?.duration || undefined,
+        xfadeDurAt: (segs, i) => xfadeDurAt(layoutSegs(segs as VSeg[]), i),
+        totalLen: (segs) => totalSegLen(segs as VSeg[]),
+        duckExpr: duckEnv.length ? envToFfmpegExpr(duckEnv) : undefined,
         loudnormLUFS,
-        totalDurationSec: outDurSec,
-        // 書き出し設定（'素材と同じ' はここで実数に解決してから渡す）
         fps: resolveExportFps(),
-        crf
+        crf,
+        // 本編より後ろに置かれている物（ここまで伸ばして黒＋無音で埋める）
+        tailEnds: [cueEnd, seEnd, expImgEnd, expVcEnd]
       })
+      const res = await window.giftcut.exportVideo(
+        payload as unknown as Parameters<typeof window.giftcut.exportVideo>[0]
+      )
       setExportStatus(null)
       setExportPct(null)
       if (res?.ok) showToast('書き出しが完了しました\n' + res.outPath, 'success')
@@ -11047,92 +10962,34 @@ export default function App(): JSX.Element {
                 }}
                 onPointerLeave={() => setHoverX(null)}
               >
-                {/* ルーラー（ドラッグでスクラブ） */}
-                <div className="ruler" onPointerDown={startScrub}>
-                  {rulerTicks.map((t, i) => (
-                    <div
-                      key={i}
-                      className={`tick ${t.major ? 'tick-major' : 'tick-minor'}`}
-                      style={{ left: t.left }}
-                    >
-                      {t.label && <span>{t.label}</span>}
-                    </div>
-                  ))}
-                </div>
-
-                {/* ホバーガイド線 */}
-                {hoverX != null && (
-                  <div className="hover-line" style={{ left: hoverX }}>
-                    <span className="hover-time">{formatTime(hoverX / zoom)}</span>
-                  </div>
-                )}
-
+                {/* 物差しまわり（目盛り・ホバー線・投げ縄・めじるし・再生ヘッド）は
+                    components/timeline/Ruler.tsx。どれも「時間×拡大率＝横位置」で置くだけ。 */}
+                <TimeRuler ticks={rulerTicks} onScrub={startScrub} />
+                {hoverX != null && <HoverGuide x={hoverX} label={formatTime(hoverX / zoom)} />}
                 {/* スナップの吸着線は表示しない（ピンクの縦線が再生ヘッドと紛らわしく邪魔なので）。
                     吸着の挙動自体は有効。 */}
-
-                {/* マーキー（範囲選択） */}
                 {marquee && (
-                  <div
-                    className="marquee"
-                    style={{
-                      left: Math.min(marquee.x0, marquee.x1),
-                      top: Math.min(marquee.y0, marquee.y1),
-                      width: Math.abs(marquee.x1 - marquee.x0),
-                      height: Math.abs(marquee.y1 - marquee.y0)
-                    }}
-                  />
+                  <Marquee x0={marquee.x0} y0={marquee.y0} x1={marquee.x1} y1={marquee.y1} />
                 )}
+                <MarkerFlags
+                  markers={markers.filter((mk) => inView(mk.t, mk.t))}
+                  zoom={zoom}
+                  selectedId={selectedMarkerId}
+                  editingId={editingMarkerId}
+                  timeLabel={(t) => formatTimecode(t, fps)}
+                  onPointerDown={onMarkerPointerDown}
+                  onStartRename={(id) => {
+                    setSelectedMarkerId(id)
+                    setEditingMarkerId(id)
+                  }}
+                  onRename={(id, label) => {
+                    setMarkers((prev) => prev.map((m) => (m.id === id ? { ...m, label } : m)))
+                    setEditingMarkerId(null)
+                  }}
+                  onCancelRename={() => setEditingMarkerId(null)}
+                />
 
-                {/* マーカー（頭出し/メモ）: ルーラーの旗＋タイムライン縦線 */}
-                {markers.filter((mk) => inView(mk.t, mk.t)).map((mk) => (
-                  <div
-                    key={mk.id}
-                    className={`marker ${selectedMarkerId === mk.id ? 'marker-sel' : ''}`}
-                    style={{ left: mk.t * zoom }}
-                  >
-                    <div className="marker-line" />
-                    <div
-                      className="marker-flag"
-                      title={`${formatTimecode(mk.t, fps)}${mk.label ? '：' + mk.label : ''}（クリックで頭出し / ドラッグで移動 / ダブルクリックで名前 / Delete で削除）`}
-                      onPointerDown={(e) => onMarkerPointerDown(mk, e)}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedMarkerId(mk.id)
-                        setEditingMarkerId(mk.id)
-                      }}
-                    >
-                      🚩
-                    </div>
-                    {mk.label && editingMarkerId !== mk.id && (
-                      <span className="marker-label">{mk.label}</span>
-                    )}
-                    {editingMarkerId === mk.id && (
-                      <input
-                        className="marker-input"
-                        autoFocus
-                        defaultValue={mk.label}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onBlur={(e) => {
-                          const v = e.target.value.trim()
-                          setMarkers((prev) =>
-                            prev.map((m) => (m.id === mk.id ? { ...m, label: v } : m))
-                          )
-                          setEditingMarkerId(null)
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                          else if (e.key === 'Escape') setEditingMarkerId(null)
-                          e.stopPropagation()
-                        }}
-                      />
-                    )}
-                  </div>
-                ))}
-
-                {/* 再生ヘッド */}
-                <div className="playhead" style={{ left: currentTime * zoom }}>
-                  <div className="playhead-handle" onPointerDown={startScrub} />
-                </div>
+                <Playhead x={currentTime * zoom} onScrub={startScrub} />
 
                 {/* 上の余白。端に貼り付いていると足す余地が見えず窮屈に感じる */}
                 <div className="track-pad" style={{ height: padTop }} />
