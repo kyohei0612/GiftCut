@@ -74,6 +74,8 @@ import { ContextMenu } from './components/ContextMenu'
 import { TelopTemplatesTab } from './components/panels/TelopTemplatesTab'
 import { TransitionsTab } from './components/panels/TransitionsTab'
 import { ProjectBinTab } from './components/panels/ProjectBinTab'
+import { PropertiesPanel, RESET_TRANSFORM } from './components/panels/PropertiesPanel'
+import type { Adjust, Crop } from './components/panels/PropertyRows'
 import { SeLibraryTab, seMoveTarget } from './components/panels/SeLibraryTab'
 import { IconLibraryTab, ICON_LIB } from './components/panels/IconLibraryTab'
 import CropModal from './components/CropModal'
@@ -9908,681 +9910,201 @@ export default function App(): JSX.Element {
         <div className="upper">
           <PaneHost id="left" title={PANE_LABEL.left} popped={isPopped('left')}
             geom={paneGeom.left} onClose={() => unpopPane('left')}>
-          {/* --- 左: プロパティ --- */}
-          <section
-            className="panel"
-            style={{ width: leftW, flex: '0 0 auto' }}
-          >
+          {/* --- 左: プロパティ --- 中身は components/panels/PropertiesPanel.tsx。
+              出す物は「いま選んでいる種類」で決まる。優先順はここで決めて、
+              該当する1つだけを渡す（テロップ → 効果音 → 動画 → 音声 → 映像レイヤー → 画像）。 */}
+          <section className="panel" style={{ width: leftW, flex: '0 0 auto' }}>
             <div className="panel-tabs">
               <span className="tab tab-on">プロパティ</span>
             </div>
-            <div className="panel-body">
-              {selected ? (
-                <>
-                  {selectedIds.length > 1 && (
-                    <div className="multi-banner">
-                      {selectedIds.length}個をまとめて編集中（スタイル・アイコンは全てに適用）
-                    </div>
-                  )}
-                  <label className="field-label">テロップ テキスト</label>
-                  <textarea
-                    className="text-input"
-                    value={selected.text}
-                    onChange={(e) => updateSelectedText(e.target.value)}
-                    rows={Math.max(1, selected.text.split('\n').length)}
-                  />
-                  <StylePanel
-                    style={panelStyleFor(selected)}
-                    onChange={updateSelectedStyle}
-                    presets={userTemplates}
-                    onSavePreset={savePreset}
-                    onApplyPreset={applyTemplate}
-                    label={selected.label}
-                    iconOn={iconForCue(selected) !== undefined}
-                    onToggleIcon={setPersonIconForSelected}
-                    currentIconImage={iconForCue(selected)}
-                    onOpenIconSettings={() => setIconSettingsOpen(true)}
-                    iconScale={iconScale}
-                    onIconScaleChange={setIconScale}
-                    iconAuto={iconAuto}
-                    onIconAutoChange={changeIconAuto}
-                    iconSide={iconSide}
-                    onIconSideChange={setIconSide}
-                    iconOffset={iconOffset}
-                    onIconOffsetChange={setIconOffset}
-                    onAlign={alignTelop}
-                    onBoxAnchor={setBoxAnchor}
-                    onClearBox={clearBox}
-                  />
-                </>
-              ) : selectedSeIds.length ? (
-                (() => {
-                  const se = seClips.find((c) => c.id === selectedSeIds[0])
-                  if (!se) return null
-                  return (
-                    <>
-                      <label className="field-label">
-                        {se.track === 'A2' ? 'SE（効果音）' : 'オーディオクリップ'}
-                      </label>
-                      <div className="time-val" style={{ marginBottom: 8 }}>
-                        🔊 {se.name}
-                        {selectedSeIds.length > 1 && `（他${selectedSeIds.length - 1}個も一緒に）`}
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">音量</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={200}
-                          step={2}
-                          value={Math.round(se.volume * 100)}
-                          onChange={(e) => updateSelectedSE({ volume: Number(e.target.value) / 100 })}
-                        />
-                        <span className="sp-val">{Math.round(se.volume * 100)}%</span>
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">フェードイン</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={Math.max(0.5, se.duration).toFixed(2)}
-                          step={0.05}
-                          value={se.fadeIn}
-                          onChange={(e) => updateSelectedSE({ fadeIn: Number(e.target.value) })}
-                        />
-                        <span className="sp-val">{se.fadeIn.toFixed(2)}s</span>
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">フェードアウト</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={Math.max(0.5, se.duration).toFixed(2)}
-                          step={0.05}
-                          value={se.fadeOut}
-                          onChange={(e) => updateSelectedSE({ fadeOut: Number(e.target.value) })}
-                        />
-                        <span className="sp-val">{se.fadeOut.toFixed(2)}s</span>
-                      </div>
-                    </>
-                  )
-                })()
-              ) : selectedVideoIds.length ? (
-                (() => {
-                  const seg = segments.find((s) => s.id === selectedVideoIds[0])
-                  const cur = seg ? segSpeed(seg) : 1
-                  return (
-                    <>
-                      <label className="field-label">
-                        動画クリップ
-                        {selectedVideoIds.length > 1 && `（${selectedVideoIds.length}個）`}
-                      </label>
-                      <div className="sp-row">
-                        <span className="sp-label">再生速度</span>
-                      </div>
-                      <div className="seg seg-wide">
-                        {[0.5, 0.75, 1, 1.25, 1.5, 2].map((sp) => (
-                          <button
-                            key={sp}
-                            className={`seg-btn ${Math.abs(cur - sp) < 1e-3 ? 'seg-on' : ''}`}
-                            onClick={() => setSelectedSegSpeed(sp)}
-                          >
-                            {sp}x
-                          </button>
-                        ))}
-                      </div>
-                      <div className="tpl-hint" style={{ marginTop: 8 }}>
-                        速くするとクリップが短くなり、後ろのテロップ・SE・画像・マーカー・映像レイヤーも一緒にずれます。
-                      </div>
-                      {/* 色調整（明るさ/コントラスト/彩度）。選択クリップに反映 */}
-                      {(() => {
-                        const a = seg?.adjust ?? DEFAULT_ADJUST
-                        const rows: { key: 'b' | 'c' | 's'; label: string }[] = [
-                          { key: 'b', label: '明るさ' },
-                          { key: 'c', label: 'コントラスト' },
-                          { key: 's', label: '彩度' }
-                        ]
-                        return (
-                          <>
-                            <label className="field-label" style={{ marginTop: 12 }}>
-                              色調整
-                            </label>
-                            {rows.map((r) => (
-                              <div className="sp-row" key={r.key}>
-                                <span className="sp-label">{r.label}</span>
-                                <input
-                                  type="range"
-                                  min={0}
-                                  max={2}
-                                  step={0.02}
-                                  value={a[r.key]}
-                                  onChange={(e) =>
-                                    setSelectedAdjust({ [r.key]: Number(e.target.value) })
-                                  }
-                                />
-                                <span className="sp-val">{a[r.key].toFixed(2)}</span>
-                              </div>
-                            ))}
-                            <button
-                              className="btn small"
-                              onClick={() => setSelectedAdjust(null)}
-                              style={{ marginTop: 4 }}
-                            >
-                              色調整をリセット
-                            </button>
-                          </>
-                        )
-                      })()}
-                      {/* 変形（回転・反転） */}
-                      <label className="field-label" style={{ marginTop: 12 }}>
-                        変形
-                      </label>
-                      <div className="seg seg-wide">
-                        <button className="seg-btn" onClick={rotateSelectedSeg} title="90°回転">
-                          ↻ 回転{seg?.rotate ? `（${seg.rotate}°）` : ''}
-                        </button>
-                        <button
-                          className={`seg-btn ${seg?.flipH ? 'seg-on' : ''}`}
-                          onClick={() => flipSelectedSeg('h')}
-                          title="左右反転"
-                        >
-                          ⇄ 左右
-                        </button>
-                        <button
-                          className={`seg-btn ${seg?.flipV ? 'seg-on' : ''}`}
-                          onClick={() => flipSelectedSeg('v')}
-                          title="上下反転"
-                        >
-                          ⇅ 上下
-                        </button>
-                      </div>
-                      {/* クロップ（切り抜き）。各辺を内側へ切り込む。切った領域は黒。 */}
-                      <label className="field-label" style={{ marginTop: 12 }}>
-                        クロップ（切り抜き）
-                      </label>
-                      {(
-                        [
-                          { key: 'l', label: '左' },
-                          { key: 'r', label: '右' },
-                          { key: 't', label: '上' },
-                          { key: 'b', label: '下' }
-                        ] as const
-                      ).map((r) => {
-                        const cr = seg?.crop ?? DEFAULT_CROP
-                        const v = cr[r.key]
-                        return (
-                          <div className="sp-row" key={r.key}>
-                            <span className="sp-label">{r.label}</span>
-                            <input
-                              type="range"
-                              min={0}
-                              max={90}
-                              step={1}
-                              value={Math.round(v * 100)}
-                              onChange={(e) =>
-                                setSelectedCrop({ [r.key]: Number(e.target.value) / 100 })
-                              }
+            {(() => {
+              const se = selectedSeIds.length
+                ? seClips.find((c) => c.id === selectedSeIds[0])
+                : undefined
+              const vseg = selectedVideoIds.length
+                ? segments.find((s) => s.id === selectedVideoIds[0])
+                : undefined
+              const aseg = selectedAudioIds.length
+                ? segments.find((s) => s.id === selectedAudioIds[0])
+                : undefined
+              const vc = selectedVClipIds.length
+                ? vClips.find((c) => c.id === selectedVClipIds[0])
+                : undefined
+              const im = selectedImgIds.length
+                ? imgClips.find((c) => c.id === selectedImgIds[0])
+                : undefined
+              const vcLen = vc ? Math.max(0.05, vc.srcEnd - vc.srcStart) : 0
+              return (
+                <PropertiesPanel
+                  multiCount={selectedIds.length}
+                  telop={
+                    selected
+                      ? {
+                          text: selected.text,
+                          onText: updateSelectedText,
+                          stylePanel: (
+                            <StylePanel
+                              style={panelStyleFor(selected)}
+                              onChange={updateSelectedStyle}
+                              presets={userTemplates}
+                              onSavePreset={savePreset}
+                              onApplyPreset={applyTemplate}
+                              label={selected.label}
+                              iconOn={iconForCue(selected) !== undefined}
+                              onToggleIcon={setPersonIconForSelected}
+                              currentIconImage={iconForCue(selected)}
+                              onOpenIconSettings={() => setIconSettingsOpen(true)}
+                              iconScale={iconScale}
+                              onIconScaleChange={setIconScale}
+                              iconAuto={iconAuto}
+                              onIconAutoChange={changeIconAuto}
+                              iconSide={iconSide}
+                              onIconSideChange={setIconSide}
+                              iconOffset={iconOffset}
+                              onIconOffsetChange={setIconOffset}
+                              onAlign={alignTelop}
+                              onBoxAnchor={setBoxAnchor}
+                              onClearBox={clearBox}
                             />
-                            <span className="sp-val">{Math.round(v * 100)}%</span>
-                          </div>
-                        )
-                      })}
-                      <button
-                        className="btn small"
-                        onClick={() => setSelectedCrop(null)}
-                        style={{ marginTop: 4 }}
-                      >
-                        クロップをリセット
-                      </button>
-                    </>
-                  )
-                })()
-              ) : selectedAudioIds.length ? (
-                (() => {
-                  const seg = segments.find((s) => s.id === selectedAudioIds[0])
-                  const len = seg ? segTLen(seg) : 1
-                  const vol = seg?.vol ?? 1
-                  return (
-                    <>
-                      <label className="field-label">
-                        音声クリップ
-                        {selectedAudioIds.length > 1 && `（${selectedAudioIds.length}個）`}
-                      </label>
-                      <div className="sp-row">
-                        <span className="sp-label">音量</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={2}
-                          step={0.02}
-                          value={vol}
-                          onChange={(e) => setSelectedAudio({ vol: Number(e.target.value) })}
-                        />
-                        <span className="sp-val">{Math.round(vol * 100)}%</span>
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">フェードイン</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={Math.max(0.5, len).toFixed(2)}
-                          step={0.05}
-                          value={seg?.afadeIn ?? 0}
-                          onChange={(e) => setSelectedAudio({ afadeIn: Number(e.target.value) })}
-                        />
-                        <span className="sp-val">{(seg?.afadeIn ?? 0).toFixed(2)}s</span>
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">フェードアウト</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={Math.max(0.5, len).toFixed(2)}
-                          step={0.05}
-                          value={seg?.afadeOut ?? 0}
-                          onChange={(e) => setSelectedAudio({ afadeOut: Number(e.target.value) })}
-                        />
-                        <span className="sp-val">{(seg?.afadeOut ?? 0).toFixed(2)}s</span>
-                      </div>
-                      <div className="seg seg-wide" style={{ marginTop: 8 }}>
-                        <button
-                          className={`seg-btn ${seg?.muted ? 'seg-on' : ''}`}
-                          onClick={toggleMuteSelectedSegments}
-                          title="このクリップの音だけを消す（映像と長さは残す）"
-                        >
-                          🔇 消音
-                        </button>
-                      </div>
-                      <div className="tpl-hint" style={{ marginTop: 8 }}>
-                        D / Delete はクリップを削除して後ろを詰めます。音だけ消したいときは上の「消音」。
-                      </div>
-                    </>
-                  )
-                })()
-              ) : selectedVClipIds.length ? (
-                (() => {
-                  const vc = vClips.find((c) => c.id === selectedVClipIds[0])
-                  if (!vc) return null
-                  const vz = vc.zoom ?? DEFAULT_ZOOM
-                  const va = vc.adjust ?? DEFAULT_ADJUST
-                  const vcr = vc.crop ?? DEFAULT_CROP
-                  const len = Math.max(0.05, vc.srcEnd - vc.srcStart)
-                  return (
-                    <>
-                      <label className="field-label">映像レイヤー（{vc.track}）</label>
-                      <div className="time-val" style={{ marginBottom: 8 }}>
-                        🎬 {vc.name}
-                        {selectedVClipIds.length > 1 &&
-                          `（他${selectedVClipIds.length - 1}個も一緒に）`}
-                      </div>
-                      <div className="tpl-hint" style={{ marginBottom: 8 }}>
-                        音声は {pairedAudioOf(vc.track)} に連動（長さ {formatTime(len)}）
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">拡大</span>
-                        <input
-                          type="range"
-                          min={20}
-                          max={800}
-                          step={1}
-                          value={Math.round(vz.scale * 100)}
-                          onChange={(e) =>
-                            setVClipZoom(vc.id, { ...vz, scale: Number(e.target.value) / 100 })
-                          }
-                        />
-                        <span className="sp-val">{Math.round(vz.scale * 100)}%</span>
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">不透明度</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={Math.round((vc.opacity ?? 1) * 100)}
-                          onChange={(e) =>
-                            updateSelectedVClip({ opacity: Number(e.target.value) / 100 })
-                          }
-                        />
-                        <span className="sp-val">{Math.round((vc.opacity ?? 1) * 100)}%</span>
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">音量</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={2}
-                          step={0.02}
-                          value={vc.vol ?? 1}
-                          onChange={(e) => updateSelectedVClip({ vol: Number(e.target.value) })}
-                        />
-                        <span className="sp-val">{Math.round((vc.vol ?? 1) * 100)}%</span>
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">フェードイン</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={Math.max(0.5, len).toFixed(2)}
-                          step={0.05}
-                          value={vc.afadeIn ?? 0}
-                          onChange={(e) => updateSelectedVClip({ afadeIn: Number(e.target.value) })}
-                        />
-                        <span className="sp-val">{(vc.afadeIn ?? 0).toFixed(2)}s</span>
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">フェードアウト</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={Math.max(0.5, len).toFixed(2)}
-                          step={0.05}
-                          value={vc.afadeOut ?? 0}
-                          onChange={(e) =>
-                            updateSelectedVClip({ afadeOut: Number(e.target.value) })
-                          }
-                        />
-                        <span className="sp-val">{(vc.afadeOut ?? 0).toFixed(2)}s</span>
-                      </div>
-                      <label className="field-label" style={{ marginTop: 12 }}>
-                        変形
-                      </label>
-                      <div className="seg seg-wide">
-                        <button
-                          className="seg-btn"
-                          title="90°回転"
-                          onClick={() => {
-                            const next = (Math.round((vc.rotate ?? 0) / 90) * 90 + 90) % 360
-                            updateSelectedVClip({ rotate: next === 0 ? undefined : next })
-                          }}
-                        >
-                          ↻ 回転{vc.rotate ? `（${Math.round(vc.rotate)}°）` : ''}
-                        </button>
-                        <button
-                          className={`seg-btn ${vc.flipH ? 'seg-on' : ''}`}
-                          onClick={() => updateSelectedVClip({ flipH: !vc.flipH })}
-                          title="左右反転"
-                        >
-                          ⇄ 左右
-                        </button>
-                        <button
-                          className={`seg-btn ${vc.flipV ? 'seg-on' : ''}`}
-                          onClick={() => updateSelectedVClip({ flipV: !vc.flipV })}
-                          title="上下反転"
-                        >
-                          ⇅ 上下
-                        </button>
-                      </div>
-                      {/* 消音は音声の設定なので変形から出す（動画切片も音声側に置いている） */}
-                      <div className="seg seg-wide" style={{ marginTop: 6 }}>
-                        <button
-                          className={`seg-btn ${vc.muted ? 'seg-on' : ''}`}
-                          onClick={() => updateSelectedVClip({ muted: !vc.muted })}
-                          title="この映像の音だけを消す"
-                        >
-                          🔇 消音
-                        </button>
-                      </div>
-                      {/* 色調整（画像クリップ・動画切片と同じモデル） */}
-                      <label className="field-label" style={{ marginTop: 12 }}>
-                        色調整
-                      </label>
-                      {(
-                        [
-                          { key: 'b', label: '明るさ' },
-                          { key: 'c', label: 'コントラスト' },
-                          { key: 's', label: '彩度' }
-                        ] as const
-                      ).map((r) => (
-                        <div className="sp-row" key={r.key}>
-                          <span className="sp-label">{r.label}</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={2}
-                            step={0.02}
-                            value={va[r.key]}
-                            onChange={(e) => {
-                              const next = { ...va, [r.key]: Number(e.target.value) }
-                              updateSelectedVClip({
-                                adjust: isNeutralAdjust(next) ? undefined : next
-                              })
-                            }}
-                          />
-                          <span className="sp-val">{va[r.key].toFixed(2)}</span>
-                        </div>
-                      ))}
-                      {/* クロップ */}
-                      <label className="field-label" style={{ marginTop: 12 }}>
-                        クロップ（切り抜き）
-                      </label>
-                      {(
-                        [
-                          { key: 'l', label: '左' },
-                          { key: 'r', label: '右' },
-                          { key: 't', label: '上' },
-                          { key: 'b', label: '下' }
-                        ] as const
-                      ).map((r) => (
-                        <div className="sp-row" key={r.key}>
-                          <span className="sp-label">{r.label}</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={90}
-                            step={1}
-                            value={Math.round(vcr[r.key] * 100)}
-                            onChange={(e) => {
-                              const next = { ...vcr, [r.key]: Number(e.target.value) / 100 }
-                              // 対辺の合計が95%を超えないよう相手側を押し戻す（画像と同じ規則）
-                              if (next.l + next.r > 0.95)
-                                next[r.key === 'r' ? 'r' : 'l'] =
-                                  0.95 - next[r.key === 'r' ? 'l' : 'r']
-                              if (next.t + next.b > 0.95)
-                                next[r.key === 'b' ? 'b' : 't'] =
-                                  0.95 - next[r.key === 'b' ? 't' : 'b']
-                              updateSelectedVClip({ crop: isNeutralCrop(next) ? undefined : next })
-                            }}
-                          />
-                          <span className="sp-val">{Math.round(vcr[r.key] * 100)}%</span>
-                        </div>
-                      ))}
-                      <button
-                        className="btn small"
-                        style={{ marginTop: 6 }}
-                        onClick={() =>
-                          updateSelectedVClip({
-                            zoom: undefined,
-                            rotate: undefined,
-                            flipH: undefined,
-                            flipV: undefined,
-                            opacity: undefined,
-                            adjust: undefined,
-                            crop: undefined
-                          })
+                          )
                         }
-                      >
-                        変形・調整をリセット
-                      </button>
-                      <div className="tpl-hint" style={{ marginTop: 8 }}>
-                        プレビューの枠をドラッグで拡大/移動、四隅の↻で回転。Delete で削除。
-                      </div>
-                    </>
-                  )
-                })()
-              ) : selectedImgIds.length ? (
-                (() => {
-                  const im = imgClips.find((c) => c.id === selectedImgIds[0])
-                  if (!im) return null
-                  const iz = im.zoom ?? DEFAULT_ZOOM
-                  const ia = im.adjust ?? DEFAULT_ADJUST
-                  const ic = im.crop ?? DEFAULT_CROP
-                  return (
-                    <>
-                      <label className="field-label">画像クリップ</label>
-                      <div className="time-val" style={{ marginBottom: 8 }}>
-                        🖼 {im.name}
-                        {selectedImgIds.length > 1 && `（他${selectedImgIds.length - 1}個も一緒に）`}
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">長さ</span>
-                        <input
-                          type="range"
-                          min={0.2}
-                          max={30}
-                          step={0.1}
-                          value={im.duration}
-                          onChange={(e) => updateSelectedImg({ duration: Number(e.target.value) })}
-                        />
-                        <span className="sp-val">{im.duration.toFixed(2)}s</span>
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">拡大</span>
-                        <input
-                          type="range"
-                          min={20}
-                          max={800}
-                          step={1}
-                          value={Math.round(iz.scale * 100)}
-                          onChange={(e) =>
-                            setImgZoom(im.id, { ...iz, scale: Number(e.target.value) / 100 })
-                          }
-                        />
-                        <span className="sp-val">{Math.round(iz.scale * 100)}%</span>
-                      </div>
-                      <div className="sp-row">
-                        <span className="sp-label">不透明度</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={Math.round((im.opacity ?? 1) * 100)}
-                          onChange={(e) =>
-                            updateSelectedImg({ opacity: Number(e.target.value) / 100 })
-                          }
-                        />
-                        <span className="sp-val">{Math.round((im.opacity ?? 1) * 100)}%</span>
-                      </div>
-                      {/* 変形（回転・反転）: 動画切片と同じ操作 */}
-                      <label className="field-label" style={{ marginTop: 12 }}>
-                        変形
-                      </label>
-                      <div className="seg seg-wide">
-                        <button
-                          className="seg-btn"
-                          title="90°回転"
-                          onClick={() => {
-                            const next = (Math.round((im.rotate ?? 0) / 90) * 90 + 90) % 360
-                            updateSelectedImg({ rotate: next === 0 ? undefined : next })
-                          }}
-                        >
-                          ↻ 回転{im.rotate ? `（${Math.round(im.rotate)}°）` : ''}
-                        </button>
-                        <button
-                          className={`seg-btn ${im.flipH ? 'seg-on' : ''}`}
-                          onClick={() => updateSelectedImg({ flipH: !im.flipH })}
-                          title="左右反転"
-                        >
-                          ⇄ 左右
-                        </button>
-                        <button
-                          className={`seg-btn ${im.flipV ? 'seg-on' : ''}`}
-                          onClick={() => updateSelectedImg({ flipV: !im.flipV })}
-                          title="上下反転"
-                        >
-                          ⇅ 上下
-                        </button>
-                      </div>
-                      {/* 色調整 */}
-                      <label className="field-label" style={{ marginTop: 12 }}>
-                        色調整
-                      </label>
-                      {(
-                        [
-                          { key: 'b', label: '明るさ' },
-                          { key: 'c', label: 'コントラスト' },
-                          { key: 's', label: '彩度' }
-                        ] as const
-                      ).map((r) => (
-                        <div className="sp-row" key={r.key}>
-                          <span className="sp-label">{r.label}</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={2}
-                            step={0.02}
-                            value={ia[r.key]}
-                            onChange={(e) => {
-                              const next = { ...ia, [r.key]: Number(e.target.value) }
-                              updateSelectedImg({
-                                adjust: isNeutralAdjust(next) ? undefined : next
-                              })
-                            }}
-                          />
-                          <span className="sp-val">{ia[r.key].toFixed(2)}</span>
-                        </div>
-                      ))}
-                      {/* クロップ */}
-                      <label className="field-label" style={{ marginTop: 12 }}>
-                        クロップ（切り抜き）
-                      </label>
-                      {(
-                        [
-                          { key: 'l', label: '左' },
-                          { key: 'r', label: '右' },
-                          { key: 't', label: '上' },
-                          { key: 'b', label: '下' }
-                        ] as const
-                      ).map((r) => (
-                        <div className="sp-row" key={r.key}>
-                          <span className="sp-label">{r.label}</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={90}
-                            step={1}
-                            value={Math.round(ic[r.key] * 100)}
-                            onChange={(e) => {
-                              const next = { ...ic, [r.key]: Number(e.target.value) / 100 }
-                              if (next.l + next.r > 0.95)
-                                next[r.key === 'r' ? 'r' : 'l'] = 0.95 - next[r.key === 'r' ? 'l' : 'r']
-                              if (next.t + next.b > 0.95)
-                                next[r.key === 'b' ? 'b' : 't'] = 0.95 - next[r.key === 'b' ? 't' : 'b']
-                              updateSelectedImg({ crop: isNeutralCrop(next) ? undefined : next })
-                            }}
-                          />
-                          <span className="sp-val">{Math.round(ic[r.key] * 100)}%</span>
-                        </div>
-                      ))}
-                      <button
-                        className="btn small"
-                        style={{ marginTop: 6 }}
-                        onClick={() =>
-                          updateSelectedImg({
-                            zoom: undefined,
-                            rotate: undefined,
-                            flipH: undefined,
-                            flipV: undefined,
-                            opacity: undefined,
-                            adjust: undefined,
-                            crop: undefined
-                          })
+                      : null
+                  }
+                  se={
+                    !selected && se
+                      ? {
+                          name: se.name,
+                          isSe: se.track === 'A2',
+                          volume: se.volume,
+                          fadeIn: se.fadeIn,
+                          fadeOut: se.fadeOut,
+                          duration: se.duration,
+                          others: selectedSeIds.length - 1,
+                          onChange: updateSelectedSE
                         }
-                      >
-                        変形・調整をリセット
-                      </button>
-                      <div className="tpl-hint" style={{ marginTop: 8 }}>
-                        プレビューの枠をドラッグで拡大/移動、四隅の↻で回転。Delete で削除。
-                      </div>
-                    </>
-                  )
-                })()
-              ) : (
-                <div className="empty">タイムラインでクリップを選択してください</div>
-              )}
-            </div>
+                      : null
+                  }
+                  videoSeg={
+                    !selected && !se && selectedVideoIds.length
+                      ? {
+                          count: selectedVideoIds.length,
+                          speed: vseg ? segSpeed(vseg) : 1,
+                          speeds: [0.5, 0.75, 1, 1.25, 1.5, 2],
+                          adjust: vseg?.adjust ?? DEFAULT_ADJUST,
+                          crop: vseg?.crop ?? DEFAULT_CROP,
+                          rotate: vseg?.rotate,
+                          flipH: vseg?.flipH,
+                          flipV: vseg?.flipV,
+                          onSpeed: setSelectedSegSpeed,
+                          onAdjust: (next) => setSelectedAdjust(next),
+                          onCrop: (next) => setSelectedCrop(next),
+                          onRotate: rotateSelectedSeg,
+                          onFlip: flipSelectedSeg
+                        }
+                      : null
+                  }
+                  audioSeg={
+                    !selected && !se && !selectedVideoIds.length && selectedAudioIds.length
+                      ? {
+                          count: selectedAudioIds.length,
+                          vol: aseg?.vol ?? 1,
+                          fadeIn: aseg?.afadeIn ?? 0,
+                          fadeOut: aseg?.afadeOut ?? 0,
+                          length: aseg ? segTLen(aseg) : 1,
+                          muted: !!aseg?.muted,
+                          onChange: setSelectedAudio,
+                          onToggleMute: toggleMuteSelectedSegments
+                        }
+                      : null
+                  }
+                  vclip={
+                    !selected &&
+                    !se &&
+                    !selectedVideoIds.length &&
+                    !selectedAudioIds.length &&
+                    vc
+                      ? {
+                          clip: {
+                            name: vc.name,
+                            zoom: vc.zoom ?? DEFAULT_ZOOM,
+                            opacity: vc.opacity ?? 1,
+                            rotate: vc.rotate,
+                            flipH: vc.flipH,
+                            flipV: vc.flipV,
+                            adjust: vc.adjust ?? DEFAULT_ADJUST,
+                            crop: vc.crop ?? DEFAULT_CROP
+                          },
+                          track: vc.track,
+                          pairedAudio: pairedAudioOf(vc.track),
+                          lengthLabel: formatTime(vcLen),
+                          length: vcLen,
+                          others: selectedVClipIds.length - 1,
+                          vol: vc.vol ?? 1,
+                          fadeIn: vc.afadeIn ?? 0,
+                          fadeOut: vc.afadeOut ?? 0,
+                          muted: !!vc.muted,
+                          onZoomScale: (scale) =>
+                            setVClipZoom(vc.id, { ...(vc.zoom ?? DEFAULT_ZOOM), scale }),
+                          onChange: (patch) => {
+                            // 何も足していない状態（無調整）は保存に残さない
+                            const p = { ...patch } as Record<string, unknown>
+                            if ('adjust' in p) {
+                              const a = p.adjust as Adjust
+                              p.adjust = isNeutralAdjust(a) ? undefined : a
+                            }
+                            if ('crop' in p) {
+                              const c = p.crop as Crop
+                              p.crop = isNeutralCrop(c) ? undefined : c
+                            }
+                            updateSelectedVClip(p)
+                          },
+                          onReset: () => updateSelectedVClip(RESET_TRANSFORM)
+                        }
+                      : null
+                  }
+                  image={
+                    !selected &&
+                    !se &&
+                    !selectedVideoIds.length &&
+                    !selectedAudioIds.length &&
+                    !vc &&
+                    im
+                      ? {
+                          clip: {
+                            name: im.name,
+                            zoom: im.zoom ?? DEFAULT_ZOOM,
+                            opacity: im.opacity ?? 1,
+                            rotate: im.rotate,
+                            flipH: im.flipH,
+                            flipV: im.flipV,
+                            adjust: im.adjust ?? DEFAULT_ADJUST,
+                            crop: im.crop ?? DEFAULT_CROP
+                          },
+                          duration: im.duration,
+                          others: selectedImgIds.length - 1,
+                          onZoomScale: (scale) =>
+                            setImgZoom(im.id, { ...(im.zoom ?? DEFAULT_ZOOM), scale }),
+                          onChange: (patch) => {
+                            const p = { ...patch } as Record<string, unknown>
+                            if ('adjust' in p) {
+                              const a = p.adjust as Adjust
+                              p.adjust = isNeutralAdjust(a) ? undefined : a
+                            }
+                            if ('crop' in p) {
+                              const c = p.crop as Crop
+                              p.crop = isNeutralCrop(c) ? undefined : c
+                            }
+                            updateSelectedImg(p)
+                          },
+                          onReset: () => updateSelectedImg(RESET_TRANSFORM)
+                        }
+                      : null
+                  }
+                />
+              )
+            })()}
           </section>
+
           </PaneHost>
 
           <div className="resizer resizer-v" onPointerDown={(e) => startResize('left', e)} />

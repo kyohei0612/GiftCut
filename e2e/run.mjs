@@ -4513,13 +4513,21 @@ try {
   section('耳で聴く確認（書き出した音を測る）')
   await resetProject()
 
-  await check('書き出した動画に、途中で音が途切れる所が無い', async () => {
-    const out = join(outDir, 'audio-check.mp4')
+  // 音の確認は同じ書き出しを使い回す（1本焼くのに時間がかかるため）。
+  // ただし**絞って回したときに、焼いていないのに測ろうとする**ことがあるので、
+  // 無ければその場で焼く。前の項目の結果に寄りかからせない。
+  const exportForAudioCheck = async (out) => {
+    if (existsSync(out)) return
     await setDialogFiles(null, out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
+  }
+
+  await check('書き出した動画に、途中で音が途切れる所が無い', async () => {
+    const out = join(outDir, 'audio-check.mp4')
+    await exportForAudioCheck(out)
     assert(existsSync(out), '書き出しファイルができていない')
     const vol = await meanVolume(out)
     assert(vol !== null && vol > -60, `全体が無音になっている（${vol} dB）`)
@@ -4538,6 +4546,7 @@ try {
 
   await check('書き出した動画の音量が、狙った大きさに揃っている', async () => {
     const out = join(outDir, 'audio-check.mp4')
+    await exportForAudioCheck(out)
     const lufs = await loudness(out)
     assert(lufs !== null, 'ラウドネスを測れなかった')
     // 画面の設定は -14 LUFS。実測がそこから大きく外れていたら揃っていない。
