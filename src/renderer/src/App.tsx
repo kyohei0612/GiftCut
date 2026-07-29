@@ -10181,7 +10181,9 @@ export default function App(): JSX.Element {
                     onRemoveKey: () =>
                       patchClipMotion(tgt.kind, tgt.id, key, (keys) => removeKey(keys, clipT))
                   })
-                  const zoomKeyed = hasKeys(m?.sc)
+                  // 動きが1つでも付いていれば、拡大は1倍以上しか焼けない（zoomAt と同じ規則）。
+                  // 位置だけ動かしている時も同じなので、印の有無ではなく「動きがあるか」で見る
+                  const zoomKeyed = hasClipMotion(m)
                   return (
                     <MotionTab
                       title={`${tgt.kind === 'img' ? '🖼' : '🎬'} ${tgt.name}`}

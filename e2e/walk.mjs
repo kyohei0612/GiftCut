@@ -130,12 +130,17 @@ console.log(`\n使用感チェック（モーション）${SLOW ? ' — ゆっ�
 await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
 await page.waitForTimeout(600)
 {
+  // クリップにも動きを付けられるようになったので、何も選んでいなくても
+  // **再生ヘッドの下のクリップ**が相手になる（プレビューのリフレーム枠と同じ決め方）。
+  // 空欄になるのは、相手にできる物が1つも無いときだけ。
   const empty = await page.locator('.panel-body .empty').first().textContent().catch(() => null)
+  const title = await page.locator('.mo-title').first().textContent().catch(() => null)
   await note(
-    'テロップを選ばずにモーションタブを開く',
-    '何をすればいいかが書いてある',
-    empty ? `案内が出る: ${empty.replace(/\s+/g, ' ').trim()}` : '何も出ない',
-    empty ? 'ok' : '気になる'
+    '何も選ばずにモーションタブを開く',
+    '相手が誰かが分かる（再生ヘッドの下のクリップ、または案内）',
+    title ? `相手が出る: ${title.trim()}` : empty ? `案内が出る: ${empty.replace(/\s+/g, ' ').trim()}` : '何も出ない',
+    title || empty ? 'ok' : '気になる',
+    '何に効くのか分からないまま値をいじることになる'
   )
 }
 
@@ -293,6 +298,120 @@ await page.waitForTimeout(900)
     '⏱ が付いた状態に戻っている',
     r?.on ? '戻っている' : '戻っていない',
     r?.on ? 'ok' : 'おかしい'
+  )
+}
+
+// ---- ここから 動画クリップ側（テロップと同じ観点で見る）----
+//
+// 項目が違う（拡大・位置だけ）ので、テロップで直した5件と同じ所が
+// クリップでも直っているかは、別に見ないと分からない。
+
+/** プレビューの本編映像に掛かっている拡大率 */
+const videoScale = () =>
+  page.evaluate(() => {
+    const t = document.querySelector('.screen-video')?.style.transform ?? ''
+    const m = /scale\(([\d.]+)\)/.exec(t)
+    return m ? Number(m[1]) : 1
+  })
+
+await page.locator('.video-clip').first().click()
+await page.waitForTimeout(500)
+{
+  const r = await rowState('拡大')
+  await note(
+    '動画クリップを選ぶ',
+    'テロップではなくクリップの項目（拡大・位置）が出る',
+    r ? `拡大 = ${r.value}%` : '出ない',
+    r ? 'ok' : 'おかしい',
+    'クリップを選んでいるのにテロップ用の欄が出ると、何に効くのか分からない'
+  )
+}
+
+const rowZ = page.locator('.mo-row').filter({ hasText: '拡大' }).first()
+await seek(0.5)
+const z0 = await videoScale()
+await rowZ.locator('.mo-watch').click()
+await page.waitForTimeout(600)
+{
+  const z = await videoScale()
+  await note(
+    'クリップの ⏱ を押す',
+    '印が置かれるだけで、絵は変わらない',
+    `拡大 ${z0} → ${z}`,
+    Math.abs(z - z0) < 0.02 ? 'ok' : '気になる',
+    '押しただけで絵が動くと、何が起きたのか分からない'
+  )
+}
+
+await seek(3.5)
+await rowZ.locator('.mo-val').fill('200')
+await rowZ.locator('.mo-val').press('Enter')
+await page.waitForTimeout(800)
+const z1 = await videoScale()
+await note(
+  '3.5秒で 拡大を 200% にする',
+  '映像が2倍に寄る',
+  `${z0} → ${z1}`,
+  z1 > 1.8 ? 'ok' : 'おかしい'
+)
+
+await seek(2)
+{
+  const zMid = await videoScale()
+  await note(
+    '途中（2秒）を見る',
+    '2つの印の間にいる',
+    `${z0} / ${zMid} / ${z1}`,
+    zMid > z0 + 0.05 && zMid < z1 - 0.05 ? 'ok' : 'おかしい'
+  )
+}
+
+{
+  const marks = await page.locator('[data-tid="V1"] .video-clip .kf-mark').count()
+  await note(
+    'クリップの帯を見る',
+    '打った印が帯の上に見える（テロップと同じ）',
+    marks ? `印が ${marks} 個見える` : '印が見えない',
+    marks ? 'ok' : '気になる',
+    'テロップには出るのにクリップには出ない、という食い違いになる'
+  )
+}
+
+{
+  const r = await rowState('拡大')
+  await note(
+    '1倍未満を打てないことが分かるか',
+    '下限が 100% になっていて、理由も書いてある',
+    `入力の下限 = ${await rowZ.locator('.mo-val').getAttribute('min')}%`,
+    (await rowZ.locator('.mo-val').getAttribute('min')) === '100' ? 'ok' : '気になる',
+    '打てても書き出しで無視されるだけ。打てないなら、その場で分かる必要がある'
+  )
+  void r
+}
+
+{
+  // ⏱ が付いた状態でプレビューを掴む → 印が増えるか（テロップで直したのと同じ所）
+  await seek(1.2)
+  const rowXY = page.locator('.mo-row').filter({ hasText: '位置 X' }).first()
+  await rowXY.locator('.mo-watch').click() // 位置にも動きを付ける
+  await page.waitForTimeout(500)
+  const screen = await page.locator('.screen-video').first().boundingBox()
+  if (screen) {
+    await page.mouse.move(screen.x + screen.width / 2, screen.y + screen.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(screen.x + screen.width / 2 + 70, screen.y + screen.height / 2, {
+      steps: 6
+    })
+    await page.mouse.up()
+    await page.waitForTimeout(700)
+  }
+  const r = await rowState('位置 X')
+  await note(
+    '⏱ が付いた状態で、プレビューの映像を掴んで動かす',
+    'その位置に印が増える（テロップと同じ）',
+    r?.diamond ? 'その位置に印が置かれた' : `印は増えず、元の値が動いた（位置X=${r?.value}）`,
+    r?.diamond ? 'ok' : '気になる',
+    '動きを付ける一番自然なやり方が、クリップだけ使えないことになる'
   )
 }
 
