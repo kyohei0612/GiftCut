@@ -16,6 +16,12 @@ e2e/last-run.png
 e2e/shots/
 e2e/.cache/
 e2e/bench-shots/
+# 画面写真は**リポジトリに入れない**。
+# 実素材（他人の動画）がプレビューにもサムネにも写り込むため。
+# どれも道具を回せば作り直せる（npm run walk / npm run bench / e2e）。
+e2e/walk/
+e2e/ui-shots/
+
 e2e/bench-result.md
 e2e/ng-report.json
 
