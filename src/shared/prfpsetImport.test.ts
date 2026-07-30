@@ -263,8 +263,16 @@ describe('そのまま再現できるプリセットか', () => {
     ).toBe(true)
   })
 
+  it('ブラー（方向）も持てる（向きのある尾を SVG で引く）', () => {
+    // 普通のぼかしは向きを持てない。43.ブラー方向 は向きが振れるのが本体なので、
+    // まん丸のぼかしで代えると別物になる
+    expect(
+      isFullyCopyable({ name: 'x', effects: [{ matchName: 'AE.ADBE Motion Blur', params: [] }] })
+    ).toBe(true)
+  })
+
   it('まだ持てない物は、持てるふりをしない', () => {
-    for (const n of ['AE.ADBE Turbulent Displace', 'AE.ADBE Lens Flare', 'AE.ADBE Motion Blur']) {
+    for (const n of ['AE.ADBE Turbulent Displace', 'AE.ADBE Lens Flare', 'AE.ADBE Mosaic']) {
       expect(isFullyCopyable({ name: 'x', effects: [{ matchName: n, params: [] }] })).toBe(false)
     }
   })

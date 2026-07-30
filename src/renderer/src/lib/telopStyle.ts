@@ -163,13 +163,22 @@ export interface AnimState {
   wavW: number
   wavDir: number
   wavPh: number
+  /**
+   * ブラー（方向）。動いた跡を引く。
+   *   mbLen 引く長さ（px・1080基準。0=なし）
+   *   mbDir 引く向き（度）
+   * **向きを持たない普通のぼかしで代えないこと。** 43.ブラー方向 は
+   * 0.27秒で向きが4回振れるのが演出の本体で、丸いぼかしにすると別物になる。
+   */
+  mbLen: number
+  mbDir: number
 }
 /** 何も付いていない状態。呼ぶ側が毎回書くと、項目を足したとき直し漏れる */
 export const NEUTRAL_ANIM: AnimState = {
   opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0, scx: 1, scy: 1, skew: 0,
   roty: 0, rotx: 0, bright: 1, blur: 0, hue: 0, inv: 0,
   blind: 0, blindW: 45, blindDir: 0, crop: { l: 0, t: 0, r: 0, b: 0 },
-  wavH: 0, wavW: 100, wavDir: 0, wavPh: 0
+  wavH: 0, wavW: 100, wavDir: 0, wavPh: 0, mbLen: 0, mbDir: 0
 }
 
 export function computeTelopAnim(anim: TelopAnim | undefined, animT: number, clipDur: number): AnimState {
@@ -333,6 +342,62 @@ export function animWave(
     // scale は「色の幅(±0.5)ぶんで何px 動くか」なので、狙いの高さの2倍を渡す
     `<feDisplacementMap in="SourceGraphic" in2="map" scale="${(Math.abs(h) * 2).toFixed(2)}" ` +
     `xChannelSelector="R" yChannelSelector="G"/>` +
+    `</filter></defs></svg>`
+  return { css: `url(#${fid})`, defs }
+}
+
+/**
+ * ブラー（方向）。動いた跡を、指定の向きへ引く。
+ *
+ * ## なぜ普通のぼかしで代えないか
+ *
+ * CSS の blur も SVG の feGaussianBlur も**向きを持てない**（縦横別々には
+ * 指定できるが、斜めは指定できず、45度は結局まん丸になる）。
+ * 43.ブラー方向 は 0.27秒で向きが 45 → -45 → -90 → -135 と振れるのが本体で、
+ * まん丸のぼかしにすると「ただ滲んで戻るだけ」の別物になる。
+ *
+ * ## どう作るか
+ *
+ * 元の絵を、その向きに沿って少しずつずらした写しを重ねる（尾を引く）。
+ * 重ねただけだと段が見えるので、最後に写し1つぶんの間隔だけ軽くぼかして均す。
+ *
+ * 戻り値は animWave と同じで、css と defs は**必ず対**。
+ */
+export function animMotionBlur(
+  s: AnimState,
+  pxScale = 1,
+  id = 'b'
+): { css: string; defs: string } {
+  const len = Math.abs(s.mbLen) * pxScale
+  if (len < 0.6) return { css: '', defs: '' }
+  const rad = (s.mbDir * Math.PI) / 180
+  // 写しの数。だいたい6pxごと。増やすほど滑らかだが、そのぶん重い
+  const n = Math.max(3, Math.min(12, Math.round(len / 6)))
+  const ux = Math.cos(rad)
+  const uy = Math.sin(rad)
+  const parts: string[] = []
+  const names: string[] = []
+  for (let i = 0; i < n; i++) {
+    const t = (i / (n - 1) - 0.5) * len
+    const dx = (ux * t).toFixed(2)
+    const dy = (uy * t).toFixed(2)
+    parts.push(`<feOffset in="SourceGraphic" dx="${dx}" dy="${dy}" result="o${i}"/>`)
+    parts.push(
+      `<feComponentTransfer in="o${i}" result="m${i}">` +
+        `<feFuncA type="linear" slope="${(1 / n).toFixed(4)}"/></feComponentTransfer>`
+    )
+    names.push(`<feMergeNode in="m${i}"/>`)
+  }
+  const smooth = (len / n / 2).toFixed(2)
+  const fid = `${id}f`
+  const defs =
+    `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>` +
+    // 尾は元の枠からはみ出す。広めに取らないと端で切れる
+    `<filter id="${fid}" x="-50%" y="-50%" width="200%" height="200%" ` +
+    `filterUnits="objectBoundingBox" primitiveUnits="userSpaceOnUse">` +
+    parts.join('') +
+    `<feMerge result="trail">${names.join('')}</feMerge>` +
+    `<feGaussianBlur in="trail" stdDeviation="${smooth}"/>` +
     `</filter></defs></svg>`
   return { css: `url(#${fid})`, defs }
 }
@@ -1487,7 +1552,8 @@ export const hasMotion = (m?: Motion): boolean =>
   (
     [m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.scy, m.skew,
      m.roty, m.rotx, m.bright, m.blur, m.hue, m.inv, m.blind,
-     m.cl, m.ct, m.cr, m.cb, m.wavH, m.wavW, m.wavDir] as (Keys | undefined)[]
+     m.cl, m.ct, m.cr, m.cb, m.wavH, m.wavW, m.wavDir,
+     m.mbLen, m.mbDir] as (Keys | undefined)[]
   ).some(hasKeys)
 
 /** 出入りのアニメの上に、自分で打った動きを重ねる */
@@ -1524,7 +1590,10 @@ export function applyMotion(st: AnimState, m: Motion | undefined, animT: number)
     wavH: st.wavH + valueAt(m!.wavH, animT, 0),
     wavW: valueAt(m!.wavW, animT, st.wavW),
     wavDir: st.wavDir + valueAt(m!.wavDir, animT, 0),
-    wavPh: st.wavPh + (m!.wavSpd ?? 0) * animT * 360
+    wavPh: st.wavPh + (m!.wavSpd ?? 0) * animT * 360,
+    // ブラー（方向）。長さ 0 なら効果なし（既定）
+    mbLen: st.mbLen + valueAt(m!.mbLen, animT, 0),
+    mbDir: st.mbDir + valueAt(m!.mbDir, animT, 0)
   }
 }
 
@@ -1569,7 +1638,9 @@ export function sanitizeMotion(v: unknown): Motion | undefined {
     wavH: sanitizeKeys(o.wavH),
     wavW: sanitizeKeys(o.wavW),
     wavDir: sanitizeKeys(o.wavDir),
-    ...(typeof o.wavSpd === 'number' && Number.isFinite(o.wavSpd) ? { wavSpd: o.wavSpd } : null)
+    ...(typeof o.wavSpd === 'number' && Number.isFinite(o.wavSpd) ? { wavSpd: o.wavSpd } : null),
+    mbLen: sanitizeKeys(o.mbLen),
+    mbDir: sanitizeKeys(o.mbDir)
   }
   return hasMotion(m) ? m : undefined
 }
@@ -1580,7 +1651,7 @@ export function motionKeyTimes(m?: Motion): number[] {
     ? keyTimesOf(
         m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.skew,
         m.roty, m.rotx, m.bright, m.blur, m.cl, m.ct, m.cr, m.cb,
-        m.wavH, m.wavW, m.wavDir
+        m.wavH, m.wavW, m.wavDir, m.mbLen, m.mbDir
       )
     : []
 }

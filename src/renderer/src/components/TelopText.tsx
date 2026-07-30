@@ -7,6 +7,7 @@ import {
   animClip,
   animMask,
   animWave,
+  animMotionBlur,
   NEUTRAL_ANIM,
   type Motion,
   buildTelopSVG,
@@ -137,7 +138,10 @@ export default function TelopText({
   // id はテロップごとに変える（同じ id だと、画面に複数出たとき先頭の波が全部に効く）。
   const waveId = 'wv' + uid.replace(/[^a-zA-Z0-9]/g, '')
   const wave = anim ? animWave(anim, 1, waveId) : { css: '', defs: '' }
-  const filterCss = anim ? [animFilter(anim), wave.css].filter(Boolean).join(' ') : ''
+  const mblur = anim ? animMotionBlur(anim, 1, waveId + 'b') : { css: '', defs: '' }
+  const filterCss = anim
+    ? [animFilter(anim), wave.css, mblur.css].filter(Boolean).join(' ')
+    : ''
   const animLayer: React.CSSProperties = anim
     ? {
         opacity: anim.opacity,
@@ -150,13 +154,15 @@ export default function TelopText({
         ...(maskCss ? { WebkitMaskImage: maskCss, maskImage: maskCss } : null)
       }
     : {}
-  const waveDefs = wave.defs ? (
+  const hiddenDefs = (html: string): JSX.Element => (
     <span
       style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}
       aria-hidden="true"
-      dangerouslySetInnerHTML={{ __html: wave.defs }}
+      dangerouslySetInnerHTML={{ __html: html }}
     />
-  ) : null
+  )
+  const waveDefs = wave.defs ? hiddenDefs(wave.defs) : null
+  const mblurDefs = mblur.defs ? hiddenDefs(mblur.defs) : null
 
   const commonTransform = `translate(${cqh(iconOffsetX)}, ${cqh(iconOffsetY)}) scale(${iconScale})`
   // 本文はSVG描画（本家Premiereモデル: paint-order:stroke＝中央ストローク→塗りを上に）。
@@ -221,6 +227,7 @@ export default function TelopText({
     body = (
       <div style={{ display: 'inline-block', ...animLayer }}>
         {waveDefs}
+        {mblurDefs}
         <div style={{ ...css.container, position: 'relative', display: 'inline-block' }}>
           {autoIcon}
           {textWrap}
@@ -250,6 +257,7 @@ export default function TelopText({
     body = (
       <div style={{ display: 'inline-block', ...animLayer }}>
         {waveDefs}
+        {mblurDefs}
         <div
           style={{
             ...css.container,
@@ -268,6 +276,7 @@ export default function TelopText({
     body = (
       <div style={{ display: 'inline-block', ...animLayer }}>
         {waveDefs}
+        {mblurDefs}
         <div style={{ ...css.container, display: 'inline-block' }}>{textLayers}</div>
       </div>
     )

@@ -9,6 +9,7 @@ import {
   animClip,
   animMask,
   animWave,
+  animMotionBlur,
   buildTelopSVG,
   textRectInFrame,
   hexToRgba,
@@ -72,7 +73,8 @@ function innerHtml(
   // url(…) と <svg> は必ず対で出す（定義だけ落とすと文字ごと消える）。
   // id はテロップごとに変える。1枚に複数出るとき、同じ id だと先頭の波が全部に効く。
   const wave = anim ? animWave(anim, scale, `wv${cue.id}`) : { css: '', defs: '' }
-  const filterCss = [animFilter(anim!, scale), wave.css].filter(Boolean).join(' ')
+  const mblur = anim ? animMotionBlur(anim, scale, `mb${cue.id}`) : { css: '', defs: '' }
+  const filterCss = [animFilter(anim!, scale), wave.css, mblur.css].filter(Boolean).join(' ')
   const animOpen = anim
     ? `<div style="display:inline-block;opacity:${anim.opacity.toFixed(3)};transform:${animTransform(anim, 'px', scale)};transform-origin:center;` +
       `${filterCss ? `filter:${filterCss};` : ''}` +

@@ -56,9 +56,16 @@ const BLINDS = 'AE.ADBE Venetian Blinds'
  * 動くのは「波紋の高さ」と「波形の幅」だけで、種類・固定・フェーズは固定値。
  */
 const WAVEWARP = 'AE.ADBE Wave Warp'
+/**
+ * ブラー（方向）。動いた跡を引く。実物で4件。
+ * 「方向」が振れる物（43.ブラー方向）があるので、向きを持たない
+ * 普通のぼかしでは代えられない。
+ */
+const MBLUR = 'AE.ADBE Motion Blur'
 
 const HANDLED = new Set([
-  MOTION, OPACITY, GEOMETRY, BASIC3D, PROCAMP, GBLUR, CROP, CBHLS, INVERT, BLINDS, WAVEWARP
+  MOTION, OPACITY, GEOMETRY, BASIC3D, PROCAMP, GBLUR, CROP, CBHLS, INVERT, BLINDS,
+  WAVEWARP, MBLUR
 ])
 
 /**
@@ -246,10 +253,15 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
         case '波形の幅':
           motion.wavW = toKeys(x)
           break
+        case 'ブラーの長さ':
+          // px どうし。1080基準でそのまま
+          motion.mbLen = toKeys(x)
+          break
         case '方向':
           // **どのエフェクトの「方向」かで意味が違う。**
           // ブラインドの方向は動かない物として上で拾っている（ここへは来ない）。
           if (e.matchName === WAVEWARP) motion.wavDir = toKeys(x)
+          else if (e.matchName === MBLUR) motion.mbDir = toKeys(x)
           else skipped.push(`${e.matchName}/${q.name}`)
           break
         case '波形の種類':

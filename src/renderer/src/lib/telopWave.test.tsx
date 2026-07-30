@@ -5,7 +5,7 @@
 // 参照が壊れて文字ごと消える。ここで対であることを固定する。
 
 import { describe, expect, it } from 'vitest'
-import { animWave, NEUTRAL_ANIM } from './telopStyle'
+import { animWave, animMotionBlur, NEUTRAL_ANIM } from './telopStyle'
 
 const st = (o: Partial<typeof NEUTRAL_ANIM>): typeof NEUTRAL_ANIM => ({ ...NEUTRAL_ANIM, ...o })
 
@@ -53,5 +53,52 @@ describe('波形ワープ', () => {
   it('波形の幅が 0 でも落ちない（縞が潰れないよう下限を置く）', () => {
     expect(() => animWave(st({ wavH: 5, wavW: 0 }), 1, 'x')).not.toThrow()
     expect(animWave(st({ wavH: 5, wavW: 0 }), 1, 'x').css).not.toBe('')
+  })
+})
+
+describe('ブラー（方向）', () => {
+  const dxsOf = (s: string): number[] =>
+    [...s.matchAll(/feOffset[^/]*dx="(-?[\d.]+)"/g)].map((m) => Number(m[1]))
+  const dysOf = (s: string): number[] =>
+    [...s.matchAll(/feOffset[^/]*dy="(-?[\d.]+)"/g)].map((m) => Number(m[1]))
+
+  it('長さが 0 なら、何も足さない', () => {
+    const b = animMotionBlur(st({ mbLen: 0 }))
+    expect(b.css).toBe('')
+    expect(b.defs).toBe('')
+  })
+
+  it('長さがあれば、url と定義が対で出る', () => {
+    const b = animMotionBlur(st({ mbLen: 80, mbDir: 0 }), 1, 'b1')
+    expect(b.css).toBe('url(#b1f)')
+    expect(b.defs).toContain('id="b1f"')
+    expect(b.defs).toContain('feMerge')
+  })
+
+  it('横向き（0度）なら、尾は横にだけ伸びる', () => {
+    const b = animMotionBlur(st({ mbLen: 80, mbDir: 0 }), 1, 'x')
+    expect(Math.max(...dxsOf(b.defs).map(Math.abs))).toBeGreaterThan(30)
+    expect(Math.max(...dysOf(b.defs).map(Math.abs))).toBeLessThan(0.01)
+  })
+
+  it('縦向き（90度）なら、尾は縦にだけ伸びる', () => {
+    const b = animMotionBlur(st({ mbLen: 80, mbDir: 90 }), 1, 'x')
+    expect(Math.max(...dysOf(b.defs).map(Math.abs))).toBeGreaterThan(30)
+    expect(Math.max(...dxsOf(b.defs).map(Math.abs))).toBeLessThan(0.01)
+  })
+
+  it('**向きが変われば形も変わる。** ここが同じだと 43.ブラー方向 が別物になる', () => {
+    const a = animMotionBlur(st({ mbLen: 80, mbDir: 45 }), 1, 'x')
+    const b = animMotionBlur(st({ mbLen: 80, mbDir: -45 }), 1, 'x')
+    expect(a.defs).not.toBe(b.defs)
+  })
+
+  it('尾は前後に均等（真ん中は動かさない）', () => {
+    const dxs = dxsOf(animMotionBlur(st({ mbLen: 80, mbDir: 0 }), 1, 'x').defs)
+    expect(dxs[0]).toBeCloseTo(-dxs[dxs.length - 1], 3)
+  })
+
+  it('長さが負でも尾は出る（向きが裏返るだけ）', () => {
+    expect(animMotionBlur(st({ mbLen: -50 }), 1, 'x').css).not.toBe('')
   })
 })
