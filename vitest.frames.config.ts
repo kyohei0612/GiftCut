@@ -7,7 +7,10 @@ import { defineConfig } from 'vitest/config'
 // 動きに触ったときだけ回す。
 export default defineConfig({
   test: {
-    include: ['src/shared/**/*.frames.ts'],
+    // shared だけでなく renderer 側の道具も回す（テロップの動きの計算は
+    // lib/telopStyle にあり、**プレビューも書き出しもそこを通る**ため、
+    // ここを1コマずつ確かめるのが一番効く）
+    include: ['src/**/*.frames.ts'],
     environment: 'node',
     testTimeout: 300_000,
     hookTimeout: 300_000,

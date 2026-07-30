@@ -10,6 +10,10 @@ SE/
 # Gebaテロップスタイル(再配布禁止・配布ビルドに含めない)
 telop-presets/
 
+# 取り込んだ動きのプリセット。**中身は向こうのプリセットから写し取った物**なので、
+# 再配布にあたる。取り込むと userData 側に書かれるが、開発中に cwd へ置くこともある。
+motion-presets/
+
 # TypeScript のビルド情報（生成物）
 *.tsbuildinfo
 e2e/last-run.png
@@ -23,6 +27,8 @@ e2e/walk/
 e2e/ui-shots/
 # 1コマずつの確認が作る動画と表（作り直せる）
 e2e/frames/
+# 演出を1コマずつ撮った帯と判定表（npm run presets。作り直せる）
+e2e/presets/
 
 e2e/bench-result.md
 e2e/ng-report.json
@@ -34,6 +40,12 @@ resources/ffmpeg/*.dll
 dist/
 # 起動中のアプリに掴まれている時に、別の場所へ作った確認用の配布物
 dist-check/
+# 身内用（npm run dist:home）の出来上がり。**再配布禁止の素材が入っている**ので
+# 公開用の dist/ とは置き場所ごと分けてある
+dist-home/
+# 身内用ビルドが作る一時の設定。作った側が必ず消すが、途中で止めると残る。
+# 残った物を間違えて公開用に使わないよう、記録には入れない
+electron-builder.home.tmp.yml
 
 # 社内の作業メモ（設計メモ・調査記録）。アプリの動作には関係しないので、
 # 配布物にもリポジトリにも入れない。手元には残る。
