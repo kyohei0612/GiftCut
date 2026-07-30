@@ -210,13 +210,13 @@ describe('持ってこられない物を黙って捨てない', () => {
   it('対応していないエフェクトは名前を返す', () => {
     const p = preset('AE.ADBE Motion', 'スケール', [[key(0, 100), key(1, 200)]], [
       {
-        matchName: 'AE.ADBE Turbulent Displace',
-        params: [{ name: '量', value: [], keys: [[key(0, 1)]] }]
+        matchName: 'AE.ADBE Lens Flare',
+        params: [{ name: '光源の位置', value: [], keys: [[key(0, 1)]] }]
       }
     ])
     const { motion, skipped } = toMotion(p)
     expect(motion.sc).toBeDefined()
-    expect(skipped).toContain('AE.ADBE Turbulent Displace')
+    expect(skipped).toContain('AE.ADBE Lens Flare')
   })
 
   it('動きが付いていないエフェクトは、知らせなくてよい', () => {
@@ -271,8 +271,17 @@ describe('そのまま再現できるプリセットか', () => {
     ).toBe(true)
   })
 
+  it('タービュレント（ぐにゃぐにゃ揺らす）も持てる', () => {
+    expect(
+      isFullyCopyable({
+        name: 'x',
+        effects: [{ matchName: 'AE.ADBE Turbulent Displace', params: [] }]
+      })
+    ).toBe(true)
+  })
+
   it('まだ持てない物は、持てるふりをしない', () => {
-    for (const n of ['AE.ADBE Turbulent Displace', 'AE.ADBE Lens Flare', 'AE.ADBE Mosaic']) {
+    for (const n of ['AE.ADBE Lens Flare', 'AE.ADBE Mosaic', 'AE.ADBE Twirl']) {
       expect(isFullyCopyable({ name: 'x', effects: [{ matchName: n, params: [] }] })).toBe(false)
     }
   })

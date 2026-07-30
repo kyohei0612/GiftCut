@@ -80,6 +80,23 @@ const fullPreset: PrPreset = {
       ]
     },
     {
+      matchName: 'AE.ADBE Turbulent Displace',
+      params: [
+        { name: '適用量', value: [20], keys: [[{ t: 0, v: 39 }, { t: 0.67, v: 0 }]] },
+        { name: 'サイズ', value: [786], keys: [] },
+        { name: '複雑度', value: [2], keys: [] },
+        { name: 'ランダムシード', value: [0], keys: [[{ t: 0, v: 50 }, { t: 2, v: 0 }]] },
+        {
+          name: 'オフセット',
+          value: [0, 0],
+          keys: [
+            [{ t: 0, v: -0.54 }, { t: 0.67, v: 1.06 }],
+            [{ t: 0, v: 0.96 }, { t: 0.67, v: 0.96 }]
+          ]
+        }
+      ]
+    },
+    {
       matchName: 'AE.ADBE Motion Blur',
       params: [
         { name: 'ブラーの長さ', value: [0], keys: [[{ t: 0, v: 80 }, { t: 0.27, v: 0 }]] },
@@ -108,10 +125,11 @@ describe('取り込んだ動きを保存して開き直す', () => {
     expect(Object.keys(back ?? {}).sort()).toEqual(Object.keys(motion).sort())
   })
 
-  it('全27項目そろっている（＝この見本自体が抜けていないか）', () => {
+  it('全33項目そろっている（＝この見本自体が抜けていないか）', () => {
     expect(Object.keys(motion).sort()).toEqual(
       ['blind', 'blindDir', 'blindW', 'blur', 'bright', 'cb', 'cl', 'cr', 'ct', 'hue', 'inv',
-       'mbDir', 'mbLen', 'op', 'rot', 'rotx', 'roty', 'sc', 'scx', 'scy', 'skew', 'tx', 'ty',
+       'mbDir', 'mbLen', 'op', 'rot', 'rotx', 'roty', 'sc', 'scx', 'scy', 'skew',
+       'tbAmt', 'tbOct', 'tbOffX', 'tbOffY', 'tbSeed', 'tbSize', 'tx', 'ty',
        'wavDir', 'wavH', 'wavSpd', 'wavW'].sort()
     )
   })

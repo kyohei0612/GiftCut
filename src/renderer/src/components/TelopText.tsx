@@ -8,6 +8,7 @@ import {
   animMask,
   animWave,
   animMotionBlur,
+  animTurbulence,
   NEUTRAL_ANIM,
   type Motion,
   buildTelopSVG,
@@ -139,8 +140,9 @@ export default function TelopText({
   const waveId = 'wv' + uid.replace(/[^a-zA-Z0-9]/g, '')
   const wave = anim ? animWave(anim, 1, waveId) : { css: '', defs: '' }
   const mblur = anim ? animMotionBlur(anim, 1, waveId + 'b') : { css: '', defs: '' }
+  const turb = anim ? animTurbulence(anim, 1, waveId + 't') : { css: '', defs: '' }
   const filterCss = anim
-    ? [animFilter(anim), wave.css, mblur.css].filter(Boolean).join(' ')
+    ? [animFilter(anim), wave.css, mblur.css, turb.css].filter(Boolean).join(' ')
     : ''
   const animLayer: React.CSSProperties = anim
     ? {
@@ -163,6 +165,7 @@ export default function TelopText({
   )
   const waveDefs = wave.defs ? hiddenDefs(wave.defs) : null
   const mblurDefs = mblur.defs ? hiddenDefs(mblur.defs) : null
+  const turbDefs = turb.defs ? hiddenDefs(turb.defs) : null
 
   const commonTransform = `translate(${cqh(iconOffsetX)}, ${cqh(iconOffsetY)}) scale(${iconScale})`
   // 本文はSVG描画（本家Premiereモデル: paint-order:stroke＝中央ストローク→塗りを上に）。
@@ -228,6 +231,7 @@ export default function TelopText({
       <div style={{ display: 'inline-block', ...animLayer }}>
         {waveDefs}
         {mblurDefs}
+        {turbDefs}
         <div style={{ ...css.container, position: 'relative', display: 'inline-block' }}>
           {autoIcon}
           {textWrap}
@@ -258,6 +262,7 @@ export default function TelopText({
       <div style={{ display: 'inline-block', ...animLayer }}>
         {waveDefs}
         {mblurDefs}
+        {turbDefs}
         <div
           style={{
             ...css.container,
@@ -277,6 +282,7 @@ export default function TelopText({
       <div style={{ display: 'inline-block', ...animLayer }}>
         {waveDefs}
         {mblurDefs}
+        {turbDefs}
         <div style={{ ...css.container, display: 'inline-block' }}>{textLayers}</div>
       </div>
     )

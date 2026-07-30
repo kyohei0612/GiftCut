@@ -62,10 +62,15 @@ const WAVEWARP = 'AE.ADBE Wave Warp'
  * 普通のぼかしでは代えられない。
  */
 const MBLUR = 'AE.ADBE Motion Blur'
+/**
+ * タービュレントディスプレイス。雲状のノイズで絵をぐにゃぐにゃ揺らす。実物で3件。
+ * SVG の feTurbulence が同じ考え方（サイズ＝周波数、複雑度＝重ねる段数、シード）。
+ */
+const TURB = 'AE.ADBE Turbulent Displace'
 
 const HANDLED = new Set([
   MOTION, OPACITY, GEOMETRY, BASIC3D, PROCAMP, GBLUR, CROP, CBHLS, INVERT, BLINDS,
-  WAVEWARP, MBLUR
+  WAVEWARP, MBLUR, TURB
 ])
 
 /**
@@ -167,6 +172,16 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
       // 波形ワープも、動かない値のうち意味のある物を拾う。
       // **「ユラユラ」系は高さも幅も動かない**（波が流れ続けるだけ）ので、
       // 印だけ見ていると「波なんて付いていない」ことになってしまう。
+      // タービュレントの「サイズ」「複雑度」は動かない（実物でも固定値）。
+      // 印だけ見ていると、揺れの粗さが既定のままになって別物の見た目になる。
+      if (e.matchName === TURB && !q.keys.length) {
+        const v = q.value[0]
+        if (!Number.isFinite(v)) continue
+        if (q.name === 'サイズ') motion.tbSize = v
+        else if (q.name === '複雑度') motion.tbOct = v
+        else if (q.name === '適用量' && v) motion.tbAmt = [{ t: 0, v }]
+        continue
+      }
       if (e.matchName === WAVEWARP && !q.keys.length) {
         const v = q.value[0]
         if (!Number.isFinite(v)) continue
@@ -252,6 +267,20 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
           break
         case '波形の幅':
           motion.wavW = toKeys(x)
+          break
+        case '適用量':
+          // px どうし。1080基準でそのまま
+          motion.tbAmt = toKeys(x)
+          break
+        case 'ランダムシード':
+          // 揺れの模様そのものを選ぶ番号。動かすと形が次々に変わる＝揺れて見える
+          motion.tbSeed = toKeys(x)
+          break
+        case 'オフセット':
+          // 割合（位置と同じ）→ px。**最後を引かない**（落ち着く先ではなく、
+          // 模様をどこまで動かすかの量そのもの）
+          motion.tbOffX = toKeys(scaleKeys(x, 1920))
+          if (y) motion.tbOffY = toKeys(scaleKeys(y, 1080))
           break
         case 'ブラーの長さ':
           // px どうし。1080基準でそのまま

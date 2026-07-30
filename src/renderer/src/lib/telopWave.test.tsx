@@ -5,7 +5,7 @@
 // 参照が壊れて文字ごと消える。ここで対であることを固定する。
 
 import { describe, expect, it } from 'vitest'
-import { animWave, animMotionBlur, NEUTRAL_ANIM } from './telopStyle'
+import { animWave, animMotionBlur, animTurbulence, NEUTRAL_ANIM } from './telopStyle'
 
 const st = (o: Partial<typeof NEUTRAL_ANIM>): typeof NEUTRAL_ANIM => ({ ...NEUTRAL_ANIM, ...o })
 
@@ -100,5 +100,51 @@ describe('ブラー（方向）', () => {
 
   it('長さが負でも尾は出る（向きが裏返るだけ）', () => {
     expect(animMotionBlur(st({ mbLen: -50 }), 1, 'x').css).not.toBe('')
+  })
+})
+
+describe('タービュレント（ぐにゃぐにゃ揺らす）', () => {
+  const numOf = (s: string, attr: string): number =>
+    Number(new RegExp(`${attr}="(-?[\\d.]+)"`).exec(s)?.[1])
+
+  it('量が 0 なら、何も足さない', () => {
+    const t = animTurbulence(st({ tbAmt: 0 }))
+    expect(t.css).toBe('')
+    expect(t.defs).toBe('')
+  })
+
+  it('量があれば、url と定義が対で出る', () => {
+    const t = animTurbulence(st({ tbAmt: 40, tbSize: 300 }), 1, 't1')
+    expect(t.css).toBe('url(#t1f)')
+    expect(t.defs).toContain('feTurbulence')
+    expect(t.defs).toContain('feDisplacementMap')
+  })
+
+  it('粗さ（サイズ）が大きいほど、周波数は小さくなる＝大きくうねる', () => {
+    const coarse = animTurbulence(st({ tbAmt: 40, tbSize: 800 }), 1, 'x')
+    const fine = animTurbulence(st({ tbAmt: 40, tbSize: 20 }), 1, 'x')
+    expect(numOf(coarse.defs, 'baseFrequency')).toBeLessThan(numOf(fine.defs, 'baseFrequency'))
+  })
+
+  it('**シードが変われば模様が変わる。** ここが同じだと 14.揺れる動き_速 が止まって見える', () => {
+    const a = animTurbulence(st({ tbAmt: 40, tbSeed: 50 }), 1, 'x')
+    const b = animTurbulence(st({ tbAmt: 40, tbSeed: 7 }), 1, 'x')
+    expect(numOf(a.defs, 'seed')).not.toBe(numOf(b.defs, 'seed'))
+  })
+
+  it('シードは整数にする（小数だと扱いがブラウザで割れる）', () => {
+    const t = animTurbulence(st({ tbAmt: 40, tbSeed: 12.7 }), 1, 'x')
+    expect(Number.isInteger(numOf(t.defs, 'seed'))).toBe(true)
+  })
+
+  it('複雑度は重ねる段数。範囲の外を渡しても壊れない', () => {
+    expect(numOf(animTurbulence(st({ tbAmt: 40, tbOct: 0 }), 1, 'x').defs, 'numOctaves')).toBe(1)
+    expect(numOf(animTurbulence(st({ tbAmt: 40, tbOct: 99 }), 1, 'x').defs, 'numOctaves')).toBe(6)
+  })
+
+  it('オフセットは模様の平行移動として出る', () => {
+    const t = animTurbulence(st({ tbAmt: 40, tbOffX: 120, tbOffY: -30 }), 1, 'x')
+    expect(t.defs).toContain('dx="120.00"')
+    expect(t.defs).toContain('dy="-30.00"')
   })
 })

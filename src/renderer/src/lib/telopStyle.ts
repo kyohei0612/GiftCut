@@ -172,13 +172,28 @@ export interface AnimState {
    */
   mbLen: number
   mbDir: number
+  /**
+   * タービュレントディスプレイス（雲状のノイズでぐにゃぐにゃ揺らす）。
+   *   tbAmt  揺らす量（px・1080基準。0=なし）
+   *   tbSize 揺れの粗さ（px。大きいほど大きくうねる）
+   *   tbOct  重ねる段数（複雑度）
+   *   tbSeed 模様を選ぶ番号。変えると形が丸ごと変わる
+   *   tbOffX/Y 模様そのものを平行移動する量（px）
+   */
+  tbAmt: number
+  tbSize: number
+  tbOct: number
+  tbSeed: number
+  tbOffX: number
+  tbOffY: number
 }
 /** 何も付いていない状態。呼ぶ側が毎回書くと、項目を足したとき直し漏れる */
 export const NEUTRAL_ANIM: AnimState = {
   opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0, scx: 1, scy: 1, skew: 0,
   roty: 0, rotx: 0, bright: 1, blur: 0, hue: 0, inv: 0,
   blind: 0, blindW: 45, blindDir: 0, crop: { l: 0, t: 0, r: 0, b: 0 },
-  wavH: 0, wavW: 100, wavDir: 0, wavPh: 0, mbLen: 0, mbDir: 0
+  wavH: 0, wavW: 100, wavDir: 0, wavPh: 0, mbLen: 0, mbDir: 0,
+  tbAmt: 0, tbSize: 100, tbOct: 1, tbSeed: 0, tbOffX: 0, tbOffY: 0
 }
 
 export function computeTelopAnim(anim: TelopAnim | undefined, animT: number, clipDur: number): AnimState {
@@ -341,6 +356,48 @@ export function animWave(
     )}" x="-2000" y="-2000" width="4000" height="4000" result="map"/>` +
     // scale は「色の幅(±0.5)ぶんで何px 動くか」なので、狙いの高さの2倍を渡す
     `<feDisplacementMap in="SourceGraphic" in2="map" scale="${(Math.abs(h) * 2).toFixed(2)}" ` +
+    `xChannelSelector="R" yChannelSelector="G"/>` +
+    `</filter></defs></svg>`
+  return { css: `url(#${fid})`, defs }
+}
+
+/**
+ * タービュレントディスプレイス。雲状のノイズで、絵をぐにゃぐにゃ揺らす。
+ *
+ * 波形ワープが「規則正しい波」なのに対して、こちらは**でたらめなうねり**。
+ * SVG の feTurbulence が同じ考え方でできているので、ほぼそのまま写せる。
+ *
+ *   適用量   → ずらす量（feDisplacementMap の scale）
+ *   サイズ   → うねりの粗さ。周波数はこの逆数
+ *   複雑度   → 重ねる段数（numOctaves）
+ *   シード   → 模様を選ぶ番号。変えると形が丸ごと変わる＝揺れて見える
+ *   オフセット → 模様そのものを平行移動（feOffset）
+ *
+ * 戻り値は他と同じで、css と defs は**必ず対**。
+ */
+export function animTurbulence(
+  s: AnimState,
+  pxScale = 1,
+  id = 't'
+): { css: string; defs: string } {
+  const amt = Math.abs(s.tbAmt) * pxScale
+  if (amt < 0.3) return { css: '', defs: '' }
+  // 粗さ→周波数。細かすぎると模様が潰れ、粗すぎるとただの平行移動になる
+  const freq = 1 / Math.max(4, Math.abs(s.tbSize) * pxScale)
+  const oct = Math.max(1, Math.min(6, Math.round(s.tbOct)))
+  // シードは整数でないと、ブラウザによって扱いが割れる
+  const seed = Math.round(s.tbSeed)
+  const dx = (s.tbOffX * pxScale).toFixed(2)
+  const dy = (s.tbOffY * pxScale).toFixed(2)
+  const fid = `${id}f`
+  const defs =
+    `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>` +
+    `<filter id="${fid}" x="-50%" y="-50%" width="200%" height="200%" ` +
+    `filterUnits="objectBoundingBox" primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB">` +
+    `<feTurbulence type="fractalNoise" baseFrequency="${freq.toFixed(5)}" ` +
+    `numOctaves="${oct}" seed="${seed}" result="n"/>` +
+    `<feOffset in="n" dx="${dx}" dy="${dy}" result="n2"/>` +
+    `<feDisplacementMap in="SourceGraphic" in2="n2" scale="${(amt * 2).toFixed(2)}" ` +
     `xChannelSelector="R" yChannelSelector="G"/>` +
     `</filter></defs></svg>`
   return { css: `url(#${fid})`, defs }
@@ -1553,7 +1610,7 @@ export const hasMotion = (m?: Motion): boolean =>
     [m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.scy, m.skew,
      m.roty, m.rotx, m.bright, m.blur, m.hue, m.inv, m.blind,
      m.cl, m.ct, m.cr, m.cb, m.wavH, m.wavW, m.wavDir,
-     m.mbLen, m.mbDir] as (Keys | undefined)[]
+     m.mbLen, m.mbDir, m.tbAmt, m.tbSeed, m.tbOffX, m.tbOffY] as (Keys | undefined)[]
   ).some(hasKeys)
 
 /** 出入りのアニメの上に、自分で打った動きを重ねる */
@@ -1593,7 +1650,15 @@ export function applyMotion(st: AnimState, m: Motion | undefined, animT: number)
     wavPh: st.wavPh + (m!.wavSpd ?? 0) * animT * 360,
     // ブラー（方向）。長さ 0 なら効果なし（既定）
     mbLen: st.mbLen + valueAt(m!.mbLen, animT, 0),
-    mbDir: st.mbDir + valueAt(m!.mbDir, animT, 0)
+    mbDir: st.mbDir + valueAt(m!.mbDir, animT, 0),
+    // タービュレント。量 0 なら効果なし（既定）。
+    // 粗さと段数は動かない設定値なので、付いていなければ元のまま
+    tbAmt: st.tbAmt + valueAt(m!.tbAmt, animT, 0),
+    tbSize: m!.tbSize ?? st.tbSize,
+    tbOct: m!.tbOct ?? st.tbOct,
+    tbSeed: st.tbSeed + valueAt(m!.tbSeed, animT, 0),
+    tbOffX: st.tbOffX + valueAt(m!.tbOffX, animT, 0),
+    tbOffY: st.tbOffY + valueAt(m!.tbOffY, animT, 0)
   }
 }
 
@@ -1640,7 +1705,13 @@ export function sanitizeMotion(v: unknown): Motion | undefined {
     wavDir: sanitizeKeys(o.wavDir),
     ...(typeof o.wavSpd === 'number' && Number.isFinite(o.wavSpd) ? { wavSpd: o.wavSpd } : null),
     mbLen: sanitizeKeys(o.mbLen),
-    mbDir: sanitizeKeys(o.mbDir)
+    mbDir: sanitizeKeys(o.mbDir),
+    tbAmt: sanitizeKeys(o.tbAmt),
+    tbSeed: sanitizeKeys(o.tbSeed),
+    tbOffX: sanitizeKeys(o.tbOffX),
+    tbOffY: sanitizeKeys(o.tbOffY),
+    ...(typeof o.tbSize === 'number' && Number.isFinite(o.tbSize) ? { tbSize: o.tbSize } : null),
+    ...(typeof o.tbOct === 'number' && Number.isFinite(o.tbOct) ? { tbOct: o.tbOct } : null)
   }
   return hasMotion(m) ? m : undefined
 }
@@ -1651,7 +1722,8 @@ export function motionKeyTimes(m?: Motion): number[] {
     ? keyTimesOf(
         m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.skew,
         m.roty, m.rotx, m.bright, m.blur, m.cl, m.ct, m.cr, m.cb,
-        m.wavH, m.wavW, m.wavDir, m.mbLen, m.mbDir
+        m.wavH, m.wavW, m.wavDir, m.mbLen, m.mbDir,
+        m.tbAmt, m.tbSeed, m.tbOffX, m.tbOffY
       )
     : []
 }

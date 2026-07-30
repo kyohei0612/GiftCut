@@ -10,6 +10,7 @@ import {
   animMask,
   animWave,
   animMotionBlur,
+  animTurbulence,
   buildTelopSVG,
   textRectInFrame,
   hexToRgba,
@@ -74,7 +75,10 @@ function innerHtml(
   // id はテロップごとに変える。1枚に複数出るとき、同じ id だと先頭の波が全部に効く。
   const wave = anim ? animWave(anim, scale, `wv${cue.id}`) : { css: '', defs: '' }
   const mblur = anim ? animMotionBlur(anim, scale, `mb${cue.id}`) : { css: '', defs: '' }
-  const filterCss = [animFilter(anim!, scale), wave.css, mblur.css].filter(Boolean).join(' ')
+  const turb = anim ? animTurbulence(anim, scale, `tb${cue.id}`) : { css: '', defs: '' }
+  const filterCss = [animFilter(anim!, scale), wave.css, mblur.css, turb.css]
+    .filter(Boolean)
+    .join(' ')
   const animOpen = anim
     ? `<div style="display:inline-block;opacity:${anim.opacity.toFixed(3)};transform:${animTransform(anim, 'px', scale)};transform-origin:center;` +
       `${filterCss ? `filter:${filterCss};` : ''}` +

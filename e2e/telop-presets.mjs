@@ -213,17 +213,22 @@ const durOf = (m) => {
 /**
  * **終わっても効いたままなのが正しい**演出か。
  *
- * 波形ワープには、最後まで波が残る物がある（53.後ろユラユラ）。
+ * 最後まで効果が残る物がある（53.後ろユラユラ、14.揺れる動き_速）。
  * これを「終わっても効果が残る＝戻らない」と言うと、本物の不具合がその中に埋もれる。
  * 判定は名前ではなく中身から:
- *   ・波の高さの最後の値が 0 でない  → 波が残る作り
- *   ・波の速度が 0 でない            → 流れ続ける作り
+ *   ・波の高さ／タービュレントの量の、最後の値が 0 でない → 効果が残る作り
+ *   ・波の速度が 0 でない                                  → 流れ続ける作り
+ *
+ * ※これらは「動かない」判定からも外す。揺れの模様（シード）だけが変わる演出は、
+ *   見た目は動いているのに、こちらの測り方（位置・大きさ・効果の文字列）では
+ *   変化として拾えないため。
  */
-const wavePermanent = (m) => {
+const keepsEffect = (m) => {
   if (!m) return false
   if (Math.abs(m.wavSpd ?? 0) > 1e-6) return true
-  const h = m.wavH
-  return Array.isArray(h) && h.length > 0 && Math.abs(h[h.length - 1].v ?? 0) > 0.01
+  const lastOf = (keys) =>
+    Array.isArray(keys) && keys.length ? Math.abs(keys[keys.length - 1].v ?? 0) : 0
+  return lastOf(m.wavH) > 0.01 || lastOf(m.tbAmt) > 0.01
 }
 
 await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
@@ -452,7 +457,7 @@ for (const row of rows) {
   const pair = !!rec?.endsHidden
   // 波が最後まで残る作りか（53.後ろユラユラ）。残るのが正しいので、
   // 「終わりも効果が残る」とは言わない。**静止した波は「動かない」でもない**
-  const keeps = wavePermanent(rec?.motion)
+  const keeps = keepsEffect(rec?.motion)
   if (!moved && !keeps) problems.push('動かない')
   if (endMissing && !pair) problems.push('終わりの姿を測れない（テロップの尺が演出より短い）')
   if (last && !pair) {
@@ -473,7 +478,7 @@ for (const row of rows) {
     : pair
       ? 'OK（重ね用。終わりで消えるのが設計どおり）'
       : keeps
-        ? 'OK（波がずっと残るのが設計どおり）'
+        ? 'OK（効果がずっと残るのが設計どおり）'
         : 'OK'
   const mark = problems.length ? '×' : pair ? '🔼' : '○'
   console.log(`${mark} ${String(idx).padStart(2)}. ${name}  [${frames}コマ/${dur.toFixed(2)}s] ${verdict}`)
