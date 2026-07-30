@@ -95,6 +95,32 @@ describe('動きが付いていない項目', () => {
   })
 })
 
+// 実物には実体参照が入っている。戻さないと**画面にそのまま出る**（一覧に
+// 「25.飛び込み+ブラー&#13;カラーバランス」と並んでいた）。エフェクト名側は
+// もっと悪く、`&amp;` が残ると名前の突き合わせが外れて対応済みの物まで拾えなくなる。
+describe('XML の実体参照を戻す', () => {
+  it('名前の改行（&#13;）は空白1つにして1行にする', () => {
+    const doc = xml('').replace(
+      '<Name>01.SLIDE_R</Name>',
+      '<Name>25.飛び込み+ブラー&#13;カラーバランス</Name>'
+    )
+    expect(parsePrfpset(doc)[0].name).toBe('25.飛び込み+ブラー カラーバランス')
+  })
+
+  it('エフェクト名の &amp; が戻る', () => {
+    const doc = xml('').replace(
+      '<MatchName>AE.ADBE Motion</MatchName>',
+      '<MatchName>AE.ADBE Brightness &amp; Contrast 2</MatchName>'
+    )
+    expect(parsePrfpset(doc)[0].effects[0].matchName).toBe('AE.ADBE Brightness & Contrast 2')
+  })
+
+  it('&amp; は最後に戻す（二重に戻して壊さない）', () => {
+    const doc = xml('').replace('<Name>01.SLIDE_R</Name>', '<Name>A&amp;lt;B</Name>')
+    expect(parsePrfpset(doc)[0].name).toBe('A&lt;B')
+  })
+})
+
 describe('壊れていても落ちない', () => {
   // 人からもらったファイルを開くことがある。ここで落ちると原因が分からない。
   it('空・でたらめ・途中で切れた XML', () => {

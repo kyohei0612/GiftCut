@@ -8,7 +8,8 @@
 // 置いた帯をクリックすれば長さと種類を変えられる。
 // 片方だけ別の操作にすると、置き方を2つ覚えることになる。
 
-import type { JSX } from 'react'
+import { useState, type JSX } from 'react'
+import type { MotionPresetFile } from '../../../../shared/telopMotion'
 
 export interface TransKind {
   type: string
@@ -94,7 +95,10 @@ export function TransitionsTab({
   onDragEndVideo,
   onDragStartTelop,
   onDragEndTelop,
-  onToggleEmphasis
+  onToggleEmphasis,
+  motionPresets,
+  onApplyMotionPreset,
+  onImportMotionPresets
 }: {
   bodyRef: React.Ref<HTMLDivElement>
   accSec: (
@@ -118,7 +122,28 @@ export function TransitionsTab({
   onDragStartTelop: (kind: TransKind, e: React.DragEvent) => void
   onDragEndTelop: () => void
   onToggleEmphasis: (kind: 'shake' | 'pulse') => void
+  /**
+   * 取り込んである動きの見本帳（Premiere の .prfpset から写し取った物）。
+   * **付く相手はテロップだけ。** 中身はテロップの動き（横だけ拡大・3D回転・切り抜き…）で、
+   * 映像クリップは拡大と位置しか焼けないため、当てても効かないか書き出せない値になる。
+   * 押したときの相手選びは呼ぶ側（App の applyMotionPreset）が持っている。
+   */
+  motionPresets: MotionPresetFile[]
+  onApplyMotionPreset: (p: MotionPresetFile) => void
+  onImportMotionPresets: () => void
 }): JSX.Element {
+  // 実物で72個並ぶ。名前で絞れないと目で探すことになる
+  const [q, setQ] = useState('')
+  // **既定は「ちゃんと出る物」だけ。** 一部だけの物・動かない物が混ざっていると、
+  // 選ぶたびに当たり外れを引くことになる。中身を見たいときだけ出す
+  // （何が入っていたかを知りたい、という用途は残す）。
+  const [showAll, setShowAll] = useState(false)
+  const usable = (p: MotionPresetFile): boolean =>
+    Object.keys(p.motion).length > 0 && !p.partial?.length
+  const okCount = motionPresets.filter(usable).length
+  const shownPresets = motionPresets.filter(
+    (p) => (showAll || usable(p)) && (!q || p.name.includes(q))
+  )
   const list = (
     kinds: TransKind[],
     onStart: (k: TransKind, e: React.DragEvent) => void,
@@ -179,6 +204,93 @@ export function TransitionsTab({
             テロップの<b>頭＝出現 / 尻＝消失 / 間＝隣のテロップとの切替</b>。
           </div>
           {list(telopKinds, onDragStartTelop, onDragEndTelop, 'テロップの頭/尻/間へドラッグ')}
+        </>
+      ))}
+      {/* 写し取った動き。**強調と同じで「選んでいるテロップにクリックで付く」**。
+          名前が 05.飛び出し のような演出名なので、置き場もここが合っている
+          （左のモーションタブは、付けたあと数値を詰める所）。 */}
+      {accSec('transition', 'motion', '💫 動き（取り込んだ演出）', okCount || motionPresets.length || null, (
+        <>
+          {/* **説明は1行に抑える。** パネルを細くすると、ここが伸びて一覧を
+              画面の外へ押し出す（細い時に演出が1つも見えなくなっていた）。
+              足りない物の中身は、名前ごとの吹き出しに書いてある。 */}
+          <div className="tpl-hint">
+            選択中のテロップに<b>クリックで適用</b>。微調整は左の「モーション」タブで。
+          </div>
+          <div className="mo-legend">
+            <span>💫 使える</span>
+            <span>🔼 重ね用（単体だと消える）</span>
+            {showAll && <span>△ 一部だけ</span>}
+            {showAll && <span>✕ 動きなし</span>}
+          </div>
+          {/* 取り込みボタンはここに置かない（一度きりの作業なので、常に場所を
+              取らせるとその分だけ一覧が見えなくなる）。ファイルメニューにある。
+              ただし**空のときだけ**は、ここから辿れないと詰むので出す。 */}
+          {motionPresets.length > 0 && (
+            <div className="mo-presets-bar">
+              <input
+                className="mo-find"
+                placeholder="名前でしぼる"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+              {/* **隠した数は必ず見せる。** 黙って減らすと「取り込めていない」に見える */}
+              <label
+                className="mo-showall"
+                title="こちらに無いエフェクトが混ざっている物・動きが取れなかった物も出します"
+              >
+                <input
+                  type="checkbox"
+                  checked={showAll}
+                  onChange={(e) => setShowAll(e.target.checked)}
+                />
+                まだ出ない物も（{motionPresets.length - okCount}）
+              </label>
+            </div>
+          )}
+          {motionPresets.length === 0 ? (
+            <div className="tpl-hint">
+              まだ何も入っていません。
+              <button className="mo-mini" onClick={onImportMotionPresets}>
+                Premiere の .prfpset を取り込む
+              </button>
+              <br />
+              あとから入れ直すときは、ファイルメニューの「Premiere の動きを取り込む…」から。
+            </div>
+          ) : (
+            <div className="fx-list mo-preset-list">
+              {shownPresets.map((p) => {
+                // 3通り: そのまま使える / 一部だけ / 動きが1つも取れなかった。
+                // **取れなかった物も並べる**（何が入っていたかが見えないと、
+                // どれを配布に載せるか決められない）。押したときは理由を言う。
+                const none = Object.keys(p.motion).length === 0
+                const part = !none && !!p.partial?.length
+                const lack = p.partial?.length ? `（こちらに無い物: ${p.partial.join(' / ')}）` : ''
+                // 2枚重ねの上側。単体だと最後に文字が消える（壊れているのではない）
+                const pair = !none && p.endsHidden
+                return (
+                  <button
+                    key={p.name}
+                    className={`fx-item mo-preset ${none ? 'mo-preset-none' : part ? 'mo-preset-part' : ''}`}
+                    title={
+                      none
+                        ? `動きを持ってこられませんでした${lack}`
+                        : pair
+                          ? '2枚重ねの上側用です。単体で当てると、終わりで文字が消えます' +
+                            '（同じ名前の「_下」と重ねて使う物）' + lack
+                          : part
+                            ? `一部だけ再現できます${lack}`
+                            : 'この動きを付ける'
+                    }
+                    onClick={() => onApplyMotionPreset(p)}
+                  >
+                    <span className="fx-ico">{none ? '✕' : pair ? '🔼' : part ? '△' : '💫'}</span>
+                    <span className="fx-name">{p.name}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </>
       ))}
       {accSec('transition', 'effect', '✨ エフェクト（テロップ強調）', null, (

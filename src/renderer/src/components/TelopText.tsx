@@ -5,6 +5,7 @@ import {
   animTransform,
   animFilter,
   animClip,
+  animMask,
   NEUTRAL_ANIM,
   type Motion,
   buildTelopSVG,
@@ -12,6 +13,7 @@ import {
   applyMotion,
   hasMotion,
   computeTelopCss,
+  textRectInFrame,
   ICON_BASE_PX,
   LINE_BASE,
   type TelopStyle,
@@ -31,6 +33,12 @@ interface Props {
   iconOffsetY?: number
   pos?: { x: number; y: number }
   scale?: number // テロップ全体の拡縮倍率（Premiere式リサイズ）。既定1
+  /**
+   * フレームの幅（1080基準px。16:9=1920 / 9:16=607.5 / 1:1=1080）。
+   * **切り抜きの換算に要る**（取り込んだ切り抜きはフレームの何％で入っているので、
+   * 文字の箱がフレームのどこを占めるかが分からないと量を直せない）。
+   */
+  frameW?: number
   animT?: number // クリップ内ローカル時間（秒）。アニメ計算用
   motion?: Motion // 自分で打った動き（キーフレーム）
   clipDur?: number // クリップ長（秒）
@@ -59,6 +67,7 @@ export default function TelopText({
   iconOffsetY = 0,
   pos,
   scale = 1,
+  frameW = 1920,
   animT,
   clipDur,
   motion,
@@ -92,6 +101,12 @@ export default function TelopText({
           ? 'column-reverse'
           : 'row'
 
+  // 本文のSVG。**アニメ層より先に作る**（切り抜きの換算に文字の箱の大きさが要る）。
+  // useMemoで内容が変わった時だけ再構築。無いと再生中の毎レンダーでSVG文字列が再生成され
+  // （フィルタ/グラデidが毎回変わる＝innerHTML総入れ替え）、blurフィルタの再ラスタライズが毎フレーム走って
+  // テロップ切替が「ぬめっと」低解像度で描かれるカクつきの原因になる。
+  const tsvg = useMemo(() => buildTelopSVG(style, text, runs), [style, text, runs])
+
   // アニメ状態（プレビューは再生ヘッド位置から算出）。
   // 再生中は選択中でもアニメを再生。停止中に選択している時だけ、編集しやすいよう完全表示にする。
   const animBase =
@@ -109,6 +124,11 @@ export default function TelopText({
           animT
         )
       : animBase
+  // 切り抜きは**フレームの何％**で入ってくる（向こうのエフェクトは画面全体にかかる）。
+  // 文字の箱がフレームのどこを占めるかを渡して、箱の中の割合に直してもらう。
+  const clipBox = textRectInFrame(p, style.anchor, tsvg.textW, tsvg.textH, frameW, 1080, scale)
+  const clipCss = anim ? animClip(anim, clipBox) : ''
+  const maskCss = anim ? animMask(anim) : ''
   const animLayer: React.CSSProperties = anim
     ? {
         opacity: anim.opacity,
@@ -116,7 +136,9 @@ export default function TelopText({
         transformOrigin: 'center',
         // 明るさ・ぼかし・切り抜きは transform では出せないので別に渡す
         ...(animFilter(anim) ? { filter: animFilter(anim) } : null),
-        ...(animClip(anim) ? { clipPath: animClip(anim) } : null)
+        ...(clipCss ? { clipPath: clipCss } : null),
+        // ブラインドは縞のマスク。書き出しでも焼けることは確かめてある
+        ...(maskCss ? { WebkitMaskImage: maskCss, maskImage: maskCss } : null)
       }
     : {}
 
@@ -124,10 +146,7 @@ export default function TelopText({
   // 本文はSVG描画（本家Premiereモデル: paint-order:stroke＝中央ストローク→塗りを上に）。
   // 縁/影はviewBoxのpad分はみ出すので、レイアウト箱=文字ボックス(textW×textH)にして
   // SVGを負オフセットで重ね overflow可視にする（旧dilate版と同じ占有サイズを保つ）。斜体もSVG内で処理。
-  // useMemoで内容が変わった時だけ再構築。無いと再生中の毎レンダーでSVG文字列が再生成され
-  // （フィルタ/グラデidが毎回変わる＝innerHTML総入れ替え）、blurフィルタの再ラスタライズが毎フレーム走って
-  // テロップ切替が「ぬめっと」低解像度で描かれるカクつきの原因になる。
-  const tsvg = useMemo(() => buildTelopSVG(style, text, runs), [style, text, runs])
+  // ※ tsvg は上で作ってある（切り抜きの換算に文字の箱の大きさが要るため）。
   const textLayers = (
     // telop-textmain: 本文だけの箱（アイコンを含まない）。iconAuto切替の位置保持で実測に使う
     <div className="telop-textmain" style={{ position: 'relative', width: cqh(tsvg.textW), height: cqh(tsvg.textH) }}>

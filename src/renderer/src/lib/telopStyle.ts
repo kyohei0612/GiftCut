@@ -125,6 +125,11 @@ export interface AnimState {
    * （滑り込みながら横に潰れて戻る、という動きが作れない）。
    */
   scx: number
+  /**
+   * 縦だけの拡大（1=そのまま）。scx と対。**潰れて伸びる演出はこれが本体**
+   * （ビョヨン・落ちる・メビウス。横だけでは「弾む」が作れない）。
+   */
+  scy: number
   /** 歪曲（度）。斜体と同じ skewX で傾ける。Premiere の「歪曲」に当たる */
   skew: number
   /**
@@ -137,13 +142,22 @@ export interface AnimState {
   bright: number
   /** ぼかし（px。1080基準）。CSS filter の blur */
   blur: number
+  /** 色相の回転（度。0=そのまま）。CSS filter の hue-rotate */
+  hue: number
+  /** 色の反転（0=そのまま、1=完全に反転）。CSS filter の invert */
+  inv: number
+  /** ブラインド（0=全部見える、1=全部隠れる）。縞1本ぶんの幅(px・1080基準)と向き(度) */
+  blind: number
+  blindW: number
+  blindDir: number
   /** 切り抜き（各辺 0..1）。CSS の clip-path: inset。「光」系や打ち込み演出に要る */
   crop: { l: number; t: number; r: number; b: number }
 }
 /** 何も付いていない状態。呼ぶ側が毎回書くと、項目を足したとき直し漏れる */
 export const NEUTRAL_ANIM: AnimState = {
-  opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0, scx: 1, skew: 0,
-  roty: 0, rotx: 0, bright: 1, blur: 0, crop: { l: 0, t: 0, r: 0, b: 0 }
+  opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0, scx: 1, scy: 1, skew: 0,
+  roty: 0, rotx: 0, bright: 1, blur: 0, hue: 0, inv: 0,
+  blind: 0, blindW: 45, blindDir: 0, crop: { l: 0, t: 0, r: 0, b: 0 }
 }
 
 export function computeTelopAnim(anim: TelopAnim | undefined, animT: number, clipDur: number): AnimState {
@@ -203,9 +217,11 @@ export function computeTelopAnim(anim: TelopAnim | undefined, animT: number, cli
 export function animTransform(s: AnimState, unit: 'cqh' | 'px', pxScale = 1): string {
   const u = (v: number): string =>
     unit === 'cqh' ? `${(v / 1080) * 100}cqh` : `${(v * pxScale).toFixed(2)}px`
-  // 横だけの拡大と歪曲は、**付いているときだけ**足す。
+  // 横だけ・縦だけの拡大と歪曲は、**付いているときだけ**足す。
   // いつも書くと、動きの無いテロップの transform まで変わって差分が読みにくくなる。
-  const sx = Math.abs(s.scx - 1) > 1e-4 ? ` scaleX(${s.scx.toFixed(4)})` : ''
+  const sx =
+    (Math.abs(s.scx - 1) > 1e-4 ? ` scaleX(${s.scx.toFixed(4)})` : '') +
+    (Math.abs(s.scy - 1) > 1e-4 ? ` scaleY(${s.scy.toFixed(4)})` : '')
   const sk = Math.abs(s.skew) > 1e-4 ? ` skewX(${(-s.skew).toFixed(2)}deg)` : ''
   // 3D回転。**perspective が無いと、ただ横に潰れるだけで奥行きが出ない**
   const d3 =
@@ -228,15 +244,92 @@ export function animFilter(s: AnimState, pxScale = 1): string {
   const parts: string[] = []
   if (Math.abs(s.bright - 1) > 1e-4) parts.push(`brightness(${s.bright.toFixed(4)})`)
   if (s.blur > 1e-4) parts.push(`blur(${(s.blur * pxScale).toFixed(2)}px)`)
+  // 色相は度どうしでそのまま渡せる。反転は 0..1 に収める
+  // （足し合わせで1を超えると、CSS 側で扱いが割れる）
+  if (Math.abs(s.hue) > 1e-4) parts.push(`hue-rotate(${s.hue.toFixed(2)}deg)`)
+  if (s.inv > 1e-4) parts.push(`invert(${Math.min(1, s.inv).toFixed(4)})`)
   return parts.join(' ')
 }
 
-/** 切り抜き（CSS clip-path）。付いていなければ空。タイプライターや「光」系に要る */
-export function animClip(s: AnimState): string {
+/**
+ * ブラインド（CSS のマスク）。付いていなければ空。
+ *
+ * 縞で覆って、だんだん開いていく演出。**書き出しでも焼ける**ことは確かめてある
+ * （foreignObject を canvas に描く経路で、縞がそのまま出た）。
+ *
+ * 向こうの「変換終了」は 100 で全部隠れ、0 で全部見える。縞1本ぶん（幅px）のうち
+ * その割合を透明にする＝隠れる。
+ */
+export function animMask(s: AnimState, pxScale = 1): string {
+  if (s.blind < 1e-4) return ''
+  const period = Math.max(1, s.blindW * pxScale)
+  const hidden = Math.min(period, period * s.blind)
+  return (
+    `repeating-linear-gradient(${s.blindDir.toFixed(2)}deg, ` +
+    `transparent 0 ${hidden.toFixed(2)}px, #000 ${hidden.toFixed(2)}px ${period.toFixed(2)}px)`
+  )
+}
+
+/**
+ * 文字の箱が、フレームの中のどこを占めているか（0..1の割合）。切り抜きの換算に使う。
+ * x,y は左上。w,h は幅と高さ。
+ */
+export interface TextRectInFrame {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * 切り抜き（CSS clip-path）。付いていなければ空。タイプライターや「光」系に要る。
+ *
+ * ## 基準がフレームなのを、箱の中の割合に直す
+ *
+ * **向こうの切り抜きは「フレームの何％」**（エフェクトはクリップ＝画面全体にかかる）。
+ * こちらは clip-path を文字の箱にかけるので、同じ％をそのまま渡すと桁違いに削れる。
+ *
+ *   61.タイプライター … 右を 86% → 13% と刻む。フレームの13%は画面の端の話なので
+ *   向こうでは最後に文字が全部出る。文字の箱の13%として当てると、**最後まで
+ *   右端が欠けたまま終わる**（実際そうなっていた）。
+ *
+ * box を渡すと、フレーム基準の切り取り線を箱の中の位置に置き直す。
+ * 渡さなければ従来どおり箱基準（＝自分で打った切り抜き）。
+ */
+export function animClip(s: AnimState, box?: TextRectInFrame): string {
   const c = s.crop
   if (c.l < 1e-4 && c.t < 1e-4 && c.r < 1e-4 && c.b < 1e-4) return ''
+  const cl01 = (v: number): number => Math.min(1, Math.max(0, v))
+  let { l, t, r, b } = c
+  if (box && box.w > 1e-6 && box.h > 1e-6) {
+    // フレーム上の切り取り線（0..1）→ 箱の中での割合
+    l = cl01((c.l - box.x) / box.w)
+    t = cl01((c.t - box.y) / box.h)
+    r = cl01((box.x + box.w - (1 - c.r)) / box.w)
+    b = cl01((box.y + box.h - (1 - c.b)) / box.h)
+  }
+  if (l < 1e-4 && t < 1e-4 && r < 1e-4 && b < 1e-4) return ''
   const pc = (v: number): string => `${(Math.min(0.999, Math.max(0, v)) * 100).toFixed(2)}%`
-  return `inset(${pc(c.t)} ${pc(c.r)} ${pc(c.b)} ${pc(c.l)})`
+  return `inset(${pc(t)} ${pc(r)} ${pc(b)} ${pc(l)})`
+}
+
+/**
+ * 文字の箱がフレームのどこを占めるかを出す。プレビューと書き出しで同じ式を使う
+ * （別々に書くと、見た絵と焼けた絵で切り抜きの量が変わる）。
+ */
+export function textRectInFrame(
+  pos: { x: number; y: number },
+  anchor: { h: AnchorH; v: AnchorV } | undefined,
+  textW: number,
+  textH: number,
+  frameW: number,
+  frameH: number,
+  scale = 1
+): TextRectInFrame {
+  const w = (textW * scale) / frameW
+  const h = (textH * scale) / frameH
+  const f = anchorFrac(anchor)
+  return { x: pos.x - f.fx * w, y: pos.y - f.fy * h, w, h }
 }
 
 // テロップ用フォント一覧。
@@ -1303,8 +1396,9 @@ import type { Motion } from '../../../shared/telopMotion'
 export const hasMotion = (m?: Motion): boolean =>
   !!m &&
   (
-    [m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.skew,
-     m.roty, m.rotx, m.bright, m.blur, m.cl, m.ct, m.cr, m.cb] as (Keys | undefined)[]
+    [m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.scy, m.skew,
+     m.roty, m.rotx, m.bright, m.blur, m.hue, m.inv, m.blind,
+     m.cl, m.ct, m.cr, m.cb] as (Keys | undefined)[]
   ).some(hasKeys)
 
 /** 出入りのアニメの上に、自分で打った動きを重ねる */
@@ -1317,11 +1411,18 @@ export function applyMotion(st: AnimState, m: Motion | undefined, animT: number)
     rot: st.rot + valueAt(m!.rot, animT, 0),
     opacity: st.opacity * valueAt(m!.op, animT, 1),
     scx: st.scx * valueAt(m!.scx, animT, 1),
+    scy: st.scy * valueAt(m!.scy, animT, 1),
     skew: st.skew + valueAt(m!.skew, animT, 0),
     roty: st.roty + valueAt(m!.roty, animT, 0),
     rotx: st.rotx + valueAt(m!.rotx, animT, 0),
     bright: st.bright * valueAt(m!.bright, animT, 1),
     blur: st.blur + valueAt(m!.blur, animT, 0),
+    hue: st.hue + valueAt(m!.hue, animT, 0),
+    inv: st.inv + valueAt(m!.inv, animT, 0),
+    blind: st.blind + valueAt(m!.blind, animT, 0),
+    // 幅と向きは動かない設定値。付いていなければ元のまま
+    blindW: m!.blindW ?? st.blindW,
+    blindDir: m!.blindDir ?? st.blindDir,
     crop: {
       l: st.crop.l + valueAt(m!.cl, animT, 0),
       t: st.crop.t + valueAt(m!.ct, animT, 0),
@@ -1353,11 +1454,18 @@ export function sanitizeMotion(v: unknown): Motion | undefined {
     rot: sanitizeKeys(o.rot),
     op: sanitizeKeys(o.op),
     scx: sanitizeKeys(o.scx),
+    scy: sanitizeKeys(o.scy),
     skew: sanitizeKeys(o.skew),
     roty: sanitizeKeys(o.roty),
     rotx: sanitizeKeys(o.rotx),
     bright: sanitizeKeys(o.bright),
     blur: sanitizeKeys(o.blur),
+    hue: sanitizeKeys(o.hue),
+    inv: sanitizeKeys(o.inv),
+    blind: sanitizeKeys(o.blind),
+    // 動かない設定値。数でなければ付けない（付けないと既定に落ちるだけで、落ちはしない）
+    ...(typeof o.blindW === 'number' && Number.isFinite(o.blindW) ? { blindW: o.blindW } : null),
+    ...(typeof o.blindDir === 'number' && Number.isFinite(o.blindDir) ? { blindDir: o.blindDir } : null),
     cl: sanitizeKeys(o.cl),
     ct: sanitizeKeys(o.ct),
     cr: sanitizeKeys(o.cr),

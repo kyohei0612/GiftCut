@@ -641,8 +641,20 @@ try {
   }
 
   /** 画像の平均色（0〜255）。赤くなったか、暗くなったかを測る。 */
-  async function avgColor(f) {
-    const p = spawn('ffmpeg', ['-i', f, '-vf', 'signalstats,metadata=print', '-f', 'null', '-'])
+  /**
+   * 画像の一部だけの明るさを測る。
+   *
+   * **切り取りは撮るときではなく、撮った後にやること。** Playwright の
+   * screenshot に clip を渡すと表示範囲がいじられ、その拍子にマウスが枠から
+   * 出た扱いになる。マウスを乗せている前提の物（ホバーの印）は、撮る瞬間に
+   * 消えてしまい「描かれていない」という誤った結論になる（実際に一度なった）。
+   */
+  async function avgColorAt(f, x, y, w, h) {
+    return avgColor(f, `crop=${w}:${h}:${x}:${y}`)
+  }
+  async function avgColor(f, pre) {
+    const vf = (pre ? pre + ',' : '') + 'signalstats,metadata=print'
+    const p = spawn('ffmpeg', ['-i', f, '-vf', vf, '-f', 'null', '-'])
     let err = ''
     p.stderr.on('data', (d) => (err += d))
     await new Promise((res) => p.on('close', res))
@@ -744,7 +756,17 @@ try {
 
     {
       name: '開いたままのメニュー',
-      read: () => page.evaluate(() => String(document.querySelectorAll('.ctx-menu').length)),
+      // 右クリックのメニューだけでなく**ファイルメニューも数える**。
+      // ここを見ていなかったせいで、開きっぱなしのまま次の項目へ渡り、
+      // 「ファイル」をもう一度押す動き（＝閉じる）と噛み合って
+      // 「メニューに項目が無い」という別物の失敗になった。
+      read: () =>
+        page.evaluate(() =>
+          String(
+            document.querySelectorAll('.ctx-menu').length +
+              document.querySelectorAll('.menu-dropdown').length
+          )
+        ),
       // メニューは押せば閉じる。読み込み直すほどのものではない
       restore: async () => {
         await page.keyboard.press('Escape')
@@ -804,6 +826,26 @@ try {
           const el = document.querySelector('.track-scroll')
           if (el) el.scrollLeft = 0
         })
+        await page.waitForTimeout(250)
+      }
+    },
+    {
+      name: 'タイムラインの縦の位置',
+      // 縦に送ったまま次の項目へ行くと、狙った段が枠の外にいて掴めない。
+      //
+      // ※戻す先は**0 ではなく起動時の値**。タイムラインは高さが変わるたびに
+      // 映像と音声の境目を枠に残すので、起動直後から送られていることがある
+      // （実際に 32px 送られた状態が既定だった）。0 に戻すと「戻したのに違う」
+      // となって、後始末そのものが失敗する。
+      read: () =>
+        page.evaluate(() =>
+          String(Math.round(document.querySelector('.track-scroll')?.scrollTop ?? 0))
+        ),
+      restore: async (base) => {
+        await page.evaluate((v) => {
+          const el = document.querySelector('.track-scroll')
+          if (el) el.scrollTop = v
+        }, Number(base) || 0)
         await page.waitForTimeout(250)
       }
     },
@@ -1488,6 +1530,161 @@ try {
     await page.waitForTimeout(200)
     const cls = await page.locator('.th').first().getAttribute('class')
     assert(cls.includes('th-selected'), 'クリックしてもトラックが選択状態にならない')
+  })
+
+  // ---- 縦スクロールの追従 -------------------------------------------------
+  // ここは一度壊している。縦に送れるようにしたのに見出し列を追従させず、
+  // V1 の行に音の波形が出て、掴める段と見えている段が食い違って
+  // クリップを移動できなくなった。**目で見て分かる形**で固定する。
+  //
+  // プレビューの枠を広げる＝タイムラインが縮む、なので、
+  // 「縮めて入りきらない状態」を作ってから見る。
+  const timelineVScroll = {
+    /**
+     * タイムラインを一番低くして、中身がはみ出す状態を作る。
+     *
+     * **必ず一度広げてから縮める。** 既に最小まで縮んでいると、下へ引いても
+     * 高さが変わらず、伸び縮みの処理そのものが動かない
+     * （動かないのを「効いていない」と読み違えて1回転んだ）。
+     */
+    async squeeze() {
+      await dragBy(page.locator('.resizer-h').first(), 0, -400) // まず広げる
+      await page.waitForTimeout(250)
+      const before = await page.evaluate(
+        () => document.querySelector('.timeline')?.getBoundingClientRect().height ?? 0
+      )
+      await dragBy(page.locator('.resizer-h').first(), 0, before) // 下へ目いっぱい＝最小まで縮む
+      await page.waitForTimeout(300)
+    },
+    /** 段の行と、その見出しの、画面上での上端 */
+    tops(id) {
+      return page.evaluate((tid) => {
+        const row = document.querySelector(`.track[data-tid="${tid}"]`)
+        const head = [...document.querySelectorAll('.th')].find(
+          (el) => el.querySelector('.th-id')?.textContent?.trim() === tid
+        )
+        const ruler = document.querySelector('.ruler')
+        const sc = document.querySelector('.track-scroll')
+        return {
+          row: row ? Math.round(row.getBoundingClientRect().top) : null,
+          head: head ? Math.round(head.getBoundingClientRect().top) : null,
+          ruler: ruler ? Math.round(ruler.getBoundingClientRect().top) : null,
+          over: sc ? sc.scrollHeight - sc.clientHeight : 0
+        }
+      }, id)
+    },
+    async scrollTo(y) {
+      await page.evaluate((v) => {
+        const el = document.querySelector('.track-scroll')
+        if (el) el.scrollTop = v
+      }, y)
+      await page.waitForTimeout(250)
+    },
+    /** 映像と音声の境目が、いま見えている枠のどこに居るか */
+    where() {
+      return page.evaluate(() => {
+        const sc = document.querySelector('.track-scroll')
+        const a = document.querySelector('.track-audio')
+        if (!sc || !a) return null
+        const s = sc.getBoundingClientRect()
+        return {
+          rel: Math.round(a.getBoundingClientRect().top - s.top), // 枠の上端から境目まで
+          view: Math.round(s.height),
+          over: sc.scrollHeight - sc.clientHeight,
+          top: Math.round(sc.scrollTop)
+        }
+      })
+    }
+  }
+
+  await check('タイムラインを縮めると、中身は縦に送れるようになる', async () => {
+    await timelineVScroll.squeeze()
+    const st = await timelineVScroll.tops('V1')
+    assert(st.over > 0, `縮めたのに送り分が無い（はみ出し ${st.over}px）`)
+  })
+
+  await check('縦に送っても、段の見出しが行についてくる', async () => {
+    // 縮めた時点で既に真ん中へ送られている（境目を残す動き）ので、
+    // 「最初は先頭」と決めつけない。**送る前の位置を自分で作る。**
+    await timelineVScroll.scrollTo(0)
+    const before = await timelineVScroll.tops('V1')
+    assert(before.row != null && before.head != null, 'V1 の行か見出しが見つからない')
+    // 行と見出しは、送る前は同じ高さに並んでいる
+    near(before.head, before.row, 2, '送る前から行と見出しがずれている')
+    await timelineVScroll.scrollTo(60)
+    const after = await timelineVScroll.tops('V1')
+    near(
+      before.row - after.row,
+      60,
+      2,
+      `送った量と行の動きが合わない（${before.row} → ${after.row}／送った量 60px）`
+    )
+    // ここが本体。**見出しだけ残ると、V1 の行に別の段の中身が見える。**
+    near(
+      after.head,
+      after.row,
+      2,
+      `行と見出しがずれた（行 ${after.row} / 見出し ${after.head}）＝掴める段と見えている段が食い違う`
+    )
+  })
+
+  await check('段見出しの境目を掴んで、レーンの高さを変えられる', async () => {
+    // 高さを変える所は、左端の丸の列から**段見出しの境目**へ移した（プレミアと同じ）。
+    // 境目は見出しと一緒に動くので、縦に送っても見えている段の境目は必ず掴める。
+    await timelineVScroll.scrollTo(0)
+    const rowH = () =>
+      page.evaluate(() =>
+        Math.round(document.querySelector('.track-video')?.getBoundingClientRect().height ?? 0)
+      )
+    const before = await rowH()
+    const divider = page.locator('.th-video .th-divider').first()
+    assert(await divider.count(), '段見出しに境目が見つからない')
+    await dragBy(divider, 0, 60) // 下へ＝太くなる
+    await page.waitForTimeout(300)
+    const after = await rowH()
+    assert(after > before + 4, `境目を下へ引いても太くならない（${before} → ${after}）`)
+    await dragBy(page.locator('.th-video .th-divider').first(), 0, -200) // 元の細さへ戻す
+    await page.waitForTimeout(300)
+  })
+
+  await check('縦に送っても、秒数の目盛りは残る', async () => {
+    const st = await timelineVScroll.tops('V1')
+    const rulerAtTop = await page.evaluate(() => {
+      const r = document.querySelector('.ruler')?.getBoundingClientRect()
+      const s = document.querySelector('.track-scroll')?.getBoundingClientRect()
+      return r && s ? Math.round(r.top - s.top) : null
+    })
+    assert(st.ruler != null, '目盛りが見つからない')
+    near(rulerAtTop, 0, 2, `縦に送ったら目盛りが流れて消えた（枠の上端から ${rulerAtTop}px）`)
+    await timelineVScroll.scrollTo(0)
+  })
+
+  await check('境目を動かして縮めると、上と下が一緒に小さくなる', async () => {
+    // 素のままだと枠は下端だけが動く＝音声側から順に消えて、映像側は全部見えたまま。
+    // それでは片側だけが減る動きになるので、映像と音声の境目を枠に残す。
+    await timelineVScroll.squeeze()
+    const st = await timelineVScroll.where()
+    assert(st, 'タイムラインか音声の段が見つからない')
+    assert(st.over > 0, `縮めたのに送り分が無い（はみ出し ${st.over}px）`)
+    assert(
+      st.rel > 0 && st.rel < st.view,
+      `縮めたら映像と音声の境目が枠の外へ出た（枠 ${st.view}px / 境目 ${st.rel}px）`
+    )
+    near(
+      st.rel,
+      st.view / 2,
+      st.view * 0.2,
+      `境目が真ん中に残っていない（枠 ${st.view}px の中で ${st.rel}px）＝片側だけが減っている`
+    )
+  })
+
+  await check('境目を戻して広げると、送り分が消えて全部見える', async () => {
+    await dragBy(page.locator('.resizer-h').first(), 0, -400) // 上へ＝タイムラインを広げる
+    await page.waitForTimeout(300)
+    const st = await timelineVScroll.where()
+    assert(st, 'タイムラインか音声の段が見つからない')
+    assert(st.over <= 0, `広げたのにはみ出しが残っている（${st.over}px）`)
+    assert(st.top === 0, `全部入るのに送ったままになっている（${st.top}px）`)
   })
 
   await check('鍵をかけると、そのトラックのクリップを動かせない', async () => {
@@ -2286,8 +2483,38 @@ try {
       items.some((t) => t.includes('fixture.gcproj')),
       `開いて保存したファイルが一覧に出ていない: ${items.join(', ')}`
     )
+    // Escape で閉じること自体を見る。閉じないと「閉じたつもり」で次へ渡り、
+    // 見出しをもう一度押す動き（＝閉じる）と噛み合って、次の項目が
+    // 「メニューに項目が無い」という別物の失敗になる（実際になった）。
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(250)
+    const left = await page.locator('.menu-dropdown').count()
+    assert(left === 0, 'Escape を押してもファイルメニューが閉じない')
+  })
+
+  await check('ファイルメニューから「更新で消えない置き場」を開ける', async () => {
+    // 自動更新はアプリ本体を丸ごと入れ替えるが、userData の下は触らない。
+    // **開く道が無いと、消えない場所があっても本人には無いのと同じ**なので見張る。
+    //
+    // **押しはしない。** 押すとエクスプローラの窓が本当に開いてしまう。
+    // 行が出ていることと、配線（preload → main）が通っていることを別々に見る。
+    await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
+    await page.waitForTimeout(300)
+    const rows = await page.locator('.menu-drop-item').allTextContents()
+    for (const label of [
+      '効果音（SE）のフォルダを開く',
+      'テロップ素材のフォルダを開く',
+      '動きのプリセットのフォルダを開く',
+      'テンプレートのフォルダを開く',
+      '設定・保存データのフォルダを開く'
+    ]) {
+      assert(rows.some((t) => t.includes(label)), `ファイルメニューに無い: ${label}`)
+    }
     await page.keyboard.press('Escape')
     await page.waitForTimeout(200)
+    // 知らない置き場は断る＝ハンドラが居る（開かずに配線だけ確かめられる）
+    const bad = await page.evaluate(() => window.giftcut.openFolder('nope'))
+    assert(bad?.ok === false, `知らない置き場を断っていない: ${JSON.stringify(bad)}`)
   })
 
   await check('取り消せない操作の実行ボタンが赤い', async () => {
@@ -2388,6 +2615,45 @@ try {
       `間が流れていない（${x0} / ${xMid} / ${x1}）`
     )
     touchedRef.dirty = true
+  })
+
+  await check('「詳しい動き」を開くと、取り込んだ演出で使う項目が打てる', async () => {
+    // 位置・拡大・回転・不透明度だけでは、写し取った演出の半分も作れない
+    // （横だけの拡大・3D回転・明るさ・切り抜き…）。ただし全部いっぺんに並べると
+    // よく使う行が下へ流れるので、畳んである。**開けば打てる**ことを見る。
+    const sec = page.locator('.mo-sec', { hasText: '詳しい動き' }).first()
+    assert(await sec.count(), 'モーションタブに「詳しい動き」が無い')
+    assert(
+      (await page.locator('.mo-row').filter({ hasText: '横だけ拡大' }).count()) === 0,
+      '畳んでいるはずの行が最初から出ている'
+    )
+    await sec.click()
+    await page.waitForTimeout(300)
+    const row = page.locator('.mo-row').filter({ hasText: '横だけ拡大' }).first()
+    assert(await row.count(), '開いても「横だけ拡大」が出ない')
+
+    const wAt = async () =>
+      (await page.locator('.telop-overlay .telop-textmain').first().boundingBox())?.width ?? null
+    const w0 = await wAt()
+    assert(w0 != null && w0 > 0, '文字がプレビューに出ていない')
+
+    await row.locator('.mo-watch').click()
+    await page.waitForTimeout(300)
+    const val = row.locator('.mo-val')
+    await val.fill('200')
+    await val.press('Enter')
+    await page.waitForTimeout(500)
+    const w1 = await wAt()
+    // 横だけ2倍。**プレビューに本当に効いているか**を幅で見る（値が入っただけでは意味が無い）
+    assert(w1 != null && w1 > w0 * 1.6, `横に伸びていない（${w0} → ${w1}）`)
+
+    // 片付ける。ここで残すと、このあとの書き出し確認まで横に伸びたままになる
+    await row.locator('.mo-watch').click()
+    await page.waitForTimeout(300)
+    await sec.click()
+    await page.waitForTimeout(200)
+    const w2 = await wAt()
+    assert(w2 != null && Math.abs(w2 - w0) < 4, `⏱ を消しても元に戻らない（${w0} → ${w2}）`)
   })
 
   await check('付けた動きは、保存して開き直しても残っている', async () => {
@@ -2699,6 +2965,190 @@ try {
     assert(during < 0.9, `画像が出ている最中なのに元動画と同じ（${during}）＝画像が写っていない`)
     touchedRef.dirty = true
     await resetProject()
+  })
+
+  await check('Premiere のプリセットを取り込むと、見本帳に並んで実際に動く', async () => {
+    // **本物の .prfpset はリポジトリに置かない**（再配布が許可されていない）。
+    // 形は実物を読んで確かめてあるので、同じ形の小さな物をここで作って読ませる。
+    //
+    // 見るのは端から端まで: 選ぶ → 本体が読む → 保存される → 一覧に出る →
+    // 押すとテロップが本当に動く。途中のどこが切れても気づけるようにする。
+    const TICK = 254016000000 // 1秒ぶんの刻み
+    const t0 = 3600 * TICK // Premiere は1時間から始まる
+    const at = (sec) => Math.round(t0 + sec * TICK)
+    // 位置は割合（0.5が中央）。0.6 → 0.5 ＝ 右から中央へ（フレーム幅の1割ぶん）
+    const kfs = `${at(0)},0.6:0.5,5,0,0,0.3333,0,0.3333;${at(0.4)},0.5:0.5,5,0,0,0.3333,0,0.3333;`
+    const one = (id, name, extra = '') => `
+  <TreeItem ObjectID="${id}" ClassID="x" Version="4">
+    <TreeItemBase Version="4"><Data ObjectRef="${id + 1}"/><Name>${name}</Name></TreeItemBase>
+  </TreeItem>
+  <FilterPresetItem ObjectID="${id + 1}" ClassID="x" Version="1">
+    <FilterPresets Version="1"><FilterPreset Index="0" ObjectRef="${id + 2}"/>${
+      extra ? `<FilterPreset Index="1" ObjectRef="${id + 5}"/>` : ''
+    }</FilterPresets>
+  </FilterPresetItem>
+  <FilterPreset ObjectID="${id + 2}" ClassID="x" Version="1"><Component ObjectRef="${id + 3}"/></FilterPreset>
+  <VideoFilterComponent ObjectID="${id + 3}" ClassID="x" Version="1">
+    <MatchName>AE.ADBE Motion</MatchName>
+    <Params Version="1"><Param Index="0" ObjectRef="${id + 4}"/></Params>
+  </VideoFilterComponent>
+  <PointComponentParam ObjectID="${id + 4}" ClassID="x" Version="3">
+    <CurrentValue>0.5:0.5</CurrentValue><IsTimeVarying>true</IsTimeVarying>
+    <Keyframes>${kfs}</Keyframes><Name>位置</Name>
+  </PointComponentParam>${extra}`
+    // 2つめは、こちらに無いエフェクト（波形ワープ）が混ざった物。
+    // 「一部だけ再現できる」と分かる印が付くかを見る
+    const wave = (id) => `
+  <FilterPreset ObjectID="${id + 5}" ClassID="x" Version="1"><Component ObjectRef="${id + 6}"/></FilterPreset>
+  <VideoFilterComponent ObjectID="${id + 6}" ClassID="x" Version="1">
+    <MatchName>AE.ADBE Wave Warp</MatchName>
+    <Params Version="1"><Param Index="0" ObjectRef="${id + 7}"/></Params>
+  </VideoFilterComponent>
+  <ComponentParam ObjectID="${id + 7}" ClassID="x" Version="3">
+    <CurrentValue>10</CurrentValue><IsTimeVarying>true</IsTimeVarying>
+    <Keyframes>${at(0)},10,5,0,0,0.3333,0,0.3333;${at(0.4)},0,5,0,0,0.3333,0,0.3333;</Keyframes>
+    <Name>波の高さ</Name>
+  </ComponentParam>`
+    // 3つめは**動きが1つも取れない**物（こちらに無いエフェクトだけでできている）。
+    // これも落とさず並ぶこと・押したら理由を言うことを見る
+    const onlyWave = (id, name) => `
+  <TreeItem ObjectID="${id}" ClassID="x" Version="4">
+    <TreeItemBase Version="4"><Data ObjectRef="${id + 1}"/><Name>${name}</Name></TreeItemBase>
+  </TreeItem>
+  <FilterPresetItem ObjectID="${id + 1}" ClassID="x" Version="1">
+    <FilterPresets Version="1"><FilterPreset Index="0" ObjectRef="${id + 5}"/></FilterPresets>
+  </FilterPresetItem>${wave(id)}`
+    const prfpset = join(outDir, 'e2e-test.prfpset')
+    writeFileSync(
+      prfpset,
+      `<?xml version="1.0"?>\n<PremiereData Version="3">${one(100, 'E2E_右から')}${one(
+        200,
+        'E2E_一部だけ',
+        wave(200)
+      )}${onlyWave(300, 'E2E_動きなし')}\n</PremiereData>`,
+      'utf-8'
+    )
+
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(300)
+    // 見本帳は**右パネルのトランジションタブ**（05.飛び出し のような演出名なので、
+    // 他の見本帳と並べてある）。左のモーションタブは、付けたあと数値を詰める所。
+    await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
+    await page.waitForTimeout(300)
+    const sec = page.locator('.tpl-acc', { hasText: '動き（取り込んだ演出）' }).first()
+    assert(await sec.count(), 'トランジションタブに「動き（取り込んだ演出）」が無い')
+    assert(
+      (await page.locator('.tpl-acc.open').count()) === 0,
+      'トランジションタブの節が最初から開いている（既定は全部畳んでおく）'
+    )
+    await sec.click()
+    await page.waitForTimeout(300)
+
+    // 空のうちは、ここから辿れないと詰むのでボタンを出す
+    assert(
+      await page.locator('.mo-mini', { hasText: '取り込む' }).count(),
+      '何も入っていないのに、取り込みへの入口がどこにも無い'
+    )
+
+    // **普段の入口はファイルメニュー**（取り込みは一度きりなので、
+    // 見本帳の中に常駐させると細いパネルで一覧の場所を食うだけになる）
+    await setDialogFiles([prfpset], null)
+    await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
+    await page.waitForTimeout(300)
+    await page.locator('.menu-drop-item', { hasText: 'Premiere の動きを取り込む' }).first().click()
+    await page.waitForTimeout(1500)
+    const list = page.locator('.mo-preset')
+    // 既定は**ちゃんと出る物だけ**。選ぶたびに当たり外れを引かせない
+    assert(
+      (await list.count()) === 1,
+      `既定で出るのは「ちゃんと出る物」だけのはず（${await list.count()}件出ている）`
+    )
+
+    // **隠した物も辿れること。** 1つも落としてはいない（何が入っていたかは見たい）
+    const showAll = page.locator('.mo-showall input')
+    assert(await showAll.count(), '「まだ出ない物も」の切り替えが無い（隠した物へ辿れない）')
+    await showAll.check()
+    await page.waitForTimeout(400)
+    assert((await list.count()) === 3, `全部出しても3件並ばない（${await list.count()}件）`)
+    assert(
+      (await page.locator('.mo-preset-part').count()) === 1,
+      '「一部だけ再現できる（△）」印の付き方がおかしい'
+    )
+    assert(
+      (await page.locator('.mo-preset-none').count()) === 1,
+      '「動きなし（✕）」印の付き方がおかしい'
+    )
+    // 動きなしを押しても付かず、何が要るかを言う（黙って何も起きないのは罠）
+    await page.locator('.mo-preset', { hasText: 'E2E_動きなし' }).first().click()
+    await page.waitForTimeout(500)
+    const why = (await page.locator('.toast').allTextContents()).join(' ')
+    assert(
+      why.includes('まだ付けられません') && why.includes('Wave Warp'),
+      `動きなしを押しても理由が出ない: ${why}`
+    )
+
+    // 押したら本当に動くか。テロップは 1〜3秒
+    const xAt = async () =>
+      (await page.locator('.telop-overlay .telop-textmain').first().boundingBox())?.x ?? null
+    await page.locator('.mo-preset', { hasText: 'E2E_右から' }).first().click()
+    await page.waitForTimeout(600)
+    // ちょうど頭（1.0秒）だとテロップが出ているか出ていないかの境目なので、少し中へ入る
+    await seekTo(1.1)
+    await page.waitForTimeout(400)
+    const xStart = await xAt()
+    await seekTo(1.6) // 動きは0.4秒で終わる＝ここでは元の位置に戻っている
+    await page.waitForTimeout(400)
+    const xEnd = await xAt()
+    assert(xStart != null && xEnd != null, '文字がプレビューに出ていない')
+    // 頭では右に居て、終わりでは元の位置に戻ってくる
+    assert(xStart > xEnd + 10, `右から入ってこない（${xStart} → ${xEnd}）`)
+
+    // 開き直しても残っているか（保存されるのは userData 側なので、
+    // アプリを再起動しても一覧に出る＝毎回取り込み直さなくていい）
+    const saved = join(fx.userData, 'motion-presets', 'e2e-test.json')
+    assert(existsSync(saved), `取り込んだ物が保存されていない（${saved}）`)
+    const items = JSON.parse(readFileSync(saved, 'utf-8'))
+    assert(items.length === 3, `保存された件数がおかしい（${items.length}件。落とさず全部残すはず）`)
+    assert(items[0].motion?.tx?.length === 2, '保存された中身に動きが入っていない')
+    // 動きなしの物も、**何が足りないかを添えて**残っている（押したとき理由を言うため）
+    const none = items.find((t) => t.name === 'E2E_動きなし')
+    assert(
+      none && Object.keys(none.motion).length === 0 && none.partial?.includes('AE.ADBE Wave Warp'),
+      `動きなしの物が残っていない/理由が付いていない: ${JSON.stringify(none)}`
+    )
+
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
+  await check('見本帳の動きは動画・画像には付かない（当てても死ぬだけなので断る）', async () => {
+    // 見本帳は右パネルにあるので、**何を選んでいても目には入る**。
+    // 写し取った演出はテロップ用（横だけ拡大・3D回転・切り抜き…）で、映像側は
+    // ffmpeg で焼くため拡大と位置しか手が無い。当てても効かないか、拡大が1倍未満に
+    // なって書き出しが通らなくなる。**押しても付かず、そう言う**ことを見る。
+    await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
+    await page.waitForTimeout(300)
+    const sec = page.locator('.tpl-acc', { hasText: '動き（取り込んだ演出）' }).first()
+    if (!(await page.locator('.tpl-acc.open', { hasText: '動き（取り込んだ演出）' }).count()))
+      await sec.click()
+    await page.waitForTimeout(300)
+
+    for (const [what, sel] of [
+      ['動画', '[data-tid="V1"] .video-clip'],
+      ['画像', '.img-clip']
+    ]) {
+      await page.locator(sel).first().click()
+      await page.waitForTimeout(400)
+      await page.locator('.mo-preset', { hasText: 'E2E_右から' }).first().click()
+      await page.waitForTimeout(500)
+      const toast = (await page.locator('.toast').allTextContents()).join(' ')
+      assert(
+        toast.includes('先にテロップを選択'),
+        `${what}を選んで押したのに断られない（テロップ用の動きが映像に付いてしまう）: ${toast}`
+      )
+    }
+    // 何も付いていないので、状態は戻さない（戻す＝保存し直す方が、
+    // 触っていない物まで書き換えて後ろの確認を狂わせる）
   })
 
   // =========================================================================
@@ -5063,6 +5513,69 @@ try {
     assert(
       dropped === 0,
       `つなぎ目で画面が抜けたコマがある（${dropped}/${ranges.length}コマ・模様の幅 ${ranges.map((r) => Math.round(r)).join(',')}）`
+    )
+  })
+
+  await check('マウスの印が、目盛りの数字の上に切れずに出る', async () => {
+    // 再生ヘッドと見分けが付く形にしてある（全高の縦線は再生ヘッドだけ）。
+    // 印は目盛りの中に収め、頭を数字の上に乗せる。
+    //
+    // ※「目盛りより上に何px 出ているか」で見てはいけない。目盛りは
+    // スクロール領域の一番上に貼り付いているので、上へ出した分は切り落とされる。
+    // 実際、位置の計算は 3px 突き出しているのに目では何も見えていなかった。
+    // **切られていないこと**（＝領域の内側にあること）で見る。
+    await resetProject()
+    const box = await page.locator('.track-inner').boundingBox()
+    await page.mouse.move(Math.round(box.x + 220), Math.round(box.y + 12)) // 目盛りの上
+    await page.waitForTimeout(300)
+    const m = await page.evaluate(() => {
+      const mk = document.querySelector('.hover-mark')
+      const rl = document.querySelector('.ruler')
+      const sc = document.querySelector('.track-scroll')
+      const tm = document.querySelector('.hover-time')
+      if (!mk || !rl || !sc) return null
+      const a = mk.getBoundingClientRect()
+      const b = rl.getBoundingClientRect()
+      const s = sc.getBoundingClientRect()
+      const head = getComputedStyle(mk, '::before')
+      const own = getComputedStyle(mk)
+      return {
+        markTop: Math.round(a.top),
+        markLeft: Math.round(a.left),
+        markW: Math.round(a.width),
+        markH: Math.round(a.height),
+        rulerTop: Math.round(b.top),
+        rulerH: Math.round(b.height),
+        cut: Math.round(s.top - a.top), // 0より大きい＝切り落とされている
+        inRuler: a.top >= b.top - 1 && a.top < b.bottom, // 目盛りの中に居る
+        headH: parseFloat(head.height) || 0,
+        headW: parseFloat(head.width) || 0,
+        headBg: head.backgroundColor,
+        headContent: head.content,
+        vis: `${own.display}/${own.visibility}/${own.opacity}`,
+        time: tm ? tm.textContent.trim() : null
+      }
+    })
+    assert(m, 'マウスの印が出ていない')
+    assert(m.cut <= 0, `印の頭が枠の外にはみ出して切れている（${m.cut}px ぶん）`)
+    assert(m.inRuler, `印が目盛りの中に居ない（印 ${m.markTop} / 目盛り ${m.rulerTop}）`)
+    assert(m.headH >= 3, `印の頭が出ていない（高さ ${m.headH}px）＝線だけで目盛りに紛れる`)
+    assert(m.time, '印に時刻が出ていない')
+    // ここまでは「計算上そうなっている」の確認。**本当に描かれているか**は画素で見る。
+    //
+    // 撮るのは画面まるごと（clip を渡さない）。clip を渡すと表示範囲がいじられ、
+    // その拍子にマウスが枠から出た扱いになって印が消える。
+    // 切り取りは撮った後に ffmpeg でやる。
+    const shot = join(shotDir, 'hover-mark.png')
+    await page.screenshot({ path: shot })
+    const still = await page.evaluate(() => !!document.querySelector('.hover-mark'))
+    assert(still, '撮っている途中で印が消えた（撮り方の問題。clip を渡していないか確認）')
+    const head = await avgColorAt(shot, m.markLeft - 6, m.rulerTop, 13, 5)
+    const bg = await avgColorAt(shot, m.markLeft - 46, m.rulerTop, 13, 5)
+    assert(head.y != null && bg.y != null, '画素を測れなかった（ffmpeg が見つからない可能性）')
+    assert(
+      head.y > bg.y + 40,
+      `印の頭が描かれていない（頭の明るさ ${Math.round(head.y)} / 何も無い所 ${Math.round(bg.y)}）`
     )
   })
 

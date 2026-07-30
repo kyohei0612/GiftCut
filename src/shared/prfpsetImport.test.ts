@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toMotion, isFullyCopyable } from './prfpsetImport'
+import { toMotion, isFullyCopyable, endsHidden } from './prfpsetImport'
 import { PR_TICKS_PER_SEC, type PrPreset } from './prfpset'
 import { valueAt } from './keyframes'
 
@@ -39,6 +39,53 @@ describe('単位を合わせる（ここを間違えると量だけ違う）', (
     expect(motion.op?.map((k) => k.v)).toEqual([0, 1])
   })
 
+  // 縦だけの拡大。**これが無いと「弾む」演出が作れない**
+  // （56.ビョヨン / 58.落ちる / 64.メビウス は、これが動きの本体だった）
+  it('スケール(高さ): 100 が等倍 → 1', () => {
+    const { motion } = toMotion(
+      preset('AE.ADBE Motion', 'スケール (高さ)', [[key(0, 60), key(0.4, 100)]])
+    )
+    expect(motion.scy?.map((k) => k.v)).toEqual([0.6, 1])
+  })
+
+  it('色相は度どうしなのでそのまま（CSS の hue-rotate と同じ意味）', () => {
+    const { motion } = toMotion(
+      preset('AE.ADBE Color Balance (HLS)', '色相', [[key(0, 180), key(0.4, 0)]])
+    )
+    expect(motion.hue?.map((k) => k.v)).toEqual([180, 0])
+  })
+
+  // **裏返しになっているので、そのまま持ってくると逆に動く。**
+  // 向こうは「元の絵をどれだけ混ぜるか」（100＝元のまま＝反転なし）
+  it('反転は「元の画像とブレンド」を裏返す', () => {
+    const { motion } = toMotion(
+      preset('AE.ADBE Invert', '元の画像とブレンド', [[key(0, 0), key(0.4, 100)]])
+    )
+    expect(motion.inv?.map((k) => k.v)).toEqual([1, 0])
+  })
+
+  // 縞で覆って開いていく。**幅と向きは動かない**ので、印が無くても拾う必要がある
+  it('ブラインド: 変換終了 100=全部隠れる → 1。幅と向きは固定値から拾う', () => {
+    const p: PrPreset = {
+      name: 'ブラインド',
+      effects: [
+        {
+          matchName: 'AE.ADBE Venetian Blinds',
+          params: [
+            { name: '変換終了', value: [], keys: [[key(0, 100), key(0.5, 0)]] },
+            { name: '幅', value: [20], keys: [] },
+            { name: '方向', value: [90], keys: [] }
+          ]
+        }
+      ]
+    }
+    const { motion, skipped } = toMotion(p)
+    expect(motion.blind?.map((k) => k.v)).toEqual([1, 0])
+    expect(motion.blindW).toBe(20)
+    expect(motion.blindDir).toBe(90)
+    expect(skipped).toEqual([])
+  })
+
   it('回転は度どうしなのでそのまま', () => {
     const { motion } = toMotion(preset('AE.ADBE Motion', '回転', [[key(0, 0), key(1, 90)]]))
     expect(motion.rot?.map((k) => k.v)).toEqual([0, 90])
@@ -59,6 +106,41 @@ describe('単位を合わせる（ここを間違えると量だけ違う）', (
       preset('AE.ADBE Motion', '位置', [[key(0, 1.5, 1), key(0.2, 0.5)]])
     )
     expect(motion.tx?.[0].to?.speed).toBeCloseTo(1920, 3)
+  })
+})
+
+// **終わりで 0 に戻らないと、テロップが置いた場所と違う所に座り続ける。**
+// こちらの tx/ty は「置いた場所からのズレ」なので、原点は中央(0.5)ではなく
+// そのプリセット自身の最後のキー。実物の 58.落ちる は y:0.88→0.972 と
+// 下寄りで作られていて、0.5 を原点にすると +466px ずれたまま止まっていた。
+describe('位置は「最後に落ち着く所」を原点にする', () => {
+  it('中央で作られていない演出でも、終わりは 0 になる', () => {
+    const { motion } = toMotion(
+      preset('AE.ADBE Motion', '位置', [
+        [key(0, 0.5), key(0.17, 0.5)], // x
+        [key(0, 0.88), key(0.17, 0.972)] // y ＝ 下寄りで作られている
+      ])
+    )
+    expect(motion.ty?.[motion.ty.length - 1].v).toBeCloseTo(0, 6)
+    // 0.88 → 0.972 は上へ 0.092 ぶん。1080基準で -99.36px から落ちてくる
+    expect(motion.ty?.[0].v).toBeCloseTo((0.88 - 0.972) * 1080, 6)
+  })
+
+  it('中央で作られた演出は、今までどおり（0.5 なら 0 のまま）', () => {
+    const { motion } = toMotion(
+      preset('AE.ADBE Motion', '位置', [[key(0, 1.5), key(0.2, 0.5)]])
+    )
+    expect(motion.tx?.map((k) => k.v)).toEqual([1920, 0])
+  })
+
+  it('動かない軸は、ずっと 0（固定値のぶんズレない）', () => {
+    const { motion } = toMotion(
+      preset('AE.ADBE Motion', '位置', [
+        [key(0, 0.3), key(0.2, 0.7)],
+        [key(0, 0.974), key(0.2, 0.974)] // y は動かない
+      ])
+    )
+    expect(motion.ty?.map((k) => k.v)).toEqual([0, 0])
   })
 })
 
@@ -164,5 +246,34 @@ describe('トランスフォーム（動きはこちらに付いていること�
 
   it('トランスフォームだけのプリセットも、そのまま再現できる扱い', () => {
     expect(isFullyCopyable({ name: 'x', effects: [{ matchName: 'AE.ADBE Geometry2', params: [] }] })).toBe(true)
+  })
+})
+
+// 実物には「_上」「_下」の対がある。上側は**2枚重ねの上に乗せる光の筋**で、
+// 単体で当てると最後に文字ごと消える。取り込みの誤りではないので、
+// 「壊れている」と見えないように中身から見分ける（名前では取りこぼす）。
+describe('終わりで消える物（2枚重ねの上側）を見分ける', () => {
+  it('不透明度が0で終わる', () => {
+    expect(endsHidden({ op: [{ t: 0, v: 1 }, { t: 0.5, v: 0 }] })).toBe(true)
+  })
+
+  // 片側だけでも真ん中を越えれば、横方向に中央のテロップは残らない。
+  // 41.点灯_上 は左から89.9%まで削って終わる（両側の合計では 0.9 にしかならず、
+  // 合計だけ見ていると取りこぼす）。
+  it('片側の切り抜きが真ん中を越える（41.点灯_上 はこれ）', () => {
+    expect(endsHidden({ cl: [{ t: 0, v: 0 }, { t: 0.5, v: 0.899 }], cr: [{ t: 0, v: 0 }, { t: 0.5, v: 0.008 }] })).toBe(true)
+  })
+
+  it('端を少し削るだけなら、消えたとは見なさない', () => {
+    expect(endsHidden({ cl: [{ t: 0, v: 0 }, { t: 0.5, v: 0.2 }], cr: [{ t: 0, v: 0 }, { t: 0.5, v: 0.2 }] })).toBe(false)
+  })
+
+  it('ブラインドが閉じきる', () => {
+    expect(endsHidden({ blind: [{ t: 0, v: 0 }, { t: 0.5, v: 1 }] })).toBe(true)
+  })
+
+  it('普通の演出は、そう見なさない', () => {
+    expect(endsHidden({ op: [{ t: 0, v: 0 }, { t: 0.5, v: 1 }], tx: [{ t: 0, v: 500 }, { t: 0.5, v: 0 }] })).toBe(false)
+    expect(endsHidden({})).toBe(false)
   })
 })

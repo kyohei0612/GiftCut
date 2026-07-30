@@ -101,6 +101,30 @@ const api = {
   }> => ipcRenderer.invoke('se:list'),
   listTelopPresets: (): Promise<{ ok: boolean; items: unknown[] }> =>
     ipcRenderer.invoke('telop:presets'),
+  // ---- 動きのプリセット（Premiere から写し取った物）----
+  // 形の検査は受け取った側（renderer の sanitizeMotion）でやるので unknown で渡す。
+  listMotionPresets: (): Promise<{ ok: boolean; items: unknown[] }> =>
+    ipcRenderer.invoke('motion:list'),
+  importMotionPresets: (): Promise<{
+    ok: boolean
+    canceled?: boolean
+    path?: string
+    items?: unknown[]
+    /** ファイルに入っていた数 / 並べた数（＝全部） / 一部だけの数 / 動きが取れなかった数 */
+    total?: number
+    imported?: number
+    partial?: number
+    empty?: number
+    error?: string
+  }> => ipcRenderer.invoke('motion:import'),
+  /** 動きの記録を userData/perf へ書く（画面側の blob 保存は Electron では落ちる） */
+  savePerfReport: (text: string): Promise<{ ok: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('perf:save', text),
+  /** 更新で消えない置き場をエクスプローラで開く（無ければ作ってから開く） */
+  openFolder: (
+    key: 'se' | 'telop' | 'motion' | 'template' | 'data'
+  ): Promise<{ ok: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('folder:open', key),
   getDuration: (path: string): Promise<{ ok: boolean; duration?: number }> =>
     ipcRenderer.invoke('media:duration', path),
   getFps: (path: string): Promise<{ ok: boolean; fps?: number }> =>

@@ -7,7 +7,9 @@ import {
   animTransform,
   animFilter,
   animClip,
+  animMask,
   buildTelopSVG,
+  textRectInFrame,
   hexToRgba,
   ICON_BASE_PX,
   LINE_BASE,
@@ -33,12 +35,6 @@ function innerHtml(
 ): string {
   const s = cue.style
   const scale = height / 1080
-  // アニメ層（opacity/transform）。無ければ素通し
-  const animOpen = anim
-    ? `<div style="display:inline-block;opacity:${anim.opacity.toFixed(3)};transform:${animTransform(anim, 'px', scale)};transform-origin:center;` +
-      `${animFilter(anim, scale) ? `filter:${animFilter(anim, scale)};` : ''}` +
-      `${animClip(anim) ? `clip-path:${animClip(anim)};` : ''}">`
-    : ''
   const animClose = anim ? '</div>' : ''
   const fs = s.fontSize * scale
   const boxBg = s.background.enabled ? hexToRgba(s.background.color, s.background.opacity) : 'transparent'
@@ -63,6 +59,20 @@ function innerHtml(
   const autoBorder = fs * 0.07
 
   const p = cue.pos ?? { x: 0.5, y: 0.85 }
+  // アニメ層（opacity/transform/フィルタ/切り抜き）。無ければ素通し。
+  // **切り抜きはフレームの何％で入ってくる**ので、文字の箱がフレームのどこを
+  // 占めるかを渡して直してもらう（プレビューと同じ textRectInFrame を通す。
+  // 別々に書くと、見た絵と焼けた絵で削れる量が変わる）。
+  const clipCss = anim
+    ? animClip(anim, textRectInFrame(p, s.anchor, tsvg.textW, tsvg.textH, width / (height / 1080), 1080, cue.scale ?? 1))
+    : ''
+  const maskCss = anim ? animMask(anim, scale) : ''
+  const animOpen = anim
+    ? `<div style="display:inline-block;opacity:${anim.opacity.toFixed(3)};transform:${animTransform(anim, 'px', scale)};transform-origin:center;` +
+      `${animFilter(anim, scale) ? `filter:${animFilter(anim, scale)};` : ''}` +
+      `${clipCss ? `clip-path:${clipCss};` : ''}` +
+      `${maskCss ? `-webkit-mask-image:${maskCss};mask-image:${maskCss};` : ''}">`
+    : ''
   // レイアウト箱=文字ボックス(px)。SVGを負オフセットで重ね overflow可視（プレビューと同一手法）。斜体もSVG内。
   const tw = tsvg.textW * scale
   const th = tsvg.textH * scale

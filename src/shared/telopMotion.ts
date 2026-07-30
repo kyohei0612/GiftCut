@@ -22,6 +22,11 @@ export interface Motion {
    * **弾む・伸びる演出に要る**（滑り込みながら横に潰れて戻る、が作れない）
    */
   scx?: Keys
+  /**
+   * 縦だけの拡大（1=そのまま）。Premiere の「スケール(高さ)」。
+   * **潰れて伸びる演出に要る**（ビョヨン・落ちる・メビウスはこれが本体）。
+   */
+  scy?: Keys
   /** 歪曲（度）。斜体と同じ skewX で傾ける。Premiere の「歪曲」 */
   skew?: Keys
   /** 横回転（度・Y軸）。Premiere の基本3D「スウィベル」 */
@@ -32,9 +37,49 @@ export interface Motion {
   bright?: Keys
   /** ぼかし（px・1080基準）。ガウスぼかし */
   blur?: Keys
+  /** 色相の回転（度。0=そのまま）。カラーバランス(HLS) の「色相」 */
+  hue?: Keys
+  /** 色の反転（0=そのまま、1=完全に反転）。Invert の「元の画像とブレンド」の裏返し */
+  inv?: Keys
+  /**
+   * ブラインド（0=全部見える、1=全部隠れる）。Venetian Blinds の「変換終了」。
+   * 縞で覆って、だんだん開いていく演出。
+   */
+  blind?: Keys
+  /**
+   * ブラインドの縞1本ぶんの幅（px・1080基準）と向き（度）。
+   * **この2つは動かない**（実物でも固定値）ので、印ではなく数で持つ。
+   */
+  blindW?: number
+  blindDir?: number
   /** 切り抜き（各辺 0..1）。タイプライターや「光」系に要る */
   cl?: Keys
   ct?: Keys
   cr?: Keys
   cb?: Keys
+}
+
+/**
+ * **印（キーフレーム）を打てる項目だけ**の名前。
+ * blindW / blindDir のような「動かない設定値」を、印を打つ道具に渡さないための型。
+ */
+export type MotionKeyName = {
+  [K in keyof Motion]-?: NonNullable<Motion[K]> extends Keys ? K : never
+}[keyof Motion]
+
+/**
+ * 取り込んで置いてある動きのプリセット1つ（motion-presets/*.json の要素）。
+ *
+ * partial には、向こうには付いていたがこちらで持てなかったエフェクトの名前が入る。
+ * **黙って捨てない**ため（「取り込んだのに見た目が違う」の原因が、一覧の上で分かる）。
+ */
+export interface MotionPresetFile {
+  name: string
+  motion: Motion
+  partial?: string[]
+  /**
+   * 演出が終わるとテロップが見えなくなる物（「_上」のような2枚重ねの上側）。
+   * **単体で当てると文字が消える**ので、一覧で先に知らせる。壊れているのではない。
+   */
+  endsHidden?: boolean
 }

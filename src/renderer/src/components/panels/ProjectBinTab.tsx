@@ -42,6 +42,7 @@ export function ProjectBinTab({
   onOpenVideo,
   onRemove,
   onDragStart,
+  onAddAtPlayhead,
   onDragEnd,
   onPickLabel,
   onVisible
@@ -68,6 +69,8 @@ export function ProjectBinTab({
   onOpenVideo: (item: MediaItem) => void
   onRemove: (id: number) => void
   onDragStart: (item: MediaItem, e: React.DragEvent) => void
+  /** ダブルクリックで再生ヘッドの位置へ足す（音・画像） */
+  onAddAtPlayhead: (item: MediaItem) => void
   onDragEnd: () => void
   onPickLabel: (color: string) => void
   /** いま見えている素材（サムネと波形は見えている物だけ用意する） */
@@ -129,7 +132,11 @@ export function ProjectBinTab({
                     }}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
+                      // 動画のダブルクリックは前からある「開く」のまま（意味を変えない）。
+                      // 音・画像は置き場所を指す必要が無いので、再生ヘッドへ足す。
+                      // ドラッグしないと置けないのは、ただの手間だった。
                       if (m.kind === 'video') onOpenVideo(m)
+                      else onAddAtPlayhead(m)
                     }}
                   >
                     <button

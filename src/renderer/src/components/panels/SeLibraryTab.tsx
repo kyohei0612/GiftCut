@@ -34,6 +34,7 @@ export function SeLibraryTab({
   onMoveTo,
   onToggleFav,
   onDragStart,
+  onAddAtPlayhead,
   onDragEnd,
   onContextMenu
 }: {
@@ -58,6 +59,8 @@ export function SeLibraryTab({
   onMoveTo: (path: string, folder: string | null) => void
   onToggleFav: (path: string) => void
   onDragStart: (item: SeItem, e: React.DragEvent) => void
+  /** ダブルクリックで再生ヘッドの位置へ足す */
+  onAddAtPlayhead: (item: SeItem) => void
   onDragEnd: () => void
   /** 右クリックで出すメニューの中身は App 側が組む（移動先の一覧＋お気に入り） */
   onContextMenu: (item: SeItem, current: string, e: React.MouseEvent) => void
@@ -83,12 +86,15 @@ export function SeLibraryTab({
       onDragStart={(e) => onDragStart(s, e)}
       onDragEnd={onDragEnd}
       onClick={() => onPreview(s.path)}
+      // 置き場所を指したいときだけドラッグ。**とりあえず今いる所に足す**のは
+      // ダブルクリックで済ませる（試聴は1クリックのまま残す）
+      onDoubleClick={() => onAddAtPlayhead(s)}
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
         onContextMenu(s, effective(s), e)
       }}
-      title="ドラッグでタイムラインに配置 / クリックで試聴 / 右クリックでフォルダ移動"
+      title="ドラッグでタイムラインに配置 / ダブルクリックで再生ヘッドへ / クリックで試聴 / 右クリックでフォルダ移動"
     >
       <span className="se-play">🔊</span>
       <span className="se-name">{s.name}</span>

@@ -96,6 +96,29 @@ export interface GiftcutApi {
     items: { category: string; name: string; path: string }[]
   }>
   listTelopPresets: () => Promise<{ ok: boolean; items: unknown[] }>
+  /** 取り込んで置いてある「動きのプリセット」。中身の検査は受け取った側でやる */
+  listMotionPresets: () => Promise<{ ok: boolean; items: unknown[] }>
+  /**
+   * .prfpset を選んで取り込む。**1つも落とさない**（どれを使うかは人が決める）。
+   * total=ファイルの数 / imported=並べた数 / partial=一部だけ / empty=動きが取れなかった数
+   */
+  importMotionPresets: () => Promise<{
+    ok: boolean
+    canceled?: boolean
+    path?: string
+    items?: unknown[]
+    total?: number
+    imported?: number
+    partial?: number
+    empty?: number
+    error?: string
+  }>
+  /** 動きの記録を userData/perf へ書く */
+  savePerfReport: (text: string) => Promise<{ ok: boolean; path?: string; error?: string }>
+  /** 更新で消えない置き場（userData の下）を開く。無ければ作ってから開く */
+  openFolder: (
+    key: 'se' | 'telop' | 'motion' | 'template' | 'data'
+  ) => Promise<{ ok: boolean; path?: string; error?: string }>
   getDuration: (path: string) => Promise<{ ok: boolean; duration?: number }>
   getFps: (path: string) => Promise<{ ok: boolean; fps?: number }>
   generateWaveform: (

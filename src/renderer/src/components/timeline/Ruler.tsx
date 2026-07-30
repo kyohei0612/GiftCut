@@ -1,7 +1,7 @@
 // タイムラインの上に重なる「時間の物差し」まわり。
 //
 //   TimeRuler   … 目盛り（ドラッグで再生位置を動かす）
-//   HoverGuide  … マウスの位置に出る縦線と時刻
+//                 （マウスの印は目盛りの中に入れてある。全高の縦線は再生ヘッドだけ）
 //   Marquee     … 範囲選択の四角
 //   MarkerFlags … めじるし（旗＋縦線・名前の変更）
 //   Playhead    … 再生ヘッド
@@ -13,9 +13,12 @@ import type { JSX } from 'react'
 
 export function TimeRuler({
   ticks,
+  hover,
   onScrub
 }: {
   ticks: { left: number; major: boolean; label?: string }[]
+  /** マウスの居場所（横位置と時刻）。**目盛りの中に置く**（下の理由） */
+  hover: { x: number; label: string } | null
   onScrub: (e: React.PointerEvent) => void
 }): JSX.Element {
   return (
@@ -29,14 +32,16 @@ export function TimeRuler({
           {t.label && <span>{t.label}</span>}
         </div>
       ))}
-    </div>
-  )
-}
-
-export function HoverGuide({ x, label }: { x: number; label: string }): JSX.Element {
-  return (
-    <div className="hover-line" style={{ left: x }}>
-      <span className="hover-time">{label}</span>
+      {/* **マウスの印は目盛りの中だけ。**
+          前はここから下へ全高の縦線を引いていたが、再生ヘッドと見分けが付かず、
+          クリップの上を横切るたびに邪魔になっていた。プレミアと同じで、
+          目盛りの数字の上から突き出す小さな印だけにする。
+          目盛りの子にしてあるので、縦に送っても目盛りごと貼り付いてズレない。 */}
+      {hover && (
+        <div className="hover-mark" style={{ left: hover.x }}>
+          <span className="hover-time">{hover.label}</span>
+        </div>
+      )}
     </div>
   )
 }

@@ -45,12 +45,67 @@ const PROCAMP = 'AE.ADBE ProcAmp'
 const GBLUR = 'AE.ADBE Gaussian Blur 2'
 /** 切り抜き。**タイプライターや「光」系の正体はこれ** */
 const CROP = 'AE.ADBE AECrop'
+/** カラーバランス(HLS)。実物で動いているのは色相だけ（明度・彩度は固定値） */
+const CBHLS = 'AE.ADBE Color Balance (HLS)'
+/** 色の反転 */
+const INVERT = 'AE.ADBE Invert'
+/** ブラインド。縞で覆って開いていく。CSS のマスクで出す */
+const BLINDS = 'AE.ADBE Venetian Blinds'
 
-const HANDLED = new Set([MOTION, OPACITY, GEOMETRY, BASIC3D, PROCAMP, GBLUR, CROP])
+const HANDLED = new Set([MOTION, OPACITY, GEOMETRY, BASIC3D, PROCAMP, GBLUR, CROP, CBHLS, INVERT, BLINDS])
+
+/**
+ * 演出が終わったときに、テロップが**見えなくなる**か。
+ *
+ * 実物には「_上」「_下」の対（41.点灯_上/下 など）があり、上側は
+ * **2枚重ねたうちの上に乗せる光の筋**。単体で当てると最後に文字ごと消える。
+ * これは取り込みの誤りではなく、そういう作りの物。
+ *
+ * **黙って「壊れている」に見えるのが一番まずい**ので、名前ではなく中身から判定して
+ * 一覧の上で知らせる（名前で見ると「_上」を持たない同種の物を取りこぼす）。
+ */
+export function endsHidden(m: Motion): boolean {
+  const last = (k?: Motion['tx']): number | undefined => (k?.length ? k[k.length - 1].v : undefined)
+  const op = last(m.op)
+  if (op != null && op < 0.02) return true
+  const blind = last(m.blind)
+  if (blind != null && blind > 0.98) return true
+  const l = last(m.cl) ?? 0, r = last(m.cr) ?? 0, t = last(m.ct) ?? 0, b = last(m.cb) ?? 0
+  // 両側から覆いきっていれば、何も残らない
+  if (l + r > 0.98 || t + b > 0.98) return true
+  // **片側だけでも、真ん中を越えていれば文字は残らない。**
+  // 切り抜きはフレームに対する割合で、テロップは横方向には真ん中にいる。
+  // 41.点灯_上 は左から 89.9% まで削って終わるので、中央の文字は跡形もない。
+  // 縦は置き場所が下寄りだったり色々なので、ここでは見ない（両側の合計で見る）。
+  return l > 0.5 || r > 0.5
+}
 
 /** そのプリセットが、こちらで持てるエフェクトだけでできているか */
 export function isFullyCopyable(p: PrPreset): boolean {
   return p.effects.every((e) => HANDLED.has(e.matchName))
+}
+
+/**
+ * 位置を「最後に落ち着く所からのズレ」に直す。
+ *
+ * ## なぜ 0.5 を原点にしてはいけないか
+ *
+ * こちらの tx/ty は、**テロップを置いた場所からのズレ**として足される。
+ * だから演出が終わったときに 0 でないと、テロップが置いた場所と違う所に
+ * 座り続ける（「落ちる」を当てたら、落ちた先で止まったまま戻らない）。
+ *
+ * 向こうの値は画面の中の絶対位置なので、**そのプリセット自身の最後のキー**が
+ * 「落ち着く所」。中央(0.5)とは限らない。実物では
+ *
+ *     58.落ちる    y: 0.88 → 0.972   ← 下寄りで作られている
+ *     03.SLIDE_R2  y: 0.974 のまま固定
+ *
+ * となっていて、0.5 を原点にすると全部その差だけ下へズレる。
+ * 最後のキーを引けば、中央で作られた物（01.SLIDE_R など）も 0 のままで変わらない。
+ */
+function relativeToLast(keys: BezierKey[], mul: number): BezierKey[] {
+  const last = keys.length ? keys[keys.length - 1].v : 0
+  return scaleKeys(keys, mul, -last * mul)
 }
 
 /** 値と接線に同じ倍率を掛ける（速度は「値/秒」なので同じ倍率でよい） */
@@ -88,13 +143,20 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
       continue
     }
     for (const q of e.params) {
+      // ブラインドの幅と向きは**動かない**（実物でも固定値）。動くのは「変換終了」だけ。
+      // 印が無いと読み飛ばす作りなので、ここだけ固定値も拾う
+      if (e.matchName === BLINDS && !q.keys.length) {
+        if (q.name === '幅' && Number.isFinite(q.value[0])) motion.blindW = q.value[0]
+        if (q.name === '方向' && Number.isFinite(q.value[0])) motion.blindDir = q.value[0]
+        continue
+      }
       if (!q.keys.length) continue
       const [x, y] = q.keys
       switch (q.name) {
         case '位置':
-          // 割合（0.5 が中央）→ 中央からのズレ（px）
-          motion.tx = toKeys(scaleKeys(x, 1920, -960))
-          if (y) motion.ty = toKeys(scaleKeys(y, 1080, -540))
+          // 割合 → 「最後に落ち着く所からのズレ」（px）。0.5 固定ではない（上の説明）
+          motion.tx = toKeys(relativeToLast(x, 1920))
+          if (y) motion.ty = toKeys(relativeToLast(y, 1080))
           break
         case 'スケール':
           motion.sc = toKeys(scaleKeys(x, 0.01))
@@ -109,6 +171,11 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
         case 'スケール（幅）':
           // 横だけの拡大。100 が等倍
           motion.scx = toKeys(scaleKeys(x, 0.01))
+          break
+        case 'スケール (高さ)':
+        case 'スケール（高さ）':
+          // 縦だけの拡大。**潰れて伸びる演出の本体**（ビョヨン・落ちる・メビウス）
+          motion.scy = toKeys(scaleKeys(x, 0.01))
           break
         case '歪曲':
           // 度どうしなのでそのまま
@@ -127,6 +194,19 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
         case 'ブラー':
           // px どうし。1080基準でそのまま
           motion.blur = toKeys(x)
+          break
+        case '色相':
+          // 度どうしなのでそのまま（CSS の hue-rotate と同じ意味）
+          motion.hue = toKeys(x)
+          break
+        case '変換終了':
+          // 100 で全部隠れ、0 で全部見える
+          motion.blind = toKeys(scaleKeys(x, 0.01))
+          break
+        case '元の画像とブレンド':
+          // 向こうは「元の絵をどれだけ混ぜるか」（100=元のまま）。
+          // こちらの inv は「どれだけ反転するか」なので**裏返す**
+          motion.inv = toKeys(scaleKeys(x, -0.01, 1))
           break
         case '左':
           motion.cl = toKeys(scaleKeys(x, 0.01))
@@ -150,10 +230,10 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
         case 'エッジをぼかす':
         case 'ズーム':
         case 'コントラスト':
-        case '色相':
         case '彩度':
         case '分割比':
         case 'ブラーの方向':
+        case 'ぼかし':
           // 見た目にほぼ効かない・こちらに概念が無い。動いていても無視してよい
           break
         default:

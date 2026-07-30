@@ -55,9 +55,29 @@ export interface PrPreset {
   effects: PrEffect[]
 }
 
+/**
+ * XML の実体参照を戻す。
+ *
+ * **入れないと画面にそのまま出る。** 実物には
+ *   25.飛び込み+ブラー&#13;カラーバランス      ← 名前の改行
+ *   AE.ADBE Brightness &amp; Contrast 2      ← エフェクト名の &
+ * が入っていて、前者は一覧に化けたまま並び、後者は名前の突き合わせが外れる。
+ * `&amp;` は最後に戻す（先に戻すと `&amp;lt;` が `<` になってしまう）。
+ */
+function decodeXml(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
 const tag = (xml: string, name: string): string | null => {
   const m = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(xml)
-  return m ? m[1] : null
+  return m ? decodeXml(m[1]) : null
 }
 
 /** `1.40625:0.5` や `100` を数の配列にする */
@@ -165,7 +185,9 @@ export function parsePrfpset(xml: string): PrPreset[] {
   for (const o of objects) {
     if (o.kind !== 'TreeItem') continue
     const ref = /<Data\s+ObjectRef="(\d+)"/.exec(o.body)?.[1]
-    const nm = tag(o.body, 'Name')
+    // 向こうの名前は2行にできる（「25.飛び込み+ブラー / カラーバランス」）。
+    // こちらは一覧に1行で並べるので、改行は空白にして詰める
+    const nm = tag(o.body, 'Name')?.replace(/\s*[\r\n]+\s*/g, ' ').trim()
     if (ref && nm) nameOf.set(ref, nm)
   }
 

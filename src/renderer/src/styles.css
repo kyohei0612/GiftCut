@@ -764,7 +764,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px;
+  /* **上下にも余白を残す。** 高さを使い切ると、タイムラインを上げたとき
+     下から詰まってくる見え方になる。四辺に余白を置くと、縮めても
+     映像は真ん中のまま上下一緒に小さくなる（プレミアと同じ見え方）。 */
+  padding: 18px 10px;
   min-height: 0;
   background: #0d0d0f;
 }
@@ -893,9 +896,20 @@ body {
     linear-gradient(-45deg, transparent 75%, #a9a9a9 75%);
   background-size: 24px 24px;
   background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+  /* **潰さずに小さくする。**
+     タイムラインを持ち上げてモニタを低くすると、前は縦だけ潰れて
+     比率が変わっていた。高さを 100% で固定したまま横に max を掛けていたため、
+     詰まったぶんが縦の潰れになっていた。
+     幅を auto にして「高さから比率で決まる」形にすると、低くなったぶん
+     横も一緒に縮む＝プレミアと同じで、中央に寄ったまま小さくなる。
+     min-* を 0 にしておかないと、中身の大きさが下限になって縮まない。 */
   max-height: 100%;
   max-width: 100%;
   height: 100%;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1970,43 +1984,37 @@ body {
   position: relative;
 }
 /* 左端のトラック高さ調整バー（丸グリップ）*/
-.tl-resize-gutter {
-  position: relative;
-  width: 16px;
-  flex: 0 0 auto;
-  background: var(--panel-2);
-  border-right: 1px solid var(--line);
-}
-.tl-grip {
+/* 段の高さを変える所。
+   ※以前は左端に「丸」を並べた専用の列（.tl-resize-gutter / .tl-grip）を置いていたが
+   廃止した。縦に送ると枠の外へ出て消え、掴んだ丸と実際の境目が離れることもあった。
+   いまは段見出しの**境目そのもの**を掴む（プレミアと同じ）。
+   境目は見出しと一緒に動くので、見えている段の境目は必ず掴める。 */
+.th-divider {
   position: absolute;
   left: 0;
   right: 0;
-  height: 16px;
-  transform: translateY(-50%); /* boundary(下端)を中心に配置 */
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  bottom: 0;
+  /* 掴める幅。狭いと狙えず、広いと段を選ぶつもりの押下を奪う。
+     段が一番細いとき(26px)でも、上の8割は「選ぶ」ために残る。 */
+  height: 5px;
   cursor: row-resize;
-  z-index: 6;
+  z-index: 4;
 }
-.tl-grip-knob {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #d8d8de;
-  border: 1px solid #6a6a72;
-  box-shadow: 0 1px 2px #0007;
-  transition:
-    background 0.12s,
-    transform 0.12s;
+/* 触れている間だけ線を光らせる。**常に見せない。**
+   7本ぶんの明るい線が常時並ぶと、段の区切りより線のほうが目立つ。 */
+.th-divider::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: transparent;
+  transition: background 0.1s;
 }
-.tl-grip:hover .tl-grip-knob {
-  background: #fff;
-  transform: scale(1.25);
-}
-.tl-grip:active .tl-grip-knob {
+.th-divider:hover::after,
+.th-divider:active::after {
   background: var(--accent-2);
-  border-color: var(--accent-2);
 }
 /* タイムラインの上下に持たせる余白。段が端に貼り付いていると窮屈に見え、
    上や下に足せることも伝わらない。トラック側とヘッダー側で同じ高さにすること。 */
@@ -2014,8 +2022,18 @@ body {
   flex: 0 0 auto;
   pointer-events: none;
 }
+/* 段見出しの並び。縦スクロールに合わせて App 側が transform で上へずらす。
+   **見出し列そのものを動かさないこと**（上の th-spacer は目盛りの相手なので残る）。 */
+.th-body {
+  transform: translateY(0);
+  will-change: transform;
+}
 .th-spacer {
   height: 24px;
+  /* 目盛り(sticky)と並ぶ位置。ここだけは送っても動かない */
+  position: relative;
+  z-index: 2;
+  background: var(--head);
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
@@ -2058,6 +2076,7 @@ body {
   padding: 0 6px 0 8px;
   border-bottom: 1px solid var(--line);
   overflow: hidden;
+  position: relative; /* 下の境目（.th-divider）を置く基準 */
 }
 .th.th-selected {
   background: #2f343a;
@@ -2184,18 +2203,38 @@ body {
 }
 
 /* ホバーガイド線 */
-.hover-line {
+/* マウスの居場所。**目盛りの中だけ**に出す。
+   前は全高の縦線を引いていて、再生ヘッドと紛らわしいうえ、
+   クリップの上を横切るたびに邪魔になっていた（プレミアも目盛りの中だけ）。 */
+.hover-mark {
   position: absolute;
+  /* **マイナスにしないこと。** 目盛りはスクロール領域の一番上に貼り付いており、
+     その上へ出した分は領域の外＝切り落とされる。以前 -3px にしてあり、
+     位置の計算上は「3px 突き出している」のに目では何も出ていなかった
+     （測る側もそれを通してしまっていた）。頭は領域の内側に置く。 */
   top: 0;
   bottom: 0;
   width: 1px;
-  background: #ffffff55;
-  z-index: 15;
+  background: #ffffff88;
+  z-index: 7;
   pointer-events: none;
+}
+.hover-mark::before {
+  /* 数字の上に乗る小さな頭。線だけだと目盛りに紛れて見えない。
+     再生ヘッドの三角とは形も色も変えてある（見分けが付くことが最優先）。 */
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -4px;
+  width: 9px;
+  height: 4px;
+  background: #fff;
+  border-radius: 0 0 2px 2px;
+  box-shadow: 0 1px 2px #000a;
 }
 .hover-time {
   position: absolute;
-  top: 2px;
+  top: 5px;
   left: 3px;
   font-size: 9px;
   color: #fff;
@@ -2241,10 +2280,27 @@ body {
 }
 .ruler {
   height: 24px;
-  position: relative;
+  /* 縦に送っても秒数を残す。
+     ※以前ここだけ sticky にして戻した経緯がある。左の段見出しが追従せず、
+     行と見出しがずれる問題は何も解決しないまま、別の壊れ方だけ増えたため。
+     いまは見出し列（.th-body）が同じ量だけ追従するようになったので、
+     その相手として貼り付ける。
+     **片方だけ戻さないこと。** 目盛りだけ剥がすと秒数が消え、
+     見出しだけ剥がすと行とラベルがずれる。 */
+  position: sticky;
+  top: 0;
+  /* クリップより上、再生ヘッド(20)・めじるし(18)より下。
+     旗と再生ヘッドは目盛りの上に乗って見えるのが正しい。
+     16 なのは、ドラッグ中の影(.se-ghost)が 15 で、同値だと後から描かれる
+     影のほうが勝って目盛りを覆うため。 */
+  z-index: 16;
   border-bottom: 1px solid var(--line);
   background: var(--panel-2);
-  cursor: text;
+  /* **文字入力用の I 型に変えない。**
+     目盛りは文字を打つ所ではないので、変わると「ここで何かを入力するのか」と
+     読ませてしまう。プレミアも目盛りの上は普通の矢印のまま。
+     掴んで動かせることは、押した瞬間の動き自体で分かる。 */
+  cursor: default;
 }
 .tick {
   position: absolute;
@@ -2269,6 +2325,35 @@ body {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* 磁石が吸い付いた所。**再生ヘッドと間違えないこと**が一番大事なので、
+   点線・別の色にしてある（実線のピンクで出していた頃は紛らわしくて消されていた）。
+   掴んでいる間だけ出て、離すと消える。 */
+.snap-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed var(--accent-2, #5ac8fa);
+  z-index: 18;
+  pointer-events: none;
+}
+/* --- 目盛りに貼り付く物 ---
+   再生ヘッドの三角とつまみ、めじるしの旗、磁石の印は「目盛りの所」に居るのが正しい。
+   ただし置き場所は中身（track-inner）の上端からの距離なので、縦に送ると
+   目盛りだけ残って、これらは上へ流れて消える。送った量（--tl-scroll）を足して、
+   常に目盛りの位置へ置き直す。値は App 側がスクロールのたびに書く。 */
+.snap-line::before {
+  /* 上端に小さな印。線だけだとクリップの縁に紛れる */
+  content: "";
+  position: absolute;
+  top: calc(24px + var(--tl-scroll, 0px));
+  left: -3px;
+  width: 5px;
+  height: 5px;
+  background: var(--accent-2, #5ac8fa);
+  border-radius: 50%;
+}
+
 .playhead {
   position: absolute;
   top: 0;
@@ -2281,7 +2366,7 @@ body {
 .playhead::before {
   content: "";
   position: absolute;
-  top: 0;
+  top: var(--tl-scroll, 0px);
   left: -5px;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
@@ -2289,7 +2374,7 @@ body {
 }
 .playhead-handle {
   position: absolute;
-  top: 0;
+  top: var(--tl-scroll, 0px);
   left: -6px;
   width: 12px;
   height: 24px;
@@ -2307,7 +2392,7 @@ body {
 }
 .marker-line {
   position: absolute;
-  top: 24px;
+  top: calc(24px + var(--tl-scroll, 0px));
   bottom: 0;
   left: 0;
   width: 1px;
@@ -2316,7 +2401,7 @@ body {
 }
 .marker-flag {
   position: absolute;
-  top: 2px;
+  top: calc(2px + var(--tl-scroll, 0px));
   left: -2px;
   font-size: 12px;
   line-height: 1;
@@ -2334,7 +2419,7 @@ body {
 }
 .marker-label {
   position: absolute;
-  top: 4px;
+  top: calc(4px + var(--tl-scroll, 0px));
   left: 14px;
   font-size: 10px;
   white-space: nowrap;
@@ -2346,7 +2431,7 @@ body {
 }
 .marker-input {
   position: absolute;
-  top: 2px;
+  top: calc(2px + var(--tl-scroll, 0px));
   left: 14px;
   width: 120px;
   font-size: 11px;
@@ -3949,6 +4034,242 @@ input[type="range"] {
 /* いまちょうど印の上にいるとき */
 .mo-diamond.on {
   color: var(--accent-2);
+}
+
+/* 畳める見出し（動きの見本帳／詳しい動き） */
+.mo-sec {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--line);
+}
+.mo-sec:hover {
+  color: var(--accent-2);
+}
+.mo-sec-arrow {
+  color: var(--muted);
+  font-size: 10px;
+  width: 10px;
+}
+.mo-sec-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* 畳んだままでも「中に付いている物がある」と分かるようにする */
+.mo-sec-on {
+  color: var(--accent-2);
+}
+.mo-mini {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.mo-mini:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.mo-presets-bar {
+  display: flex;
+  gap: 4px;
+  padding: 4px 2px;
+  /* 細くしたとき「取り込み」を下の行へ落とす（横に潰し合って両方読めなくなるため） */
+  flex-wrap: wrap;
+}
+/* 掴んでいる間は、掴んだ瞬間の形のまま。通った先の形に次々変わると、
+   掴んでいるのに形だけ別物になってちらつく（App.tsx の pointerdown で付ける） */
+.dragging-cursor,
+.dragging-cursor * {
+  cursor: var(--drag-cursor) !important;
+}
+
+/* ---- 動きの計測（Ctrl+Shift+P）----
+   カクついた瞬間の数字が見えないと原因に辿り着けないので、常に前に出す */
+.perf-hud {
+  position: fixed;
+  right: 12px;
+  bottom: 40px;
+  z-index: 9999;
+  width: 230px;
+  background: rgba(16, 18, 22, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 11px;
+  color: var(--text);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+/* 詰まってきたら色で分かるようにする（数字だけだと見ていて気づけない） */
+.perf-hud.perf-warn {
+  border-color: #b8860b;
+}
+.perf-hud.perf-bad {
+  border-color: #c0392b;
+  background: rgba(46, 16, 16, 0.94);
+}
+.perf-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.perf-sec {
+  margin-left: auto;
+  color: var(--muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.perf-x {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.perf-tbl {
+  width: 100%;
+  border-collapse: collapse;
+}
+.perf-tbl td {
+  padding: 1px 0;
+  color: var(--muted);
+}
+.perf-tbl td:last-child {
+  text-align: right;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.perf-note {
+  color: var(--muted);
+  font-size: 10px;
+  word-break: break-all;
+}
+.perf-btns {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.perf-btns button {
+  flex: 1;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.perf-btns button:hover {
+  border-color: var(--accent);
+}
+
+/* 「まだ出ない物も」の切り替え。隠している数をここに出す */
+.mo-showall {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.mo-showall input {
+  margin: 0;
+  cursor: pointer;
+}
+.mo-showall:hover {
+  color: var(--text);
+}
+/* 印の意味。1行に収め、入らなければ折り返す */
+.mo-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  padding: 0 2px 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.mo-find {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 2px 6px;
+}
+/* 見本帳は数が多い（実物で72個）が、**ここに独自の高さ制限は付けない**。
+   付けると入れ子の送りが2つできて、パネルを縮めたとき中の一覧だけが
+   画面の外に残る。SE やテロップの一覧と同じで、パネル本体の送りに任せる。 */
+.mo-preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 6px;
+}
+.mo-preset {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.mo-preset:hover {
+  background: var(--panel-2);
+  border-color: var(--accent);
+}
+.mo-preset-name,
+/* 名前は「25.飛び込み+ブラー カラーバランス」のように長い物がある。
+   パネルを細くしたときに折り返して行が伸びると、一覧が縦に暴れるので詰める */
+.mo-preset .fx-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.mo-preset {
+  /* 上の省略が効くように、中身が親を押し広げないようにする */
+  min-width: 0;
+}
+/* 一部しか再現できない物は、押す前に分かるようにしておく */
+.mo-preset-part .mo-preset-name,
+.mo-preset-part .fx-name {
+  color: var(--muted);
+}
+/* 動きを1つも持ってこられなかった物。**消さずに並べる**（何が入っていたかを
+   見せないと、どれを配布に載せるか決められない）。押しても付かず、理由を言う */
+.mo-preset-none .fx-name {
+  color: var(--muted);
+  opacity: 0.55;
+}
+.mo-preset-mark {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted);
+  flex: 0 0 auto;
 }
 
 /* タイムラインの帯に出る「動きの印」。プレミアと同じく、どこに打ったかが帯から分かる */

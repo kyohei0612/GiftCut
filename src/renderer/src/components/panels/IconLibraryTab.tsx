@@ -78,6 +78,9 @@ export function IconLibraryTab({
         onDragStart={() => onDragStart(it.image)}
         onDragEnd={onDragEnd}
         onClick={() => onApplyToSelection(it.image)}
+        // 1クリックで付くが、**ダブルクリックでも同じ結果**にしておく。
+        // 「素材はダブルクリックで足せる」を全部の置き場で同じにするため
+        onDoubleClick={() => onApplyToSelection(it.image)}
         onContextMenu={(e) => {
           e.preventDefault()
           e.stopPropagation()

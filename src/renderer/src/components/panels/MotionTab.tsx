@@ -11,8 +11,12 @@
 //
 // 値は**そのクリップの先頭からの時刻**で持つ。タイムライン上の絶対時刻で持つと、
 // クリップを動かした瞬間に動きが置いていかれる。
+//
+// 取り込んだ演出（05.飛び出し など）を**選ぶ**所はここではなく、
+// 右パネルのトランジションタブ。名前が演出名なので、他の見本帳と並んでいる方が
+// 探せる。ここは選んだあと数値を詰める所。
 
-import type { JSX } from 'react'
+import { useState, type JSX } from 'react'
 import {
   keyAt,
   prevKeyTime,
@@ -43,25 +47,28 @@ export function MotionTab({
   title,
   hint,
   rows,
+  moreRows,
   clipTime,
-  onSeekClipTime
+  onSeekClipTime,
+  onClearMotion
 }: {
   /** 何に対する設定か（選んでいるテロップの文字など） */
   title: string
   hint?: string
   rows: MotionRow[]
+  /**
+   * 普段は畳んでおく行（3D回転・明るさ・切り抜きなど）。
+   * 全部いっぺんに出すと、よく使う位置・拡大が下へ流れて探せなくなる。
+   */
+  moreRows?: MotionRow[]
   /** クリップの先頭からの、いまの時刻（秒） */
   clipTime: number
   onSeekClipTime: (t: number) => void
+  /** いま付いている動きを全部捨てる（見本帳の演出を試したあと元に戻す道） */
+  onClearMotion?: () => void
 }): JSX.Element {
-  return (
-    <div className="panel-body">
-      <div className="mo-head">
-        <span className="mo-title">{title}</span>
-        <span className="mo-time">{clipTime.toFixed(2)}s</span>
-      </div>
-      {hint && <div className="tpl-hint">{hint}</div>}
-      {rows.map((r) => {
+  const [openMore, setOpenMore] = useState(false)
+  const renderRow = (r: MotionRow): JSX.Element => {
         const on = hasKeys(r.keys)
         const here = !!keyAt(r.keys, clipTime)
         const prev = prevKeyTime(r.keys, clipTime)
@@ -115,7 +122,36 @@ export function MotionTab({
             </span>
           </div>
         )
-      })}
+  }
+  return (
+    <div className="panel-body">
+      <div className="mo-head">
+        <span className="mo-title">{title}</span>
+        {onClearMotion && (
+          <button className="mo-mini" title="この人に付いている動きを全部捨てる" onClick={onClearMotion}>
+            動きを消す
+          </button>
+        )}
+        <span className="mo-time">{clipTime.toFixed(2)}s</span>
+      </div>
+      {hint && <div className="tpl-hint">{hint}</div>}
+
+      {rows.map(renderRow)}
+
+      {/* よく使わない物は畳んでおく。付いている行があれば、畳んでいても数で分かるようにする */}
+      {moreRows && moreRows.length > 0 && (
+        <>
+          <div className="mo-sec" onClick={() => setOpenMore((v) => !v)}>
+            <span className="mo-sec-arrow">{openMore ? '▾' : '▸'}</span>
+            <span>詳しい動き</span>
+            {(() => {
+              const on = moreRows.filter((r) => hasKeys(r.keys)).length
+              return on > 0 ? <span className="mo-sec-count mo-sec-on">{on}</span> : null
+            })()}
+          </div>
+          {openMore && moreRows.map(renderRow)}
+        </>
+      )}
     </div>
   )
 }

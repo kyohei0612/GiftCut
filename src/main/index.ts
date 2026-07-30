@@ -34,6 +34,11 @@ import { hasClipMotion, zoompanFilter, type ClipMotion } from '../shared/clipMot
 // 色調整のフィルタ。**GPL 専用の eq は使えない**（同梱は LGPL 版）ので、
 // 同じ計算を lutyuv で書いてある。
 import { colorAdjustFilter } from '../shared/colorAdjust'
+// Premiere のプリセット（.prfpset）を読んで、こちらの「動き」にする。
+// **読むのも変換するのも shared に置いてある**ので、本体側は置き場の世話だけをする。
+import { parsePrfpset } from '../shared/prfpset'
+import { toMotion, isFullyCopyable, endsHidden } from '../shared/prfpsetImport'
+import type { MotionPresetFile } from '../shared/telopMotion'
 // 本体ウィンドウの大きさ・位置（初回の既定と、前回の形の引き継ぎ）
 import { nextBounds, MIN_SIZE, type WindowState } from '../shared/windowBounds'
 // プロジェクトの持ち出し（素材ごと ZIP に入れる／展開してパスを繋ぎ直す）
@@ -41,6 +46,10 @@ import { planPack, relinkProject, PROJECT_ENTRY, MANIFEST_ENTRY } from '../share
 import { writeZip, extractZip } from './zip'
 // 自動更新（GitHub の Releases を見に行く）
 import { setupAutoUpdate } from './updater'
+// 同梱素材のパスを今の置き場へ繋ぎ直す（家庭用 exe は起動ごとに展開先が変わる）
+import { relinkBundledPath } from '../shared/relinkBundled'
+// 書き出し先が素材と同じだと ffmpeg は必ず失敗する。始める前に気づいて日本語で言う
+import { clashingSource } from '../shared/exportTarget'
 
 // 書き出し中の ffmpeg プロセス（キャンセル用）。exportCanceled でユーザー中断とエラーを区別する。
 let currentExportFf: ChildProcess | null = null
@@ -824,6 +833,34 @@ app.whenReady().then(() => {
   // 内蔵SEライブラリ: GiftCut/SE をサブフォルダ=カテゴリで列挙。
   // 各ファイルを allowlist に登録してプレビュー再生(gcfile://)を可能にする。
   // ※効果音ラボ由来のため配布ビルドにはSEフォルダを含めない（無ければ空を返す）。
+  /**
+   * 同梱素材のパスを、いまの置き場へ繋ぎ直す。
+   *
+   * ## なぜ要るか（実際に起きた壊れ方）
+   *
+   * 家庭用の exe（portable）は**起動のたびに自分をランダムな一時フォルダへ展開する**。
+   * そこに置いた SE を使うと、プロジェクトには
+   *
+   *     C:/…/Temp/3HBMBwOyIyB8apVvBvy5DY9nFbX/resources/SE/…/ショック①.mp3
+   *
+   * という**その回限りのパス**が残る。閉じるとそのフォルダは消えるので、
+   * 次に開いたときファイルが無い＝音が鳴らない。しかも
+   * **同梱の素材を使ったときだけ**起きるので原因が見えにくい。
+   *
+   * 「SE より後ろの相対部分」さえ合っていれば同じ物なので、いまの置き場から探し直す。
+   */
+  const relinkBundled = (p: string, folder: 'SE' | 'telop-presets', roots: string[]): string =>
+    relinkBundledPath(p, folder, roots, existsSync)
+
+  /** SE の置き場（se:list と同じ候補） */
+  const seRoots = (): string[] =>
+    [
+      join(process.cwd(), 'SE'),
+      join(app.getAppPath(), 'SE'),
+      join(process.resourcesPath ?? '', 'SE'),
+      join(app.getPath('userData'), 'SE')
+    ].filter((r) => existsSync(r))
+
   ipcMain.handle('se:list', () => {
     const AUDIO = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac']
     // 置き場。**userData も見る**のは、配布物では起動のされ方で cwd が変わるため
@@ -832,41 +869,51 @@ app.whenReady().then(() => {
     const candidates = [
       join(process.cwd(), 'SE'),
       join(app.getAppPath(), 'SE'),
+      // **exe 1つで配る版**は、素材を中に同梱する（解凍させないため）
+      join(process.resourcesPath ?? '', 'SE'),
       join(app.getPath('userData'), 'SE')
     ]
-    const root = candidates.find((r) => existsSync(r))
-    if (!root) return { ok: false, items: [] as { category: string; name: string; path: string }[] }
+    // **見つかった置き場を全部足す。** 1つ目で打ち切ると、同梱の素材が入っている版
+    // （exe 1つで配る身内用）では userData に足したぶんが永遠に出てこない。
+    // 「フォルダを開く」から入れたのに増えない、という筋の通らない状態になる。
+    const roots = candidates.filter((r) => existsSync(r))
+    if (roots.length === 0)
+      return { ok: false, items: [] as { category: string; name: string; path: string }[] }
     const items: { category: string; name: string; path: string }[] = []
     const isAudio = (n: string): boolean => AUDIO.includes(n.toLowerCase().split('.').pop() ?? '')
     const nameOf = (n: string): string => n.replace(/\.[^.]+$/, '')
-    let entries: import('fs').Dirent[]
-    try {
-      entries = readdirSync(root, { withFileTypes: true })
-    } catch {
-      return { ok: false, items }
+    // 同じ「分類/名前」が2つの置き場にあれば、先に見つけた方だけを出す
+    const seen = new Set<string>()
+    const add = (category: string, name: string, path: string): void => {
+      const key = `${category}/${name}`
+      if (seen.has(key)) return
+      seen.add(key)
+      allowFile(path)
+      items.push({ category, name, path })
     }
-    for (const ent of entries) {
-      const full = join(root, ent.name)
-      if (ent.isDirectory()) {
-        let sub: string[]
-        try {
-          sub = readdirSync(full)
-        } catch {
-          continue
-        }
-        for (const f of sub) {
-          if (isAudio(f)) {
-            const p = join(full, f)
-            allowFile(p)
-            items.push({ category: ent.name, name: nameOf(f), path: p })
+    for (const root of roots) {
+      let entries: import('fs').Dirent[]
+      try {
+        entries = readdirSync(root, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const ent of entries) {
+        const full = join(root, ent.name)
+        if (ent.isDirectory()) {
+          let sub: string[]
+          try {
+            sub = readdirSync(full)
+          } catch {
+            continue
           }
+          for (const f of sub) if (isAudio(f)) add(ent.name, nameOf(f), join(full, f))
+        } else if (isAudio(ent.name)) {
+          add('その他', nameOf(ent.name), full)
         }
-      } else if (isAudio(ent.name)) {
-        allowFile(full)
-        items.push({ category: 'その他', name: nameOf(ent.name), path: full })
       }
     }
-    return { ok: true, root, items }
+    return { ok: true, root: roots[0], items }
   })
 
   // ローカルのテロップテンプレ集（GiftCut/telop-presets/*.json）。Geba等・配布に含めない。
@@ -875,29 +922,209 @@ app.whenReady().then(() => {
     const candidates = [
       join(process.cwd(), 'telop-presets'),
       join(app.getAppPath(), 'telop-presets'),
+      join(process.resourcesPath ?? '', 'telop-presets'),
       join(app.getPath('userData'), 'telop-presets')
     ]
-    const root = candidates.find((r) => existsSync(r))
-    if (!root) return { ok: false, items: [] as unknown[] }
+    // SE と同じく、見つかった置き場を全部足す（同梱があると自分で足したぶんが
+    // 出てこない、という状態を作らないため）。同じ名前は先に見つけた方が勝つ。
+    const roots = candidates.filter((r) => existsSync(r))
+    if (roots.length === 0) return { ok: false, items: [] as unknown[] }
     const items: unknown[] = []
-    let files: string[]
-    try {
-      files = readdirSync(root)
-    } catch {
-      return { ok: false, items }
-    }
-    for (const f of files) {
-      if (!f.toLowerCase().endsWith('.json')) continue
+    // 重複を落とすのは**置き場をまたいだ時だけ**。1つの置き場の中で同じ名前が
+    // 並んでいるのは向こうの都合なので、勝手に間引くと「素材が減った」になる。
+    const seen = new Set<string>()
+    for (const root of roots) {
+      const here = new Set<string>()
+      let files: string[]
       try {
-        const arr = JSON.parse(readFileSync(join(root, f), 'utf-8'))
-        if (Array.isArray(arr)) {
-          for (const t of arr) if (t && t.name && t.style) items.push(t)
-        }
+        files = readdirSync(root)
       } catch {
-        /* 壊れたJSONはスキップ */
+        continue
+      }
+      for (const f of files) {
+        if (!f.toLowerCase().endsWith('.json')) continue
+        try {
+          const arr = JSON.parse(readFileSync(join(root, f), 'utf-8'))
+          if (Array.isArray(arr)) {
+            for (const t of arr) {
+              if (!t || !t.name || !t.style || seen.has(t.name)) continue
+              here.add(t.name)
+              items.push(t)
+            }
+          }
+        } catch {
+          /* 壊れたJSONはスキップ */
+        }
+      }
+      for (const n of here) seen.add(n)
+    }
+    return { ok: true, items }
+  })
+
+  // ---- 動きのプリセット（Premiere の .prfpset から写し取ったもの）----
+  //
+  // 置き場はテロップのテンプレ集と同じ考え方（cwd / appPath / userData）。
+  // **取り込んだ物は userData に書く**（アプリを入れ直しても消えない側）。
+  // .prfpset そのものは持たない。読んだ結果（＝こちらの Motion）だけを残す。
+  const motionRoots = (): string[] =>
+    [
+      join(process.cwd(), 'motion-presets'),
+      join(app.getAppPath(), 'motion-presets'),
+      join(app.getPath('userData'), 'motion-presets')
+    ].filter((r) => existsSync(r))
+  const motionWriteRoot = (): string => join(app.getPath('userData'), 'motion-presets')
+  /** 前に .prfpset を選んだ場所。次に開くときの出発点にする（毎回探し直させない） */
+  let lastMotionDir: string | null = null
+
+  ipcMain.handle('motion:list', () => {
+    const items: MotionPresetFile[] = []
+    const seen = new Set<string>()
+    for (const root of motionRoots()) {
+      let files: string[]
+      try {
+        files = readdirSync(root)
+      } catch {
+        continue
+      }
+      for (const f of files) {
+        if (!f.toLowerCase().endsWith('.json')) continue
+        try {
+          const arr = JSON.parse(readFileSync(join(root, f), 'utf-8'))
+          if (!Array.isArray(arr)) continue
+          for (const t of arr) {
+            // 同じ名前が2つの置き場にあれば、先に見つけた方（自分で取り込んだぶん）が勝つ
+            if (!t || typeof t.name !== 'string' || !t.motion || seen.has(t.name)) continue
+            seen.add(t.name)
+            items.push(t)
+          }
+        } catch {
+          /* 壊れた JSON は飛ばす（1つで全部が読めなくなるのを避ける） */
+        }
       }
     }
     return { ok: true, items }
+  })
+
+  // .prfpset を選んで読み、こちらの形にして保存する。
+  //
+  // **1つも落とさない。** 動きが取れなかった物も名前だけ残す。
+  // どれを使うか（どれを配布に載せるか）を決めるのは人で、こちらが先に間引くと
+  // 「そもそも何が入っていたか」が見えなくなる。押したときに理由を言えばいい。
+  ipcMain.handle('motion:import', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Premiere のプリセット（.prfpset）を選ぶ',
+      // **どこを開くかを決めておく。** 決めないと前回どこかで開いた場所から始まり、
+      // 探しているファイルまで自力で辿ることになる（見つけられず閉じる＝
+      // 「押しても何も起きない」に見える）。2回目からは前に選んだ場所。
+      defaultPath: lastMotionDir ?? app.getPath('desktop'),
+      filters: [
+        { name: 'Premiere のプリセット (*.prfpset)', extensions: ['prfpset'] },
+        // 拡張子で隠れて「ファイルが1つも見えない」を避ける逃げ道
+        { name: 'すべてのファイル', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    })
+    if (canceled || filePaths.length === 0) return { ok: false, canceled: true }
+    try {
+      const src = filePaths[0]
+      lastMotionDir = src.replace(/[\\/][^\\/]*$/, '')
+      const presets = parsePrfpset(readFileSync(src, 'utf-8'))
+      // 選んだのに0件なら**必ず言う。** 黙って終わると「壊れている」としか見えない
+      if (presets.length === 0)
+        return {
+          ok: false,
+          error: `「${src.split(/[\\/]/).pop()}」から動きが1つも見つかりませんでした。Premiere で書き出した .prfpset か確認してください。`
+        }
+      const items: MotionPresetFile[] = []
+      for (const p of presets) {
+        const { motion, skipped } = toMotion(p)
+        // 動きが空でも入れる。**押したときに「何が要るか」を言える**ようにするため、
+        // 持ってこられなかったエフェクトの名前は必ず添える
+        const missing = [
+          ...new Set([
+            ...p.effects.filter((e) => !isFullyCopyable({ name: '', effects: [e] })).map((e) => e.matchName),
+            ...skipped
+          ])
+        ]
+        items.push({
+          name: p.name,
+          motion,
+          ...(missing.length ? { partial: missing } : {}),
+          // 終わりで消える物（2枚重ねの上側）。単体で当てると文字が消えるので印を付ける
+          ...(endsHidden(motion) ? { endsHidden: true } : {})
+        })
+      }
+      const empty = items.filter((t) => Object.keys(t.motion).length === 0).length
+      const root = motionWriteRoot()
+      mkdirSync(root, { recursive: true })
+      const base =
+        (src.split(/[\\/]/).pop() ?? 'presets').replace(/\.prfpset$/i, '').replace(/[\\/:*?"<>|]/g, '_') ||
+        'presets'
+      const out = join(root, base + '.json')
+      writeFileSync(out, JSON.stringify(items, null, 2), 'utf-8')
+      return {
+        ok: true,
+        path: out,
+        items,
+        // 中身の内訳を返す。**どれが「そのまま使える」かを人が決められるように。**
+        //   total   … ファイルに入っていた数（＝並ぶ数。1つも落とさない）
+        //   partial … 一部だけ再現できる（こちらに無いエフェクトが混ざっている）
+        //   empty   … 動きが1つも取れなかった（名前だけ並ぶ）
+        total: presets.length,
+        imported: items.length,
+        partial: items.filter((t) => t.partial?.length && Object.keys(t.motion).length).length,
+        empty
+      }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+
+  // 動きの記録を書き出す。**画面側の blob ダウンロードは Electron では落ちる**
+  // （何も起きないので「保存した」と思ったまま失われる）。本体で書けば確実に残る。
+  ipcMain.handle('perf:save', (_e, text: string) => {
+    try {
+      const dir = join(app.getPath('userData'), 'perf')
+      mkdirSync(dir, { recursive: true })
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      const p = join(dir, `動きの記録-${stamp}.md`)
+      writeFileSync(p, text, 'utf-8')
+      return { ok: true, path: p }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+
+  // ---- 「更新で消えない置き場」を開く（ファイルメニュー）----
+  //
+  // 自動更新はアプリ本体を丸ごと入れ替えるが、**userData の下は触らない**。
+  // 利用者が足した効果音・テロップ素材・動きのプリセット・テンプレートは
+  // ここに置いてあるので、退避も引っ越しもここを開ければできる。
+  // 開けないと「消えない場所」があっても本人には無いのと同じなので、道を作る。
+  //
+  // 無ければ作ってから開く。「開いたら何も無い」より「空の置き場が見える」方が、
+  // どこへ入れればよいかが分かる。
+  const OPENABLE: Record<string, string> = {
+    se: 'SE',
+    telop: 'telop-presets',
+    motion: 'motion-presets',
+    template: 'テンプレート',
+    // 設定・自動保存・プロキシ。userData の直下そのもの
+    data: ''
+  }
+  ipcMain.handle('folder:open', async (_e, key: string) => {
+    if (!Object.prototype.hasOwnProperty.call(OPENABLE, key))
+      return { ok: false, error: `知らない置き場です: ${key}` }
+    const base = app.getPath('userData')
+    const dir = OPENABLE[key] ? join(base, OPENABLE[key]) : base
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      /* 作れなくても、すでに在るかもしれないので開いてみる */
+    }
+    // openPath は「失敗した理由」を文字列で返す（成功なら空文字）
+    const err = await shell.openPath(dir)
+    return err ? { ok: false, error: err, path: dir } : { ok: true, path: dir }
   })
 
   // プロジェクト保存（JSON を .gcproj として書き出す）
@@ -1208,9 +1435,13 @@ app.whenReady().then(() => {
       if (videoExists) allowFile(data.videoPath)
     }
     if (data && Array.isArray(data.seClips)) {
+      const roots = seRoots()
       for (const s of data.seClips) {
-        if (s && typeof s.path === 'string' && /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(s.path) && existsSync(s.path))
-          allowFile(s.path)
+        if (!s || typeof s.path !== 'string' || !/\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(s.path)) continue
+        // **同梱 SE は置き場が毎回変わる**ので、無ければ今の置き場へ繋ぎ直す。
+        // data ごと書き換えるので、画面側もそのまま新しいパスを受け取る。
+        s.path = relinkBundled(s.path, 'SE', roots)
+        if (existsSync(s.path)) allowFile(s.path)
       }
     }
     // マルチソースの追加動画も配信許可（動画拡張子のみ）
@@ -1455,7 +1686,9 @@ app.whenReady().then(() => {
     // 解像度もキーに含める。含めないと 360p と 720p が同じファイル名になり、
     // 先に作った方がもう一方として使い回されて解像度が取り違えられる。
     const key = createHash('md5')
-      .update(normalize(videoPath) + '|' + st.size + '|' + Math.round(st.mtimeMs) + '|h' + proxyH)
+      // 末尾の版番号は**プロキシの作り方を変えたら上げる**。
+      // 上げないと、前の作り方で焼いた物が使われ続けて直したはずの物が直らない。
+      .update(normalize(videoPath) + '|' + st.size + '|' + Math.round(st.mtimeMs) + '|h' + proxyH + '|v2')
       .digest('hex')
     const outPath = join(proxyDir, key + '.mp4')
     if (existsSync(outPath)) {
@@ -1502,10 +1735,25 @@ app.whenReady().then(() => {
       videoPath,
       '-vf',
       `scale=-2:${proxyH}`, // 編集用の解像度（書き出しは原本フル画質）
+      // **全部のコマをキーフレームにする。**
+      //
+      // 動画はキーフレームからしか復号を再開できない。0.5秒間隔（-g 15）だと、
+      // カットで飛ぶたびに「手前のキーフレームまで戻って、そこから目的地まで
+      // 復号し直す」が起きる。実測で **カット1回につき 145〜235ms** 絵が止まり、
+      // その間も再生ヘッドは進むので**コマが飛んだように見える**。
+      //
+      // プレミアが編集中に飛ばないのは、ProRes や DNxHD のような
+      // **全コマがキーフレームの形式**を中間ファイルに使っているから。同じ考え方にする。
+      // 飛び先が必ずキーフレーム＝復号し直しが1コマぶんで済む。
+      //
+      // 代わりにファイルは大きくなるが、プロキシは編集中だけの使い捨てで、
+      // 書き出しは常に原本を使うので画質にも完成品の大きさにも影響しない。
       '-g',
-      '15', // キーフレーム0.5秒間隔（30fps基準）＝シーク高速
+      '1',
       '-keyint_min',
-      '15',
+      '1',
+      '-sc_threshold',
+      '0',
       // ここから '-pix_fmt' の手前までが「焼く物の指定」。
       // CPU でやり直すときはこの範囲だけを差し替えるので、間に別の指定を挟まないこと
       ...enc.fast(proxyH),
@@ -1771,6 +2019,33 @@ app.whenReady().then(() => {
       ]
     })
     if (save.canceled || !save.filePath) return { ok: false, error: 'キャンセルされました' }
+
+    // **書き出し先が、いま素材として使っているファイルだと ffmpeg は必ず失敗する。**
+    // 「前に書き出した物をタイムラインに読み込んで、また同じ名前へ書き出す」で起きる。
+    // ffmpeg は同じファイルを読みながら書き換えられないので、
+    //
+    //     Output … same as Input #0 - exiting / FFmpeg cannot edit existing files in-place.
+    //
+    // という英語の壁が出るだけになる。原因は分かっているので、こちらで止めて
+    // **何が起きたか・どうすればよいか**を日本語で言う。
+    // 素材（動画・映像レイヤー・画像・音）を全部見て突き合わせる。
+    const usedPaths = [
+      ...inputPaths,
+      ...(payload.vClips ?? []).map((c) => c.path),
+      ...(payload.images ?? []).map((c) => c.path),
+      ...(payload.seClips ?? []).map((c) => c.path)
+    ].filter(Boolean)
+    const clash = clashingSource(save.filePath, usedPaths)
+    if (clash) {
+      const name = clash.split(/[\/]/).pop()
+      return {
+        ok: false,
+        error:
+          `書き出し先が、いま素材として使っている「${name}」と同じファイルです。
+` +
+          '読みながら同じファイルへ書くことはできないので、別の名前にしてください。'
+      }
+    }
 
     // PNG を一時ファイルへ
     const tmp = join(app.getPath('temp'), 'giftcut_' + Date.now())
