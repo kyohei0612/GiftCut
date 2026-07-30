@@ -6,6 +6,7 @@ import {
   type TelopStyle
 } from '../lib/telopStyle'
 import { FillPicker, ColorField } from './FillPicker'
+import { ScrubNumber } from './ScrubNumber'
 
 export interface StylePreset {
   name: string
@@ -621,72 +622,6 @@ export default function StylePanel({
   )
 }
 
-// Adobe風スクラブ数値入力: クリックで打ち込み、押し込んで左右ドラッグで数値を増減。
-function ScrubNumber({
-  value,
-  onChange,
-  min,
-  max,
-  step = 1,
-  sensitivity = 3,
-  className
-}: {
-  value: number
-  onChange: (v: number) => void
-  min: number
-  max: number
-  step?: number
-  sensitivity?: number // 何pxで1ステップ動かすか
-  className?: string
-}): JSX.Element {
-  const clampV = (v: number): number => Math.min(max, Math.max(min, v))
-  const onPointerDown = (e: React.PointerEvent<HTMLInputElement>): void => {
-    if (e.button !== 0) return
-    const input = e.currentTarget
-    const startVal = Number(value) || 0
-    // movementX を積算するので、画面端に当たってもポインタロック中は動き続ける（Adobe同様）
-    let acc = 0
-    let scrubbing = false
-    const onMove = (ev: PointerEvent): void => {
-      acc += ev.movementX || 0
-      if (!scrubbing) {
-        if (Math.abs(acc) < 4) return // ここまではクリック扱い（打ち込みできる）
-        scrubbing = true
-        input.blur() // スクラブ中はキャレット/選択を出さない
-        // ポインタロックで画面端を越えても movementX が来続ける
-        try {
-          void input.requestPointerLock?.()
-        } catch {
-          /* 失敗しても端まではスクラブ可能 */
-        }
-      }
-      ev.preventDefault()
-      const v = clampV(startVal + Math.trunc(acc / sensitivity) * step)
-      onChange(Number(v.toFixed(2)))
-      window.getSelection()?.removeAllRanges()
-    }
-    const onUp = (): void => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-      if (document.pointerLockElement === input) document.exitPointerLock?.()
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    // 中断時も必ず解除（残すとマウスを動かすだけで数値が変わり続ける）
-    window.addEventListener('pointercancel', onUp)
-  }
-  return (
-    <input
-      type="number"
-      className={`scrub ${className ?? ''}`}
-      value={value}
-      step={step}
-      onPointerDown={onPointerDown}
-      onChange={(e) => onChange(clampV(Number(e.target.value) || 0))}
-    />
-  )
-}
 
 // unit: 数値の単位。同じ「不透明度」なのに映像レイヤーでは 70% でテロップでは 70、
 // 同じ「角度」なのにグラデでは 45 度表記で影では 45、と単位の有無がバラバラだった。

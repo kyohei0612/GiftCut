@@ -29,6 +29,7 @@ import {
 import type { MotionPresetFile, MotionKeyName } from '../../shared/telopMotion'
 import { BUILTIN_MOTIONS } from '../../shared/builtinMotions'
 import { shouldCut, spansCut } from '../../shared/cutScope'
+import { keyDelta, neutralOf } from '../../shared/nudgeShare'
 import {
   BUILTIN_TEMPLATES,
   loadUserTemplates,
@@ -8455,6 +8456,99 @@ export default function App(): JSX.Element {
       prev.map((c) => (c.id === cueId ? { ...c, scale: Math.max(0.05, scale) } : c))
     )
   }
+  /**
+   * モーションの数値を変えたとき、**選んである他のテロップにも同じだけ配る。**
+   *
+   * 配るのは「変えた量（差分）」であって、値そのものではない。
+   * 同じ値を配ると、ばらばらに置いてある物が1か所に揃ってしまう。
+   * それぞれの**いまの値からのズレ**として足せば、位置関係は崩れない。
+   *
+   * 画面に出ている単位（px・%・度）と、印に入れる値の単位は違う。
+   * 掛ける係数をここにまとめてある。**行の定義（toKey）と必ず対で直すこと。**
+   */
+  function nudgeOthers(key: MotionKeyName, deltaShown: number, atT: number): void {
+    if (!deltaShown) return
+    for (const c of cues) {
+      if (c.id === selectedIds[0] || !selectedIds.includes(c.id)) continue
+      if (telopLocked(c)) continue
+      // その子自身のクリップ内時刻で打つ（尺が違うと同じ秒でも意味が変わる）
+      const t = clamp(atT, 0, Math.max(0, c.end - c.start))
+      const keys = c.motion?.[key]
+      if (hasKeys(keys)) {
+        // 単位の換算は shared/nudgeShare に置いてある（表を2か所に持たない）
+        const base = valueAt(keys, t, neutralOf(key))
+        const d = keyDelta(key, deltaShown, c.scale ?? 1)
+        patchMotion(c.id, key, (ks) => putKey(ks, t, base + d))
+        continue
+      }
+      // 印が無い項目は、元の値そのものを動かす（位置と大きさだけ元の値がある）
+      if (key === 'tx') patchCuePos(c.id, { x: c.pos.x + deltaShown / 1920 })
+      else if (key === 'ty') patchCuePos(c.id, { y: c.pos.y + deltaShown / 1080 })
+      else if (key === 'sc') patchCueScale(c.id, (c.scale ?? 1) + deltaShown / 100)
+    }
+  }
+
+  /**
+   * 動画切片・画像・映像レイヤーの数値を変えたとき、
+   * **選んである他のクリップにも同じだけ配る。**
+   *
+   * プレミアと同じで、再生ヘッドがどこにあっても「いま選んでいる物」が変わる。
+   * 配るのは差分（値そのものではない）。値を配ると、別々に拡大していた物が
+   * 全部同じ倍率に揃ってしまう。
+   *
+   * @param delta 中に入れる値での差分（倍率やフレーム比。表示単位ではない）
+   */
+  function nudgeClips(
+    from: { kind: 'video' | 'img' | 'vclip'; id: number },
+    key: keyof ClipMotion,
+    delta: number
+  ): void {
+    if (!delta) return
+    // 素のままの値。拡大だけ 1、位置は 0
+    // （印の名前は sc / x / y。固定値側の名前 scale とは別なので取り違えないこと）
+    const neutral = key === 'sc' ? 1 : 0
+    const each = (
+      kind: 'video' | 'img' | 'vclip',
+      id: number,
+      motion: ClipMotion | undefined,
+      zoom: { scale: number; x: number; y: number } | undefined,
+      tStart: number,
+      len: number,
+      setZoom: (z: { scale: number; x: number; y: number }) => void
+    ): void => {
+      if (kind === from.kind && id === from.id) return
+      const t = clamp(currentTimeRef.current - tStart, 0, Math.max(0, len))
+      const keys = motion?.[key]
+      if (hasKeys(keys)) {
+        patchClipMotion(kind, id, key, (ks) => putKey(ks, t, valueAt(ks, t, neutral) + delta))
+        return
+      }
+      // 印が無ければ固定値を動かす
+      const base = zoom ?? DEFAULT_ZOOM
+      const next = { ...base }
+      if (key === 'sc') next.scale = Math.max(0.05, base.scale + delta)
+      else if (key === 'x') next.x = base.x + delta
+      else if (key === 'y') next.y = base.y + delta
+      else return // 回転など、固定値の置き場が別の物はここでは触らない
+      setZoom(next)
+    }
+    for (const L of segLayout) {
+      if (!selectedVideoIds.includes(L.seg.id)) continue
+      if (trackStates['V1']?.locked) continue
+      each('video', L.seg.id, L.seg.motion, L.seg.zoom, L.tStart, L.len, (z) =>
+        setSegZoom(L.seg.id, z)
+      )
+    }
+    for (const c of imgClips) {
+      if (!selectedImgIds.includes(c.id) || trackStates[c.track]?.locked) continue
+      each('img', c.id, c.motion, c.zoom, c.tStart, c.duration, (z) => setImgZoom(c.id, z))
+    }
+    for (const c of vClips) {
+      if (!selectedVClipIds.includes(c.id) || trackStates[c.track]?.locked) continue
+      each('vclip', c.id, c.motion, c.zoom, c.tStart, vcLen(c), (z) => setVClipZoom(c.id, z))
+    }
+  }
+
   function patchCueAnim(cueId: number, patch: Partial<TelopAnim>): void {
     setCues((prev) =>
       prev.map((c) => {
@@ -11029,10 +11123,20 @@ export default function App(): JSX.Element {
                     min: opt.min,
                     max: opt.max,
                     keys: m?.[key],
-                    editableWithoutKeys: !!opt.base,
+                    // **どの行も触れる。**
+                    // 「元の値」を持っているのは位置と拡大だけで、横だけ拡大・歪曲・
+                    // 明るさなどは ⏱ を押すまで触れなかった。値を見ながら決めたいのに、
+                    // 先に印を打たせるのは順番が逆（実際に「触れない」と言われた）。
+                    // 元の値が無い行は、**印を1つだけ置く**＝クリップ全体で一定の値になる。
+                    editableWithoutKeys: true,
                     onValue: (v) => {
                       if (hasKeys(m?.[key])) put(key, opt.toKey(v))
-                      else opt.base?.(v)
+                      else if (opt.base) opt.base(v)
+                      else put(key, opt.toKey(v)) // 印1つ＝ずっとその値
+                      // **選んである物には、同じだけ配る。**
+                      // 出ている値は選択の先頭の物なので、**その差分**を他へ足す
+                      // （同じ値を配ると、ばらばらに置いた物が1か所に揃ってしまう）。
+                      if (selectedIds.length > 1) nudgeOthers(key, v - opt.value, clipT)
                     },
                     onToggleKeys: () =>
                       toggleKeys(label, m?.[key], opt.initial, clipT, (fn) =>
@@ -11291,9 +11395,14 @@ export default function App(): JSX.Element {
                     // 拡大も位置も、印が無くても固定値として変えられる（今までどおり）
                     editableWithoutKeys: true,
                     onValue: (v) => {
-                      const val = opt.toKey(clamp(v, opt.min, opt.max))
+                      const shown = clamp(v, opt.min, opt.max)
+                      const val = opt.toKey(shown)
                       if (hasKeys(m?.[key])) put(key, val)
                       else opt.base(val)
+                      // **選んである動画・画像・映像レイヤーにも同じだけ配る。**
+                      // プレミアと同じで、再生ヘッドがどこにあっても
+                      // 「いま選んでいる物」が変わる。配るのは差分（値そのものではない）
+                      nudgeClips(tgt, key, opt.toKey(shown) - opt.toKey(opt.value))
                     },
                     onToggleKeys: () => {
                       if (opt.turnOnNote && !hasKeys(m?.[key])) showToast(opt.turnOnNote)

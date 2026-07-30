@@ -24,6 +24,7 @@ import {
   hasKeys,
   type Keys
 } from '../../../../shared/keyframes'
+import { ScrubNumber } from '../ScrubNumber'
 
 export interface MotionRow {
   key: string
@@ -86,15 +87,18 @@ export function MotionTab({
               ⏱
             </button>
             <span className="mo-label">{r.label}</span>
-            <input
+            {/* **押し込んで左右に振ると増減する。** 数を打ち込むより、
+                見ながら少しずつ寄せる場面のほうがずっと多い。
+                字間・行間と同じ操作に揃えてある（部品は components/ScrubNumber） */}
+            <ScrubNumber
               className="mo-val"
-              type="number"
               step={r.step}
               min={r.min}
               max={r.max}
               value={Number(r.value.toFixed(3))}
               disabled={!on && !r.editableWithoutKeys}
-              onChange={(e) => r.onValue(Number(e.target.value))}
+              title="押したまま左右に振ると増減します（クリックで打ち込み）"
+              onChange={r.onValue}
             />
             {r.unit && <span className="mo-unit">{r.unit}</span>}
             <span className="mo-keys">

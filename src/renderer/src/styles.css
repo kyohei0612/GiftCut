@@ -3021,6 +3021,12 @@ body {
   border-bottom-style: dotted;
   border-bottom-width: 2px;
 }
+/* 触れない状態で「掴めます」の見た目を出さない。
+   出すと、押しても動かない物を何度も押させることになる */
+.scrub:disabled {
+  cursor: default;
+  border-bottom-style: solid;
+}
 .scrub::-webkit-inner-spin-button,
 .scrub::-webkit-outer-spin-button {
   -webkit-appearance: none;
