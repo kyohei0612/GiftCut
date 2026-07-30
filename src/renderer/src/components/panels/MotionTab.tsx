@@ -50,6 +50,7 @@ export function MotionTab({
   moreRows,
   clipTime,
   onSeekClipTime,
+  onSaveMotion,
   onClearMotion
 }: {
   /** 何に対する設定か（選んでいるテロップの文字など） */
@@ -64,6 +65,8 @@ export function MotionTab({
   /** クリップの先頭からの、いまの時刻（秒） */
   clipTime: number
   onSeekClipTime: (t: number) => void
+  /** いま付いている動きに名前を付けて残す（右の「動き → 自分の動き」に並ぶ） */
+  onSaveMotion?: () => void
   /** いま付いている動きを全部捨てる（見本帳の演出を試したあと元に戻す道） */
   onClearMotion?: () => void
 }): JSX.Element {
@@ -127,6 +130,18 @@ export function MotionTab({
     <div className="panel-body">
       <div className="mo-head">
         <span className="mo-title">{title}</span>
+        {/* **作った所で保存できるようにする。** 作る場所（ここ）と残す場所が
+            離れていると、残せること自体に気づけない。
+            残した物は右の「動き → 自分の動き」に並ぶ。 */}
+        {onSaveMotion && (
+          <button
+            className="mo-mini"
+            title="いま付いている動きに名前を付けて残す（右の「動き」に並びます）"
+            onClick={onSaveMotion}
+          >
+            動きを保存
+          </button>
+        )}
         {onClearMotion && (
           <button className="mo-mini" title="この人に付いている動きを全部捨てる" onClick={onClearMotion}>
             動きを消す

@@ -4218,6 +4218,39 @@ input[type="range"] {
 /* 見本帳は数が多い（実物で72個）が、**ここに独自の高さ制限は付けない**。
    付けると入れ子の送りが2つできて、パネルを縮めたとき中の一覧だけが
    画面の外に残る。SE やテロップの一覧と同じで、パネル本体の送りに任せる。 */
+/* 一覧の区切り（標準 / 自分の動き / 取り込んだ動き）。
+   段の頭が分からないと、20個の中に自分の物が紛れて探せなくなる */
+.mo-group {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 8px 2px 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 2px;
+}
+.mo-group-hint {
+  font-weight: 400;
+  font-size: 10px;
+  opacity: 0.75;
+}
+/* 自分の動きだけに出る「消す」。**普段は薄く**（並びの邪魔をしない） */
+.mo-del {
+  margin-left: auto;
+  padding: 0 4px;
+  opacity: 0;
+  color: var(--muted);
+  transition: opacity 0.1s;
+}
+.mo-preset:hover .mo-del {
+  opacity: 0.7;
+}
+.mo-del:hover {
+  opacity: 1;
+  color: #ff8a8a;
+}
 .mo-preset-list {
   display: flex;
   flex-direction: column;

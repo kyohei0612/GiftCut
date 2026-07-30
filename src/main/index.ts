@@ -88,98 +88,7 @@ function ffBin(name: 'ffmpeg' | 'ffprobe'): string {
 const FFMPEG = ffBin('ffmpeg')
 const FFPROBE = ffBin('ffprobe')
 
-// ---- 映像を焼くのに使うもの（CPU か、GPU か）----
-//
-// GPU で焼けると、画質を落とさずに書き出しが速くなる（1080p の実測で 12.9秒 → 9.9秒）。
-// ただし **ffmpeg の一覧に載っている＝使える、ではない**。ドライバが無ければ
-// 実行して初めて落ちる。なので「1枚だけ焼いてみて、通ったものを使う」。
-//
-// 速さの割合はマシンによる。CPU が強いほど差は小さい（この開発機では 1.3倍）。
-// args … 書き出し用（画質優先。crf は利用者が選んだ画質）。
-// fast … プロキシ用（速さ優先。画質は捨ててよい）。引数は作るプロキシの高さ。
-//
-// fast を分けているのは、プロキシが「編集中に見るだけ」の物だから。
-// 画質より**速く作れること・シークが速いこと**が要る。
-// 目安は今まで使っていた x264 crf30 と同じくらいの大きさ（60秒・360p で 7MB 前後）。
-type Enc = {
-  v: string
-  /** 書き出し用。crf は利用者が選んだ画質（18=きれい / 23=標準 / 28=軽い） */
-  args: (crf: number, size: { w: number; h: number; fps: number }) => string[]
-  fast: (h: number) => string[]
-  label: string
-}
-
-/**
- * 画質の数字（crf）を**ビットレート**に読み替える。
- *
- * **OpenH264 は crf も -qp も理解しない。** 実際に -qp を 18 / 30 / 45 と変えても
- * 出来上がりは 4.73MB のまま1バイトも動かなかった（既定の 2Mbps 固定）。
- * ＝ GPU も x264 も無い PC では、画質の設定が何も効いていなかった。
- * 効くのはビットレートだけなので、ここで読み替える。
- *
- * 1画素1コマあたり何ビット使うか（bpp）で考える。crf が 6 下がるごとに倍。
- * 1080p30 でおおよそ: 18→11Mbps / 23→6Mbps / 28→3.5Mbps。
- * OpenH264 は x264 より効率が悪いので、やや多めに渡す。
- */
-function crfToBitrateK(crf: number, size: { w: number; h: number; fps: number }): number {
-  const bpp = 0.1 * Math.pow(2, (23 - crf) / 6)
-  const kbps = (size.w * size.h * size.fps * bpp) / 1000
-  return Math.max(500, Math.min(60000, Math.round(kbps)))
-}
-const ENCODERS: Enc[] = [
-  {
-    v: 'h264_nvenc',
-    label: 'GPU（NVIDIA）',
-    // -cq は libx264 の -crf に相当。同じ数字だと軽めに出るので少しだけ寄せる
-    args: (crf) => ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(crf)],
-    // p1 = 一番速い。cq は 30 だと x264 crf30 より太るので 34（実測 9.7MB → 6.7MB）
-    fast: () => ['-c:v', 'h264_nvenc', '-preset', 'p1', '-rc', 'vbr', '-cq', '34']
-  },
-  {
-    v: 'h264_qsv',
-    label: 'GPU（Intel）',
-    args: (crf) => ['-c:v', 'h264_qsv', '-global_quality', String(crf)],
-    fast: () => ['-c:v', 'h264_qsv', '-preset', 'veryfast', '-global_quality', '32']
-  },
-  {
-    v: 'h264_amf',
-    label: 'GPU（AMD）',
-    args: (crf) => ['-c:v', 'h264_amf', '-rc', 'cqp', '-qp_i', String(crf), '-qp_p', String(crf)],
-    fast: () => [
-      '-c:v', 'h264_amf', '-quality', 'speed', '-rc', 'cqp', '-qp_i', '32', '-qp_p', '32'
-    ]
-  },
-  {
-    // 開発機など、x264 入り（GPL）の ffmpeg があるときはこちらが一番きれい。
-    // 配布物には入っていないので、実際に使われるのは開発中だけ。
-    v: 'libx264',
-    label: 'CPU',
-    args: (crf) => ['-c:v', 'libx264', '-crf', String(crf), '-preset', 'medium'],
-    // fastdecode = 再生側を軽くする作り方。編集中のプレビューはここが効く
-    fast: () => [
-      '-c:v', 'libx264', '-crf', '30',
-      '-preset', 'veryfast', '-tune', 'fastdecode', '-sc_threshold', '0'
-    ]
-  },
-  {
-    // GPU が1つも使えず、x264 も無い機械のための最後の砦。
-    // 画質は x264 に劣るが、**買わずに H.264 を出せる**（Cisco が特許料を
-    // 肩代わりしている OpenH264）。これが無いと、GPU の無い PC で
-    // 「書き出せないアプリ」になる。
-    v: 'libopenh264',
-    label: 'CPU（OpenH264）',
-    // -crf は使えないので、品質の指定を量子化パラメータに読み替える
-    // **-qp は効かない**（渡しても黙って無視される）。ビットレートで渡す
-    args: (crf, size) => {
-      const k = crfToBitrateK(crf, size)
-      return ['-c:v', 'libopenh264', '-b:v', `${k}k`, '-maxrate', `${Math.round(k * 1.5)}k`]
-    },
-    // **OpenH264 に -qp は無い**（渡しても黙って無視される。実際に -qp を
-    // 30/34/38 と変えても大きさが 15.2MB のまま動かなかった）。
-    // 効くのはビットレートだけなので、作る高さから決める
-    fast: (h) => ['-c:v', 'libopenh264', '-b:v', h >= 720 ? '2000k' : '800k']
-  }
-]
+import { ENCODERS, type Enc } from './encoders'
 /** 実際に1枚焼いてみて、そのエンコーダが本当に使えるか確かめる */
 function tryEncoder(enc: Enc): Promise<boolean> {
   return new Promise((res) => {
@@ -1588,7 +1497,10 @@ app.whenReady().then(() => {
   const proxyDir = join(app.getPath('userData'), 'giftcut-proxies')
   // プロキシキャッシュの上限。360p/720p の2解像度ぶんが並ぶうえ長尺なら1本数十MB〜になるため、
   // 本数だけでは数GBまで膨らんでしまう。総容量で制限し、超過ぶんだけ古い順に削除する。
-  const PROXY_CACHE_MAX_BYTES = 3 * 1024 * 1024 * 1024 // 3GB
+  // ※原寸（最高画質のまま全コマキーフレーム）を足したので上げた。
+  // 原寸は 1080p の4分で 1〜2GB になるため、3GB のままだと**作った端から消える**
+  // （消えると次に選んだとき作り直しになり、待たされるだけで何も良くならない）。
+  const PROXY_CACHE_MAX_BYTES = 20 * 1024 * 1024 * 1024 // 20GB
   const PROXY_CACHE_MAX_FILES = 200 // 極端に短い素材ばかりのときの本数上限
   // このセッションで返した（＝いま編集中のプロジェクトが使っている）プロキシは削除しない。
   // 以前は生成時刻の降順で切っていたため、使用中でも「古い」だけで消され再変換が走っていた。
@@ -1675,8 +1587,10 @@ app.whenReady().then(() => {
     if (!videoPath || !existsSync(videoPath)) return { ok: false, error: 'ファイルがありません' }
     if (!allowedFiles.has(normalize(videoPath)))
       return { ok: false, error: '許可されていないファイルです' }
-    // 想定外の値でおかしなサイズに変換しないよう、扱う解像度は固定の候補だけに絞る
-    const proxyH = height === 720 ? 720 : 360
+    // 想定外の値でおかしなサイズに変換しないよう、扱う解像度は固定の候補だけに絞る。
+    // **0 は「縮小しない（原寸）」**。最高画質のまま、全コマキーフレームにだけしたいとき。
+    const proxyH = height === 0 ? 0 : height === 720 ? 720 : 360
+    const isFull = proxyH === 0
     try {
       mkdirSync(proxyDir, { recursive: true })
     } catch {
@@ -1688,7 +1602,8 @@ app.whenReady().then(() => {
     const key = createHash('md5')
       // 末尾の版番号は**プロキシの作り方を変えたら上げる**。
       // 上げないと、前の作り方で焼いた物が使われ続けて直したはずの物が直らない。
-      .update(normalize(videoPath) + '|' + st.size + '|' + Math.round(st.mtimeMs) + '|h' + proxyH + '|v2')
+      // v3: 原寸（h0）を足した。作り方が変わったので上げる
+      .update(normalize(videoPath) + '|' + st.size + '|' + Math.round(st.mtimeMs) + '|h' + proxyH + '|v3')
       .digest('hex')
     const outPath = join(proxyDir, key + '.mp4')
     if (existsSync(outPath)) {
@@ -1733,8 +1648,8 @@ app.whenReady().then(() => {
       '-y',
       '-i',
       videoPath,
-      '-vf',
-      `scale=-2:${proxyH}`, // 編集用の解像度（書き出しは原本フル画質）
+      // 原寸のときは縮小そのものを挟まない（scale を通すだけで無駄に眠くなる）
+      ...(isFull ? [] : ['-vf', `scale=-2:${proxyH}`]), // 編集用の解像度（書き出しは原本フル画質）
       // **全部のコマをキーフレームにする。**
       //
       // 動画はキーフレームからしか復号を再開できない。0.5秒間隔（-g 15）だと、
@@ -1756,7 +1671,7 @@ app.whenReady().then(() => {
       '0',
       // ここから '-pix_fmt' の手前までが「焼く物の指定」。
       // CPU でやり直すときはこの範囲だけを差し替えるので、間に別の指定を挟まないこと
-      ...enc.fast(proxyH),
+      ...(isFull ? enc.full() : enc.fast(proxyH)),
       '-pix_fmt',
       'yuv420p',
       '-c:a',
@@ -1798,7 +1713,10 @@ app.whenReady().then(() => {
       const fixed = [...args]
       const from = fixed.indexOf('-c:v')
       const to = fixed.indexOf('-pix_fmt')
-      if (from >= 0 && to > from) fixed.splice(from, to - from, ...cpu.fast(proxyH))
+      // **やり直しでも同じ作り方を選ぶ。** ここで fast 固定にすると、
+      // GPU の無い機械でだけ「最高画質を選んだのに眠い絵」になる
+      if (from >= 0 && to > from)
+        fixed.splice(from, to - from, ...(isFull ? cpu.full() : cpu.fast(proxyH)))
       r = await runOnce(fixed)
     }
     if (r.code === 0 && existsSync(tmp)) {

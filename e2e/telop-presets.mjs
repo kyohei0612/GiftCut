@@ -233,8 +233,11 @@ const keepsEffect = (m) => {
 
 await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
 await page.waitForTimeout(400)
-const sec = page.locator('.tpl-acc', { hasText: '動き（取り込んだ演出）' }).first()
-if (!(await page.locator('.tpl-acc.open', { hasText: '動き（取り込んだ演出）' }).count())) await sec.click()
+// 見出しは「💫 動き」。中は 標準 / 自分の動き / 取り込んだ動き の3段。
+// ※ここは名前で探しているので、**見出しを変えたら一緒に直すこと**
+//   （変えたときに実際、この道具だけが黙って止まった）。
+const sec = page.locator('.tpl-acc', { hasText: '動き' }).first()
+if (!(await page.locator('.tpl-acc.open', { hasText: '動き' }).count())) await sec.click()
 await page.waitForTimeout(400)
 
 const stepFwd = page.locator('.tbtn[title^="1フレーム進む"]').first()

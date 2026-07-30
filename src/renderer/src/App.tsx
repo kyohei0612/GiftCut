@@ -27,6 +27,8 @@ import {
 } from './lib/telopStyle'
 // 取り込んで置いてある動きの見本帳（motion-presets/*.json の1件ぶん）
 import type { MotionPresetFile, MotionKeyName } from '../../shared/telopMotion'
+import { BUILTIN_MOTIONS } from '../../shared/builtinMotions'
+import { shouldCut, spansCut } from '../../shared/cutScope'
 import {
   BUILTIN_TEMPLATES,
   loadUserTemplates,
@@ -99,10 +101,9 @@ import CropModal from './components/CropModal'
 import StylePanel from './components/StylePanel'
 import TelopText from './components/TelopText'
 import WaveformCanvas from './components/WaveformCanvas'
-// 検査票（動作確認チェックリスト）。開発中だけ読み込む。
-// import.meta.env.DEV は本番ビルドで false になるので、この分岐ごと
-// 消えて dev/ 配下は配布物に入らない。
-const QaPanel = import.meta.env.DEV ? lazy(() => import('./dev/QaPanel')) : null
+// ※ここに「検査票（手で確認するチェックリスト）」を読み込んでいたが、
+// 確認は e2e（npm run e2e / presets）で機械が回すようになったので丸ごと外した。
+// 手で潰す表と機械で回す表が2つあると、必ず片方が古くなる。
 // 動きの計測（Ctrl+Shift+P）。**配布ビルドでも出せる**。
 // カクつきが起きるのは配った先の実アプリなので、開発中しか測れないと意味が無い。
 const PerfHud = lazy(() => import('./dev/PerfHud'))
@@ -408,7 +409,9 @@ function loadSegTrans(raw: any): SegTrans | undefined {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 // プレビュー解像度。'orig'=原本をそのまま再生、数値=その高さの編集用プロキシ。
-type PreviewRes = 'orig' | 720 | 360
+// 'full' は**原寸のまま全コマキーフレームに焼き直した物**で再生する。
+// 見た目は原本のまま、カットでのシークだけが速くなる（プレミアの ProRes/DNxHD と同じ考え方）。
+type PreviewRes = 'orig' | 'full' | 720 | 360
 // 元動画（マルチソース）。1タイムラインに複数の動画を連結できる。
 interface Source {
   id: number
@@ -636,17 +639,12 @@ export default function App(): JSX.Element {
   // パネル幅は保存しているのに、ここだけ毎回ONに戻っていた）。
   // loadLS はこの行より後ろで定義されるので使えない（使うと起動時に
   // 「Cannot access 'loadLS' before initialization」で真っ黒になる）。直接読む。
-  // 検査票の開閉（開発中のみ）。再読み込みしても開いたままにする。
-  // 動きの計測。既定は閉じたまま（開いたときだけ測る）
+  // 動きの計測の小窓。既定は閉じたまま（開発中は閉じていても測り続ける）
   const [perfOpen, setPerfOpen] = useState(false)
+  // 開発中の常時計測を、こちらから止めたか。止めたら右下のボタンが灰色になる
+  const [perfStopped, setPerfStopped] = useState(false)
   // **毎レンダーここを通る。** 画面を作り直した回数がそのまま数になる
   perf.countRender()
-  const [qaOpen, setQaOpen] = useState(
-    () => import.meta.env.DEV && localStorage.getItem('giftcut.qa.open') === '1'
-  )
-  useEffect(() => {
-    if (import.meta.env.DEV) localStorage.setItem('giftcut.qa.open', qaOpen ? '1' : '0')
-  }, [qaOpen])
 
   // 計測に「いま何をしているか」を教える。数字だけ見ても、
   // どの操作のときに詰まったのかが分からないと原因に辿り着けない。
@@ -764,13 +762,37 @@ export default function App(): JSX.Element {
       if (e.ctrlKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         e.preventDefault()
         setPerfOpen((v) => {
-          if (v) perf.stop()
+          // 開発中は**閉じても測り続ける**（下の常時計測を止めない）。
+          // 配布ビルドでは、開いている間だけ測る（常に測るほどの物ではない）
+          if (v && !import.meta.env.DEV) perf.stop()
           return !v
         })
       }
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
+  }, [])
+
+  /**
+   * 開発中は、起動した瞬間から**ずっと測り続ける**。
+   *
+   * カクついた瞬間に「いま測り始めます」では遅い。**気づいたときには終わっている**
+   * ので、あとから「さっきの所」を見られないと原因に辿り着けない。
+   * 走らせっぱなしにして、一定間隔で userData/perf へ書く。
+   * 「止めて」と言われたら、そこまでに書かれた物を読めばよい。
+   *
+   * 配布ビルドではやらない（測るだけで作り直しが増えるので、常時は要らない）。
+   */
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    perf.start()
+    const id = window.setInterval(() => {
+      void window.giftcut?.savePerfReport?.(perf.report())
+    }, 30_000)
+    return () => {
+      window.clearInterval(id)
+      perf.stop()
+    }
   }, [])
   // マグネットの切り替えはここを通す。以前はショートカット(S)だけが保存していて、
   // ツールバーのボタンから切ると再起動で ON に戻っていた。
@@ -1733,7 +1755,8 @@ export default function App(): JSX.Element {
         : [...sorted].reverse().find((m) => m.t < t - 1e-3)
     if (target) {
       stopPlayback()
-      seekTo(target.t)
+      // 飛んだ先のめじるしが枠の外なら、そこを見せる
+      seekAndReveal(target.t)
       setSelectedMarkerId(target.id)
     }
   }
@@ -2849,6 +2872,67 @@ export default function App(): JSX.Element {
     })
   }
 
+  /**
+   * 自分で作って名前を付けて保存した動き。
+   *
+   * 置き場は取り込んだ物（userData の motion-presets/）とは分ける。
+   * **混ぜると、取り込み直しで自分の物まで消える**うえ、配布に載せてよい物
+   * （自分で作った物）と載せられない物（写し取った物）の区別が付かなくなる。
+   * 中身は小さいので、設定と同じ所に置く（更新しても消えない）。
+   */
+  const MY_MOTIONS_KEY = 'giftcut.myMotions'
+  const loadMyMotions = (): MotionPresetFile[] => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(MY_MOTIONS_KEY) ?? '[]')
+      if (!Array.isArray(raw)) return []
+      const out: MotionPresetFile[] = []
+      for (const o of raw) {
+        // 人が触れる場所に置いてあるので、読み直すときも必ず通す
+        if (typeof o?.name !== 'string') continue
+        const m = sanitizeMotion(o.motion)
+        if (m) out.push({ name: o.name, motion: m })
+      }
+      return out
+    } catch {
+      return []
+    }
+  }
+  const [myMotions, setMyMotions] = useState<MotionPresetFile[]>(loadMyMotions)
+  const putMyMotions = (next: MotionPresetFile[]): void => {
+    setMyMotions(next)
+    try {
+      localStorage.setItem(MY_MOTIONS_KEY, JSON.stringify(next))
+    } catch {
+      showToast('自分の動きを保存できませんでした（保存領域がいっぱいの可能性）')
+    }
+  }
+  /** いま選んでいるテロップの動きを、名前を付けて残す */
+  function saveMyMotion(): void {
+    const cue = cues.find((c) => selectedIds.includes(c.id))
+    if (!cue) {
+      showToast('テロップを選んでから保存してください。')
+      return
+    }
+    const m = cue.motion
+    if (!hasMotion(m)) {
+      showToast('このテロップにはまだ動きが付いていません。')
+      return
+    }
+    askText('この動きの名前', '', (v) => {
+      const name = v.trim()
+      if (!name) return
+      // 同じ名前は上書き（増やし続けると一覧が使い物にならなくなる）
+      const next = myMotions.filter((p) => p.name !== name)
+      next.push({ name, motion: structuredClone(m!) })
+      next.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
+      putMyMotions(next)
+      showToast(`「${name}」を自分の動きに保存しました。`)
+    })
+  }
+  const deleteMyMotion = (name: string): void => {
+    putMyMotions(myMotions.filter((p) => p.name !== name))
+  }
+
   // お気に入り（★）とカテゴリ上書き（ローカル保存）
   const [favorites, setFavorites] = useState<string[]>(loadFavorites)
   const [catOverrides, setCatOverrides] = useState<Record<string, string>>(loadCatOverrides)
@@ -2874,15 +2958,45 @@ export default function App(): JSX.Element {
   // テロップ一覧のように点数が多いタブは1つだけ開く（全部開くと探せない）が、
   // 素材ビン（プロジェクト）は種類が3つだけなので、最初から全部開けておく。
   // 毎回3回クリックして開くのは手間なだけで、隠す意味がない。
-  const ALWAYS_OPEN_TABS = ['project']
-  const [openAccSec, setOpenAccSec] = useState<Record<string, string[]>>({
-    project: ['video', 'audio', 'image'],
-    icon: ['lib'],
-    // トランジションは**どれも開かない**で始める。節が増えて（動画・テロップ・
-    // 強調・動きの見本帳）、1つ開いた状態だと他の節が下へ押し出されて見えない。
-    // どれを使うかは人によるので、勝手に1つだけ開けておく意味がない。
-    transition: []
+  // 効果音も複数同時に開ける。**お気に入りは開けたままにしておきたい**のに、
+  // 1つだけ開く作りだとフォルダを開くたびに畳まれる（実際に使うのはお気に入りが
+  // ほとんどなので、毎回開き直すことになっていた）。
+  const ALWAYS_OPEN_TABS = ['project', 'se']
+  // どこを開けていたかは覚える。**開閉は編集の癖**なので、毎回開き直させない
+  // （既定を「お気に入りは開く」にしても、閉じる派の人が毎回閉じることになる）。
+  const ACC_KEY = 'giftcut.accOpen'
+  const [openAccSec, setOpenAccSec] = useState<Record<string, string[]>>(() => {
+    const def: Record<string, string[]> = {
+      project: ['video', 'audio', 'image'],
+      icon: ['lib'],
+      // 効果音は「★お気に入り」を最初から開けておく。
+      // 外から足したフォルダも同じ扱いで、開いたぶんはそのまま残る
+      se: ['fav'],
+      // トランジションは**どれも開かない**で始める。節が増えて（動画・テロップ・
+      // 強調・動きの見本帳）、1つ開いた状態だと他の節が下へ押し出されて見えない。
+      // どれを使うかは人によるので、勝手に1つだけ開けておく意味がない。
+      transition: []
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem(ACC_KEY) ?? 'null')
+      if (!saved || typeof saved !== 'object') return def
+      // 壊れた値が入っていても、そこだけ既定へ落とす（画面ごと消さない）
+      const out = { ...def }
+      for (const [tab, v] of Object.entries(saved)) {
+        if (Array.isArray(v) && v.every((x) => typeof x === 'string')) out[tab] = v as string[]
+      }
+      return out
+    } catch {
+      return def
+    }
   })
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACC_KEY, JSON.stringify(openAccSec))
+    } catch {
+      /* 容量超過などは無視（開閉が覚えられないだけ） */
+    }
+  }, [openAccSec])
   const accSecRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const toggleAccSec = (tab: string, k: string): void =>
     setOpenAccSec((p) => {
@@ -2959,7 +3073,7 @@ export default function App(): JSX.Element {
   // 何もしていないのに低画質で見えているのが一番困るため既定を最高画質にしている。
   const [previewRes, setPreviewRes] = useState<PreviewRes>(() => {
     const v = loadLS<PreviewRes>('giftcut.previewRes', 'orig')
-    return v === 'orig' || v === 720 || v === 360 ? v : 'orig'
+    return v === 'orig' || v === 'full' || v === 720 || v === 360 ? v : 'orig'
   })
   const previewResRef = useRef<PreviewRes>(previewRes)
   useEffect(() => {
@@ -2981,7 +3095,8 @@ export default function App(): JSX.Element {
   // 同時変換は2本まで（映像レイヤーが多いプロジェクトで ffmpeg が一斉に立ち上がるのを防ぐ）。
   useEffect(() => {
     if (previewRes === 'orig') return
-    const res = previewRes
+    // 本体側は高さで受け取る。**0 が「縮小しない（原寸）」の合図**
+    const res: number = previewRes === 'full' ? 0 : previewRes
     const paths = new Set<string>()
     for (const s of sources) if (s.path) paths.add(s.path)
     for (const c of vClips) if (c.path) paths.add(c.path)
@@ -4222,7 +4337,8 @@ export default function App(): JSX.Element {
         const local = currentTime - clip.tStart
         // 音源内の再生位置＝クリップ内ローカル秒＋トリム済みオフセット
         const target = local + (clip.srcOffset ?? 0)
-        if (Math.abs(a.currentTime - target) > 0.3) a.currentTime = target
+        // シーク中は頼み直さない（着く前に書くと取り消されて、永久に追いつけない）
+        if (!a.seeking && Math.abs(a.currentTime - target) > 0.3) a.currentTime = target
         // 載っているトラック音量×フェード（頭/尻の指定秒で 0→1 / 1→0）※クリップ内ローカル秒で判定
         const fade = seFadeGain(clip, local)
         // 声が入っている間は下げる（ダッキング）。書き出しと同じ折れ線を使う
@@ -4287,7 +4403,9 @@ export default function App(): JSX.Element {
     if (!s || s.id === curSourceIdRef.current) return
     const el = elOf(s.id)
     if (!el) return
-    if (Math.abs(el.currentTime - nxt.seg.srcStart) > 0.3) el.currentTime = nxt.seg.srcStart
+    // シーク中は頼み直さない（着く前に書くと取り消されて、永久に追いつけない）
+    if (!el.seeking && Math.abs(el.currentTime - nxt.seg.srcStart) > 0.3)
+      el.currentTime = nxt.seg.srcStart
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTime, segLayout, sources])
   // プレビューに置いておく映像レイヤークリップ（トラックの順＝下から重ねる）。
@@ -4345,11 +4463,13 @@ export default function App(): JSX.Element {
         // 窓に入っているだけ（区間外）の要素は必ず止める。要素は残るのでここが効く
         if (!el.paused) el.pause()
         // 出番前なら頭に置いておく（境界で正しいフレームが即出る）
-        if (local < 0 && Math.abs(el.currentTime - c.srcStart) > 0.3) el.currentTime = c.srcStart
+        if (!el.seeking && local < 0 && Math.abs(el.currentTime - c.srcStart) > 0.3)
+          el.currentTime = c.srcStart
         return
       }
       const want = c.srcStart + local
-      if (Math.abs(el.currentTime - want) > 0.25) el.currentTime = want
+      // シーク中は頼み直さない（着く前に書くと取り消されて、永久に追いつけない）
+      if (!el.seeking && Math.abs(el.currentTime - want) > 0.25) el.currentTime = want
       const gain = c.muted ? 0 : (c.vol ?? 1) * vcFadeGain(c, local)
       el.volume = clamp(gain * audioTrackGain('A' + trackNum(c.track)), 0, 1)
       el.muted = !!c.muted
@@ -4615,7 +4735,9 @@ export default function App(): JSX.Element {
     }
     const rate = playRateRef.current
     if (rate > 0) {
-      if (Math.abs(vb.currentTime - xfPreview.srcTime) > 0.25) vb.currentTime = xfPreview.srcTime
+      // シーク中は頼み直さない（着く前に書くと取り消されて、永久に追いつけない）
+      if (!vb.seeking && Math.abs(vb.currentTime - xfPreview.srcTime) > 0.25)
+        vb.currentTime = xfPreview.srcTime
       const r = Math.min(rate * xfPreview.speed, 16)
       if (Math.abs(vb.playbackRate - r) > 1e-3) vb.playbackRate = r
       if (vb.paused && !vb.ended) void vb.play().catch(() => {})
@@ -4735,15 +4857,24 @@ export default function App(): JSX.Element {
             return // 入れ替えた面は次のコマから面倒を見る
           }
         }
-        if (Math.abs(vv.currentTime - src.srcTime) > 0.25) {
-          // 温めが間に合わなかったときの逃げ道（頭出し直後・急な移動など）。
-          // ここを通ると待ちが出るので、記録に残して量が見えるようにしておく。
+        // 温めが間に合わなかったときの逃げ道（頭出し直後・急な移動など）。
+        //
+        // **シーク中は重ねて頼まない（vv.seeking）。**
+        // ここは毎コマ（秒60回）通る。前のシークが着く前にもう一度 currentTime を
+        // 書くと、前の依頼が取り消されて最初からやり直しになる。動画は着いていないので
+        // ズレは 0.25 秒を超えたまま——つまり**毎コマ頼み直して永久に追いつけない**。
+        //
+        // 実測（最高画質・切片10個）: 0.27秒おきにシークが走り、
+        // 110ms → 235ms → 478ms と伸びていった。カットをまたいだ回数は10回のはずが、
+        // 記録には30回出ていた。差はすべてこの頼み直し。
+        if (!vv.seeking && Math.abs(vv.currentTime - src.srcTime) > 0.25) {
+          // ここを通ると待ちが出るので、記録に残して量が見えるようにしておく
           const t0 = performance.now()
-          const onSeeked = (): void => {
-            vv.removeEventListener('seeked', onSeeked)
-            perf.mark(`カットでシーク ${Math.round(performance.now() - t0)}ms`)
-          }
-          vv.addEventListener('seeked', onSeeked)
+          vv.addEventListener(
+            'seeked',
+            () => perf.mark(`カットでシーク ${Math.round(performance.now() - t0)}ms`),
+            { once: true } // 着いたら自分で外れる（毎コマ足していた頃は積み上がっていた）
+          )
           vv.currentTime = src.srcTime
         }
 
@@ -5019,6 +5150,81 @@ export default function App(): JSX.Element {
     const sx = e.clientX
     const sy = e.clientY
     const startDist = Math.max(1, Math.hypot(e.clientX - cx, e.clientY - cy))
+
+    // **選んである物は一緒に動かす。**
+    // 掴んだ物のほかに選択中の画像・映像レイヤー・切片があれば、同じだけずらす。
+    // ずらす量だけを配るので、それぞれの元の位置関係は崩れない。
+    // ※動かすときだけ。**拡大は掴んだ物だけ**にする（まとめて拡大は、
+    //   基準点がそれぞれ違うので、揃えたつもりがばらばらに飛ぶ）。
+    type Mover = {
+      kind: 'video' | 'vclip' | 'img'
+      id: number
+      base: { scale: number; x: number; y: number }
+      motion?: ClipMotion
+      clipT: number
+    }
+    const others: Mover[] = []
+    if (corner == null) {
+      const same = (k: string, i: number): boolean => k === tgt.kind && i === tgt.id
+      const localT = (start: number, len: number): number =>
+        clamp(currentTimeRef.current - start, 0, Math.max(0, len))
+      for (const c of imgClips) {
+        if (!selectedImgIds.includes(c.id) || same('img', c.id)) continue
+        if (trackStates[c.track]?.locked) continue
+        const ct = localT(c.tStart, c.duration)
+        others.push({
+          kind: 'img',
+          id: c.id,
+          base: zoomAt(c.zoom ?? DEFAULT_ZOOM, c.motion, ct),
+          motion: c.motion,
+          clipT: ct
+        })
+      }
+      for (const c of vClips) {
+        if (!selectedVClipIds.includes(c.id) || same('vclip', c.id)) continue
+        if (trackStates[c.track]?.locked) continue
+        const ct = localT(c.tStart, vcLen(c))
+        others.push({
+          kind: 'vclip',
+          id: c.id,
+          base: zoomAt(c.zoom ?? DEFAULT_ZOOM, c.motion, ct),
+          motion: c.motion,
+          clipT: ct
+        })
+      }
+      if (!trackStates['V1']?.locked) {
+        for (const L of segLayout) {
+          if (!selectedVideoIds.includes(L.seg.id) || same('video', L.seg.id)) continue
+          const ct = localT(L.tStart, L.len)
+          others.push({
+            kind: 'video',
+            id: L.seg.id,
+            base: zoomAt(L.seg.zoom ?? DEFAULT_ZOOM, L.seg.motion, ct),
+            motion: L.seg.motion,
+            clipT: ct
+          })
+        }
+      }
+    }
+    /** 一緒に動かす物へ、同じズレを配る */
+    const moveOthers = (dx: number, dy: number): void => {
+      for (const o of others) {
+        const nx = clamp(o.base.x + dx, -10, 10)
+        const ny = clamp(o.base.y + dy, -10, 10)
+        // 印が付いている項目は印を、付いていなければ固定値を動かす（掴んだ物と同じ扱い）
+        const fixed = { ...o.base }
+        if (hasKeys(o.motion?.x)) patchClipMotion(o.kind, o.id, 'x', (k) => putKey(k, o.clipT, nx))
+        else fixed.x = nx
+        if (hasKeys(o.motion?.y)) patchClipMotion(o.kind, o.id, 'y', (k) => putKey(k, o.clipT, ny))
+        else fixed.y = ny
+        if (fixed.x !== o.base.x || fixed.y !== o.base.y) {
+          if (o.kind === 'video') setSegZoom(o.id, fixed)
+          else if (o.kind === 'vclip') setVClipZoom(o.id, fixed)
+          else setImgZoom(o.id, fixed)
+        }
+      }
+    }
+
     const onMove = (ev: PointerEvent): void => {
       if (corner != null) {
         const dist = Math.hypot(ev.clientX - cx, ev.clientY - cy)
@@ -5031,11 +5237,14 @@ export default function App(): JSX.Element {
         //
         // 上限を残しているのは、掴み損ねて何万倍も飛ばしたときに戻れなくなるのを
         // 避けるためだけ（フレーム10個ぶんあれば、送り出す演出には十分足りる）。
+        const dx = (ev.clientX - sx) / rect.width
+        const dy = (ev.clientY - sy) / rect.height
         apply({
           ...start,
-          x: clamp(start.x + (ev.clientX - sx) / rect.width, -10, 10),
-          y: clamp(start.y + (ev.clientY - sy) / rect.height, -10, 10)
+          x: clamp(start.x + dx, -10, 10),
+          y: clamp(start.y + dy, -10, 10)
         })
+        if (others.length) moveOthers(dx, dy)
       }
     }
     const onUp = (): void => {
@@ -5129,14 +5338,16 @@ export default function App(): JSX.Element {
     window.addEventListener('pointercancel', onUp)
   }
   // 再生ヘッドを指定秒だけ移動（±5/±10 秒送り戻し）。再生中は止めてから。
+  // ※飛ばす操作は**すべてタイムライン側も追従させる**。
+  // バーだけ連動して、ボタンだと付いてこない、という食い違いが一番読みにくい。
   function skipSec(sec: number): void {
     stopPlayback()
-    seekTo(currentTimeRef.current + sec)
+    seekAndReveal(currentTimeRef.current + sec)
   }
   // 1フレーム単位で移動（フレームグリッドに量子化）。
   function stepFrame(frames: number): void {
     stopPlayback()
-    seekTo(qFrame(currentTimeRef.current, fpsRef.current) + frames / fpsRef.current)
+    seekAndReveal(qFrame(currentTimeRef.current, fpsRef.current) + frames / fpsRef.current)
   }
   // 現在のプレビュー画面（動画フレーム＋テロップ＋ズーム）を PNG で保存。
   // 表示中と同じプロキシ映像を出力解像度で描き、テロップは書き出しと同じ rasterize を再利用。
@@ -8839,39 +9050,140 @@ export default function App(): JSX.Element {
     if (seg) razorSegment(seg, src.srcTime)
   }
 
-  // 再生ヘッドでテロップを分割（選択があればそれだけ、なければ全て）
-  //
-  // scope='all'（何も選んでいないときの分割）では、分割してできたテロップを
-  // 選択状態にしない。選択したままにすると、次に Ctrl+K を押したときに
-  // 「選択中のテロップだけ分割」へ勝手に切り替わり、動画が切れなくなる。
-  // （切って動かして切る、を繰り返すと2回目から動画が切れない不具合になっていた）
-  function splitAtPlayhead(scope: 'selected' | 'all' = 'selected'): void {
+  /**
+   * 再生ヘッドで切る。**選んでいる物があるかどうかで意味が変わる。**
+   *
+   *   何も選んでいない → 再生ヘッドの位置で、載っている物を全部切る
+   *   何かを選んでいる → その選んだ物だけを切る
+   *
+   * 以前は「動画は常に全部・テロップだけ選択を見る」という食い違った作りで、
+   * 効果音・画像・映像レイヤーには分割そのものが無かった。
+   * **どれを切るかを1か所で決める**（散らばっていると、種類ごとに挙動が割れる）。
+   */
+  function cutAtPlayhead(): void {
     const t = qFrame(currentTimeRef.current, fpsRef.current)
-    // ロック中トラックのテロップは分割対象外（実トラック単位で判定）
-    const inScope = (c: Cue): boolean =>
-      (selectedIds.length ? isSelected(c.id) : true) &&
-      !telopLocked(c) &&
-      c.start < t - 0.02 &&
-      c.end > t + 0.02
-    const targets = cues.filter(inScope)
-    if (!targets.length) return
-    // id は updater の外で採番（StrictMode 二重実行で id が飛ばないように）。
-    // newIds も updater の外で確定（updater内push だと二重実行で重複が積まれる）。
-    const idMap = new Map(targets.map((c) => [c.id, idCounter.current++]))
-    const newIds: number[] = targets.map((c) => idMap.get(c.id) as number)
-    setCues((prev) => {
-      const result: Cue[] = []
-      for (const c of prev) {
-        if (inScope(c)) {
-          const nid = idMap.get(c.id) as number
-          result.push({ ...structuredClone(c), end: t })
-          result.push({ ...structuredClone(c), id: nid, start: t })
-        } else result.push(c)
-      }
-      return result.sort((a, b) => a.start - b.start)
-    })
-    if (scope === 'selected') setSelectedIds(newIds)
+    const anySel =
+      selectedIds.length > 0 ||
+      selectedVideoIds.length > 0 ||
+      selectedAudioIds.length > 0 ||
+      selectedSeIds.length > 0 ||
+      selectedImgIds.length > 0 ||
+      selectedVClipIds.length > 0
+    // 決め方は shared/cutScope に置いてある（種類ごとに書き直さないこと）
+    const want = (selected: boolean): boolean => shouldCut(anySel, selected)
+    const spans = (start: number, end: number): boolean => spansCut(start, end, t)
+
+    // ---- 本編の動画（V1）----
+    if (!mainLocked()) {
+      const L = segLayoutRef.current.find((x) => spans(x.tStart, x.tEnd))
+      const segSel =
+        selectedVideoIds.includes(L?.seg.id ?? -1) || selectedAudioIds.includes(L?.seg.id ?? -1)
+      if (L && want(segSel)) razorSegment(L.seg, L.seg.srcStart + (t - L.tStart) * segSpeed(L.seg))
+    }
+
+    // ---- テロップ ----
+    const cueTargets = cues.filter(
+      (c) => want(isSelected(c.id)) && !telopLocked(c) && spans(c.start, c.end)
+    )
+    if (cueTargets.length) {
+      const idMap = new Map(cueTargets.map((c) => [c.id, idCounter.current++]))
+      setCues((prev) => {
+        const out: Cue[] = []
+        for (const c of prev) {
+          const nid = idMap.get(c.id)
+          if (nid != null) {
+            out.push({ ...structuredClone(c), end: t })
+            out.push({ ...structuredClone(c), id: nid, start: t })
+          } else out.push(c)
+        }
+        return out.sort((a, b) => a.start - b.start)
+      })
+    }
+
+    // ---- 効果音・BGM ----
+    // 音源の中の位置（srcOffset）も進める。ここを忘れると、後半が頭から鳴り直す
+    const seTargets = seClips.filter(
+      (c) =>
+        want(selectedSeIds.includes(c.id)) &&
+        !trackStates[c.track]?.locked &&
+        spans(c.tStart, c.tStart + c.duration)
+    )
+    if (seTargets.length) {
+      const idMap = new Map(seTargets.map((c) => [c.id, seIdCounter.current++]))
+      setSeClips((prev) => {
+        const out: SEClip[] = []
+        for (const c of prev) {
+          const nid = idMap.get(c.id)
+          if (nid != null) {
+            const left = t - c.tStart
+            out.push({ ...c, duration: left })
+            out.push({
+              ...c,
+              id: nid,
+              tStart: t,
+              duration: c.duration - left,
+              srcOffset: (c.srcOffset ?? 0) + left
+            })
+          } else out.push(c)
+        }
+        return out
+      })
+    }
+
+    // ---- 画像 ----
+    // 静止画なので、切っても中身の位置は動かない（長さだけ分ける）
+    const imgTargets = imgClips.filter(
+      (c) =>
+        want(selectedImgIds.includes(c.id)) &&
+        !trackStates[c.track]?.locked &&
+        spans(c.tStart, c.tStart + c.duration)
+    )
+    if (imgTargets.length) {
+      const idMap = new Map(imgTargets.map((c) => [c.id, imgIdCounter.current++]))
+      setImgClips((prev) => {
+        const out: ImgClip[] = []
+        for (const c of prev) {
+          const nid = idMap.get(c.id)
+          if (nid != null) {
+            const left = t - c.tStart
+            out.push({ ...structuredClone(c), duration: left })
+            out.push({
+              ...structuredClone(c),
+              id: nid,
+              tStart: t,
+              duration: c.duration - left
+            })
+          } else out.push(c)
+        }
+        return out
+      })
+    }
+
+    // ---- 映像レイヤー ----
+    // 素材の中のどこを使うか（srcStart〜srcEnd）を分ける。動画の切片と同じ考え方
+    const vcTargets = vClips.filter(
+      (c) =>
+        want(selectedVClipIds.includes(c.id)) &&
+        !trackStates[c.track]?.locked &&
+        spans(c.tStart, c.tStart + (c.srcEnd - c.srcStart))
+    )
+    if (vcTargets.length) {
+      const idMap = new Map(vcTargets.map((c) => [c.id, vClipIdCounter.current++]))
+      setVClips((prev) => {
+        const out: VClip[] = []
+        for (const c of prev) {
+          const nid = idMap.get(c.id)
+          if (nid != null) {
+            const cut = c.srcStart + (t - c.tStart)
+            out.push({ ...structuredClone(c), srcEnd: cut })
+            out.push({ ...structuredClone(c), id: nid, tStart: t, srcStart: cut })
+          } else out.push(c)
+        }
+        return out
+      })
+    }
   }
+
   function setLabelFor(cueId: number, color: string): void {
     const targets = isSelected(cueId) ? selectedIds : [cueId]
     setCues((prev) => prev.map((c) => (targets.includes(c.id) ? { ...c, label: color } : c)))
@@ -9170,16 +9482,9 @@ export default function App(): JSX.Element {
         if (selectedVideoIds.length) duplicateSelectedSegments()
         else if (!anySegSelected()) duplicateSelected()
       },
-      split: () => {
-        // テロップ選択中はそのテロップだけ分割（下地動画に不要なカット点を増やさない）。
-        // 何も選択が無ければ従来どおり 動画＋再生ヘッド上のテロップ を分割。
-        if (selectedIds.length) {
-          splitAtPlayhead('selected')
-        } else {
-          splitVideoAtPlayhead()
-          splitAtPlayhead('all')
-        }
-      },
+      // 何も選んでいなければ再生ヘッドの位置を全部、選んでいればその物だけ。
+      // 判断は cutAtPlayhead が1か所で持つ（ここで種類ごとに分けない）
+      split: () => cutAtPlayhead(),
       addTelop: () => addTelop(),
       addMarker: () => addMarkerAtPlayhead(),
       saveProject: () => void saveProjectFn(),
@@ -9285,6 +9590,61 @@ export default function App(): JSX.Element {
       window.removeEventListener('keydown', onEsc)
     }
   }, [menu])
+
+  /**
+   * 拡大率を変える。**再生ヘッドが画面から逃げないように**、
+   * 再生ヘッドのある所を軸にして寄る／引く。
+   *
+   * 素で拡大率だけ変えると、左端(0秒)を軸に伸び縮みするので、
+   * 拡大するほど再生ヘッドが右へ吹き飛んでいく。**いま見ている場所を見失う**ので、
+   * 拡大のたびに横スクロールで探し直すことになっていた。
+   *
+   * 再生ヘッドが枠の外にいるときは真ん中へ連れてくる
+   * （見えていない物を軸にしても、結局どこへ飛ぶか分からない）。
+   */
+  function zoomAroundPlayhead(nz: number): void {
+    const el = scrollRef.current
+    const z0 = zoomRef.current
+    const t = currentTimeRef.current
+    if (!el || !(z0 > 0)) {
+      setZoom(nz)
+      return
+    }
+    const w = el.clientWidth
+    let px = t * z0 - el.scrollLeft // 枠の左端から再生ヘッドまで(px)
+    if (px < 0 || px > w) px = w / 2
+    setZoom(nz)
+    // 幅が新しい拡大率で決まってから寄せる（先に動かすと切り詰められる）
+    requestAnimationFrame(() => {
+      el.scrollLeft = Math.max(0, t * nz - px)
+    })
+  }
+
+  /**
+   * 再生ヘッドをタイムラインの見えている範囲へ連れてくる。
+   *
+   * プレビューのバーで飛ばしても、タイムラインは動かないままだった
+   * （再生ヘッド自体は動いているが、**枠の外なので見えない**）。
+   * 再生し始めてようやく画面が追いつくので、「飛んだ先がどこか分からない」
+   * 状態がしばらく続く。飛ばした時点で見える所へ持ってくる。
+   *
+   * すでに見えているなら**何もしない**（見えている物を動かすと、
+   * 押すたびに画面が揺れて逆に読みにくい）。
+   */
+  function revealPlayhead(): void {
+    const el = scrollRef.current
+    if (!el) return
+    const x = currentTimeRef.current * zoomRef.current
+    const w = el.clientWidth
+    const margin = Math.min(80, w * 0.15) // 端ぎりぎりだと次の操作でまた外れる
+    if (x >= el.scrollLeft + margin && x <= el.scrollLeft + w - margin) return
+    el.scrollLeft = Math.max(0, x - w / 2)
+  }
+  /** 飛ばして、そこを見せる（プレビュー側の操作はすべてこれを通す） */
+  function seekAndReveal(t: number): void {
+    seekTo(t)
+    requestAnimationFrame(revealPlayhead)
+  }
 
   // タイムラインの拡大率を「中身がちょうど収まる」ところに合わせる。
   function fitTimelineZoom(): void {
@@ -10049,16 +10409,45 @@ export default function App(): JSX.Element {
     const startPos = cue.pos ?? { x: 0.5, y: 0.85 }
     const grabDX = e.clientX - (rect.left + startPos.x * rect.width)
     const grabDY = e.clientY - (rect.top + startPos.y * rect.height)
+    // **選んである物は一緒に動かす。**
+    // 掴んだ物が選択に入っているなら、選択中の全員を同じだけずらす。
+    // 「まとめて選んで、まとめて下げる」がプレビュー上でできないと、
+    // 1つずつ動かして目分量で揃え直すことになる。
+    // それぞれの**元の位置からのズレ**で動かす（同じ場所へ集めない）。
+    const groupIds =
+      selectedIds.includes(cue.id) && selectedIds.length > 1 ? selectedIds : [cue.id]
+    const basePos = new Map(
+      cues
+        .filter((c) => groupIds.includes(c.id) && !telopLocked(c))
+        .map((c) => [c.id, c.pos ?? { x: 0.5, y: 0.85 }])
+    )
     let moved = false
     const onMove = (ev: PointerEvent): void => {
       // 3px のしきい値でクリックとドラッグを区別（微ジッタで選択が不発にならないように）
       if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 3) return
       if (!moved) {
         moved = true
-        setSelectedIds([cue.id]) // ドラッグ開始時点で選択も確定
+        // まとめて動かしているときは選択を壊さない（壊すと2回目から1つしか動かない）
+        if (groupIds.length === 1) setSelectedIds([cue.id])
       }
       const x = clamp((ev.clientX - grabDX - rect.left) / rect.width, 0, 1)
       const y = clamp((ev.clientY - grabDY - rect.top) / rect.height, 0, 1)
+      // 掴んだ物が動いたぶん。他の選択物にはこれを足す
+      const shiftX = x - startPos.x
+      const shiftY = y - startPos.y
+      if (groupIds.length > 1) {
+        setCues((prev) =>
+          prev.map((c) => {
+            const b = basePos.get(c.id)
+            if (!b) return c
+            return {
+              ...c,
+              pos: { x: clamp(b.x + shiftX, 0, 1), y: clamp(b.y + shiftY, 0, 1) }
+            }
+          })
+        )
+        return
+      }
       // 動きが付いている（⏱ が入っている）なら、**掴んで動かした所に印を置く**。
       // プレミアと同じで、これが動きを付ける一番自然なやり方。
       // 付いていなければ、今までどおり元の位置そのものを動かす。
@@ -10303,16 +10692,19 @@ export default function App(): JSX.Element {
       value={String(previewRes)}
       onChange={(e) => {
         const v = e.target.value
-        setPreviewRes(v === 'orig' ? 'orig' : v === '720' ? 720 : 360)
+        setPreviewRes(v === 'orig' ? 'orig' : v === 'full' ? 'full' : v === '720' ? 720 : 360)
       }}
       title={
         'プレビューの解像度\n' +
-        '・原本＝元動画をそのまま再生。最高画質だがシークは重い\n' +
-        '・720p / 360p＝編集用に軽くした映像（プロキシ）で再生。360pは再描画も間引いて最軽量\n' +
+        '・原本＝元動画をそのまま再生。最高画質だが、カットで飛ぶたびに待ちが出る\n' +
+        '・最高画質(軽い)＝原寸のまま、飛びやすい形に焼き直した映像で再生。\n' +
+        '　　見た目は原本のままカットの引っかかりが消える。作るのに時間と容量を使う\n' +
+        '・720p / 360p＝編集用に小さくした映像で再生。360pは再描画も間引いて最軽量\n' +
         '書き出しは常に原本のフル画質です（この設定は完成品の画質に影響しません）'
       }
     >
-      <option value="orig">プレビュー 原本（最高画質）</option>
+      <option value="orig">プレビュー 原本（最高画質・重い）</option>
+      <option value="full">プレビュー 最高画質（軽い）</option>
       <option value="720">プレビュー 720p（標準）</option>
       <option value="360">プレビュー 360p（最軽量）</option>
     </select>
@@ -10332,8 +10724,6 @@ export default function App(): JSX.Element {
   return (
     <div
       className="app"
-      // 検査票を開いている間はアプリ本体を縮める（パネルに隠れないように）
-      style={QaPanel && qaOpen ? { marginRight: 'var(--qa-w, 380px)' } : undefined}
       // 素材をドラッグしている間は、アプリのどこにいても受け付ける。
       // 受け付けない場所があると、そこだけ 🚫（駐禁）が出て「置けない場所」に見える。
     >
@@ -10846,6 +11236,7 @@ export default function App(): JSX.Element {
                       /* 見本帳（演出を選ぶ所）は右パネルのトランジションタブにある。
                          名前が 05.飛び出し のような演出名なので、置き場は他の見本帳と
                          並んでいる方が探せる。ここは**選んだあと数値を詰める**所。 */
+                      onSaveMotion={hasMotion(m) ? saveMyMotion : undefined}
                       onClearMotion={hasMotion(m) ? () => setMotion(selected.id, undefined) : undefined}
                     />
                   )
@@ -11577,7 +11968,18 @@ export default function App(): JSX.Element {
                           }}
                           onSelect={(e) => trackSel(e.currentTarget)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Escape') setEditingId(null)
+                            if (e.key === 'Escape') {
+                              setEditingId(null)
+                              return
+                            }
+                            // Enter で確定、Shift+Enter で改行。
+                            // 文字打ちは「打ち終わったら Enter」が体に入っているので、
+                            // ここで改行が入ると、確定のつもりが1行増える。
+                            // 改行のほうを修飾キー側へ寄せる（変換確定の Enter は拾わない）。
+                            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                              e.preventDefault()
+                              setEditingId(null)
+                            }
                           }}
                         />
                         <div className="telop-editor-tools">
@@ -11629,7 +12031,8 @@ export default function App(): JSX.Element {
             <PreviewScrub
               currentTime={currentTime}
               duration={duration}
-              onSeek={seekTo}
+              // 飛ばしたら、タイムライン側もその場所を見せる（連動）
+              onSeek={seekAndReveal}
               onScrubStart={stopPlayback}
             />
             <TransportBar
@@ -11937,9 +12340,11 @@ export default function App(): JSX.Element {
                       setTelopDrop(null)
                     }}
                     onToggleEmphasis={toggleTelopEmphasis}
+                    builtinMotions={BUILTIN_MOTIONS}
+                    myMotions={myMotions}
                     motionPresets={motionPresets}
                     onApplyMotionPreset={applyMotionPreset}
-                    onImportMotionPresets={importMotionPresets}
+                    onDeleteMyMotion={deleteMyMotion}
                   />
                 )
               })()}
@@ -11966,16 +12371,13 @@ export default function App(): JSX.Element {
             canRedo={redoStackRef.current.length > 0}
             onUndo={undo}
             onRedo={redo}
-            onSplit={() => {
-              splitVideoAtPlayhead()
-              splitAtPlayhead('all')
-            }}
+            onSplit={cutAtPlayhead}
             onSilenceCut={() => {
               setSilenceOpen(true)
               if (!silenceCut.found && !silenceCut.busy) void findSilences()
             }}
             zoom={zoom}
-            onZoom={setZoom}
+            onZoom={zoomAroundPlayhead}
             onFit={fitTimelineZoom}
             hint={
               tool === 'razor'
@@ -12804,12 +13206,16 @@ export default function App(): JSX.Element {
                           className="se-clip"
                           label={clip.label}
                           left={clip.tStart * zoom}
-                          width={Math.max(clip.duration * zoom - 1, 12)}
+                          // **短い効果音でも掴めるだけの幅を必ず残す。**
+                          // 実物には0.2秒の物があり、拡大率しだいで数pxになる
+                          width={Math.max(clip.duration * zoom - 1, 16)}
                           selected={selectedSeIds.includes(clip.id)}
-                          title={`${clip.name}（ドラッグで移動・左右端で長さ変更・Deleteで削除）`}
+                          title={`${clip.name}（ドラッグで移動・Deleteで削除／短くするなら分割してから）`}
                           onPointerDown={(e) => onSePointerDown(clip, e)}
-                          onTrimLeft={(e) => onSePointerDown(clip, e, 'l')}
-                          onTrimRight={(e) => onSePointerDown(clip, e, 'r')}
+                          // ※長さ変更（左右端を掴む）は外した。
+                          // 端の当たり判定が左右7pxずつあるので、短い効果音は
+                          // **帯の全部が「長さ変更」になって、選ぶ余地が無かった**。
+                          // 短くしたいときは分割して消すほうが速く、そちらは既にできる。
                           onContextMenu={(e) => {
                             e.preventDefault()
                             e.stopPropagation()
@@ -13059,41 +13465,40 @@ export default function App(): JSX.Element {
           <PerfHud onClose={() => { perf.stop(); setPerfOpen(false) }} />
         </Suspense>
       )}
-      {/* 開発中だけ出る検査票。配布ビルドでは QaPanel が null になり、
-          このブロックごと消える。 */}
-      {QaPanel && (
-        <>
-          {/* 見た目もここに書く。styles.css に置くと配布ビルドに残るため。
-              開いている間はパネルの裏に隠れるので出さない。 */}
-          {!qaOpen && (
-          <button
-            onClick={() => setQaOpen(true)}
-            title="動作確認チェックリストを開く（開発中のみ）"
-            style={{
-              position: 'fixed',
-              right: 12,
-              bottom: 12,
-              zIndex: 8000,
-              background: '#1b2027',
-              color: '#e0a94a',
-              border: '1px solid #3a3320',
-              borderRadius: 999,
-              padding: '6px 14px',
-              fontSize: 12,
-              letterSpacing: '0.06em',
-              cursor: 'pointer',
-              opacity: 0.72
-            }}
-          >
-            検査票
-          </button>
-          )}
-          {qaOpen && (
-            <Suspense fallback={null}>
-              <QaPanel onClose={() => setQaOpen(false)} />
-            </Suspense>
-          )}
-        </>
+      {/* 開発中だけ出る「測定停止」。
+          ※ここには検査票（動作確認チェックリスト）を置いていたが、使われないまま
+          場所を取っていたので入れ替えた。開発中は起動と同時にずっと測っているので、
+          **止めたい時に押す**のがここ。直したら再起動＝また自動で測り始める。
+          見た目もここに書く（styles.css に置くと配布ビルドに残るため）。 */}
+      {import.meta.env.DEV && (
+        <button
+          onClick={() => {
+            perf.stop()
+            void window.giftcut?.savePerfReport?.(perf.report()).then((r) => {
+              showToast(r?.ok ? `測定を止めました。記録: ${r.path}` : '記録を書けませんでした')
+            })
+            setPerfStopped(true)
+          }}
+          disabled={perfStopped}
+          title="ここまでの記録を書き出して測定を止めます（再起動でまた測り始めます）"
+          style={{
+            position: 'fixed',
+            right: 12,
+            bottom: 12,
+            zIndex: 8000,
+            background: '#1b2027',
+            color: perfStopped ? '#6b7280' : '#e0a94a',
+            border: '1px solid #3a3320',
+            borderRadius: 999,
+            padding: '6px 14px',
+            fontSize: 12,
+            letterSpacing: '0.06em',
+            cursor: perfStopped ? 'default' : 'pointer',
+            opacity: 0.72
+          }}
+        >
+          {perfStopped ? '測定を止めました' : '測定停止'}
+        </button>
       )}
 
       {/* 重ねて出す小物（お知らせ・文字入力・確認）は components/Overlays.tsx。

@@ -2295,6 +2295,49 @@ try {
     assert(v === 'orig', `画質設定が原本になっていない（${v}）`)
   })
 
+  await check('効果音の「お気に入り」は最初から開いていて、フォルダを開いても畳まれない', async () => {
+    // 実際に使うのはお気に入りがほとんど。1つだけ開く作りだと、
+    // フォルダを見に行くたびにお気に入りが畳まれて、毎回開き直すことになる。
+    await page.locator('.panel-tabs-strip').last().locator('.tab', { hasText: 'SE' }).first().click()
+    await page.waitForTimeout(500)
+    // 開いている節の見出し（.tpl-acc が見出しボタンそのもの）
+    const openTitles = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('.tpl-acc.open')].map((el) =>
+          (el.textContent ?? '').slice(0, 24).trim()
+        )
+      )
+    // **お気に入りは1件も無いと節ごと出ない。** 中身を出すため、まずフォルダを開く
+    const folder = page.locator('.tpl-acc', { hasText: '📁' }).first()
+    assert(await folder.count(), '効果音のフォルダが1つも無い')
+    await folder.click()
+    await page.waitForTimeout(600)
+    // ★は**マウスを乗せるまで隠れている**（visibility: hidden）ので、先に乗せる
+    const item = page.locator('.se-item').first()
+    assert(await item.count(), 'フォルダを開いても効果音が出てこない')
+    await item.hover()
+    await page.waitForTimeout(200)
+    await item.locator('.item-fav').first().click()
+    await page.waitForTimeout(600)
+
+    const after = await openTitles()
+    // お気に入りは、できた瞬間から開いている
+    assert(
+      after.some((t) => t.includes('お気に入り')),
+      `お気に入りが開いた状態で出てこない（開いている節: ${after.join(' / ') || 'なし'}）`
+    )
+    // **開いたフォルダも畳まれていない。** ここが本題
+    // （1つだけ開く作りだと、お気に入りが出た時点でフォルダが閉じる）
+    assert(
+      after.some((t) => t.includes('📁')),
+      `お気に入りが出たらフォルダが畳まれた（開いている節: ${after.join(' / ') || 'なし'}）`
+    )
+    // ★を戻す（次の項目に持ち越さない）
+    const unstar = page.locator('.item-fav.on').first()
+    if (await unstar.count()) await unstar.click()
+    await page.waitForTimeout(300)
+  })
+
   await check('タイムラインが中身の長さに収まっている（左端の小さな塊にならない）', async () => {
     const { content, view } = await page.evaluate(() => {
       const inner = document.querySelector('.track-inner').getBoundingClientRect()
@@ -3826,6 +3869,83 @@ try {
     assert(title && title.includes('test_image'), `名前が出ていない: ${title}`)
   })
 
+  await check('プレビューで文字を動かすと、選んである他の文字も一緒に動く', async () => {
+    // まとめて選んで、まとめて下げる。1つずつ動かして目分量で揃え直すのは無理がある。
+    // **元の位置関係は崩さない**（同じ場所へ集めない）ことも一緒に見る。
+    await resetProject()
+    await seekTo(1)
+    const posOf = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('.telop-box')]
+          .slice(0, 3)
+          .map((el) => {
+            const r = el.getBoundingClientRect()
+            return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
+          })
+      )
+    // 同じ時刻に文字が2つ要る。**素材任せにしない**（無ければ飛ばす、にすると
+    // 中身を確かめないまま緑になる）。ここで作る。T をもう一度押すと1段上にできる。
+    await page.keyboard.press('t')
+    await page.waitForTimeout(400)
+    await page.keyboard.press('t')
+    await page.waitForTimeout(500)
+    const before = await posOf()
+    assert(before.length >= 2, `同じ時刻に文字を2つ作れなかった（${before.length}個）`)
+    // 2つとも選ぶ（タイムライン上の文字クリップを Ctrl 付きで足す）
+    const clips = page.locator('.telop-clip')
+    await clips.nth(0).click()
+    await clips.nth(1).click({ modifiers: ['Control'] })
+    await page.waitForTimeout(300)
+    // プレビュー上の1つ目を掴んで下へ
+    const t0 = page.locator('.telop-box').first()
+    const b = await t0.boundingBox()
+    assert(b, 'プレビューに文字が見つからない')
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 6; i++) await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2 - (60 * i) / 6)
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const after = await posOf()
+    const d0 = before[0].y - after[0].y
+    const d1 = before[1].y - after[1].y
+    assert(d0 > 20, `掴んだ文字が動いていない（${d0}px）`)
+    assert(d1 > 20, `選んである他の文字が付いてこない（掴んだ方 ${d0}px / 他 ${d1}px）`)
+    // 同じだけ動く＝元の位置関係が崩れていない
+    assert(
+      Math.abs(d0 - d1) <= 4,
+      `一緒に動いてはいるが、ずれ方が違う（${d0}px と ${d1}px）`
+    )
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  })
+
+  await check('文字を選んで切ると、下地の動画にはカット点が増えない', async () => {
+    // 「何も選んでいない＝全部／選んでいる＝その物だけ」の後半。
+    // ここが効いていないと、文字を切るたびに本編へ余計なカット点が増える。
+    await resetProject()
+    await seekTo(7)
+    const vClips = () => page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)').count()
+    const telops = () => page.locator('.telop-clip').count()
+    // 再生ヘッドの上にある文字を選ぶ
+    const cue = page.locator('.telop-clip').first()
+    assert(await cue.count(), '文字が無い')
+    await cue.click()
+    await page.waitForTimeout(300)
+    const v0 = await vClips()
+    const t0 = await telops()
+    await page.keyboard.press('Control+k')
+    await page.waitForTimeout(600)
+    assert(
+      (await vClips()) === v0,
+      `文字を選んで切ったのに、動画にもカット点が増えた（${v0} → ${await vClips()}）`
+    )
+    // 文字のほうは、再生ヘッドがその文字の中にあれば増える
+    const t1 = await telops()
+    assert(t1 >= t0, `文字が減った（${t0} → ${t1}）`)
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(500)
+  })
+
   await check('文字を分割すると、左右それぞれが残る', async () => {
     await resetProject()
     const n0 = await page.locator('.telop-clip').count()
@@ -4644,6 +4764,24 @@ try {
     // どこにあるかは、前の項目次第で変わる（絞って回すと 0 秒のまま）。
     // 見たいのは「別ウィンドウでもキーが効くか」なので、位置は自分で決める。
     await seekTo(7)
+    // **選択を外しておく。** カットは「何も選んでいなければ全部・選んでいれば
+    // その物だけ」なので、前の項目の選択が残っていると本編の動画は切れない
+    // （見たいのは「別ウィンドウでもキーが効くか」であって、切る範囲の話ではない）。
+    await page.evaluate(() => {
+      const el = document.querySelector('.track-scroll')
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      // 何も無い所を押す＝選択解除
+      el.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          button: 0,
+          clientX: r.right - 6,
+          clientY: r.bottom - 6
+        })
+      )
+    })
+    await page.waitForTimeout(300)
     const before = await clips()
     // 別ウィンドウを選んでから、そちらで Ctrl+K（分割）を押す
     await pop.locator('.pane-pop-root').first().click({ position: { x: 5, y: 5 } })
@@ -4777,6 +4915,39 @@ try {
       `360p にしても軽い映像を再生していない（作れていない）\n      前: ${before}\n      後: ${after}`
     )
     // 元に戻す（次の項目が軽い映像を見ないように）
+    await page.locator('.pq-preview').first().selectOption('orig')
+    await page.waitForTimeout(600)
+    touchedRef.dirty = true
+  })
+
+  await check('「最高画質(軽い)」は、縮めずに原寸のまま焼いている', async () => {
+    // カットの引っかかりの正体は画質ではなく「キーフレームが数秒に1枚しかない」こと。
+    // だから**縮めずに全コマキーフレームにするだけ**でよい、というのがこの画質。
+    //
+    // **見た目では確かめられない。** 静かに 720p へ落ちていても
+    // 「なんとなく綺麗」に見えてしまうので、実際の画素数で見る。
+    const vid = page.locator('.screen-video').first()
+    const sizeOf = () =>
+      vid.evaluate((el) => ({ w: el.videoWidth, h: el.videoHeight, src: el.getAttribute('src') ?? '' }))
+    const before = await sizeOf()
+    assert(before.w > 0, 'プレビューに映像が出ていない')
+
+    await page.locator('.pq-preview').first().selectOption('full')
+    let after = before
+    for (let i = 0; i < 90; i++) {
+      await page.waitForTimeout(500)
+      after = await sizeOf()
+      if (after.src.includes('giftcut-proxies') && after.w > 0) break
+    }
+    assert(
+      after.src.includes('giftcut-proxies'),
+      `焼き直した映像を再生していない（作れていない）\n      前: ${before.src}\n      後: ${after.src}`
+    )
+    // **ここが本題。** 原寸のままか
+    assert(
+      after.w === before.w && after.h === before.h,
+      `原寸のはずが縮んでいる（原本 ${before.w}x${before.h} → ${after.w}x${after.h}）`
+    )
     await page.locator('.pq-preview').first().selectOption('orig')
     await page.waitForTimeout(600)
     touchedRef.dirty = true
