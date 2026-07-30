@@ -51,8 +51,15 @@ const CBHLS = 'AE.ADBE Color Balance (HLS)'
 const INVERT = 'AE.ADBE Invert'
 /** ブラインド。縞で覆って開いていく。CSS のマスクで出す */
 const BLINDS = 'AE.ADBE Venetian Blinds'
+/**
+ * 波形ワープ。文字を波打たせる。**一番使われている（実物で7件）。**
+ * 動くのは「波紋の高さ」と「波形の幅」だけで、種類・固定・フェーズは固定値。
+ */
+const WAVEWARP = 'AE.ADBE Wave Warp'
 
-const HANDLED = new Set([MOTION, OPACITY, GEOMETRY, BASIC3D, PROCAMP, GBLUR, CROP, CBHLS, INVERT, BLINDS])
+const HANDLED = new Set([
+  MOTION, OPACITY, GEOMETRY, BASIC3D, PROCAMP, GBLUR, CROP, CBHLS, INVERT, BLINDS, WAVEWARP
+])
 
 /**
  * 演出が終わったときに、テロップが**見えなくなる**か。
@@ -150,6 +157,18 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
         if (q.name === '方向' && Number.isFinite(q.value[0])) motion.blindDir = q.value[0]
         continue
       }
+      // 波形ワープも、動かない値のうち意味のある物を拾う。
+      // **「ユラユラ」系は高さも幅も動かない**（波が流れ続けるだけ）ので、
+      // 印だけ見ていると「波なんて付いていない」ことになってしまう。
+      if (e.matchName === WAVEWARP && !q.keys.length) {
+        const v = q.value[0]
+        if (!Number.isFinite(v)) continue
+        if (q.name === '波形の速度') motion.wavSpd = v
+        else if (q.name === '波紋の高さ' && v) motion.wavH = [{ t: 0, v }]
+        else if (q.name === '波形の幅' && v) motion.wavW = [{ t: 0, v }]
+        else if (q.name === '方向' && v) motion.wavDir = [{ t: 0, v }]
+        continue
+      }
       if (!q.keys.length) continue
       const [x, y] = q.keys
       switch (q.name) {
@@ -219,6 +238,25 @@ export function toMotion(p: PrPreset): { motion: Motion; skipped: string[] } {
           break
         case '下':
           motion.cb = toKeys(scaleKeys(x, 0.01))
+          break
+        case '波紋の高さ':
+          // px どうし。1080基準でそのまま（負なら波が裏返る）
+          motion.wavH = toKeys(x)
+          break
+        case '波形の幅':
+          motion.wavW = toKeys(x)
+          break
+        case '方向':
+          // **どのエフェクトの「方向」かで意味が違う。**
+          // ブラインドの方向は動かない物として上で拾っている（ここへは来ない）。
+          if (e.matchName === WAVEWARP) motion.wavDir = toKeys(x)
+          else skipped.push(`${e.matchName}/${q.name}`)
+          break
+        case '波形の種類':
+        case '固定':
+        case 'フェーズ':
+        case 'アンチエイリアス (最高画質)':
+          // 実物では全部動かない。動いていても、こちらの波は正弦の1種類だけなので無視してよい
           break
         case '歪曲軸':
         case 'アンチフリッカー':

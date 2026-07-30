@@ -155,15 +155,68 @@ describe('取り込んだ動きが、実際にその値になるか', () => {
   })
 })
 
+describe('波形ワープ（実物で一番使われている）', () => {
+  const wave = (params: { name: string; value: number[]; keys: { t: number; v: number }[][] }[]): PrPreset => ({
+    name: '波',
+    effects: [{ matchName: 'AE.ADBE Wave Warp', params }]
+  })
+
+  it('波紋の高さと波形の幅は px どうし。そのまま持ってくる', () => {
+    const { motion, skipped } = toMotion(
+      wave([
+        { name: '波紋の高さ', value: [0], keys: [[key(0, -1888), key(0.33, 0)]] },
+        { name: '波形の幅', value: [1], keys: [[key(0, 8), key(0.33, 1)]] }
+      ])
+    )
+    expect(motion.wavH?.map((k) => k.v)).toEqual([-1888, 0])
+    expect(motion.wavW?.map((k) => k.v)).toEqual([8, 1])
+    expect(skipped).toEqual([])
+  })
+
+  it('動かない波も拾う（ユラユラ系は高さも幅も固定で、波が流れるだけ）', () => {
+    // ここを印だけ見ていると「波なんて付いていない」ことになり、
+    // 53.後ろユラユラ が素のテロップになってしまう
+    const { motion } = toMotion(
+      wave([
+        { name: '波紋の高さ', value: [82], keys: [] },
+        { name: '波形の幅', value: [238], keys: [] },
+        { name: '波形の速度', value: [0.2], keys: [] }
+      ])
+    )
+    expect(motion.wavH?.map((k) => k.v)).toEqual([82])
+    expect(motion.wavW?.map((k) => k.v)).toEqual([238])
+    expect(motion.wavSpd).toBe(0.2)
+  })
+
+  it('「方向」は、どのエフェクトの物かで行き先が違う', () => {
+    // ブラインドにも同じ名前の項目がある。取り違えると、波の向きが
+    // 縞の向きに化ける（見た目は「なぜか効かない」になる）
+    const { motion } = toMotion(wave([{ name: '方向', value: [0], keys: [[key(0, 180), key(0.17, 0)]] }]))
+    expect(motion.wavDir?.map((k) => k.v)).toEqual([180, 0])
+    expect(motion.blindDir).toBeUndefined()
+  })
+
+  it('種類・固定・フェーズは、動いていても黙って無視してよい', () => {
+    // こちらの波は正弦の1種類だけ。実物でもここは全部動かない
+    const { skipped } = toMotion(
+      wave([{ name: '波形の種類', value: [0], keys: [[key(0, 0), key(1, 1)]] }])
+    )
+    expect(skipped).toEqual([])
+  })
+})
+
 describe('持ってこられない物を黙って捨てない', () => {
   // 「取り込んだのに一部だけ効いていない」が一番たちが悪い。名前を返す。
   it('対応していないエフェクトは名前を返す', () => {
     const p = preset('AE.ADBE Motion', 'スケール', [[key(0, 100), key(1, 200)]], [
-      { matchName: 'AE.ADBE Wave Warp', params: [{ name: '波形の幅', value: [], keys: [[key(0, 1)]] }] }
+      {
+        matchName: 'AE.ADBE Turbulent Displace',
+        params: [{ name: '量', value: [], keys: [[key(0, 1)]] }]
+      }
     ])
     const { motion, skipped } = toMotion(p)
     expect(motion.sc).toBeDefined()
-    expect(skipped).toContain('AE.ADBE Wave Warp')
+    expect(skipped).toContain('AE.ADBE Turbulent Displace')
   })
 
   it('動きが付いていないエフェクトは、知らせなくてよい', () => {
@@ -202,8 +255,16 @@ describe('そのまま再現できるプリセットか', () => {
     }
   })
 
-  it('画素をぐにゃりと動かす系は、まだ再現できない', () => {
-    for (const n of ['AE.ADBE Wave Warp', 'AE.ADBE Turbulent Displace', 'AE.ADBE Lens Flare']) {
+  it('波形ワープは持てる（SVG のずらしフィルタで出す）', () => {
+    // 実物で一番使われている（7件）。SPLITSLIDE 系はこれが本体で、
+    // 無いとただの滑り込みになってしまう
+    expect(
+      isFullyCopyable({ name: 'x', effects: [{ matchName: 'AE.ADBE Wave Warp', params: [] }] })
+    ).toBe(true)
+  })
+
+  it('まだ持てない物は、持てるふりをしない', () => {
+    for (const n of ['AE.ADBE Turbulent Displace', 'AE.ADBE Lens Flare', 'AE.ADBE Motion Blur']) {
       expect(isFullyCopyable({ name: 'x', effects: [{ matchName: n, params: [] }] })).toBe(false)
     }
   })

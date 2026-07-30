@@ -156,6 +156,36 @@ if (await sizeInput.count()) {
   await page.waitForTimeout(400)
 }
 
+// **テロップの尺を伸ばしておく。**
+//
+// 既定は2秒。演出には 4.5 秒の物があり、尺の外へ出ると文字ごと消える。
+// 消えたコマは測れず捨てられるので、**最後に測れたコマ＝まだ動いている途中の姿**が
+// 「終わりの姿」として判定に使われてしまう。
+// 実際 36.SLIDEx2_上/下 がこれで「戻らない(位置 -8px)」と誤判定されていた
+// （取り込みは正しく、ゆっくり戻り切る前に見るのをやめていただけ）。
+{
+  const clip = page.locator('.telop-clip').first()
+  const b = await clip.boundingBox()
+  const pxPerSec = b.width / 2 // 既定の尺は2秒
+  const grip = page.locator('.telop-clip .clip-trim-r').first()
+  const g = await grip.boundingBox()
+  const y = g.y + g.height / 2
+  await page.mouse.move(g.x + g.width / 2, y)
+  await page.mouse.down()
+  const wantSec = 14 // 一番長い演出(4.5秒)でも余る
+  for (let i = 1; i <= 8; i++) await page.mouse.move(b.x + (pxPerSec * wantSec * i) / 8, y)
+  await page.mouse.up()
+  await page.waitForTimeout(400)
+  const after = await clip.boundingBox()
+  const sec = after.width / pxPerSec
+  // **伸びなかったら黙らない。** 黙ると、長い演出だけが静かに誤判定に戻る
+  console.log(
+    sec >= 6
+      ? `テロップの尺を ${sec.toFixed(1)} 秒にしました`
+      : `⚠ テロップの尺が伸びていません（${sec.toFixed(1)}秒）。長い演出の判定は当てになりません`
+  )
+}
+
 // 演出を取り込む
 await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
 await page.waitForTimeout(300)
@@ -173,7 +203,27 @@ const durOf = (m) => {
     if (!Array.isArray(keys)) continue
     for (const k of keys) if (k.t > d) d = k.t
   }
+  // 波が流れ続ける演出（ユラユラ）には終わりが無い。印だけ見ると尺 0 になり、
+  // 3コマしか撮らないので「動かない」と誤判定する。1周ぶんは見る。
+  const spd = Math.abs(m?.wavSpd ?? 0)
+  if (spd > 0) d = Math.max(d, Math.min(3, 1 / spd))
   return d
+}
+
+/**
+ * **終わっても効いたままなのが正しい**演出か。
+ *
+ * 波形ワープには、最後まで波が残る物がある（53.後ろユラユラ）。
+ * これを「終わっても効果が残る＝戻らない」と言うと、本物の不具合がその中に埋もれる。
+ * 判定は名前ではなく中身から:
+ *   ・波の高さの最後の値が 0 でない  → 波が残る作り
+ *   ・波の速度が 0 でない            → 流れ続ける作り
+ */
+const wavePermanent = (m) => {
+  if (!m) return false
+  if (Math.abs(m.wavSpd ?? 0) > 1e-6) return true
+  const h = m.wavH
+  return Array.isArray(h) && h.length > 0 && Math.abs(h[h.length - 1].v ?? 0) > 0.01
 }
 
 await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
@@ -367,6 +417,26 @@ for (const row of rows) {
     await page.waitForTimeout(90)
   }
 
+  // 帯は 40 コマまで（目で見るぶんにはこれで足りる）。
+  // **判定はそこで打ち切らない。** 尺の長い演出は、残りを撮らずに送りきってから
+  // 「終わりの姿」を測る。途中で測ると、ゆっくり戻っている最中の値を
+  // 「戻らない」と読んでしまう（36.SLIDEx2_上/下 が実際にこれで誤判定だった。
+  //  4.47秒の演出を1.3秒で打ち切り、残り 8px を「戻らない」と報告していた）。
+  const total = Math.max(3, Math.ceil(dur * FPS) + 3)
+  let endMissing = false
+  if (total > frames) {
+    for (let f = frames; f < total; f++) {
+      await stepFwd.click()
+      await page.waitForTimeout(40)
+    }
+    await page.waitForTimeout(300) // 座るのを待つ
+    const endM = await measure()
+    // 測れなかった＝終わりの時点でテロップが居ない。黙って前のコマに戻すと
+    // 「途中の姿」を終わりとして読むことになるので、そう言う。
+    if (endM) track.push(endM)
+    else endMissing = true
+  }
+
   // ---- 判定 ----
   const seen = track.filter(Boolean)
   const last = seen[seen.length - 1]
@@ -380,7 +450,11 @@ for (const row of rows) {
   // 「_上」のような2枚重ねの上側は、**終わりで消えるのが設計どおり**。
   // 消えたことを毎回「壊れている」と言うと、本物の不具合がその中に埋もれる。
   const pair = !!rec?.endsHidden
-  if (!moved) problems.push('動かない')
+  // 波が最後まで残る作りか（53.後ろユラユラ）。残るのが正しいので、
+  // 「終わりも効果が残る」とは言わない。**静止した波は「動かない」でもない**
+  const keeps = wavePermanent(rec?.motion)
+  if (!moved && !keeps) problems.push('動かない')
+  if (endMissing && !pair) problems.push('終わりの姿を測れない（テロップの尺が演出より短い）')
   if (last && !pair) {
     if (last.op < 0.05) problems.push('消えたまま')
     else if (!near(last.op, rest.op, 0.05)) problems.push(`終わりが薄い(${last.op})`)
@@ -389,12 +463,18 @@ for (const row of rows) {
     // 終わっても切り抜きや効果が残っていたら、それも「戻らない」。
     // 枠は元どおりなので位置の比較では絶対に見つからない
     if (last.cp) problems.push(`終わりも切り抜きが残る(${last.cp.slice(0, 40)})`)
-    if (last.fl) problems.push(`終わりも効果が残る(${last.fl.slice(0, 40)})`)
+    if (last.fl && !keeps) problems.push(`終わりも効果が残る(${last.fl.slice(0, 40)})`)
     const s = last.scr
     if (s && (last.x + last.w < s.x || last.x > s.x + s.w || last.y + last.h < s.y || last.y > s.y + s.h))
       problems.push('画面の外')
   }
-  const verdict = problems.length ? problems.join(' / ') : pair ? 'OK（重ね用。終わりで消えるのが設計どおり）' : 'OK'
+  const verdict = problems.length
+    ? problems.join(' / ')
+    : pair
+      ? 'OK（重ね用。終わりで消えるのが設計どおり）'
+      : keeps
+        ? 'OK（波がずっと残るのが設計どおり）'
+        : 'OK'
   const mark = problems.length ? '×' : pair ? '🔼' : '○'
   console.log(`${mark} ${String(idx).padStart(2)}. ${name}  [${frames}コマ/${dur.toFixed(2)}s] ${verdict}`)
 
@@ -411,7 +491,7 @@ for (const row of rows) {
     ])
     for (const p of shotFiles) rmSync(p, { force: true })
   }
-  results.push({ idx, name, dur, frames, verdict, problems, pair, partial: rec?.partial ?? [], strip })
+  results.push({ idx, name, dur, frames, total, verdict, problems, pair, partial: rec?.partial ?? [], strip })
 }
 
 // --- まとめ -----------------------------------------------------------------
@@ -444,9 +524,14 @@ const md = [
   '',
   '## 全部',
   '',
-  '| # | 名前 | 尺 | コマ | 判定 |',
+  '| # | 名前 | 尺 | コマ（帯／全体） | 判定 |',
   '|---|---|---|---|---|',
-  ...results.map((r) => `| ${r.idx} | ${r.name} | ${r.dur.toFixed(2)}s | ${r.frames} | ${r.verdict} |`),
+  // 帯に並べたコマ数と、尺ぶんの全コマ数。**違っていたら帯は途中まで**という印。
+  // 判定は全部送りきってから出しているので、帯が途中でも結論は正しい。
+  ...results.map(
+    (r) =>
+      `| ${r.idx} | ${r.name} | ${r.dur.toFixed(2)}s | ${r.frames}${r.total > r.frames ? ` / ${r.total}` : ''} | ${r.verdict} |`
+  ),
   ''
 ].join('\n')
 writeFileSync(join(OUT, 'report.md'), md, 'utf8')

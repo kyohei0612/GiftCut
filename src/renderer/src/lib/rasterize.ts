@@ -8,6 +8,7 @@ import {
   animFilter,
   animClip,
   animMask,
+  animWave,
   buildTelopSVG,
   textRectInFrame,
   hexToRgba,
@@ -67,11 +68,16 @@ function innerHtml(
     ? animClip(anim, textRectInFrame(p, s.anchor, tsvg.textW, tsvg.textH, width / (height / 1080), 1080, cue.scale ?? 1))
     : ''
   const maskCss = anim ? animMask(anim, scale) : ''
+  // 波形ワープ。**フィルタの定義を同じ書類に入れないと参照が壊れる**ので、
+  // url(…) と <svg> は必ず対で出す（定義だけ落とすと文字ごと消える）。
+  // id はテロップごとに変える。1枚に複数出るとき、同じ id だと先頭の波が全部に効く。
+  const wave = anim ? animWave(anim, scale, `wv${cue.id}`) : { css: '', defs: '' }
+  const filterCss = [animFilter(anim!, scale), wave.css].filter(Boolean).join(' ')
   const animOpen = anim
     ? `<div style="display:inline-block;opacity:${anim.opacity.toFixed(3)};transform:${animTransform(anim, 'px', scale)};transform-origin:center;` +
-      `${animFilter(anim, scale) ? `filter:${animFilter(anim, scale)};` : ''}` +
+      `${filterCss ? `filter:${filterCss};` : ''}` +
       `${clipCss ? `clip-path:${clipCss};` : ''}` +
-      `${maskCss ? `-webkit-mask-image:${maskCss};mask-image:${maskCss};` : ''}">`
+      `${maskCss ? `-webkit-mask-image:${maskCss};mask-image:${maskCss};` : ''}">${wave.defs}`
     : ''
   // レイアウト箱=文字ボックス(px)。SVGを負オフセットで重ね overflow可視（プレビューと同一手法）。斜体もSVG内。
   const tw = tsvg.textW * scale

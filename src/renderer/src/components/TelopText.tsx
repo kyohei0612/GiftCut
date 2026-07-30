@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useId, useMemo } from 'react'
 import {
   anchorFlex,
   anchorTranslate,
@@ -6,6 +6,7 @@ import {
   animFilter,
   animClip,
   animMask,
+  animWave,
   NEUTRAL_ANIM,
   type Motion,
   buildTelopSVG,
@@ -80,6 +81,8 @@ export default function TelopText({
   onDrop
 }: Props): JSX.Element {
   const css = useMemo(() => computeTelopCss(style, text), [style, text])
+  // 波形ワープのフィルタに付ける名札。テロップ1つにつき1つ（下で使う）
+  const uid = useId()
   // アイコンのレイアウト用サイズは基準固定（＝枠に干渉しない）。見た目だけ scale(iconScale) で拡縮。
   const iconBaseSize = cqh(ICON_BASE_PX)
   const iconBorder = cqh(ICON_BASE_PX * 0.055)
@@ -129,18 +132,31 @@ export default function TelopText({
   const clipBox = textRectInFrame(p, style.anchor, tsvg.textW, tsvg.textH, frameW, 1080, scale)
   const clipCss = anim ? animClip(anim, clipBox) : ''
   const maskCss = anim ? animMask(anim) : ''
+  // 波形ワープ。**定義（defs）と url(…) は必ず対で出す。**
+  // 定義を置き忘れると波が出ないだけでなく、参照が壊れて文字ごと消える。
+  // id はテロップごとに変える（同じ id だと、画面に複数出たとき先頭の波が全部に効く）。
+  const waveId = 'wv' + uid.replace(/[^a-zA-Z0-9]/g, '')
+  const wave = anim ? animWave(anim, 1, waveId) : { css: '', defs: '' }
+  const filterCss = anim ? [animFilter(anim), wave.css].filter(Boolean).join(' ') : ''
   const animLayer: React.CSSProperties = anim
     ? {
         opacity: anim.opacity,
         transform: animTransform(anim, 'cqh'),
         transformOrigin: 'center',
         // 明るさ・ぼかし・切り抜きは transform では出せないので別に渡す
-        ...(animFilter(anim) ? { filter: animFilter(anim) } : null),
+        ...(filterCss ? { filter: filterCss } : null),
         ...(clipCss ? { clipPath: clipCss } : null),
         // ブラインドは縞のマスク。書き出しでも焼けることは確かめてある
         ...(maskCss ? { WebkitMaskImage: maskCss, maskImage: maskCss } : null)
       }
     : {}
+  const waveDefs = wave.defs ? (
+    <span
+      style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: wave.defs }}
+    />
+  ) : null
 
   const commonTransform = `translate(${cqh(iconOffsetX)}, ${cqh(iconOffsetY)}) scale(${iconScale})`
   // 本文はSVG描画（本家Premiereモデル: paint-order:stroke＝中央ストローク→塗りを上に）。
@@ -204,6 +220,7 @@ export default function TelopText({
     )
     body = (
       <div style={{ display: 'inline-block', ...animLayer }}>
+        {waveDefs}
         <div style={{ ...css.container, position: 'relative', display: 'inline-block' }}>
           {autoIcon}
           {textWrap}
@@ -232,6 +249,7 @@ export default function TelopText({
     )
     body = (
       <div style={{ display: 'inline-block', ...animLayer }}>
+        {waveDefs}
         <div
           style={{
             ...css.container,
@@ -249,6 +267,7 @@ export default function TelopText({
   } else {
     body = (
       <div style={{ display: 'inline-block', ...animLayer }}>
+        {waveDefs}
         <div style={{ ...css.container, display: 'inline-block' }}>{textLayers}</div>
       </div>
     )

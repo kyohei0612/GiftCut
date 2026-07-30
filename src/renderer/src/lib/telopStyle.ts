@@ -152,12 +152,24 @@ export interface AnimState {
   blindDir: number
   /** 切り抜き（各辺 0..1）。CSS の clip-path: inset。「光」系や打ち込み演出に要る */
   crop: { l: number; t: number; r: number; b: number }
+  /**
+   * 波形ワープ。文字を波打たせる。**SPLITSLIDE 系はこれが本体。**
+   *   wavH   波紋の高さ（px・1080基準。0=波なし。負なら裏返る）
+   *   wavW   波1つぶんの長さ（px・1080基準。小さいほど細かい）
+   *   wavDir 波の向き（度）
+   *   wavPh  いまの位相（度）。速度から時刻ぶん進めた値を入れる
+   */
+  wavH: number
+  wavW: number
+  wavDir: number
+  wavPh: number
 }
 /** 何も付いていない状態。呼ぶ側が毎回書くと、項目を足したとき直し漏れる */
 export const NEUTRAL_ANIM: AnimState = {
   opacity: 1, tx: 0, ty: 0, sc: 1, rot: 0, scx: 1, scy: 1, skew: 0,
   roty: 0, rotx: 0, bright: 1, blur: 0, hue: 0, inv: 0,
-  blind: 0, blindW: 45, blindDir: 0, crop: { l: 0, t: 0, r: 0, b: 0 }
+  blind: 0, blindW: 45, blindDir: 0, crop: { l: 0, t: 0, r: 0, b: 0 },
+  wavH: 0, wavW: 100, wavDir: 0, wavPh: 0
 }
 
 export function computeTelopAnim(anim: TelopAnim | undefined, animT: number, clipDur: number): AnimState {
@@ -249,6 +261,80 @@ export function animFilter(s: AnimState, pxScale = 1): string {
   if (Math.abs(s.hue) > 1e-4) parts.push(`hue-rotate(${s.hue.toFixed(2)}deg)`)
   if (s.inv > 1e-4) parts.push(`invert(${Math.min(1, s.inv).toFixed(4)})`)
   return parts.join(' ')
+}
+
+/**
+ * 波形ワープ。文字を正弦の波で押し出す。
+ *
+ * ## なぜ SVG フィルタなのか
+ *
+ * CSS の filter には「画素をずらす」物が無い。SVG の feDisplacementMap は
+ * **別の絵の色を「どっちへ何px ずらすか」として読む**ので、これで波が作れる。
+ * テロップは元々 SVG で描いて PNG に焼く経路なので、プレビューも書き出しも
+ * 同じ物が通る（CSS だけの小細工にすると、書き出しで消える）。
+ *
+ * ## ずらし方の絵
+ *
+ * 赤＝横のずれ、緑＝縦のずれ。0.5 が「ずらさない」。
+ * 波の向きに沿って色が正弦で往復する縞を敷けば、その向きに直交して文字が波打つ。
+ * 縞は linearGradient を repeat させて作る（正弦を段で近似する）。
+ *
+ * ## 戻り値
+ *
+ * css  … filter に足す文字列（url(#…)）。波が無ければ空
+ * defs … 同じ書類の中に置く <svg>。**これを置き忘れると波が消える**だけでなく、
+ *        参照が壊れて**文字ごと消える**ブラウザがあるので、必ず対で使う
+ */
+export function animWave(
+  s: AnimState,
+  pxScale = 1,
+  id = 'w'
+): { css: string; defs: string } {
+  const h = s.wavH * pxScale
+  if (Math.abs(h) < 0.05) return { css: '', defs: '' }
+  // 波1つぶんの長さ。0 や極端に細かい値は、縞が潰れて模様が出ないので下限を置く
+  const period = Math.max(2, Math.abs(s.wavW) * pxScale)
+  const dir = ((s.wavDir % 360) + 360) % 360
+  const rad = (dir * Math.PI) / 180
+  const ph = ((s.wavPh % 360) + 360) % 360
+  // 縞の向き＝波の進む向き。ずれる向きはそれに直交する
+  const gx = Math.cos(rad)
+  const gy = Math.sin(rad)
+  // 1周ぶんを段で近似する。32段あれば、目で見て角が出ない
+  const N = 32
+  const stops: string[] = []
+  for (let i = 0; i <= N; i++) {
+    const v = Math.sin(2 * Math.PI * (i / N) + (ph * Math.PI) / 180)
+    // ずれる向き（縞に直交）へ v ぶん。0.5 が「ずらさない」
+    const r = Math.round(255 * (0.5 - 0.5 * v * gy))
+    const g = Math.round(255 * (0.5 + 0.5 * v * gx))
+    stops.push(
+      `<stop offset="${((i / N) * 100).toFixed(2)}%" stop-color="rgb(${r},${g},128)"/>`
+    )
+  }
+  // 縞1周ぶんのベクトル。これを spreadMethod="repeat" で敷き詰める
+  const x2 = (gx * period).toFixed(3)
+  const y2 = (gy * period).toFixed(3)
+  const gid = `${id}g`
+  const fid = `${id}f`
+  const defs =
+    `<svg width="0" height="0" style="position:absolute" aria-hidden="true">` +
+    `<defs>` +
+    `<linearGradient id="${gid}" gradientUnits="userSpaceOnUse" ` +
+    `x1="0" y1="0" x2="${x2}" y2="${y2}" spreadMethod="repeat">${stops.join('')}</linearGradient>` +
+    // 波で押し出すと元の枠からはみ出す。広めに取らないと端が切れる
+    `<filter id="${fid}" x="-50%" y="-50%" width="200%" height="200%" ` +
+    `filterUnits="objectBoundingBox" primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB">` +
+    `<feImage href="data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="4000">` +
+        `<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${x2}" y2="${y2}" spreadMethod="repeat">${stops.join('')}</linearGradient></defs>` +
+        `<rect width="4000" height="4000" fill="url(#g)"/></svg>`
+    )}" x="-2000" y="-2000" width="4000" height="4000" result="map"/>` +
+    // scale は「色の幅(±0.5)ぶんで何px 動くか」なので、狙いの高さの2倍を渡す
+    `<feDisplacementMap in="SourceGraphic" in2="map" scale="${(Math.abs(h) * 2).toFixed(2)}" ` +
+    `xChannelSelector="R" yChannelSelector="G"/>` +
+    `</filter></defs></svg>`
+  return { css: `url(#${fid})`, defs }
 }
 
 /**
@@ -1393,12 +1479,15 @@ import { valueAt, hasKeys, sanitizeKeys, keyTimesOf } from '../../../shared/keyf
 export type { Motion } from '../../../shared/telopMotion'
 import type { Motion } from '../../../shared/telopMotion'
 
+// **項目を足したら、この3つ全部に足すこと**（hasMotion / sanitizeMotion / motionKeyTimes）。
+// hasMotion に足し忘れると「動きが無い」と判定され、その動きは
+// **一覧にすら出なくなる**。実際、波だけで動く2件（後ろユラユラ）がこれで消えた。
 export const hasMotion = (m?: Motion): boolean =>
   !!m &&
   (
     [m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.scy, m.skew,
      m.roty, m.rotx, m.bright, m.blur, m.hue, m.inv, m.blind,
-     m.cl, m.ct, m.cr, m.cb] as (Keys | undefined)[]
+     m.cl, m.ct, m.cr, m.cb, m.wavH, m.wavW, m.wavDir] as (Keys | undefined)[]
   ).some(hasKeys)
 
 /** 出入りのアニメの上に、自分で打った動きを重ねる */
@@ -1428,7 +1517,14 @@ export function applyMotion(st: AnimState, m: Motion | undefined, animT: number)
       t: st.crop.t + valueAt(m!.ct, animT, 0),
       r: st.crop.r + valueAt(m!.cr, animT, 0),
       b: st.crop.b + valueAt(m!.cb, animT, 0)
-    }
+    },
+    // 波形ワープ。高さ 0 なら波なし（既定）。
+    // 速度は動かない設定値で、**位相を時刻ぶん進める**のに使う
+    // （1秒あたり何周するか。0 なら止まったまま、正ならユラユラ流れ続ける）。
+    wavH: st.wavH + valueAt(m!.wavH, animT, 0),
+    wavW: valueAt(m!.wavW, animT, st.wavW),
+    wavDir: st.wavDir + valueAt(m!.wavDir, animT, 0),
+    wavPh: st.wavPh + (m!.wavSpd ?? 0) * animT * 360
   }
 }
 
@@ -1469,7 +1565,11 @@ export function sanitizeMotion(v: unknown): Motion | undefined {
     cl: sanitizeKeys(o.cl),
     ct: sanitizeKeys(o.ct),
     cr: sanitizeKeys(o.cr),
-    cb: sanitizeKeys(o.cb)
+    cb: sanitizeKeys(o.cb),
+    wavH: sanitizeKeys(o.wavH),
+    wavW: sanitizeKeys(o.wavW),
+    wavDir: sanitizeKeys(o.wavDir),
+    ...(typeof o.wavSpd === 'number' && Number.isFinite(o.wavSpd) ? { wavSpd: o.wavSpd } : null)
   }
   return hasMotion(m) ? m : undefined
 }
@@ -1479,7 +1579,8 @@ export function motionKeyTimes(m?: Motion): number[] {
   return m
     ? keyTimesOf(
         m.tx, m.ty, m.sc, m.rot, m.op, m.scx, m.skew,
-        m.roty, m.rotx, m.bright, m.blur, m.cl, m.ct, m.cr, m.cb
+        m.roty, m.rotx, m.bright, m.blur, m.cl, m.ct, m.cr, m.cb,
+        m.wavH, m.wavW, m.wavDir
       )
     : []
 }

@@ -78,6 +78,15 @@ const fullPreset: PrPreset = {
         { name: '右', value: [], keys: [[{ t: 0, v: 100 }, { t: 0.4, v: 0 }]] },
         { name: '下', value: [], keys: [[{ t: 0, v: 30 }, { t: 0.4, v: 0 }]] }
       ]
+    },
+    {
+      matchName: 'AE.ADBE Wave Warp',
+      params: [
+        { name: '波紋の高さ', value: [0], keys: [[{ t: 0, v: 40 }, { t: 0.4, v: 0 }]] },
+        { name: '波形の幅', value: [0], keys: [[{ t: 0, v: 80 }, { t: 0.4, v: 100 }]] },
+        { name: '方向', value: [0], keys: [[{ t: 0, v: 180 }, { t: 0.4, v: 0 }]] },
+        { name: '波形の速度', value: [0.2], keys: [] }
+      ]
     }
   ]
 }
@@ -92,10 +101,11 @@ describe('取り込んだ動きを保存して開き直す', () => {
     expect(Object.keys(back ?? {}).sort()).toEqual(Object.keys(motion).sort())
   })
 
-  it('全21項目そろっている（＝この見本自体が抜けていないか）', () => {
+  it('全25項目そろっている（＝この見本自体が抜けていないか）', () => {
     expect(Object.keys(motion).sort()).toEqual(
       ['blind', 'blindDir', 'blindW', 'blur', 'bright', 'cb', 'cl', 'cr', 'ct', 'hue', 'inv',
-       'op', 'rot', 'rotx', 'roty', 'sc', 'scx', 'scy', 'skew', 'tx', 'ty'].sort()
+       'op', 'rot', 'rotx', 'roty', 'sc', 'scx', 'scy', 'skew', 'tx', 'ty',
+       'wavDir', 'wavH', 'wavSpd', 'wavW'].sort()
     )
   })
 
