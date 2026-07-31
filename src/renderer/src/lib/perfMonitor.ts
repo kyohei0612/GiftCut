@@ -38,6 +38,15 @@ export interface PerfSample {
   renders: number
   /** 動画のデコードが落としたコマ数（その1秒での増分） */
   droppedFrames: number
+  /**
+   * 絵が再生ヘッドから遅れている量（ms、その1秒での最大）。
+   *
+   * **テロップは再生ヘッドの時刻で動き、動画はそれを追いかける。**
+   * だから絵が遅れると、テロップの動きだけが**先に走って見える**。
+   * 「かけてある所より早く動く」の正体がこれなのか、動きの置き場所の話なのかは、
+   * この数字を見ないと切り分けられない。
+   */
+  videoLagMs: number
   /** そのとき何をしていたか（再生中・画質など。あとで読むための手がかり） */
   note: string
 }
@@ -61,6 +70,7 @@ export class PerfMonitor {
   private longMs = 0
   private renders = 0
   private lastDropped = 0
+  private lagWorst = 0
   private secStart = 0
   private obs: PerformanceObserver | null = null
   private onVis: (() => void) | null = null
@@ -84,6 +94,16 @@ export class PerfMonitor {
   /** React が画面を作り直すたびに呼ぶ */
   countRender(): void {
     this.renders++
+  }
+
+  /**
+   * 再生中、毎コマ「絵がどれだけ遅れているか」を渡してもらう（秒）。
+   * その1秒でいちばん大きかった値を記録に残す。
+   */
+  reportLag(sec: number): void {
+    if (!this.running) return
+    const ms = Math.abs(sec) * 1000
+    if (ms > this.lagWorst) this.lagWorst = ms
   }
 
   mark(what: string): void {
@@ -173,11 +193,13 @@ export class PerfMonitor {
       longTaskMs: Math.round(this.longMs),
       renders: this.renders,
       droppedFrames: dropped,
+      videoLagMs: Math.round(this.lagWorst),
       note: this.noteOf()
     }
     this.samples.push(s)
     if (this.samples.length > MAX_SAMPLES) this.samples.shift()
     this.frames = this.worst = this.longCount = this.longMs = this.renders = 0
+    this.lagWorst = 0
     this.onSample?.(s)
   }
 
@@ -206,12 +228,14 @@ export class PerfMonitor {
       `- 主スレッドを塞いだ処理: 平均 ${avg((x) => x.longTasks)} 回/秒・${avg((x) => x.longTaskMs)}ms/秒`,
       `- 画面の作り直し: 平均 ${avg((x) => x.renders)} 回/秒`,
       `- 動画が落としたコマ: 合計 ${s.reduce((a, x) => a + x.droppedFrames, 0)}`,
+      `- 絵の遅れ: 平均 ${avg((x) => x.videoLagMs)}ms（最大 ${Math.max(...s.map((x) => x.videoLagMs))}ms）`,
       '',
       '## 読み方',
       '',
       '- **主スレッドを塞いだ処理が多い** → 計算が重い（音のぶちぶちはこれ）',
       '- **落としたコマだけ多い** → デコードが重い（画質を下げれば直る類）',
       '- **作り直しが毎秒60回近い** → 画面の作りが重い（間引きが効いていない）',
+      '- **絵の遅れが大きい** → テロップだけ先に動いて見える（文字は再生ヘッドの時刻、動画は追従のため）',
       '',
       '## 出来事',
       '',
@@ -219,11 +243,11 @@ export class PerfMonitor {
       '',
       '## 1秒ごと',
       '',
-      '| 秒 | fps | 最悪コマ(ms) | 塞いだ回数 | 塞いだ時間(ms) | 作り直し | 落コマ | 状況 |',
-      '|---|---|---|---|---|---|---|---|',
+      '| 秒 | fps | 最悪コマ(ms) | 塞いだ回数 | 塞いだ時間(ms) | 作り直し | 落コマ | 絵の遅れ(ms) | 状況 |',
+      '|---|---|---|---|---|---|---|---|---|',
       ...s.map(
         (x) =>
-          `| ${x.t} | ${x.fps} | ${x.worstFrameMs} | ${x.longTasks} | ${x.longTaskMs} | ${x.renders} | ${x.droppedFrames} | ${x.note} |`
+          `| ${x.t} | ${x.fps} | ${x.worstFrameMs} | ${x.longTasks} | ${x.longTaskMs} | ${x.renders} | ${x.droppedFrames} | ${x.videoLagMs} | ${x.note} |`
       ),
       ''
     ].join('\n')

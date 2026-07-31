@@ -15,7 +15,7 @@ import {
 } from 'fs'
 import { writeFile as writeFileAsync } from 'fs/promises'
 import { createHash } from 'crypto'
-import { tmpdir } from 'os'
+import { tmpdir, cpus, setPriority, constants as osConstants } from 'os'
 import { Readable } from 'stream'
 import { spawn, type ChildProcess } from 'child_process'
 // フィルタグラフは ffmpeg を起動する前に検証する（入力indexのズレ・ラベルの
@@ -991,13 +991,58 @@ app.whenReady().then(() => {
 
   // 動きの記録を書き出す。**画面側の blob ダウンロードは Electron では落ちる**
   // （何も起きないので「保存した」と思ったまま失われる）。本体で書けば確実に残る。
-  ipcMain.handle('perf:save', (_e, text: string) => {
+  //
+  // toDownloads=true なら**ダウンロードへ、確認なしで**置く。
+  // 「おかしいぞ」と思った人がボタン1つで出せて、そのファイルをそのまま渡せる形にする。
+  // 保存ダイアログを挟むと、置き場所で迷って結局出てこない。
+  ipcMain.handle('perf:save', (_e, text: string, toDownloads?: boolean) => {
     try {
-      const dir = join(app.getPath('userData'), 'perf')
+      const dir = toDownloads
+        ? app.getPath('downloads')
+        : join(app.getPath('userData'), 'perf')
       mkdirSync(dir, { recursive: true })
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-      const p = join(dir, `動きの記録-${stamp}.md`)
+      const p = join(dir, `GiftCut-動きの記録-${stamp}.md`)
       writeFileSync(p, text, 'utf-8')
+      return { ok: true, path: p }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+
+  // ---- 利用者がいじった物を、ファイルとして残す ----
+  //
+  // お気に入り・自作のテロップスタイル・人物・アイコン・自分の動きは
+  // 画面側の保存領域（localStorage）に入っていて、**目にも見えないし持ち出せない**。
+  // 同じ内容をここへ書いておけば、入れ直しても・配り直しても・別の機械へ移しても、
+  // このファイルさえ持っていけば元に戻る。
+  //
+  // 置き場は userData の直下（＝「設定・保存データのフォルダを開く」で出る所）。
+  // 中身は JSON なので、メモ帳でも開いて中を見られる。
+  // いま動いている本体のバージョン。**package.json ではなく本体に聞く**
+  // （自動更新で入れ替わったあと、画面に出る数字が本物と食い違わないように）
+  ipcMain.handle('app:version', () => app.getVersion())
+
+  const userStorePath = (): string => join(app.getPath('userData'), 'ユーザー設定.json')
+  ipcMain.handle('userstore:read', () => {
+    try {
+      const p = userStorePath()
+      if (!existsSync(p)) return { ok: true, data: {} }
+      const o = JSON.parse(readFileSync(p, 'utf-8'))
+      return { ok: true, data: o && typeof o === 'object' ? o : {} }
+    } catch (e) {
+      // 壊れていても起動は止めない（戻せないだけ）
+      return { ok: false, error: String(e), data: {} }
+    }
+  })
+  ipcMain.handle('userstore:write', (_e, data: Record<string, string>) => {
+    try {
+      if (!data || typeof data !== 'object') return { ok: false, error: '中身がありません' }
+      const p = userStorePath()
+      // 一時ファイルへ書いてから置き換える（書いている途中で落ちても元が壊れない）
+      const tmpFile = p + '.tmp'
+      writeFileSync(tmpFile, JSON.stringify(data, null, 1), 'utf-8')
+      renameSync(tmpFile, p)
       return { ok: true, path: p }
     } catch (e) {
       return { ok: false, error: String(e) }
@@ -1587,10 +1632,11 @@ app.whenReady().then(() => {
     if (!videoPath || !existsSync(videoPath)) return { ok: false, error: 'ファイルがありません' }
     if (!allowedFiles.has(normalize(videoPath)))
       return { ok: false, error: '許可されていないファイルです' }
-    // 想定外の値でおかしなサイズに変換しないよう、扱う解像度は固定の候補だけに絞る。
-    // **0 は「縮小しない（原寸）」**。最高画質のまま、全コマキーフレームにだけしたいとき。
-    const proxyH = height === 0 ? 0 : height === 720 ? 720 : 360
-    const isFull = proxyH === 0
+    // 想定外の値でおかしなサイズに変換しないよう、扱う解像度は固定の候補だけに絞る
+    const proxyH = height === 1080 ? 1080 : height === 720 ? 720 : 360
+    // 1080 は「見た目はほぼ原本」で見る物なので、画質側に寄せて焼く。
+    // 720/360 は縮小して見る前提なので速さを採る
+    const isFull = proxyH === 1080
     try {
       mkdirSync(proxyDir, { recursive: true })
     } catch {
@@ -1602,8 +1648,8 @@ app.whenReady().then(() => {
     const key = createHash('md5')
       // 末尾の版番号は**プロキシの作り方を変えたら上げる**。
       // 上げないと、前の作り方で焼いた物が使われ続けて直したはずの物が直らない。
-      // v3: 原寸（h0）を足した。作り方が変わったので上げる
-      .update(normalize(videoPath) + '|' + st.size + '|' + Math.round(st.mtimeMs) + '|h' + proxyH + '|v3')
+      // v4: 画質を 1080/720/360 の3つに整理し、素材より大きくは伸ばさないようにした
+      .update(normalize(videoPath) + '|' + st.size + '|' + Math.round(st.mtimeMs) + '|h' + proxyH + '|v4')
       .digest('hex')
     const outPath = join(proxyDir, key + '.mp4')
     if (existsSync(outPath)) {
@@ -1644,12 +1690,26 @@ app.whenReady().then(() => {
     //
     // プロキシは画質が要らないので GPU が一番向いている（速い・画質は捨ててよい）。
     const enc = await videoEncoder()
+    // **焼き直しは「余ったCPU」でやる。**
+    //
+    // 変換中も編集は続く。ffmpeg は放っておくと全コアを使い切るので、
+    // 音を出す処理まで押し出されて**プチプチ途切れる**（画質を落とした直後に
+    // 一番ひどくなる＝その解像度をまだ焼いていないので、そこで変換が走るため）。
+    // 絵が止まるのと違って、音の途切れは記録にも残らず、聴くまで分からない。
+    //
+    // コアを2つ空けておく。変換は少し遅くなるが、遅いのは待てばよく、
+    // 編集中に音が割れるのは待っても直らない。
+    const spare = Math.max(1, Math.min(6, cpus().length - 2))
     const args = [
       '-y',
+      '-threads',
+      String(spare), // 読み込み（復号）側
       '-i',
       videoPath,
-      // 原寸のときは縮小そのものを挟まない（scale を通すだけで無駄に眠くなる）
-      ...(isFull ? [] : ['-vf', `scale=-2:${proxyH}`]), // 編集用の解像度（書き出しは原本フル画質）
+      // **素材がその高さより小さければ、そのまま。**
+      // 720p の素材を 1080 へ引き伸ばしても、粗くなって重くなるだけで良いことがない
+      '-vf',
+      `scale=-2:'min(ih,${proxyH})'`, // 編集用の解像度（書き出しは原本フル画質）
       // **全部のコマをキーフレームにする。**
       //
       // 動画はキーフレームからしか復号を再開できない。0.5秒間隔（-g 15）だと、
@@ -1680,12 +1740,27 @@ app.whenReady().then(() => {
       '128k',
       '-movflags',
       '+faststart',
+      '-threads',
+      String(spare), // 書き込み（符号化）側。CPU でやり直す時はここが効く
       tmp
     ]
     /** 1回焼いてみる。進捗もここから送る */
     const runOnce = (a: string[]): Promise<{ code: number | null; err: string }> =>
       new Promise((resolve) => {
         const ff = spawn(FFMPEG, a)
+        // **優先度も下げる。** スレッド数を絞っても、同じ優先度で並んでいる限り
+        // OS は公平に順番を回すので、音を出す処理が待たされることがある。
+        // 「編集の邪魔をしない」が焼き直しの正しい立ち位置。
+        //
+        // **いちばん低い所まで下げる。** 1つ下げた程度では足りず、
+        // 変換中に「音が64ms抜ける」のが実測で残っていた（npm run stutter --fresh）。
+        // 空いているCPUだけを使わせれば、編集中の音は途切れない。
+        // 変換は遅くなるが、遅いのは待てばよく、音が割れるのは待っても直らない。
+        try {
+          if (ff.pid) setPriority(ff.pid, osConstants.priority.PRIORITY_LOW)
+        } catch {
+          /* 権限が無い環境では諦める（スレッド数の制限だけ効く） */
+        }
         let err = ''
         ff.stderr.on('data', (d) => {
           const s = d.toString()

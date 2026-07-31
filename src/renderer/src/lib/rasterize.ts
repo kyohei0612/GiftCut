@@ -76,7 +76,11 @@ function innerHtml(
   const wave = anim ? animWave(anim, scale, `wv${cue.id}`) : { css: '', defs: '' }
   const mblur = anim ? animMotionBlur(anim, scale, `mb${cue.id}`) : { css: '', defs: '' }
   const turb = anim ? animTurbulence(anim, scale, `tb${cue.id}`) : { css: '', defs: '' }
-  const filterCss = [animFilter(anim!, scale), wave.css, mblur.css, turb.css]
+  // **ここも他と同じく anim を確かめてから渡す。**
+  // 「!」で握りつぶしていたため、動きの付いていないテロップが1つでもあると
+  // animFilter の中で落ち、**書き出しが丸ごと失敗していた**（画面には
+  // 「書き出しエラー: Cannot read properties of undefined (reading 'bright')」だけが出る）。
+  const filterCss = [anim ? animFilter(anim, scale) : '', wave.css, mblur.css, turb.css]
     .filter(Boolean)
     .join(' ')
   const animOpen = anim

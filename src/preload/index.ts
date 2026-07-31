@@ -101,6 +101,16 @@ const api = {
   }> => ipcRenderer.invoke('se:list'),
   listTelopPresets: (): Promise<{ ok: boolean; items: unknown[] }> =>
     ipcRenderer.invoke('telop:presets'),
+  /** いま動いている本体のバージョン（自動更新で入れ替わったら、その値になる） */
+  getVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  // ---- 利用者がいじった物（お気に入り等）の控え ----
+  // 画面側の保存領域は目に見えないし持ち出せない。同じ内容をファイルにも残す。
+  readUserStore: (): Promise<{ ok: boolean; data: Record<string, string> }> =>
+    ipcRenderer.invoke('userstore:read'),
+  writeUserStore: (
+    data: Record<string, string>
+  ): Promise<{ ok: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('userstore:write', data),
   // ---- 動きのプリセット（Premiere から写し取った物）----
   // 形の検査は受け取った側（renderer の sanitizeMotion）でやるので unknown で渡す。
   listMotionPresets: (): Promise<{ ok: boolean; items: unknown[] }> =>
@@ -118,8 +128,11 @@ const api = {
     error?: string
   }> => ipcRenderer.invoke('motion:import'),
   /** 動きの記録を userData/perf へ書く（画面側の blob 保存は Electron では落ちる） */
-  savePerfReport: (text: string): Promise<{ ok: boolean; path?: string; error?: string }> =>
-    ipcRenderer.invoke('perf:save', text),
+  savePerfReport: (
+    text: string,
+    toDownloads?: boolean
+  ): Promise<{ ok: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('perf:save', text, toDownloads),
   /** 更新で消えない置き場をエクスプローラで開く（無ければ作ってから開く） */
   openFolder: (
     key: 'se' | 'telop' | 'motion' | 'template' | 'data'

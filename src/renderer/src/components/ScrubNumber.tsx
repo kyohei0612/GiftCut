@@ -89,6 +89,12 @@ export function ScrubNumber({
       className={`scrub ${className ?? ''}`}
       value={value}
       step={step}
+      // **上限・下限は欄そのものにも持たせる。**
+      // 値の丸めは中でやっているが、欄に付いていないと矢印キーや
+      // スピナーが素通しになり、「打てないはずの値が打てる」ように見える。
+      // （実際、拡大の下限100%が欄から消えていた）
+      {...(Number.isFinite(min) ? { min } : null)}
+      {...(Number.isFinite(max) ? { max } : null)}
       disabled={disabled}
       title={title}
       onPointerDown={onPointerDown}

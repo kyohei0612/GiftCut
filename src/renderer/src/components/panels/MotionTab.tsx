@@ -16,7 +16,7 @@
 // 右パネルのトランジションタブ。名前が演出名なので、他の見本帳と並んでいる方が
 // 探せる。ここは選んだあと数値を詰める所。
 
-import { useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import {
   keyAt,
   prevKeyTime,
@@ -42,6 +42,8 @@ export interface MotionRow {
   onToggleKeys: () => void
   onPutKey: () => void
   onRemoveKey: () => void
+  /** この項目だけ元に戻す（打った印を捨て、元の値があればそれも既定へ） */
+  onReset: () => void
 }
 
 export function MotionTab({
@@ -52,7 +54,11 @@ export function MotionTab({
   clipTime,
   onSeekClipTime,
   onSaveMotion,
-  onClearMotion
+  onClearMotion,
+  clearCount,
+  onSelectRows,
+  clipLen,
+  targetKey
 }: {
   /** 何に対する設定か（選んでいるテロップの文字など） */
   title: string
@@ -70,15 +76,91 @@ export function MotionTab({
   onSaveMotion?: () => void
   /** いま付いている動きを全部捨てる（見本帳の演出を試したあと元に戻す道） */
   onClearMotion?: () => void
+  /** 「動きを消す」が何個に効くか。2個以上ならボタンに出す（押す前に分かるように） */
+  clearCount?: number
+  /**
+   * 選んだ項目が変わったときに知らせる（コピー／貼り付けの相手になる）。
+   * 実際にコピーするのは呼ぶ側。ここは「どれを選んでいるか」だけを持つ。
+   */
+  onSelectRows?: (keys: string[]) => void
+  /** そのクリップの長さ（秒）。頭・尻へ飛ぶボタンに使う */
+  clipLen?: number
+  /**
+   * いま相手にしている物の識別（`telop:12` など）。
+   * **相手が変わったら項目の選択は捨てる。** 選びっぱなしだと、別のクリップを
+   * 触っているのに前の選択が生きていて、コピーが思わぬ相手から取られる。
+   */
+  targetKey?: string
 }): JSX.Element {
-  const [openMore, setOpenMore] = useState(false)
+  // **畳むのではなく、選ぶ。**
+  // プレミアと同じで、見出しを押すとその組がまとめて選ばれる。選んだ状態で
+  // コピーすれば、その組だけを別のクリップへ配れる。
+  // 畳みたいときは左の ▾ を押す（畳んだままだと、そこに何があるか忘れる）。
+  const [openMore, setOpenMore] = useState(true)
+  const [openBasic, setOpenBasic] = useState(true)
+  const [sel, setSel] = useState<string[]>([])
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    setSel([])
+    onSelectRows?.([])
+    // 相手が変わった時だけ捨てる（選ぶたびに捨てると選べない）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetKey])
+  /**
+   * **この枠の外を触ったら、項目の選択は解く。**
+   *
+   * 解けないままだと、同じクリップを選び直しても選択が生きていて、
+   * そこからの Ctrl+C が**ずっとモーション側に取られ続ける**
+   * （クリップを写したつもりで貼っても、何も増えない）。
+   * 「別の所を触った＝もうその項目の話ではない」という、見たままの規則にする。
+   */
+  useEffect(() => {
+    const h = (e: PointerEvent): void => {
+      const root = rootRef.current
+      if (!root || root.contains(e.target as Node)) return
+      setSel((prev) => {
+        if (!prev.length) return prev
+        onSelectRows?.([])
+        return []
+      })
+    }
+    window.addEventListener('pointerdown', h, true)
+    return () => window.removeEventListener('pointerdown', h, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const order = [...rows, ...(moreRows ?? [])].map((r) => r.key)
+  const lastRef = useRef<string | null>(null)
+  /** 選び直す。Ctrl=足し引き / Shift=そこまでまとめて */
+  const pick = (keys: string[], e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): void => {
+    setSel((prev) => {
+      let next: string[]
+      if (e.ctrlKey || e.metaKey) {
+        const all = keys.every((k) => prev.includes(k))
+        next = all ? prev.filter((k) => !keys.includes(k)) : [...new Set([...prev, ...keys])]
+      } else if (e.shiftKey && lastRef.current) {
+        const a = order.indexOf(lastRef.current)
+        const b = order.indexOf(keys[keys.length - 1])
+        if (a >= 0 && b >= 0) {
+          const [s, t] = a < b ? [a, b] : [b, a]
+          next = [...new Set([...prev, ...order.slice(s, t + 1)])]
+        } else next = keys
+      } else {
+        // 同じ物をもう一度押したら外す（選んだまま抜けられないと操作が詰まる）
+        next = keys.every((k) => prev.includes(k)) && prev.length === keys.length ? [] : keys
+      }
+      onSelectRows?.(next)
+      return next
+    })
+    lastRef.current = keys[keys.length - 1] ?? null
+  }
   const renderRow = (r: MotionRow): JSX.Element => {
         const on = hasKeys(r.keys)
         const here = !!keyAt(r.keys, clipTime)
         const prev = prevKeyTime(r.keys, clipTime)
         const next = nextKeyTime(r.keys, clipTime)
+        const picked = sel.includes(r.key)
         return (
-          <div className={`mo-row ${on ? 'mo-on' : ''}`} key={r.key}>
+          <div className={`mo-row ${on ? 'mo-on' : ''} ${picked ? 'mo-picked' : ''}`} key={r.key}>
             <button
               className={`mo-watch ${on ? 'on' : ''}`}
               title={on ? '動きをやめる（打った印を全部捨てる）' : 'ここから動きを付ける'}
@@ -86,7 +168,16 @@ export function MotionTab({
             >
               ⏱
             </button>
-            <span className="mo-label">{r.label}</span>
+            {/* **名前を押すと、その項目が選ばれる。**
+                選んだ状態でコピーすると、その項目だけを他のクリップへ配れる。
+                Ctrl で足し引き、Shift でそこまでまとめて。 */}
+            <span
+              className="mo-label mo-pickable"
+              title="押すとこの項目を選びます（Ctrlで足し引き / Shiftでまとめて）。選んでコピー→別のクリップで貼り付け"
+              onClick={(e) => pick([r.key], e)}
+            >
+              {r.label}
+            </span>
             {/* **押し込んで左右に振ると増減する。** 数を打ち込むより、
                 見ながら少しずつ寄せる場面のほうがずっと多い。
                 字間・行間と同じ操作に揃えてある（部品は components/ScrubNumber） */}
@@ -127,11 +218,52 @@ export function MotionTab({
                 ▶
               </button>
             </span>
+            {/* **1項目だけ元に戻す。**
+                「動きを消す」は全部が消えるので、1つだけ打ち直したい時に使えない。 */}
+            <button
+              className="mo-kbtn mo-reset"
+              title="この項目だけ元に戻す（打った印も消えます）"
+              onClick={r.onReset}
+            >
+              ↺
+            </button>
           </div>
         )
   }
+  /** 組の見出し（押すとその組をまとめて選ぶ） */
+  const secHead = (
+    label: string,
+    group: MotionRow[],
+    open: boolean,
+    setOpen: (f: (v: boolean) => boolean) => void
+  ): JSX.Element => {
+    const keys = group.map((r) => r.key)
+    const allPicked = keys.length > 0 && keys.every((k) => sel.includes(k))
+    const on = group.filter((r) => hasKeys(r.keys)).length
+    return (
+      <div
+        className={`mo-sec mo-pickable ${allPicked ? 'mo-picked' : ''}`}
+        title="押すとこの組をまとめて選びます（選んでコピー→別のクリップで貼り付け）"
+        onClick={(e) => pick(keys, e)}
+      >
+        {/* 畳むのは矢印だけ。見出し全体で畳むと、選ぶ操作とぶつかる */}
+        <span
+          className="mo-sec-arrow"
+          title={open ? '畳む' : '開く'}
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen((v) => !v)
+          }}
+        >
+          {open ? '▾' : '▸'}
+        </span>
+        <span>{label}</span>
+        {on > 0 && <span className="mo-sec-count mo-sec-on">{on}</span>}
+      </div>
+    )
+  }
   return (
-    <div className="panel-body">
+    <div className="panel-body" ref={rootRef}>
       <div className="mo-head">
         <span className="mo-title">{title}</span>
         {/* **作った所で保存できるようにする。** 作る場所（ここ）と残す場所が
@@ -147,27 +279,49 @@ export function MotionTab({
           </button>
         )}
         {onClearMotion && (
-          <button className="mo-mini" title="この人に付いている動きを全部捨てる" onClick={onClearMotion}>
+          <button
+            className="mo-mini"
+            title="選んでいる分すべてから、付いている動きを捨てる"
+            onClick={onClearMotion}
+          >
             動きを消す
+            {(clearCount ?? 0) > 1 ? `（${clearCount}個）` : ''}
+          </button>
+        )}
+        {/* **頭・尻へ一発で飛ぶ。**
+            印を打つのはたいていクリップの端（そこから動き出す・そこで止まる）。
+            端をタイムラインで探して合わせるのは、細いクリップほど当たらない。 */}
+        <button
+          className="mo-mini"
+          title="このクリップの先頭へ（印を打つ起点）"
+          onClick={() => onSeekClipTime(0)}
+        >
+          ⏮ 先頭
+        </button>
+        {clipLen != null && clipLen > 0 && (
+          <button
+            className="mo-mini"
+            title="このクリップの末尾へ"
+            onClick={() => onSeekClipTime(Math.max(0, clipLen - 0.001))}
+          >
+            末尾 ⏭
           </button>
         )}
         <span className="mo-time">{clipTime.toFixed(2)}s</span>
       </div>
       {hint && <div className="tpl-hint">{hint}</div>}
+      {sel.length > 0 && (
+        <div className="tpl-hint mo-pick-hint">
+          {sel.length}項目を選択中 — コピーして、別のクリップを選んで貼り付けると移せます
+        </div>
+      )}
 
-      {rows.map(renderRow)}
+      {secHead('簡単な設定', rows, openBasic, setOpenBasic)}
+      {openBasic && rows.map(renderRow)}
 
-      {/* よく使わない物は畳んでおく。付いている行があれば、畳んでいても数で分かるようにする */}
       {moreRows && moreRows.length > 0 && (
         <>
-          <div className="mo-sec" onClick={() => setOpenMore((v) => !v)}>
-            <span className="mo-sec-arrow">{openMore ? '▾' : '▸'}</span>
-            <span>詳しい動き</span>
-            {(() => {
-              const on = moreRows.filter((r) => hasKeys(r.keys)).length
-              return on > 0 ? <span className="mo-sec-count mo-sec-on">{on}</span> : null
-            })()}
-          </div>
+          {secHead('詳細設定', moreRows, openMore, setOpenMore)}
           {openMore && moreRows.map(renderRow)}
         </>
       )}

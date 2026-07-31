@@ -114,7 +114,19 @@ export interface GiftcutApi {
     error?: string
   }>
   /** 動きの記録を userData/perf へ書く */
-  savePerfReport: (text: string) => Promise<{ ok: boolean; path?: string; error?: string }>
+  /** いま動いている本体のバージョン */
+  getVersion: () => Promise<string>
+  /** 利用者がいじった物の控えを読む（無ければ空。更新・入れ直し・引っ越しで戻す用） */
+  readUserStore: () => Promise<{ ok: boolean; data: Record<string, string> }>
+  /** 同じ内容をファイルへ写す（変わった時だけ呼ぶ） */
+  writeUserStore: (
+    data: Record<string, string>
+  ) => Promise<{ ok: boolean; path?: string; error?: string }>
+  savePerfReport: (
+    text: string,
+    /** true ならダウンロードへ（確認なし）。既定は userData/perf */
+    toDownloads?: boolean
+  ) => Promise<{ ok: boolean; path?: string; error?: string }>
   /** 更新で消えない置き場（userData の下）を開く。無ければ作ってから開く */
   openFolder: (
     key: 'se' | 'telop' | 'motion' | 'template' | 'data'

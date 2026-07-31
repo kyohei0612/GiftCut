@@ -333,7 +333,10 @@ export function TransitionsTab({
                   return (
                     <button
                       key={p.name}
-                      className={`fx-item mo-preset ${none ? 'mo-preset-none' : part ? 'mo-preset-part' : ''}`}
+                      /* 取り込んだ物だと分かる印を付けておく（標準と同じ見た目だが、
+                         数えるときに区別が要る＝自動チェックが「取り込みが効いたか」を
+                         見られなくなる） */
+                      className={`fx-item mo-preset mo-preset-imported ${none ? 'mo-preset-none' : part ? 'mo-preset-part' : ''}`}
                       title={
                         none
                           ? `動きを持ってこられませんでした${lack}`

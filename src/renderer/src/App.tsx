@@ -410,9 +410,20 @@ function loadSegTrans(raw: any): SegTrans | undefined {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 // プレビュー解像度。'orig'=原本をそのまま再生、数値=その高さの編集用プロキシ。
-// 'full' は**原寸のまま全コマキーフレームに焼き直した物**で再生する。
-// 見た目は原本のまま、カットでのシークだけが速くなる（プレミアの ProRes/DNxHD と同じ考え方）。
-type PreviewRes = 'orig' | 'full' | 720 | 360
+/**
+ * プレビューの画質。**どれを選んでも、必ず焼き直した映像で再生する。**
+ *
+ * 焼き直す物は全コマがキーフレーム（プレミアの ProRes / DNxHD と同じ考え方）で、
+ * カットで飛んでも復号し直しが1コマぶんで済む。
+ *
+ * 以前は「原本をそのまま再生する」選択肢があったが、原本のキーフレームは
+ * 数秒に1枚しかないため、**カットのたびに 100〜200ms 絵が止まっていた**。
+ * 画質のために引っかかりを我慢する、という選択肢は要らない
+ * （書き出しは常に原本のフル画質なので、完成品の画質には影響しない）。
+ *
+ * 数字は「その高さまで小さくする」。素材がそれより小さければそのまま。
+ */
+type PreviewRes = 1080 | 720 | 360
 // 元動画（マルチソース）。1タイムラインに複数の動画を連結できる。
 interface Source {
   id: number
@@ -653,7 +664,12 @@ export default function App(): JSX.Element {
     perf.noteOf = (): string =>
       [
         playRateRef.current !== 0 ? '再生中' : '停止',
-        `画質${previewResRef.current}`,
+        // **設定の数字だけでは足りない。** 焼き直しがまだなら原本を再生しており、
+        // 原本はシークが重いのでカクつく。実際に何を再生しているかを必ず出す
+        // （「画質1080 なのにカクつく」の正体がこれだった）
+        `画質${previewResRef.current}${
+          (videoRef.current?.currentSrc ?? '').includes('giftcut-proxies') ? '(焼直)' : '(原本)'
+        }`,
         `切片${segsRef.current.length}`,
         `テロップ${cuesRef.current.length}`
       ].join(' / ')
@@ -762,12 +778,9 @@ export default function App(): JSX.Element {
     const h = (e: KeyboardEvent): void => {
       if (e.ctrlKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         e.preventDefault()
-        setPerfOpen((v) => {
-          // 開発中は**閉じても測り続ける**（下の常時計測を止めない）。
-          // 配布ビルドでは、開いている間だけ測る（常に測るほどの物ではない）
-          if (v && !import.meta.env.DEV) perf.stop()
-          return !v
-        })
+        // 小窓は「見せる／隠す」だけ。**閉じても測り続ける**（配布ビルドも同じ）。
+        // 止めてしまうと、不具合に気づいて書き出した時に肝心の前後が残らない。
+        setPerfOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', h)
@@ -782,14 +795,19 @@ export default function App(): JSX.Element {
    * 走らせっぱなしにして、一定間隔で userData/perf へ書く。
    * 「止めて」と言われたら、そこまでに書かれた物を読めばよい。
    *
-   * 配布ビルドではやらない（測るだけで作り直しが増えるので、常時は要らない）。
+   * **配布ビルドでも走らせる。**
+   * 不具合に気づくのは使っている人で、その場で測り始めてもらうのは無理がある。
+   * 「おかしいな」と思った時に書き出しボタンを押せば、その前の分がそのまま残っている、
+   * という形にする。書き出す間隔は5分（毎回書くとディスクを触りすぎる）。
    */
   useEffect(() => {
-    if (!import.meta.env.DEV) return
     perf.start()
-    const id = window.setInterval(() => {
-      void window.giftcut?.savePerfReport?.(perf.report())
-    }, 30_000)
+    const id = window.setInterval(
+      () => {
+        void window.giftcut?.savePerfReport?.(perf.report())
+      },
+      import.meta.env.DEV ? 30_000 : 300_000
+    )
     return () => {
       window.clearInterval(id)
       perf.stop()
@@ -844,6 +862,15 @@ export default function App(): JSX.Element {
   const initializedForPathRef = useRef<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [playRateUI, setPlayRateUI] = useState(0)
+  // いま動いている本体の版（枠の題名の横に出す）。本体に聞くので、
+  // 自動更新で入れ替わればそのまま新しい数字になる
+  const [appVersion, setAppVersion] = useState('')
+  useEffect(() => {
+    void window.giftcut
+      ?.getVersion?.()
+      .then((v) => setAppVersion(typeof v === 'string' ? v : ''))
+      .catch(() => setAppVersion(''))
+  }, [])
   const lastPaintRef = useRef(0) // 再生中の最後にsetTimeした時刻（再描画スロットル用）
   // 動画ズーム（リフレーム）は切片ごと（VSeg.zoom）。編集対象は再生ヘッド位置の切片。
   const [videoSelected, setVideoSelected] = useState(false) // プレビューで動画を選択中（リフレーム枠を表示）
@@ -3067,16 +3094,21 @@ export default function App(): JSX.Element {
     }
   }
   // ---- プレビュー解像度（アプリ設定。プロジェクトではなくPCごとの好みなので localStorage）----
-  // 'orig'=原本をそのまま再生（最高画質・シークは重い）/ 720・360=編集用プロキシ。
+  // 1080 / 720 / 360 のどれかで、**どれも焼き直した映像**で再生する。
   // 書き出しは常に原本のフル画質なので、ここを下げても完成品の画質は落ちない。
   // ※useState の初期化関数は即時実行されるため、loadLS の定義より後に置く必要がある。
-  // 既定は 'orig'（原本）。プロキシは軽くする手段として選ぶもので、
-  // 何もしていないのに低画質で見えているのが一番困るため既定を最高画質にしている。
+  // 既定は 1080（見た目は原本とほぼ同じで、カットでも引っかからない）。
   const [previewRes, setPreviewRes] = useState<PreviewRes>(() => {
-    const v = loadLS<PreviewRes>('giftcut.previewRes', 'orig')
-    return v === 'orig' || v === 'full' || v === 720 || v === 360 ? v : 'orig'
+    const v = loadLS<unknown>('giftcut.previewRes', 1080)
+    // 前の版の 'orig'（原本）/'full'（原寸・軽い）は、どちらも 1080 にあたる。
+    // **黙って 360 に落とさない**（次に開いたら低画質だった、が一番困る）
+    if (v === 720 || v === '720') return 720
+    if (v === 360 || v === '360') return 360
+    return 1080
   })
   const previewResRef = useRef<PreviewRes>(previewRes)
+  /** 直前に反映した画質。**自分で変えたのか、焼き上がりが届いただけなのか**を分ける */
+  const lastPreviewResRef = useRef<PreviewRes>(previewRes)
   useEffect(() => {
     previewResRef.current = previewRes
     saveLS('giftcut.previewRes', previewRes)
@@ -3087,17 +3119,38 @@ export default function App(): JSX.Element {
   const proxyReqRef = useRef<Set<string>>(new Set()) // 変換中のもの。同じ変換を二重に走らせない
   const proxyFailRef = useRef<Set<string>>(new Set()) // 変換に失敗したもの。無限に作り直さない
   const [proxyTick, setProxyTick] = useState(0) // 1本終わるたびに次を取りに行くための合図
-  // プレビューに使う映像URL。原本指定ならそのまま原本、プロキシ指定なら出来ているものを使う。
-  // 解像度切替の変換中は「前の解像度のプロキシ」を映したまま（一旦原本に戻すと二重リロードになる）。
-  const previewUrl = (path: string, orig: string): string =>
-    previewRes === 'orig' ? orig : (proxyMap[path]?.url ?? orig)
-  // 選んだ解像度のプロキシを用意する唯一の入口。ソース／映像レイヤーが増えたときや
-  // 解像度を変えたときに走り、足りないものだけ変換する。原本指定のときは何も作らない。
+  // プレビューに使う映像URL。焼き直した物ができていればそれ、まだなら原本。
+  // **作っている間も原本で見えている**（真っ暗になるより、重くても映るほうがよい）。
+  // 解像度切替の変換中も「前の解像度の物」を映したまま（原本へ戻すと二重リロードになる）。
+  /**
+   * いま <video> に入れる URL。焼き上がっていればそれ、無ければ原本。
+   *
+   * **流している最中は差し替えない。**
+   * src を書き換えると要素が読み込み直しになり、そこで**音が切れる**。
+   * 焼き直しは再生中にも終わるので、何もしないと「流していたら急にプツッと鳴る」。
+   * 実測（npm run stutter --fresh）で、抜けはいつも変換の完了時に出ていた。
+   *
+   * 止めた瞬間に入れ替わる。見ている間は原本のままだが、画質が少し眠いだけで、
+   * 音が切れるより遥かにまし。**自分で画質を変えたときは、その場で入れ替える**
+   * （待たされると「効いていない」と見えるため）。
+   */
+  const shownSrcRef = useRef<Map<string, string>>(new Map())
+  const srcResRef = useRef<PreviewRes>(previewRes)
+  const previewUrl = (path: string, orig: string): string => {
+    const want = proxyMap[path]?.url ?? orig
+    const shown = shownSrcRef.current.get(path)
+    // 画質を自分で変えた回は、流していても入れ替える
+    const byHand = srcResRef.current !== previewRes
+    if (playRateRef.current !== 0 && !byHand && shown && shown !== want) return shown
+    shownSrcRef.current.set(path, want)
+    srcResRef.current = previewRes
+    return want
+  }
+  // 焼き直した映像を用意する唯一の入口。ソース／映像レイヤーが増えたときや
+  // 解像度を変えたときに走り、足りないものだけ変換する。
   // 同時変換は2本まで（映像レイヤーが多いプロジェクトで ffmpeg が一斉に立ち上がるのを防ぐ）。
   useEffect(() => {
-    if (previewRes === 'orig') return
-    // 本体側は高さで受け取る。**0 が「縮小しない（原寸）」の合図**
-    const res: number = previewRes === 'full' ? 0 : previewRes
+    const res: number = previewRes
     const paths = new Set<string>()
     for (const s of sources) if (s.path) paths.add(s.path)
     for (const c of vClips) if (c.path) paths.add(c.path)
@@ -3833,6 +3886,22 @@ export default function App(): JSX.Element {
   const playRateRef = useRef(0) // 0 = 停止, 正 = 順再生, 負 = 逆再生
   const rafRef = useRef<number | null>(null)
   const lastTsRef = useRef(0)
+  /**
+   * 次にシークを頼んでよい時刻（performance.now）。
+   * **シークが重い相手を追いかけ続けないための間。** 直前のシークにかかった時間から決める。
+   */
+  const seekCooldownRef = useRef(0)
+  /** カットで音を重ねている間（この時刻まで）は、音量 effect に書かせない */
+  const xfadeUntilRef = useRef(0)
+  /**
+   * いまズレを詰めている最中か。
+   *
+   * **入り口と出口をずらす（履歴）。** 同じしきい値で出入りさせると、
+   * 境目で速さが 1.00 と 1.02 の間を行ったり来たりする。速さを変えるたびに
+   * 音は伸縮処理を通るので、**カットでもない普通の所で音が荒れる**。
+   * 大きくズレた時だけ入り、ほぼ0まで詰めてから出る。
+   */
+  const fixingDriftRef = useRef(false)
 
   // ---- クリップボード & 編集履歴（Undo/Redo）----
   // 履歴は cues / segments / seClips / markers / imgClips を1スナップショットで管理する（統合Undo）
@@ -4211,13 +4280,18 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const v = videoRef.current
     if (!v) return
+    // カットで音を重ねている最中は触らない（重ねを上書きすると継ぎ目が戻る）
+    if (performance.now() < xfadeUntilRef.current) return
     const src = tToSource(segLayout, currentTime)
     const L = src ? segLayout[src.index] : undefined
     const seg = L?.seg
+    // **消音は muted ではなく音量0で行う。**
+    // 音のある動画では、メディア時計が音声側に従っている。muted を切り替えると
+    // 時計の張り替えが起きて、その間**絵まで止まる**（1080p の実測で約250ms）。
+    // カットのたびに引っかかっていたのはこれ。音量なら再生は途切れない。
     const segMuted = seg ? !!seg.muted : false
-    if (v.muted !== segMuted) v.muted = segMuted // トラックのミュート/ソロは音量ゲイン側で反映
     // 切片の音量倍率×フェード（頭/尻の指定秒で 0→1 / 1→0）
-    let segGain = seg?.vol ?? 1
+    let segGain = segMuted ? 0 : (seg?.vol ?? 1)
     if (L && seg) {
       const local = currentTime - L.tStart
       if (seg.afadeIn && seg.afadeIn > 0) segGain *= clamp(local / seg.afadeIn, 0, 1)
@@ -4339,13 +4413,24 @@ export default function App(): JSX.Element {
         // 音源内の再生位置＝クリップ内ローカル秒＋トリム済みオフセット
         const target = local + (clip.srcOffset ?? 0)
         // シーク中は頼み直さない（着く前に書くと取り消されて、永久に追いつけない）
-        if (!a.seeking && Math.abs(a.currentTime - target) > 0.3) a.currentTime = target
+        // **音の位置を直すと、そこで必ず途切れる**（プチッと鳴る）ので記録に残す
+        if (!a.seeking && Math.abs(a.currentTime - target) > 0.3) {
+          perf.mark(`音の位置を直した ${clip.name}`)
+          a.currentTime = target
+        }
         // 載っているトラック音量×フェード（頭/尻の指定秒で 0→1 / 1→0）※クリップ内ローカル秒で判定
         const fade = seFadeGain(clip, local)
         // 声が入っている間は下げる（ダッキング）。書き出しと同じ折れ線を使う
         const duck = duckGainAt(clip, currentTime)
-        a.volume = clamp(clip.volume * fade * duck * audioTrackGain(clip.track), 0, 1)
-        if (a.paused) void a.play().catch(() => {})
+        // **同じ値を毎コマ書き直さない。**
+        // ここは毎レンダー（秒60〜240回）通る。音量を書くたびに音の作り直しが
+        // 走るので、変わっていないのに書くと、それだけで音が荒れる。
+        const want = clamp(clip.volume * fade * duck * audioTrackGain(clip.track), 0, 1)
+        if (Math.abs(a.volume - want) > 0.002) a.volume = want
+        if (a.paused) {
+          perf.mark(`音を鳴らし始めた ${clip.name}`)
+          void a.play().catch(() => {})
+        }
       } else if (!a.paused) {
         a.pause()
       }
@@ -4365,6 +4450,8 @@ export default function App(): JSX.Element {
       curSourceIdRef.current = s.id
       setActiveSrcId(s.id)
       const el = elOf(s.id)
+      // 切り替える前の音量を控えておく（下で引き継ぐ。理由は入れ替えの所と同じ）
+      const prevVol = videoRef.current?.volume ?? 1
       if (el) {
         videoRef.current = el
         // 切替先を今の位置へ即シーク（再生中は再生クロックが追従させるが、初手のズレを詰める）
@@ -4379,21 +4466,39 @@ export default function App(): JSX.Element {
       videoElsRef.current.forEach((v, k) => {
         if (k === elKey(s.id, halfOf(s.id))) return
         if (!v.paused) v.pause()
-        v.muted = true
+        v.volume = 0 // 消すのは音量で（muted を触ると時計が張り替わる／上の effect 参照）
       })
-      if (el) el.muted = false
+      // **音量を引き継いでから鳴らす。**
+      // 音量を書く effect はこれより前に並んでいるので、今の描画では
+      // まだ「切り替える前の要素」に書かれている。ここで黙らせたまま渡すと、
+      // 次の描画までの数十msだけ既定の 1.0（最大）で鳴ってしまう。
+      if (el) el.volume = prevVol
       // duration 未取得(0)なら据え置き（0にすると再生開始条件が壊れる）。metadata到達時に更新される。
       if (s.duration > 0) setVideoDuration(s.duration)
       setFps(s.fps)
     }
     // 後追いのプロキシ/fps/尺が届いたら反映（届くまで原本再生・既定30のままになるのを防ぐ）
     // プレビュー解像度を変えたときもここで src を差し替える（再生ヘッド位置は触らないので維持される）
-    setVideoSrc((prev) => (prev === desired ? prev : desired))
+    //
+    // **ただし、流している最中に黙って差し替えない。**
+    // 差し替えは要素の読み込み直しになるので、そこで音が切れる。
+    // 実測（npm run stutter --fresh）: 焼き直しが終わった瞬間に
+    // 「音の抜け 64ms」。しかも出るのは毎回**測り終わり際＝変換の完了時**だった。
+    // 変換の重さのせいだと思って優先度を最低まで下げたが、それでは消えなかった。
+    //
+    // 焼き上がったぶんは、止めてから入れ替える（見えている絵は原本のままでも、
+    // 画質が少し眠いだけで、音が切れるより遥かにまし）。
+    // **画質を自分で変えたときは、その場で差し替える**——待たされると
+    // 「効いていない」と見えるため。
+    const resChanged = lastPreviewResRef.current !== previewRes
+    lastPreviewResRef.current = previewRes
+    if (!playing || resChanged) setVideoSrc((prev) => (prev === desired ? prev : desired))
     setFps((prev) => (Math.abs(prev - s.fps) > 1e-3 ? s.fps : prev))
     if (s.duration > 0)
       setVideoDuration((prev) => (Math.abs(prev - s.duration) > 1e-3 ? s.duration : prev))
+    // playing を見るのは「止めた瞬間に、待たせていた差し替えを入れる」ため
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, segLayout, sources, previewRes, proxyMap])
+  }, [currentTime, segLayout, sources, previewRes, proxyMap, playing])
   // 次に来る別ソースの映像を先回りシークして待機させる（切替の瞬間に正しいフレームが即出る）
   useEffect(() => {
     if (sources.length <= 1) return
@@ -4836,6 +4941,9 @@ export default function App(): JSX.Element {
       // 動画を再生ヘッド位置に追従させる（ミュート/不透明度は別の毎レンダー effect が反映）
       const src = tToSource(segLayoutRef.current, pos)
       if (src && pos < videoTLenRef.current - 1e-3) {
+        // **切片が変わったか**で扱いを変える（下の追従を参照）。
+        // 変わった＝カット（飛び先が違う）、変わらない＝ただのズレ。
+        const segChanged = currentSegRef.current !== src.index
         currentSegRef.current = src.index
         // 大きくズレたら（＝不連続カットをまたいだ／ドリフト）シークで追いつく。プロキシなら一瞬。
         // ---- カットに来た: 温めてある面があれば「入れ替えるだけ」で済む ----
@@ -4846,9 +4954,36 @@ export default function App(): JSX.Element {
           if (pre) {
             // **待ち時間ゼロの切り替え。** 飛び先はすでに復号済み
             perf.mark('カット: 温めてあった面へ入れ替え')
-            vv.muted = true
-            if (!vv.paused) vv.pause()
-            pre.muted = false
+            // **音量は必ず引き継ぐ。**
+            // 音量を決める effect は「いま表になっている要素」にしか書かない。
+            // 温めてある面は触られていないので、既定の 1.0（最大）のまま。
+            // そこへ入れ替えると、次の描画で直るまでの数十msだけ**全開で鳴る**。
+            // 最初のカットで「ホワイトノイズが荒くなる」と言われたのがこれ。
+            // 2回目以降が平気なのは、一度表に出た面が正しい音量を持ち越すため。
+            //
+            // 出ていく面の値をそのまま渡す。切片ごとの音量は次の描画で入るが、
+            // **大きすぎる側へは絶対に振れない**ので、こちらの向きで間違える方が安全。
+            // **muted は触らない。** 触ると時計が張り替わって250ms止まる
+            //（生の推移で 7.882 のまま6コマ。詳しくは音量 effect の説明）
+            // **音は一瞬で切り替えず、40msだけ重ねる。**
+            // 別々の音の流れを継ぎ目でぶつ切りにすると、波形が飛んで「プツ」と鳴る。
+            // 助走のおかげでカットの時点では両面とも走っているので、
+            // 出ていく側を下げながら入ってくる側を上げれば、継ぎ目が消える。
+            // 同じ素材の中のカットなので、短く重ねても音は濁らない。
+            const XFADE_MS = 40
+            const leaving = vv
+            const target = vv.volume
+            pre.volume = 0
+            xfadeUntilRef.current = performance.now() + XFADE_MS // この間は音量 effect を黙らせる
+            const t0 = performance.now()
+            const ramp = (): void => {
+              const k = Math.min(1, (performance.now() - t0) / XFADE_MS)
+              pre.volume = clamp(target * k, 0, 1)
+              leaving.volume = clamp(target * (1 - k), 0, 1)
+              if (k < 1) requestAnimationFrame(ramp)
+              else if (videoRef.current !== leaving && !leaving.paused) leaving.pause()
+            }
+            requestAnimationFrame(ramp)
             pre.playbackRate = vv.playbackRate
             videoRef.current = pre
             setActiveHalf((h) => ({ ...h, [prep.srcId]: prep.half }))
@@ -4858,25 +4993,55 @@ export default function App(): JSX.Element {
             return // 入れ替えた面は次のコマから面倒を見る
           }
         }
-        // 温めが間に合わなかったときの逃げ道（頭出し直後・急な移動など）。
+        // ---- 追従: 「飛ぶ」のと「ズレを詰める」のは別物 ----
         //
+        // **ズレを頭出しで直してはいけない。** currentTime を書くと復号がやり直しになり、
+        // 絵が再び動き出すまで待たされる。1080p の実測で約230ms。閾値の0.25秒とほぼ同じ
+        // なので、再開した直後にまた0.25秒ズレて、また頭出し——**永久に噛み合わない**。
+        //
+        // 実測（本物のプロジェクト・切片51・テロップ23、npm run stutter）:
+        //   1080p  頭出し 38回/10秒  絵の止まり 6800/9750ms  速さ0.98倍
+        //   生の推移 … 2.302 2.302 2.302 2.557 2.570 2.573 2.573 2.573 2.825
+        //              ＝再生しているのに進まず、0.25秒ごとに階段状に飛んでいた
+        // 720p は同じ作りでも頭出し1回・止まり0ms。違いは復号の重さだけで、
+        // **重い素材ほど悪くなる**——直しようが「もっと軽い画質を選べ」しか無くなる。
+        //
+        // なので:
+        //   カット（切片が変わった）… 飛び先が違うのだから頭出しするしかない
+        //   ただのズレ（同じ切片）  … **速さを少しいじって詰める**。復号は途切れない
+        //
+        // 速さで詰めるのは動画プレイヤーが昔からやっている手で、±10%なら見ても
+        // 聞いても分からない（音の高さは preservesPitch が既定で保たれる）。
+        // 0.25秒のズレなら2.5秒で消える。その間ずっと絵は流れ続ける。
+        const drift = src.srcTime - vv.currentTime // ＋なら動画が遅れている
+        // **これが「テロップだけ先に動く」の正体になり得る。**
+        // 文字は再生ヘッドの時刻で動き、動画はここで追いかけている。
+        // 遅れが残っていれば、絵に対して文字が先行して見える。記録に残して数で見る。
+        perf.reportLag(drift)
+        const now = performance.now()
         // **シーク中は重ねて頼まない（vv.seeking）。**
         // ここは毎コマ（秒60回）通る。前のシークが着く前にもう一度 currentTime を
-        // 書くと、前の依頼が取り消されて最初からやり直しになる。動画は着いていないので
-        // ズレは 0.25 秒を超えたまま——つまり**毎コマ頼み直して永久に追いつけない**。
-        //
-        // 実測（最高画質・切片10個）: 0.27秒おきにシークが走り、
-        // 110ms → 235ms → 478ms と伸びていった。カットをまたいだ回数は10回のはずが、
-        // 記録には30回出ていた。差はすべてこの頼み直し。
-        if (!vv.seeking && Math.abs(vv.currentTime - src.srcTime) > 0.25) {
-          // ここを通ると待ちが出るので、記録に残して量が見えるようにしておく
-          const t0 = performance.now()
-          vv.addEventListener(
-            'seeked',
-            () => perf.mark(`カットでシーク ${Math.round(performance.now() - t0)}ms`),
-            { once: true } // 着いたら自分で外れる（毎コマ足していた頃は積み上がっていた）
-          )
-          vv.currentTime = src.srcTime
+        // 書くと、前の依頼が取り消されて最初からやり直しになる。
+        if (!vv.seeking && now >= seekCooldownRef.current && Math.abs(drift) > 0.25) {
+          // 同じ切片のままの大ズレは、詰めきれないほど離れてしまった時だけ（頭出し直後など）。
+          // ここを緩めると上のループが戻ってくるので、しきい値は大きく取る。
+          const mustJump = segChanged || Math.abs(drift) > 1.5
+          if (mustJump) {
+            const t0 = now
+            vv.addEventListener(
+              'seeked',
+              () => {
+                const took = Math.round(performance.now() - t0)
+                perf.mark(`カットでシーク ${took}ms`)
+                // **着いた時間ではなく「また流れ出すまで」を待つ。**
+                // 全コマがキーフレームだと着くのは数msだが、絵が動き出すのはその後。
+                seekCooldownRef.current = performance.now() + Math.max(400, took * 3)
+              },
+              { once: true } // 着いたら自分で外れる（毎コマ足していた頃は積み上がっていた）
+            )
+            seekCooldownRef.current = now + 400
+            vv.currentTime = src.srcTime
+          }
         }
 
         // ---- 次のカットを先に温める ----
@@ -4885,6 +5050,9 @@ export default function App(): JSX.Element {
         // すでに復号が済んでいるので、表示を入れ替えるだけで待ちが出ない。
         // 画質に関係なく効く（復号の速さに頼っていないため）。
         const AHEAD = 1.2 // 何秒前から用意するか。実測の待ち(最大235ms)に十分な余裕
+        // 何秒前から裏で走らせておくか。立ち上げの実測(約300ms)より少し長く取る。
+        // 長くすると2枚同時に復号する時間が延びるので、余裕は最小限にする。
+        const PREROLL = 0.45
         // **狙うのは「次の切片」そのもの。**
         // 「1.2秒先の位置」を見るやり方だと、切片が1.2秒より短いときに
         // その次を飛び越して先の切片を温めてしまう。手前のカットは用意が無いので
@@ -4896,24 +5064,60 @@ export default function App(): JSX.Element {
           const nsrcId = srcOfSeg(nseg.seg)?.id
           // 別のソースへ移るカットは、元から専用の仕組みが用意してある（要素が別なので待ちが無い）。
           // ここで面倒を見るのは**同じファイルの中のカット**だけ。
-          if (nsrcId != null && nsrcId === curSrcId && preparedRef.current?.segIdx !== nextIdx) {
+          if (nsrcId != null && nsrcId === curSrcId) {
             const half = (halfOf(nsrcId) === 0 ? 1 : 0) as 0 | 1
             const pre = videoElsRef.current.get(elKey(nsrcId, half))
-            if (pre) {
+            const dt = (nseg.tStart - pos) / Math.max(0.01, rate) // カットまで何秒か
+            if (pre && preparedRef.current?.segIdx !== nextIdx) {
               preparedRef.current = { segIdx: nextIdx, srcId: nsrcId, half }
-              pre.muted = true
+              pre.volume = 0
               if (!pre.paused) pre.pause()
               // 飛び先＝次の切片の頭。ここを先に出しておく
               if (Math.abs(pre.currentTime - nseg.seg.srcStart) > 0.05)
                 pre.currentTime = nseg.seg.srcStart
+            } else if (pre && pre.paused && dt <= PREROLL && dt > 0.02 && !pre.seeking) {
+              // ---- 助走 ----
+              //
+              // **止めてある面は、入れ替えた瞬間には流れ出せない。**
+              // 絵（1コマ）は用意できていても、play() から実際に進み始めるまで
+              // 復号の立ち上げが要る。1080p の実測で約300ms——カットのたびに
+              // そこだけ止まって見えていた（生の推移で 7.929 → 8.026 と進まない）。
+              //
+              // 実測（本物のプロジェクト・1080p・15秒）:
+              //   止まった所: 5.4秒に300ms / 8.8秒に300ms / 12.6秒に250ms ＝ちょうどカット3回
+              //
+              // なので**カットの少し前から、無音・裏で走らせておく**。
+              // 入れ替えたときには既に流れているので、立ち上げを待たない。
+              // 走らせ始める位置は「カットまでの残り時間ぶん手前」。こうすると
+              // カットの瞬間にちょうど切片の頭へ着く。
+              const sp = nseg.seg.speed ?? 1
+              const want = Math.max(0, nseg.seg.srcStart - dt * sp)
+              if (Math.abs(pre.currentTime - want) > 0.05) pre.currentTime = want
+              pre.volume = 0 // 裏の音は絶対に出さない（muted は使わない＝時計を張り替えない）
+              pre.playbackRate = Math.min(rate * sp, 16)
+              void pre.play().catch(() => {})
             }
           }
         }
         // ended のまま play() すると先頭から再生し直してしまうため除外（シーク後は ended が解除される）
         if (vv.paused && !vv.ended) void vv.play().catch(() => {})
         // 再生ヘッドの進む速さ(rate) × 切片の速度。動画側はこの実効レートで追従。
-        const r = Math.min(rate * src.speed, 16)
-        if (Math.abs(vv.playbackRate - r) > 1e-3) vv.playbackRate = r
+        //
+        // ここに**ズレを詰める補正**を上乗せする（上の説明の通り、頭出しの代わり）。
+        // 遅れていれば少し速く、進みすぎていれば少し遅く。±10%まで。
+        // 小さすぎるズレは触らない——毎コマ速さを書き換えると、かえって揺れる。
+        // 入るのは大きくズレた時だけ。出るのはほぼ0に戻ってから（履歴＝上の ref 参照）。
+        // 幅も小さく取る。カットで止まらなくなった今、ズレはそもそも溜まらない。
+        if (fixingDriftRef.current) {
+          if (Math.abs(drift) < 0.02) fixingDriftRef.current = false
+        } else if (Math.abs(drift) > 0.1) {
+          fixingDriftRef.current = true
+        }
+        const corr = fixingDriftRef.current
+          ? Math.max(-0.03, Math.min(0.03, drift * 0.25))
+          : 0
+        const r = Math.min(rate * src.speed * (1 + corr), 16)
+        if (Math.abs(vv.playbackRate - r) > 5e-3) vv.playbackRate = r
       } else if (!vv.paused) {
         // 動画尾部より先（テロップのみ区間）→ 動画は止めて再生ヘッドだけ進める
         vv.pause()
@@ -5293,12 +5497,57 @@ export default function App(): JSX.Element {
     // 選択の state はまだ反映されていないので、対象を明示的に渡す
     onVideoReframeStart(e, null, tgt)
   }
+  /**
+   * リフレームのリセット。
+   *
+   * **選んでいる物すべてに効く。** 大きさや位置を変えるときは選択中の全部に
+   * 効くのに、戻すときだけ1つずつでは対で使えない。
+   *
+   * **打った動きも一緒に消す。** 拡大だけ等倍に戻しても、印が残っていれば
+   * 再生した瞬間にまた動きだす＝「戻っていない」ように見える。
+   * 戻すというからには、その場で見えている状態を作っている物を全部外す。
+   */
   function resetVideoZoom(): void {
     const tgt = reframeTargetRef.current
     if (!tgt) return
-    if (tgt.kind === 'video') setSegZoom(tgt.id, DEFAULT_ZOOM)
-    else if (tgt.kind === 'vclip') setVClipZoom(tgt.id, DEFAULT_ZOOM)
-    else setImgZoom(tgt.id, DEFAULT_ZOOM)
+    // 選んでいなければ、いま触っている1つだけが対象
+    const vids = selectedVideoIds.length
+      ? selectedVideoIds
+      : tgt.kind === 'video'
+        ? [tgt.id]
+        : []
+    const imgs = selectedImgIds.length ? selectedImgIds : tgt.kind === 'img' ? [tgt.id] : []
+    const vcs = selectedVClipIds.length ? selectedVClipIds : tgt.kind === 'vclip' ? [tgt.id] : []
+    if (vids.length && !trackStates['V1']?.locked)
+      setSegments((prev) =>
+        prev.map((s) => (vids.includes(s.id) ? { ...s, zoom: undefined, motion: undefined } : s))
+      )
+    if (imgs.length)
+      setImgClips((prev) =>
+        prev.map((c) =>
+          imgs.includes(c.id) && !trackStates[c.track]?.locked
+            ? { ...c, zoom: undefined, motion: undefined }
+            : c
+        )
+      )
+    if (vcs.length)
+      setVClips((prev) =>
+        prev.map((c) =>
+          vcs.includes(c.id) && !trackStates[c.track]?.locked
+            ? { ...c, zoom: undefined, motion: undefined }
+            : c
+        )
+      )
+  }
+  /** リセットが何個に効くか（ボタンの表示に使う。押す前に分かるように） */
+  const resetCount = (): number => {
+    const tgt = reframeTargetRef.current
+    if (!tgt) return 0
+    const n =
+      (selectedVideoIds.length || (tgt.kind === 'video' ? 1 : 0)) +
+      (selectedImgIds.length || (tgt.kind === 'img' ? 1 : 0)) +
+      (selectedVClipIds.length || (tgt.kind === 'vclip' ? 1 : 0))
+    return n
   }
   // プレビューでリフレーム対象を自由回転（回転ハンドルのドラッグ）。Shiftで15°スナップ。
   function onVideoRotateStart(e: React.PointerEvent): void {
@@ -7450,7 +7699,101 @@ export default function App(): JSX.Element {
   // ---- 基本編集操作（コピー/カット/貼付/複製/分割）----
   // コピー/カット/貼り付けはテロップ・SE/BGM・画像に対応（種別ごとにまとめて保持）。
   // 貼り付けは「元の相対位置を保ったまま再生ヘッド位置へ」（プレミア準拠）。
+  /**
+   * モーションで項目を選んでいる間は、コピー／貼り付けをそちらに回す。
+   *
+   * プレミアと同じ考え方で、**手前で選んでいる物が相手**になる。
+   * モーションのタブを見ていて、そこで項目を選んでいるときだけ横取りする
+   * （タイムラインのクリップのコピーは、それ以外では今までどおり）。
+   */
+  function copyMotionRows(): boolean {
+    if (leftTab !== 'motion') return false
+    const keys = motionSelRef.current
+    if (!keys.length) return false
+    const pick = (src: Record<string, unknown> | undefined): Record<string, Keys | undefined> => {
+      const out: Record<string, Keys | undefined> = {}
+      for (const k of keys) {
+        const v = src?.[k]
+        if (v !== undefined) out[k] = structuredClone(v) as Keys
+      }
+      return out
+    }
+    const src = selected
+      ? { kind: 'telop' as const, motion: selected.motion as Record<string, unknown> | undefined }
+      : reframeTargetRef.current
+        ? {
+            kind: 'clip' as const,
+            motion: reframeTargetRef.current.motion as Record<string, unknown> | undefined
+          }
+        : null
+    if (!src) return false
+    const data = pick(src.motion)
+    const n = Object.keys(data).length
+    if (!n) {
+      // **写す物が無いのに「写した」ことにしない。**
+      // 空のまま覚えると、次の貼り付けが素通りしてクリップの貼り付けに流れ、
+      // テロップが増える＝黙って別の事が起きる。
+      showToast('選んだ項目には動きが付いていません。')
+      return true
+    }
+    motionClipRef.current = { kind: src.kind, data }
+    lastCopyRef.current = 'motion'
+    showToast(
+      `動きを${n}項目コピーしました（${src.kind === 'telop' ? '別のテロップ' : '別のクリップ'}を選んで貼り付け）`
+    )
+    return true
+  }
+  function pasteMotionRows(): boolean {
+    // 見ているタブではなく、**最後に写した物**で決める（上の lastCopyRef 参照）
+    if (lastCopyRef.current !== 'motion') return false
+    const clip = motionClipRef.current
+    if (!clip || !Object.keys(clip.data).length) return false
+    const merge = (m: ClipMotion | Motion | undefined): Record<string, unknown> =>
+      structuredClone({ ...(m ?? {}), ...clip.data })
+    if (clip.kind === 'telop') {
+      // **テロップの動きは、テロップにしか入らない。**
+      // 全部選んでいても、動画や画像は素通りする
+      const ids = selectedIds
+      if (!ids.length) {
+        showToast('貼り付ける先のテロップが選ばれていません。')
+        return true
+      }
+      setCues((prev) =>
+        prev.map((c) =>
+          ids.includes(c.id) && !telopLocked(c)
+            ? { ...c, motion: sanitizeMotion(merge(c.motion)) }
+            : c
+        )
+      )
+      showToast(`${ids.length}個のテロップに貼り付けました。`)
+      return true
+    }
+    const tgt = reframeTargetRef.current
+    const vids = selectedVideoIds.length ? selectedVideoIds : tgt?.kind === 'video' ? [tgt.id] : []
+    const imgs = selectedImgIds.length ? selectedImgIds : tgt?.kind === 'img' ? [tgt.id] : []
+    const vcs = selectedVClipIds.length ? selectedVClipIds : tgt?.kind === 'vclip' ? [tgt.id] : []
+    if (!vids.length && !imgs.length && !vcs.length) {
+      showToast('貼り付ける先のクリップが選ばれていません。')
+      return true
+    }
+    const put = <T extends { motion?: ClipMotion }>(c: T): T =>
+      ({ ...c, motion: merge(c.motion) as ClipMotion }) as T
+    if (vids.length && !trackStates['V1']?.locked)
+      setSegments((prev) => prev.map((s) => (vids.includes(s.id) ? put(s) : s)))
+    if (imgs.length)
+      setImgClips((prev) =>
+        prev.map((c) => (imgs.includes(c.id) && !trackStates[c.track]?.locked ? put(c) : c))
+      )
+    if (vcs.length)
+      setVClips((prev) =>
+        prev.map((c) => (vcs.includes(c.id) && !trackStates[c.track]?.locked ? put(c) : c))
+      )
+    showToast(`${vids.length + imgs.length + vcs.length}個のクリップに貼り付けました。`)
+    return true
+  }
   function copySelected(): void {
+    if (copyMotionRows()) return
+    lastCopyRef.current = 'clip'
     const cueSel = cues.filter((c) => isSelected(c.id)).map((c) => structuredClone(c))
     const seSel = seClips.filter((c) => selectedSeIds.includes(c.id)).map((c) => ({ ...c }))
     const imgSel = imgClips.filter((c) => selectedImgIds.includes(c.id)).map((c) => ({ ...c }))
@@ -7477,6 +7820,7 @@ export default function App(): JSX.Element {
     deleteSelectedVClip()
   }
   function pasteClipboard(): void {
+    if (pasteMotionRows()) return
     const clip = clipboardRef.current
     const clipSe = clipboardSeRef.current
     const clipImg = clipboardImgRef.current
@@ -8394,6 +8738,121 @@ export default function App(): JSX.Element {
     )
   }
   /**
+   * 選んでいるテロップ全部の動きを捨てる。
+   *
+   * **付ける時は選択中の全部に効くのに、消す時だけ1つずつでは対にならない。**
+   * 鍵の掛かっている物は触らない（他の操作と同じ扱い）。
+   */
+  function clearTelopMotions(): void {
+    const ids = selectedIds.length ? selectedIds : []
+    if (!ids.length) return
+    setCues((prev) =>
+      prev.map((c) => (ids.includes(c.id) && !telopLocked(c) ? { ...c, motion: undefined } : c))
+    )
+  }
+  /**
+   * モーションの「選んでいる項目」と、そのコピー。
+   *
+   * **貼り付けは種類を跨がない。** テロップの動き（位置・拡大・波…）と
+   * 映像の動き（拡大・位置だけ）は項目そのものが違うので、混ぜると
+   * 「貼ったのに何も起きない」か、意図しない項目だけが入る。
+   * 全部を選んで貼っても、写した種類の物にだけ入るようにする。
+   */
+  const motionSelRef = useRef<string[]>([])
+  const motionClipRef = useRef<{
+    kind: 'telop' | 'clip'
+    data: Record<string, Keys | undefined>
+  } | null>(null)
+  /**
+   * 最後にコピーしたのはどちらか。**貼り付けは「最後に写した物」に従う。**
+   *
+   * 「モーションのタブを見ているか」で切り替えていたら、一度モーションを
+   * 写しただけで、以降の Ctrl+V が**ずっとモーション側に取られ続けた**。
+   * クリップを写したつもりで貼っても動きが入る＝黙って別の事が起きる。
+   * 何を写したかで決めれば、迷いようがない。
+   */
+  const lastCopyRef = useRef<'clip' | 'motion'>('clip')
+  /** 選んでいるテロップ全部から、その項目の印だけを捨てる */
+  function resetTelopChannel(key: MotionKeyName): void {
+    const ids = selectedIds.length ? selectedIds : []
+    if (!ids.length) return
+    setCues((prev) =>
+      prev.map((c) => {
+        if (!ids.includes(c.id) || telopLocked(c) || !c.motion) return c
+        const next = { ...c.motion, [key]: undefined }
+        return { ...c, motion: hasMotion(next) ? next : undefined }
+      })
+    )
+  }
+  /** 選んでいる映像全部から、その項目の印を捨てる（固定値も既定へ戻す） */
+  function resetClipChannel(key: keyof ClipMotion): void {
+    const tgt = reframeTargetRef.current
+    const vids = selectedVideoIds.length ? selectedVideoIds : tgt?.kind === 'video' ? [tgt.id] : []
+    const imgs = selectedImgIds.length ? selectedImgIds : tgt?.kind === 'img' ? [tgt.id] : []
+    const vcs = selectedVClipIds.length ? selectedVClipIds : tgt?.kind === 'vclip' ? [tgt.id] : []
+    // 印を消すだけだと、固定値で拡大している物は見た目が変わらず「効かない」と見える
+    const zoomOf = (z: { scale: number; x: number; y: number } | undefined): typeof z => {
+      const base = z ?? DEFAULT_ZOOM
+      const next = { ...base }
+      if (key === 'sc') next.scale = 1
+      else if (key === 'x') next.x = 0
+      else if (key === 'y') next.y = 0
+      return isNeutralZoom(next) ? undefined : next
+    }
+    const strip = <T extends { motion?: ClipMotion }>(c: T): T => {
+      if (!c.motion) return c
+      const next = { ...c.motion, [key]: undefined }
+      return { ...c, motion: hasClipMotion(next) ? next : undefined }
+    }
+    if (vids.length && !trackStates['V1']?.locked)
+      setSegments((prev) =>
+        prev.map((s) => (vids.includes(s.id) ? { ...strip(s), zoom: zoomOf(s.zoom) } : s))
+      )
+    if (imgs.length)
+      setImgClips((prev) =>
+        prev.map((c) =>
+          imgs.includes(c.id) && !trackStates[c.track]?.locked
+            ? { ...strip(c), zoom: zoomOf(c.zoom) }
+            : c
+        )
+      )
+    if (vcs.length)
+      setVClips((prev) =>
+        prev.map((c) =>
+          vcs.includes(c.id) && !trackStates[c.track]?.locked
+            ? { ...strip(c), zoom: zoomOf(c.zoom) }
+            : c
+        )
+      )
+  }
+  /** 選んでいる映像（動画切片・画像・映像レイヤー）全部の動きを捨てる */
+  function clearClipMotions(): void {
+    const tgt = reframeTargetRef.current
+    const vids = selectedVideoIds.length
+      ? selectedVideoIds
+      : tgt?.kind === 'video'
+        ? [tgt.id]
+        : []
+    const imgs = selectedImgIds.length ? selectedImgIds : tgt?.kind === 'img' ? [tgt.id] : []
+    const vcs = selectedVClipIds.length ? selectedVClipIds : tgt?.kind === 'vclip' ? [tgt.id] : []
+    if (vids.length && !trackStates['V1']?.locked)
+      setSegments((prev) =>
+        prev.map((s) => (vids.includes(s.id) ? { ...s, motion: undefined } : s))
+      )
+    if (imgs.length)
+      setImgClips((prev) =>
+        prev.map((c) =>
+          imgs.includes(c.id) && !trackStates[c.track]?.locked ? { ...c, motion: undefined } : c
+        )
+      )
+    if (vcs.length)
+      setVClips((prev) =>
+        prev.map((c) =>
+          vcs.includes(c.id) && !trackStates[c.track]?.locked ? { ...c, motion: undefined } : c
+        )
+      )
+  }
+  /**
    * 動画切片・画像・映像レイヤーの「動き」を1項目だけ書き換える。
    * 印が全部無くなったら、その項目ごと捨てる（＝固定値に戻る）。テロップの patchMotion と同じ形。
    */
@@ -8764,14 +9223,16 @@ export default function App(): JSX.Element {
         cutIdx = i
       }
     }
-    // カット境界の近く → 間（左クリップに付与。帯はカット中心にまたいで表示）
+    // カット境界の近く → 間（左クリップに付与）。
+    // **予告帯も「実際に掛かる区間」に出す＝カットの手前 d 秒。**
+    // 置いたあとの帯と位置が食い違うと、置いた場所が動いたように見える。
     if (cutIdx >= 0 && cutPx <= BOUNDARY_PX) {
       const A = lay[cutIdx]
       const d = Math.min(transDur, A.len, lay[cutIdx + 1].len)
       return {
         segId: A.seg.id,
         kind: 'xfade',
-        left: (A.len - d / 2) * z,
+        left: (A.len - d) * z,
         width: d * z,
         label: `間 ${transIco(drag.type)}`
       }
@@ -10786,19 +11247,19 @@ export default function App(): JSX.Element {
       value={String(previewRes)}
       onChange={(e) => {
         const v = e.target.value
-        setPreviewRes(v === 'orig' ? 'orig' : v === 'full' ? 'full' : v === '720' ? 720 : 360)
+        setPreviewRes(v === '1080' ? 1080 : v === '720' ? 720 : 360)
       }}
       title={
         'プレビューの解像度\n' +
-        '・原本＝元動画をそのまま再生。最高画質だが、カットで飛ぶたびに待ちが出る\n' +
-        '・最高画質(軽い)＝原寸のまま、飛びやすい形に焼き直した映像で再生。\n' +
-        '　　見た目は原本のままカットの引っかかりが消える。作るのに時間と容量を使う\n' +
-        '・720p / 360p＝編集用に小さくした映像で再生。360pは再描画も間引いて最軽量\n' +
+        '**どれも編集用に焼き直した映像で再生します**（全コマがキーフレームなので、\n' +
+        'カットで飛んでも引っかかりません）。素材がその高さより小さければそのままです。\n' +
+        '・1080p＝見た目はほぼ原本。容量は一番使う\n' +
+        '・720p ＝標準。作るのも速い\n' +
+        '・360p ＝最軽量。再描画も間引く\n' +
         '書き出しは常に原本のフル画質です（この設定は完成品の画質に影響しません）'
       }
     >
-      <option value="orig">プレビュー 原本（最高画質・重い）</option>
-      <option value="full">プレビュー 最高画質（軽い）</option>
+      <option value="1080">プレビュー 1080p（高画質）</option>
       <option value="720">プレビュー 720p（標準）</option>
       <option value="360">プレビュー 360p（最軽量）</option>
     </select>
@@ -11030,6 +11491,14 @@ export default function App(): JSX.Element {
           {/* タイトルはプロジェクトファイル名。SRTのファイル名を出すと保存先を誤認させる */}
           {projectPath ? projectPath.split(/[\\/]/).pop() : 'GiftCut - 無題プロジェクト'}
           {unsaved ? ' *' : ''}
+          {/* **いま動いている版。**
+              自動更新は黙って入れ替わるので、「直したはずの物が直っていない」と
+              言われたときに、まずここを見れば新旧の取り違えかどうかが分かる。 */}
+          {appVersion && (
+            <span className="app-ver" title="いま動いている GiftCut の版">
+              v{appVersion}
+            </span>
+          )}
         </div>
         <div className="modebar-right">
           <button className="btn btn-primary" onClick={handleImportSrt}>
@@ -11144,7 +11613,10 @@ export default function App(): JSX.Element {
                       ),
                     onPutKey: () => put(key, opt.toKey(opt.value)),
                     onRemoveKey: () =>
-                      patchMotion(selected.id, key, (keys) => removeKey(keys, clipT))
+                      patchMotion(selected.id, key, (keys) => removeKey(keys, clipT)),
+                    // 元の値（位置・拡大など）は触らない。**そこは配置であって動きではない**
+                    // ＝画面のリセットの担当。ここは打った印だけを捨てる
+                    onReset: () => resetTelopChannel(key)
                   })
                   // 位置は「フレームの中の場所」で見せる（0..1 を 1080基準px に直す）
                   const px = (frac: number): number => Math.round(frac * 1920)
@@ -11341,7 +11813,12 @@ export default function App(): JSX.Element {
                          名前が 05.飛び出し のような演出名なので、置き場は他の見本帳と
                          並んでいる方が探せる。ここは**選んだあと数値を詰める**所。 */
                       onSaveMotion={hasMotion(m) ? saveMyMotion : undefined}
-                      onClearMotion={hasMotion(m) ? () => setMotion(selected.id, undefined) : undefined}
+                      /* 選んでいる分すべてから消す（付ける時と同じ範囲） */
+                      onClearMotion={hasMotion(m) ? clearTelopMotions : undefined}
+                      clearCount={selectedIds.length}
+                      onSelectRows={(k) => (motionSelRef.current = k)}
+                      clipLen={selected.end - selected.start}
+                      targetKey={`telop:${selected.id}`}
                     />
                   )
                 })()
@@ -11416,7 +11893,10 @@ export default function App(): JSX.Element {
                     },
                     onPutKey: () => put(key, opt.toKey(opt.value)),
                     onRemoveKey: () =>
-                      patchClipMotion(tgt.kind, tgt.id, key, (keys) => removeKey(keys, clipT))
+                      patchClipMotion(tgt.kind, tgt.id, key, (keys) => removeKey(keys, clipT)),
+                    // 映像は固定値も同じ項目（拡大・位置）なので、そちらも既定へ戻す。
+                    // 印だけ消しても、固定値で寄ったままだと「戻らない」に見える
+                    onReset: () => resetClipChannel(key)
                   })
                   // 動きが1つでも付いていれば、拡大は1倍以上しか焼けない（zoomAt と同じ規則）。
                   // 位置だけ動かしている時も同じなので、印の有無ではなく「動きがあるか」で見る
@@ -11471,6 +11951,14 @@ export default function App(): JSX.Element {
                           base: (v) => setFixed({ y: v })
                         })
                       ]}
+                      /* 映像側にも「動きを消す」を出す。テロップにだけあって
+                         こちらに無いと、消し方が無いように見える（プレビューの
+                         リセットは拡大も戻すので、動きだけ外したい時に使えない）。 */
+                      onClearMotion={hasClipMotion(m) ? clearClipMotions : undefined}
+                      clearCount={resetCount()}
+                      onSelectRows={(k) => (motionSelRef.current = k)}
+                      clipLen={tgt.len}
+                      targetKey={`${tgt.kind}:${tgt.id}`}
                     />
                   )
                 })()
@@ -11796,12 +12284,20 @@ export default function App(): JSX.Element {
                             : 1,
                         // 非表示のソースはクリック等を拾わない
                         pointerEvents: isActive ? undefined : 'none',
-                        filter: isActive ? curAdjustCss : undefined,
-                        ...(isActive ? videoMainStyle : {})
+                        // **見た目の指定は、映していない面にも同じものを当てておく。**
+                        // 入れ替えた瞬間に filter や transform が付くと、その面の
+                        // 描き方（合成の経路）が切り替わり、そこで待ちが出る。
+                        // 先に当てておけば、入れ替えで変わるのは透明度だけになる。
+                        filter: curAdjustCss,
+                        ...videoMainStyle
                       }}
                       src={previewUrl(s.path, s.origUrl)}
                       preload="auto"
-                      muted={!isActive}
+                      // **どの面も muted にしない。**
+                      // 音のある動画はメディア時計が音声側に従うため、muted を
+                      // 切り替えると時計が張り替わり、絵まで250ms止まる（カットのたびに発生）。
+                      // 裏の面は音量0で黙らせている（上の音量 effect と入れ替えの所）。
+                      muted={false}
                       onLoadedMetadata={(e) => {
                         const d = e.currentTarget.duration || 0
                         if (s.id >= 0) updateSource(s.id, { duration: d })
@@ -12021,8 +12517,15 @@ export default function App(): JSX.Element {
                       <span className="reframe-scale">
                         {Math.round(reframeTarget.zoom.scale * 100)}%
                       </span>
-                      <button className="reframe-btn" onClick={resetVideoZoom} title="等倍に戻す">
+                      {/* 何個に効くかを出す。選択中の全部に効くので、
+                          1個のつもりで押して他まで戻る、が起きないように */}
+                      <button
+                        className="reframe-btn"
+                        onClick={resetVideoZoom}
+                        title="等倍に戻し、打った動きも消します（選択中すべて）"
+                      >
                         リセット
+                        {resetCount() > 1 ? `（${resetCount()}個）` : ''}
                       </button>
                       <button
                         className="reframe-btn"
@@ -13209,7 +13712,18 @@ export default function App(): JSX.Element {
                             </div>
                           )
                         }
-                        // カット間クロスディゾルブ: カットをまたいで両クリップに掛かる表示 [cut-d/2, cut+d/2]
+                        // カット間クロスディゾルブ。
+                        //
+                        // **帯は「実際に効いている区間」に描く＝[cut-d, cut)。**
+                        // 以前はカットを中心に [cut-d/2, cut+d/2] で描いていたが、
+                        // プレビューも書き出しも**カットの手前 d 秒**で掛かる作りなので、
+                        // 帯だけが半分ずれていた。
+                        // 「貼ってある所より早く動く」と言われたのはこれ
+                        // （効果が早いのではなく、帯が半分後ろに描かれていた）。
+                        //
+                        // ※ プレミアのように「カットをまたいで真ん中」に掛けるには、
+                        //   左のクリップが尻より先のコマを持っている必要がある（のりしろ）。
+                        //   そこまで変えるなら書き出し側の offset も一緒に直すこと。
                         const xd = xfadeDurAt(segLayout, L.index)
                         if (xd > 0) {
                           const cut = L.tEnd
@@ -13219,8 +13733,8 @@ export default function App(): JSX.Element {
                             <div
                               key={`xf-${L.seg.id}`}
                               className={`ttrans ${bandClass(L.seg.xfade?.type ?? 'fade')} ${sel ? 'ttrans-sel' : ''}`}
-                              style={{ left: (cut - xd / 2) * zoom, width: Math.max(xd * zoom, 12) }}
-                              title={`${transLabel(L.seg.xfade?.type)} ${xd.toFixed(2)}s（両クリップの間・クリックで選択・Deleteで削除）`}
+                              style={{ left: (cut - xd) * zoom, width: Math.max(xd * zoom, 12) }}
+                              title={`${transLabel(L.seg.xfade?.type)} ${xd.toFixed(2)}s（カットの手前で掛かります・クリックで選択・Deleteで削除）`}
                               onPointerDown={(e) => {
                                 e.stopPropagation()
                                 if (e.button === 0) selectTransition(L.seg.id, 'xfade')

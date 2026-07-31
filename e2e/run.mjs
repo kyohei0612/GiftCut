@@ -434,8 +434,11 @@ async function check(name, fn, opts = {}) {
       }
     }
     results.push({ name, ok: false, err: String(e?.message ?? e), state, png })
-    console.log(`  \x1b[31m✗\x1b[0m ${name}\n      ${msg}`)
-    if (state) console.log(`      \x1b[90m落ちた時の画面: ${JSON.stringify(state)}\x1b[0m`)
+    // **落ちた理由はその場で1行出す。**
+    // 「回し終わってから報告書を読む」だと、読むためにもう一度回すことになる。
+    // 印を付けておけば、流しっぱなしのまま ✓ ✗ 理由 だけを拾える。
+    // 落ちた時の画面は最後の一覧にだけ出す（同じ物を2度出すと理由が埋もれる）。
+    console.log(`  \x1b[31m✗\x1b[0m ${name}\n      \x1b[31m理由:\x1b[0m ${msg}`)
     await banner({
       status: 'ng',
       name: esc(name),
@@ -969,6 +972,19 @@ try {
    * 前の章の操作が残っていると、失敗の原因が「今見ている物」なのか
    * 「前の章の後始末漏れ」なのか分からなくなる。
    */
+  /**
+   * トランジションタブで開けた節を畳み直す。
+   *
+   * **節の開閉は保存されるので、開けっぱなしにすると次の項目へ持ち越す。**
+   * 実際に「既定は全部畳んでおく」を見ている項目が、これで赤くなった。
+   */
+  const closeTransAccs = async () => {
+    for (const el of await page.locator('.tpl-acc.open').all()) {
+      await el.click().catch(() => {})
+      await page.waitForTimeout(150)
+    }
+  }
+
   async function resetProject() {
     if (SHOT_ONLY) return
     // 別ウィンドウへ出したパネルが残っていると、本体からはそのパネルが
@@ -2257,6 +2273,81 @@ try {
     assert(h === 720, `高さが720になっていない（${w}x${h}）`)
   })
 
+  await check('ショート（9:16）でも、縦長のまま中身が入って書き出せる', async () => {
+    // **縦長は横長の使い回しでは通らない。** 幅と高さが入れ替わるので、
+    // 出力の寸法・映像の入り方（潰れていないか）・テロップの焼き込みが
+    // それぞれ別の壊れ方をしうる。ショートを作る人には毎回効く所なので機械で見る。
+    await resetProject()
+    await page.locator('.ratio-group .chip', { hasText: '9:16' }).first().click()
+    await page.waitForTimeout(600)
+    assert(
+      (await page.locator('.ratio-group .chip.chip-on').innerText()).includes('9:16'),
+      '9:16 に切り替わっていない'
+    )
+    const out = join(outDir, 'short916.mp4')
+    await setDialogFiles(null, out)
+    await page.keyboard.press('Control+m')
+    await page.waitForSelector('.export-overlay')
+    await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
+    await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
+    assert(existsSync(out), '書き出しファイルができていない')
+
+    const probe = spawn('ffprobe', [
+      '-v', 'error', '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height,nb_frames:format=duration', '-of', 'default=nw=1', out
+    ])
+    let o = ''
+    probe.stdout.on('data', (d) => (o += d))
+    await new Promise((res) => probe.on('close', res))
+    const w = Number(/width=(\d+)/.exec(o)?.[1] ?? 0)
+    const h = Number(/height=(\d+)/.exec(o)?.[1] ?? 0)
+    const dur = Number(/duration=([\d.]+)/.exec(o)?.[1] ?? 0)
+    assert(w === 1080 && h === 1920, `縦長になっていない（${w}x${h}。1080x1920 のはず）`)
+    assert(dur > 1, `尺が入っていない（${dur}秒）`)
+
+    // **中身が入っていること。** 寸法だけ合っていて真っ黒、が一番たちが悪い。
+    const f = join(shotDir, 'short916.png')
+    const g = spawn('ffmpeg', ['-y', '-ss', '1.2', '-i', out, '-frames:v', '1', f])
+    await new Promise((res) => g.on('close', res))
+    assert(existsSync(f), 'コマを取り出せない')
+    const c = await avgColor(f)
+    assert(c.y != null && c.y > 8, `中身が真っ黒（明るさ ${c.y}）`)
+
+    // **収まり方まで見る。** 横長の素材を縦長の枠に入れるので、
+    // 上下は黒帯・真ん中に映像、が正しい形。
+    // ここを見ないと「引き伸ばして潰れている」「横に倒れている」を見逃す。
+    const top = await avgColorAt(f, 0, 0, 1080, 380)
+    const middle = await avgColorAt(f, 0, 770, 1080, 380)
+    const bottom = await avgColorAt(f, 0, 1540, 1080, 380)
+    assert(
+      middle.y != null && top.y != null && bottom.y != null,
+      '縦長のコマを場所ごとに測れない'
+    )
+    assert(
+      middle.y > top.y + 5 && middle.y > bottom.y + 5,
+      `映像が真ん中に入っていない（上 ${top.y} / 中 ${middle.y} / 下 ${bottom.y}）` +
+        '＝引き伸ばしか、上下が埋まっている'
+    )
+    // 真ん中には模様がある（のっぺりなら映像が出ていない）
+    assert(middle.range != null && middle.range > 30, `真ん中に絵が無い（明暗の幅 ${middle.range}）`)
+
+    // テロップも焼けているか。文字が乗る所は明暗の幅が出る
+    const ft = join(shotDir, 'short916-telop.png')
+    const gt = spawn('ffmpeg', ['-y', '-ss', '2.0', '-i', out, '-frames:v', '1', ft])
+    await new Promise((res) => gt.on('close', res))
+    assert(existsSync(ft), 'テロップ確認用のコマを取り出せない')
+    const tArea = await avgColorAt(ft, 0, 1150, 1080, 500) // 下寄り＝既定のテロップ位置
+    assert(
+      tArea.range != null && tArea.range > 40,
+      `縦長だとテロップが焼けていない/枠の外に出ている（明暗の幅 ${tArea.range}）`
+    )
+
+    await page.locator('.ratio-group .chip', { hasText: '16:9' }).first().click()
+    await page.waitForTimeout(400)
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
   await check('Ctrl+M でも書き出しの設定画面が出る（いきなり始まらない）', async () => {
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay', { timeout: 5000 })
@@ -2290,9 +2381,10 @@ try {
   section('1・3. 起動直後と素材の配置')
   await resetProject()
 
-  await check('起動直後の画質設定が「原本（最高画質）」になっている', async () => {
+  await check('起動直後の画質設定が 1080p になっている', async () => {
+    // **黙って低画質で始めない。** 何もしていないのに粗く見えているのが一番困る
     const v = await page.locator('.pq-preview').first().inputValue()
-    assert(v === 'orig', `画質設定が原本になっていない（${v}）`)
+    assert(v === '1080', `画質設定が 1080p になっていない（${v}）`)
   })
 
   await check('効果音の「お気に入り」は最初から開いていて、フォルダを開いても畳まれない', async () => {
@@ -2560,6 +2652,105 @@ try {
     assert(bad?.ok === false, `知らない置き場を断っていない: ${JSON.stringify(bad)}`)
   })
 
+  await check('右パネルの設定（お気に入り等）が、更新をまたいでも同じ場所に紐づく', async () => {
+    // お気に入り・自作のテロップスタイル・人物・アイコンの割り当て・自分の動きは
+    // **ファイルではなく画面側の保存領域（localStorage）**に入っている。
+    // これは userData の下（Local Storage）にあるので更新では消えないが、
+    // **紐づく先は「画面をどこから読み込んだか」で決まる**。
+    //
+    // いまは file:// ＝場所を含まない原点なので、入れ直しても引っ越しても同じ所を見る。
+    // ここを独自の仕組み（app:// のような物）へ変えると、その更新の瞬間に
+    // **利用者の設定が全部消える。しかも黙って消える。**
+    // 変えるときに気づけるよう、ここで釘を打っておく。
+    const origin = await page.evaluate(() => ({
+      protocol: location.protocol,
+      origin: location.origin
+    }))
+    assert(
+      origin.protocol === 'file:',
+      `画面の読み込み元が file:// ではない（${origin.protocol} / ${origin.origin}）` +
+        '＝この更新で、お気に入りなど右パネルの設定が全部消える'
+    )
+    // 実際に書けて、読み直せること（保存領域そのものが死んでいないか）
+    const rt = await page.evaluate(() => {
+      try {
+        localStorage.setItem('giftcut.e2e.probe', 'ok')
+        const v = localStorage.getItem('giftcut.e2e.probe')
+        localStorage.removeItem('giftcut.e2e.probe')
+        return v
+      } catch (e) {
+        return String(e)
+      }
+    })
+    assert(rt === 'ok', `画面側の保存領域が使えない（${rt}）`)
+  })
+
+  await check('お気に入りなど、いじった物がファイルにも残る（持ち出せる形で）', async () => {
+    // 画面側の保存領域だけだと、**目に見えない・持ち出せない・仕組みを変えた瞬間に消える**。
+    // 同じ内容をファイルにも書いておき、無ければそこから戻す。
+    // ここでは「本当にファイルになるか」「そのファイルから戻せるか」を両方見る。
+    const p = join(fx.userData, 'ユーザー設定.json')
+    await page.evaluate(() => {
+      localStorage.setItem('giftcut.seFavorites', JSON.stringify(['E2E_お気に入り']))
+    })
+    // 写しは変わったときに書かれる（間隔を置いているので少し待つ）
+    for (let i = 0; i < 20 && !existsSync(p); i++) await page.waitForTimeout(500)
+    let saved = null
+    for (let i = 0; i < 20; i++) {
+      if (existsSync(p)) {
+        saved = JSON.parse(readFileSync(p, 'utf-8'))
+        if (saved['giftcut.seFavorites']?.includes('E2E_お気に入り')) break
+      }
+      await page.waitForTimeout(500)
+    }
+    assert(existsSync(p), `控えのファイルができていない（${p}）`)
+    assert(
+      saved?.['giftcut.seFavorites']?.includes('E2E_お気に入り'),
+      `お気に入りが控えに入っていない: ${JSON.stringify(saved)?.slice(0, 200)}`
+    )
+    // 中身は人が読める形（メモ帳で開いて確かめられること）
+    assert(readFileSync(p, 'utf-8').includes('giftcut.seFavorites'), '控えが読める形になっていない')
+
+    // **消えた状態から戻せるか。** ここが本番（更新・入れ直し・引っ越し）
+    const back = await page.evaluate(async () => {
+      localStorage.removeItem('giftcut.seFavorites')
+      const r = await window.giftcut.readUserStore()
+      const v = r?.data?.['giftcut.seFavorites']
+      if (typeof v === 'string') localStorage.setItem('giftcut.seFavorites', v)
+      return localStorage.getItem('giftcut.seFavorites')
+    })
+    assert(
+      back?.includes('E2E_お気に入り'),
+      `控えから戻せない（${back}）＝更新や入れ直しで設定が失われる`
+    )
+  })
+
+  await check('自分で足したテロップ素材は、更新で消えない場所から読まれる', async () => {
+    // **自動更新はアプリのフォルダを丸ごと入れ替える。**
+    // 読む場所が userData の外へ移ると、更新した瞬間に利用者の素材が消える
+    // ——しかも消えたことに気づくのは、次に使おうとした時。
+    // 「置き場を開く」の行があるかは別の項目で見ているので、ここでは
+    // **その場所に置いた物が本当に読まれるか**を見る。
+    const dir = join(fx.userData, 'telop-presets')
+    mkdirSync(dir, { recursive: true })
+    const mark = 'E2E_更新で消えない'
+    writeFileSync(
+      join(dir, 'e2e-keep.json'),
+      JSON.stringify([{ name: mark, style: { fontSize: 64, color: '#fff' } }]),
+      'utf-8'
+    )
+    const got = await page.evaluate(async (mark) => {
+      const r = await window.giftcut.listTelopPresets()
+      const items = (r?.items ?? []).map((x) => (x && typeof x === 'object' ? x.name : ''))
+      return { ok: !!r?.ok, hit: items.includes(mark), n: items.length }
+    }, mark)
+    assert(
+      got.hit,
+      `userData/telop-presets に置いた素材が読まれない（${got.n}件・ok=${got.ok}）` +
+        '＝更新でユーザーの素材が消える置き場になっている疑い'
+    )
+  })
+
   await check('取り消せない操作の実行ボタンが赤い', async () => {
     await setDialogFiles([fx.srt], null)
     await page.locator('button', { hasText: 'SRT読込' }).first().click()
@@ -2660,20 +2851,15 @@ try {
     touchedRef.dirty = true
   })
 
-  await check('「詳しい動き」を開くと、取り込んだ演出で使う項目が打てる', async () => {
+  await check('「詳細設定」に、取り込んだ演出で使う項目が並んでいて打てる', async () => {
     // 位置・拡大・回転・不透明度だけでは、写し取った演出の半分も作れない
-    // （横だけの拡大・3D回転・明るさ・切り抜き…）。ただし全部いっぺんに並べると
-    // よく使う行が下へ流れるので、畳んである。**開けば打てる**ことを見る。
-    const sec = page.locator('.mo-sec', { hasText: '詳しい動き' }).first()
-    assert(await sec.count(), 'モーションタブに「詳しい動き」が無い')
-    assert(
-      (await page.locator('.mo-row').filter({ hasText: '横だけ拡大' }).count()) === 0,
-      '畳んでいるはずの行が最初から出ている'
-    )
-    await sec.click()
-    await page.waitForTimeout(300)
+    // （横だけの拡大・3D回転・明るさ・切り抜き…）。
+    // **畳まずに出しておく**（畳んだままだと、そこに何があるか忘れる）。
+    // 見出しを押すのは「畳む」ではなく「その組をまとめて選ぶ」＝コピーの相手決め。
+    const sec = page.locator('.mo-sec', { hasText: '詳細設定' }).first()
+    assert(await sec.count(), 'モーションタブに「詳細設定」が無い')
     const row = page.locator('.mo-row').filter({ hasText: '横だけ拡大' }).first()
-    assert(await row.count(), '開いても「横だけ拡大」が出ない')
+    assert(await row.count(), '「横だけ拡大」が出ていない')
 
     const wAt = async () =>
       (await page.locator('.telop-overlay .telop-textmain').first().boundingBox())?.width ?? null
@@ -2715,6 +2901,28 @@ try {
   await check('書き出した動画でも、テロップが同じように動く', async () => {
     // **ここが本番。** プレビューで動いても書き出しで動かなければ意味が無い
     // （ダッキングで「聴いた音と書き出した音が違う」を潰したのと同じ理由）。
+    //
+    // ※ 動きは自分で付ける。前の項目に寄りかかると、絞って回したときに
+    //    「動きが無い状態で書き出して、動いていない」と赤くなる＝本物と紛れる。
+    if (!(await page.locator('.telop-clip .kf-mark').count())) {
+      await page.locator('.telop-clip').first().click()
+      await page.waitForTimeout(300)
+      await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+      await page.waitForTimeout(300)
+      const trow = page.locator('.mo-row').filter({ hasText: '位置 X' }).first()
+      assert(await trow.count(), 'テロップのモーションに「位置 X」が無い')
+      await seekTo(1.2)
+      if (!(await trow.locator('.mo-watch.on').count())) await trow.locator('.mo-watch').click()
+      await page.waitForTimeout(300)
+      await seekTo(2.6)
+      await trow.locator('.mo-val').fill('1400')
+      await trow.locator('.mo-val').press('Enter')
+      await page.waitForTimeout(400)
+      // 数値欄にカーソルが残っていると Ctrl+M が欄に吸われる（書き出しが始まらない）
+      await page.locator('.mo-head').first().click()
+      await page.waitForTimeout(200)
+      touchedRef.dirty = true
+    }
     const out = join(outDir, 'motion.mp4')
     await setDialogFiles(null, out)
     await page.keyboard.press('Control+m')
@@ -2786,7 +2994,20 @@ try {
   await check('拡大の動きは1倍未満にできない（書き出せない値を画面から打たせない）', async () => {
     // zoompan は寄る方しか焼けない。**画面だけ引けてしまうと、書き出しでだけ絵が違う**
     // という一番たちの悪いズレになるので、入力の側で止める。
+    //
+    // ※ 前の項目の状態に寄りかからない。順番が変わるたびに落ちるようだと、
+    //    落ちても「本物か並びのせいか」を毎回調べ直すことになる。
+    //    **テロップが選ばれたままだと、モーションはテロップの物が出る**ので、
+    //    まっさらにしてから動画の切片だけを選ぶ。
+    await resetProject()
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    await v1Clips().nth(0).click()
+    await page.waitForTimeout(300)
     const row = page.locator('.mo-row').filter({ hasText: '拡大' }).first()
+    assert(await row.count(), 'モーションに動画の「拡大」が出ていない')
+    await seekTo(0.4)
+    if (!(await row.locator('.mo-watch.on').count())) await row.locator('.mo-watch').click()
+    await page.waitForTimeout(300)
     const val = row.locator('.mo-val')
     assert(
       (await val.getAttribute('min')) === '100',
@@ -2804,6 +3025,445 @@ try {
     touchedRef.dirty = true
   })
 
+  await check('プレビューのリセットは、選んでいる分すべてに効く（動きも消える）', async () => {
+    // **付ける時は選択中の全部に効くのに、戻す時だけ1つでは対で使えない。**
+    // さらに、拡大だけ等倍にしても印が残っていれば再生した瞬間にまた動きだす
+    // ＝「戻っていない」ように見えるので、印も一緒に消えることまで見る。
+    await resetProject()
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    const row = () => page.locator('.mo-row').filter({ hasText: '拡大' }).first()
+
+    // 1つ目には印を打つ（時間で動く方）
+    await v1Clips().nth(0).click()
+    await page.waitForTimeout(300)
+    await seekTo(0.4)
+    await row().locator('.mo-watch').click()
+    await seekTo(3)
+    await row().locator('.mo-val').fill('200')
+    await row().locator('.mo-val').press('Enter')
+    await page.waitForTimeout(400)
+    assert((await v1Clips().nth(0).locator('.kf-mark').count()) > 0, '1つ目に印が付かない')
+
+    // 2つ目は固定の拡大だけ（印なし）。**種類の違う2つが同時に戻ることを見る**
+    await v1Clips().nth(1).click()
+    await page.waitForTimeout(300)
+    await row().locator('.mo-val').fill('150')
+    await row().locator('.mo-val').press('Enter')
+    await page.waitForTimeout(400)
+
+    // 2つまとめて選ぶ
+    await v1Clips().nth(0).click()
+    await v1Clips().nth(1).click({ modifiers: ['Control'] })
+    await page.waitForTimeout(400)
+    const btn = page.locator('.reframe-btn').filter({ hasText: 'リセット' }).first()
+    assert(await btn.count(), 'プレビューにリセットのボタンが出ていない')
+    const label = await btn.innerText()
+    assert(/2個/.test(label), `何個に効くかがボタンに出ていない（「${label}」）`)
+    await btn.click()
+    await page.waitForTimeout(500)
+
+    assert(
+      (await v1Clips().nth(0).locator('.kf-mark').count()) === 0,
+      '1つ目の印が消えていない（動きが残ったまま）'
+    )
+    // 2つとも等倍に戻っている（固定値の方も）
+    for (const i of [0, 1]) {
+      await v1Clips().nth(i).click()
+      await page.waitForTimeout(300)
+      const v = await row().locator('.mo-val').inputValue()
+      assert(Number(v) === 100, `${i + 1}つ目が等倍に戻っていない（${v}%）`)
+    }
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
+  await check('モーションは項目を選んでコピーでき、種類の違う物には入らない', async () => {
+    // プレミアの「エフェクトコントロール」と同じ。項目（や組）を選んでコピーし、
+    // 別のクリップを選んで貼ると、その項目だけが移る。
+    //
+    // **種類を跨がないことまで見る。** テロップの動きを写して動画へ貼っても
+    // 入らない（項目そのものが別物なので、入ると壊れる）。
+    await resetProject()
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+
+    // 1つ目の切片に「拡大」の動きを打つ
+    await v1Clips().nth(0).click()
+    await page.waitForTimeout(300)
+    const row = () => page.locator('.mo-row').filter({ hasText: '拡大' }).first()
+    await seekTo(0.4)
+    await row().locator('.mo-watch').click()
+    await seekTo(3)
+    await row().locator('.mo-val').fill('180')
+    await row().locator('.mo-val').press('Enter')
+    await page.waitForTimeout(400)
+    assert((await v1Clips().nth(0).locator('.kf-mark').count()) > 0, '1つ目に印が付かない')
+
+    // 項目名を押して選ぶ → コピー
+    await row().locator('.mo-label').click()
+    await page.waitForTimeout(200)
+    assert(
+      (await page.locator('.mo-row.mo-picked').count()) === 1,
+      '項目を押しても選ばれた見た目にならない'
+    )
+    await page.keyboard.press('Control+c')
+    await page.waitForTimeout(300)
+
+    // 2つ目の切片へ貼り付け
+    await v1Clips().nth(1).click()
+    await page.waitForTimeout(300)
+    assert(
+      (await v1Clips().nth(1).locator('.kf-mark').count()) === 0,
+      '貼り付ける前から2つ目に印がある'
+    )
+    await page.keyboard.press('Control+v')
+    await page.waitForTimeout(500)
+    const marks = await v1Clips().nth(1).locator('.kf-mark').count()
+    assert(marks > 0, `貼り付けても2つ目に印が入らない（${marks}個）`)
+
+    // テロップの動きは、動画には入らない
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(300)
+    const trow = page.locator('.mo-row').filter({ hasText: '位置 X' }).first()
+    assert(await trow.count(), 'テロップのモーションに「位置 X」が無い')
+    await seekTo(0.2)
+    await trow.locator('.mo-watch').click()
+    await page.waitForTimeout(300)
+    await trow.locator('.mo-label').click()
+    await page.waitForTimeout(200)
+    await page.keyboard.press('Control+c')
+    await page.waitForTimeout(300)
+    // 動画の切片へ貼っても入らない（項目が別物なので）
+    await v1Clips().nth(2).click()
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Control+v')
+    await page.waitForTimeout(500)
+    assert(
+      (await v1Clips().nth(2).locator('.kf-mark').count()) === 0,
+      'テロップの動きが動画クリップに入ってしまった'
+    )
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
+  await check('テロップの動きを、別のテロップへコピーできる', async () => {
+    // **いちばんよく使う向き。** 1つ作り込んで、残りに配る。
+    // 前の項目では「動画→動画」と「テロップ→動画に入らない」しか見ておらず、
+    // **本命のテロップ→テロップを見ていなかった**。
+    await resetProject()
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+
+    const telops = page.locator('.telop-clip')
+    assert((await telops.count()) >= 2, 'テロップが2つ以上ない（この項目は2つ要ります）')
+
+    // 1つ目に「位置 X」の動きを打つ
+    await telops.nth(0).click()
+    await page.waitForTimeout(300)
+    const row = () => page.locator('.mo-row').filter({ hasText: '位置 X' }).first()
+    assert(await row().count(), 'テロップのモーションに「位置 X」が無い')
+    const t0 = await telops.nth(0).evaluate((el) => ({
+      l: el.getBoundingClientRect().left,
+      w: el.getBoundingClientRect().width
+    }))
+    void t0
+    await seekTo(1.2)
+    await row().locator('.mo-watch').click()
+    await page.waitForTimeout(300)
+    await seekTo(2.6)
+    await row().locator('.mo-val').fill('1400')
+    await row().locator('.mo-val').press('Enter')
+    await page.waitForTimeout(400)
+    const marks0 = await telops.nth(0).locator('.kf-mark').count()
+    assert(marks0 >= 2, `1つ目に印が2つ入らない（${marks0}個）`)
+
+    // 項目名を押して選ぶ → コピー
+    await row().locator('.mo-label').click()
+    await page.waitForTimeout(200)
+    assert(
+      (await page.locator('.mo-row.mo-picked').count()) === 1,
+      '項目を押しても選ばれた見た目にならない'
+    )
+    await page.keyboard.press('Control+c')
+    await page.waitForTimeout(400)
+
+    // 2つ目へ貼り付け
+    await telops.nth(1).click()
+    await page.waitForTimeout(300)
+    assert(
+      (await telops.nth(1).locator('.kf-mark').count()) === 0,
+      '貼り付ける前から2つ目に印がある'
+    )
+    await page.keyboard.press('Control+v')
+    await page.waitForTimeout(600)
+    // **テロップが増えていないこと。** コピーが空振りしていると、
+    // Ctrl+V が「クリップの貼り付け」に流れてテロップが増える（黙って別の事が起きる）
+    const n = await telops.count()
+    assert(n === 2, `貼り付けでテロップの数が変わった（${n}個）＝クリップの貼り付けに流れている`)
+    const marks1 = await telops.nth(1).locator('.kf-mark').count()
+    assert(marks1 >= 2, `貼り付けても2つ目に印が入らない（${marks1}個）`)
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
+  await check('見本帳で付けた動きを、組ごと選んで複数のテロップへ配れる', async () => {
+    // 実際の使い方はこちら: 見本帳から選んで付ける → 組の見出しでまとめて選ぶ →
+    // 配りたいテロップを複数選んで貼る。手で1項目ずつ打つ流れしか見ていなかった。
+    await resetProject()
+    const telops = page.locator('.telop-clip')
+    await telops.nth(0).click()
+    await page.waitForTimeout(300)
+    // 見本帳（右パネル）から標準の動きを1つ付ける
+    await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
+    await page.waitForTimeout(300)
+    const sec = page.locator('.tpl-acc', { hasText: '💫 動き' }).first()
+    if (!(await page.locator('.tpl-acc.open', { hasText: '💫 動き' }).count())) {
+      await sec.click()
+      await page.waitForTimeout(400)
+    }
+    const preset = page.locator('.mo-preset').first()
+    assert(await preset.count(), '見本帳に標準の動きが並んでいない')
+    await preset.click()
+    await page.waitForTimeout(600)
+    assert(
+      (await telops.nth(0).locator('.kf-mark').count()) > 0,
+      '見本帳の動きを付けても印が出ない'
+    )
+
+    // 組の見出しでまとめて選ぶ → コピー
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    await page.waitForTimeout(300)
+    const head = page.locator('.mo-sec', { hasText: '簡単な設定' }).first()
+    assert(await head.count(), '「簡単な設定」の見出しが無い')
+    await head.click()
+    await page.waitForTimeout(200)
+    const picked = await page.locator('.mo-row.mo-picked').count()
+    assert(picked > 1, `見出しを押しても組がまとめて選ばれない（${picked}行）`)
+    await page.keyboard.press('Control+c')
+    await page.waitForTimeout(400)
+
+    // 2つ目へ貼る
+    await telops.nth(1).click()
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Control+v')
+    await page.waitForTimeout(600)
+    assert((await telops.count()) === 2, 'テロップが増えた＝クリップの貼り付けに流れている')
+    assert(
+      (await telops.nth(1).locator('.kf-mark').count()) > 0,
+      '組ごと貼り付けても2つ目に印が入らない'
+    )
+    await closeTransAccs() // 開けた節は畳んで返す（開閉は保存されるため）
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
+  /**
+   * 見本帳のチップを、タイムラインの座標へ「掴んで落とす」。
+   *
+   * **トランジションは掴んで置く物なので、これが無いと一切自動化できない**
+   * （クリックでは付かない）。マウス操作では HTML5 の掴み落としは起きないので、
+   * その場で drag の一連を起こしてやる。
+   */
+  const dropChipAt = async (chipText, x, y) => {
+    await page.evaluate(
+      ({ chipText, x, y }) => {
+        const chip = [...document.querySelectorAll('.fx-item')].find((el) =>
+          (el.textContent ?? '').includes(chipText)
+        )
+        if (!chip) throw new Error(`見本帳に「${chipText}」が無い`)
+        const dt = new DataTransfer()
+        const ev = (t, el, more = {}) =>
+          el.dispatchEvent(
+            new DragEvent(t, { bubbles: true, cancelable: true, dataTransfer: dt, ...more })
+          )
+        ev('dragstart', chip)
+        const target = document.elementFromPoint(x, y)
+        if (!target) throw new Error('落とす先が見つからない')
+        const at = { clientX: x, clientY: y }
+        ev('dragenter', target, at)
+        ev('dragover', target, at)
+        ev('drop', target, at)
+        ev('dragend', chip)
+      },
+      { chipText, x, y }
+    )
+    await page.waitForTimeout(500)
+  }
+
+  await check('カット間トランジションは、帯に描いてある区間で実際に掛かる', async () => {
+    // 報告: 「貼ってある所より早く動く」。
+    // 実際は**効果が早いのではなく、帯が半分後ろに描かれていた**。
+    //   帯:       カットを中心に [cut-d/2, cut+d/2]
+    //   プレビュー: カットの手前  [cut-d,   cut)
+    //   書き出し:  offset = 累計 - d ＝プレビューと同じ
+    // 見た目だけが食い違っていたので、帯を実際の区間へ合わせた。
+    //
+    // ここでは**帯の位置**と**効果が出ている時刻**の両方を測って、揃っているかを見る。
+    await resetProject()
+    // まずカットを作る（切片が1つだとカット間トランジションは置けない）
+    const n0 = await v1Clips().count()
+    if (n0 < 2) {
+      await page.keyboard.press('c') // カッター
+      await v1Clips().nth(0).click({ position: { x: 60, y: 8 } })
+      await page.waitForTimeout(500)
+      await page.keyboard.press('v') // 選択に戻す
+      await page.waitForTimeout(200)
+    }
+    assert((await v1Clips().count()) >= 2, 'カットが増えていない')
+
+    await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
+    await page.waitForTimeout(300)
+    // 見本帳の節は既定で畳んである。動画クリップ用を開く
+    if (!(await page.locator('.tpl-acc.open', { hasText: '動画クリップ' }).count())) {
+      await page.locator('.tpl-acc', { hasText: '動画クリップ' }).first().click()
+      await page.waitForTimeout(400)
+    }
+    const b0 = await v1Clips().nth(0).boundingBox()
+    assert(b0, '1つ目のクリップが見つからない')
+    await dropChipAt('ディゾルブ', b0.x + b0.width - 2, b0.y + b0.height / 2)
+    const band = page.locator('.ttrans-xfade').first()
+    assert(await band.count(), 'カットの境目に落としてもトランジションが付かない')
+
+    // 帯の左右端を秒に直す（トラックの左端＝0秒、幅は zoom 倍）
+    const geo = await page.evaluate(() => {
+      const el = document.querySelector('.ttrans-xfade')
+      const inner = document.querySelector('.track-inner')
+      if (!el || !inner) return null
+      const a = el.getBoundingClientRect()
+      const b = inner.getBoundingClientRect()
+      return { left: a.left - b.left, width: a.width }
+    })
+    assert(geo, '帯の位置を測れない')
+    const clipEndPx = await page.evaluate(() => {
+      const c = document.querySelectorAll('[data-tid="V1"] .clip:not(.se-ghost)')[0]
+      const inner = document.querySelector('.track-inner')
+      if (!c || !inner) return null
+      return c.getBoundingClientRect().right - inner.getBoundingClientRect().left
+    })
+    assert(clipEndPx != null, '1つ目のクリップの右端を測れない')
+    // **帯の右端＝カット**（手前 d 秒に掛かるので、はみ出さない）
+    assert(
+      Math.abs(geo.left + geo.width - clipEndPx) < 4,
+      `帯の右端がカットに合っていない（帯右端 ${Math.round(geo.left + geo.width)}px / カット ${Math.round(clipEndPx)}px）`
+    )
+
+    // **帯の中では本当に混ざっていること。** 位置が合っていても効いていなければ意味が無い。
+    // 混ざり具合は2本目の映像の透け具合（opacity）で見る。
+    //
+    // 時刻は決め打ちにしない。**画素から秒へ直す**（1秒あたりの画素＝帯の幅÷長さ）。
+    const dur = Number(/([\d.]+)s/.exec((await band.innerText()) ?? '')?.[1] ?? '0')
+    assert(dur > 0.05, `帯から長さを読めない（「${await band.innerText()}」）`)
+    const pxPerSec = geo.width / dur
+    const cutT = clipEndPx / pxPerSec
+    const bOpacity = async (t) => {
+      await seekTo(t)
+      await page.waitForTimeout(350)
+      return page.evaluate(() => {
+        const el = document.querySelector('.screen-video-b')
+        return el ? Number(getComputedStyle(el).opacity) : null
+      })
+    }
+    const before = await bOpacity(Math.max(0.05, cutT - dur - 0.4)) // 帯より前
+    const mid = await bOpacity(cutT - dur / 2) // 帯の真ん中
+    assert(before != null && mid != null, '2本目の映像が見つからない')
+    assert(before < 0.05, `帯の外なのに混ざっている（透け具合 ${before}）`)
+    assert(
+      mid > 0.2 && mid < 0.95,
+      `帯の真ん中（${(cutT - dur / 2).toFixed(2)}秒）で混ざっていない（透け具合 ${mid}）`
+    )
+    await closeTransAccs() // 開けた節は畳んで返す（開閉は保存されるため）
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
+  await check('見本帳の動きは、かけたクリップの頭から始まって、終われば元の姿に座る', async () => {
+    // 報告: 「かけてある所より早く動いて見える」。
+    // 原因は2つ考えられ、**見ただけでは区別が付かない**:
+    //   (1) 絵が再生ヘッドから遅れている（文字は再生ヘッドの時刻で動くので先行して見える）
+    //   (2) 動きがクリップの頭に入っていない（設計側の話）
+    // ここで見るのは (2)。文字の位置を時刻ごとに測って、置き場所そのものを確かめる。
+    //
+    // 標準の動きはどれも**クリップの先頭から 0.3〜0.9 秒**の「出るときの演出」。
+    // なので: 頭の手前では出ていない / 頭の直後はズレている / 演出が終われば定位置。
+    await resetProject()
+    const telops = page.locator('.telop-clip')
+    await telops.nth(0).click()
+    await page.waitForTimeout(300)
+    await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
+    await page.waitForTimeout(300)
+    if (!(await page.locator('.tpl-acc.open', { hasText: '💫 動き' }).count())) {
+      await page.locator('.tpl-acc', { hasText: '💫 動き' }).first().click()
+      await page.waitForTimeout(400)
+    }
+    const slide = page.locator('.mo-preset', { hasText: 'すべり込む（右から）' }).first()
+    assert(await slide.count(), '見本帳に「すべり込む（右から）」が無い')
+    await slide.click()
+    await page.waitForTimeout(500)
+
+    /** プレビューに出ている文字の左端（出ていなければ null） */
+    const xAt = async (t) => {
+      await seekTo(t)
+      await page.waitForTimeout(350)
+      const el = page.locator('.telop-overlay .telop-textmain').first()
+      if (!(await el.count())) return null
+      return (await el.boundingBox())?.x ?? null
+    }
+
+    // テロップは 1〜3秒。動きは頭から 0.3 秒
+    const before = await xAt(0.7) // 頭より前
+    const head = await xAt(1.05) // 頭の直後＝右にズレているはず
+    const done = await xAt(1.5) // 演出のあと＝定位置
+    const later = await xAt(2.4) // そのまま座っているはず
+
+    assert(before === null, `クリップの頭より前なのに文字が出ている（x=${before}）`)
+    assert(head != null && done != null && later != null, '文字がプレビューに出ていない')
+    assert(
+      head > done + 20,
+      `頭の直後に右へズレていない（頭 ${Math.round(head)} / 演出後 ${Math.round(done)}）` +
+        '＝動きがクリップの頭に入っていない'
+    )
+    assert(
+      Math.abs(done - later) < 3,
+      `演出が終わっても座らない（${Math.round(done)} → ${Math.round(later)}）`
+    )
+    await closeTransAccs() // 開けた節は畳んで返す（開閉は保存されるため）
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
+  await check('動きをコピーしたあとでも、クリップのコピー＆貼り付けは普通に効く', async () => {
+    // **一度モーションを写すと、以降の Ctrl+V がずっとモーション側に取られる**
+    // という壊れ方をしていた。貼り付けは「最後に写した物」に従うのが正しい。
+    await resetProject()
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    const telops = page.locator('.telop-clip')
+    await telops.nth(0).click()
+    await page.waitForTimeout(300)
+    const row = page.locator('.mo-row').filter({ hasText: '位置 X' }).first()
+    await seekTo(1.2)
+    await row.locator('.mo-watch').click()
+    await page.waitForTimeout(300)
+    await row.locator('.mo-label').click()
+    await page.waitForTimeout(200)
+    await page.keyboard.press('Control+c') // ← 動きを写す
+    await page.waitForTimeout(400)
+
+    // そのあとテロップ本体を写して貼る＝1つ増えるはず
+    const before = await telops.count()
+    await telops.nth(0).click()
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Control+c') // ← クリップを写す
+    await page.waitForTimeout(300)
+    await seekTo(6)
+    await page.keyboard.press('Control+v')
+    await page.waitForTimeout(600)
+    const after = await telops.count()
+    assert(
+      after === before + 1,
+      `クリップの貼り付けが効いていない（${before}個 → ${after}個）＝動きの貼り付けに取られたまま`
+    )
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
   await check('クリップの動きも、保存して開き直せば残っている', async () => {
     // 読み込みは1項目ずつ拾う作りなので、**書き忘れると開いた瞬間に動きだけ消える**。
     // テロップの色で実際にやらかしている型の事故。
@@ -2812,6 +3472,21 @@ try {
     //    （直前の項目が数値欄にカーソルを残したまま終わる）。
     //    欄にカーソルを残したままでも保存できることは、別の項目で見ている
     //    （「数値欄にカーソルを残したままでも、Ctrl+S で保存できる」）。
+    //
+    // ※ ここも前の項目に寄りかからず、自分で動きを付けてから保存する。
+    await resetProject()
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    await v1Clips().nth(0).click()
+    await page.waitForTimeout(300)
+    const scRow = page.locator('.mo-row').filter({ hasText: '拡大' }).first()
+    assert(await scRow.count(), 'モーションに動画の「拡大」が出ていない')
+    await seekTo(0.4)
+    if (!(await scRow.locator('.mo-watch.on').count())) await scRow.locator('.mo-watch').click()
+    await page.waitForTimeout(300)
+    await seekTo(3)
+    await scRow.locator('.mo-val').fill('200')
+    await scRow.locator('.mo-val').press('Enter')
+    await page.waitForTimeout(400)
     await page.locator('.mo-head').first().click()
     await page.waitForTimeout(200)
     await page.keyboard.press('Control+s')
@@ -3078,8 +3753,8 @@ try {
     // 他の見本帳と並べてある）。左のモーションタブは、付けたあと数値を詰める所。
     await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
     await page.waitForTimeout(300)
-    const sec = page.locator('.tpl-acc', { hasText: '動き（取り込んだ演出）' }).first()
-    assert(await sec.count(), 'トランジションタブに「動き（取り込んだ演出）」が無い')
+    const sec = page.locator('.tpl-acc', { hasText: '💫 動き' }).first()
+    assert(await sec.count(), 'トランジションタブに「動き」が無い')
     assert(
       (await page.locator('.tpl-acc.open').count()) === 0,
       'トランジションタブの節が最初から開いている（既定は全部畳んでおく）'
@@ -3087,20 +3762,16 @@ try {
     await sec.click()
     await page.waitForTimeout(300)
 
-    // 空のうちは、ここから辿れないと詰むのでボタンを出す
-    assert(
-      await page.locator('.mo-mini', { hasText: '取り込む' }).count(),
-      '何も入っていないのに、取り込みへの入口がどこにも無い'
-    )
-
-    // **普段の入口はファイルメニュー**（取り込みは一度きりなので、
+    // **入口はファイルメニューだけ**（取り込みは一度きりなので、
     // 見本帳の中に常駐させると細いパネルで一覧の場所を食うだけになる）
     await setDialogFiles([prfpset], null)
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
     await page.waitForTimeout(300)
     await page.locator('.menu-drop-item', { hasText: 'Premiere の動きを取り込む' }).first().click()
     await page.waitForTimeout(1500)
-    const list = page.locator('.mo-preset')
+    // **取り込んだ物だけを数える。** 標準の動きが20個並んでいるので、
+    // 全部を数えると「取り込みが効いたか」が分からなくなる
+    const list = page.locator('.mo-preset-imported')
     // 既定は**ちゃんと出る物だけ**。選ぶたびに当たり外れを引かせない
     assert(
       (await list.count()) === 1,
@@ -3156,7 +3827,10 @@ try {
     // 動きなしの物も、**何が足りないかを添えて**残っている（押したとき理由を言うため）
     const none = items.find((t) => t.name === 'E2E_動きなし')
     assert(
-      none && Object.keys(none.motion).length === 0 && none.partial?.includes('AE.ADBE Wave Warp'),
+      // 足りない物の名前は「エフェクト名/項目名」まで入る（どの項目が無いかまで言うため）
+      none &&
+        Object.keys(none.motion).length === 0 &&
+        none.partial?.some((s) => String(s).includes('AE.ADBE Wave Warp')),
       `動きなしの物が残っていない/理由が付いていない: ${JSON.stringify(none)}`
     )
 
@@ -3171,8 +3845,8 @@ try {
     // なって書き出しが通らなくなる。**押しても付かず、そう言う**ことを見る。
     await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
     await page.waitForTimeout(300)
-    const sec = page.locator('.tpl-acc', { hasText: '動き（取り込んだ演出）' }).first()
-    if (!(await page.locator('.tpl-acc.open', { hasText: '動き（取り込んだ演出）' }).count()))
+    const sec = page.locator('.tpl-acc', { hasText: '💫 動き' }).first()
+    if (!(await page.locator('.tpl-acc.open', { hasText: '💫 動き' }).count()))
       await sec.click()
     await page.waitForTimeout(300)
 
@@ -4026,7 +4700,14 @@ try {
     // プレビューで動かして変形を付ける
     await seekTo(1)
     const pip = page.locator('.screen-vclip').first()
-    if (await pip.count()) {
+    // **要る物が無いときは、そう言って落ちる。**
+    // 絞って回すと V2 に重ねた動画が置かれていないことがあり、
+    // そのままだと「8秒待って時間切れ」としか出ない＝毎回原因を調べ直すことになる
+    assert(
+      await pip.count(),
+      'プレビューに重ねた動画が出ていない（この項目は V2 に重ねた動画が要ります。絞って回すと前段の配置が飛びます）'
+    )
+    {
       const b = await pip.boundingBox()
       if (b) {
         await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
@@ -4886,70 +5567,69 @@ try {
   section('プレビューの再生バー')
   await resetProject()
 
-  await check('プレビューを軽い画質に切り替えると、本当に軽い映像が作られる', async () => {
-    // **同梱の ffmpeg で作れるか**を見る確認。
+  await check('画質は 1080 / 720 / 360 の3つで、どれも焼き直した映像で再生する', async () => {
+    // **同梱の ffmpeg で本当に作れるか**を見る確認。
     //
     // ここは長い間どこも見ていなかった。作る指定が `libx264` 固定だったが、
     // 同梱の ffmpeg は LGPL 版で x264 が入っていないので、配布物では必ず失敗する。
     // しかも**失敗しても原本のまま再生され続ける**ので、画面上は何も起きない
     // （＝使う人には「軽くならないアプリ」に見えるだけで、原因が出ない）。
-    const vid = page.locator('.screen-video').first()
-    const srcOf = () => vid.evaluate((el) => el.getAttribute('src') ?? '')
-    const before = await srcOf()
-    assert(before, 'プレビューに映像が出ていない')
-
-    await page.locator('.pq-preview').first().selectOption('360')
-    // 変換は ffmpeg を起動するので少し待つ（素材は15秒なのですぐ終わる）
     //
-    // **「変わったか」では見ない。** 作れなくても原本のまま再生され続けるので、
-    // 別の理由で URL が変わっただけでも通ってしまう。
-    // 作った物の置き場（giftcut-proxies）を指しているか、で見る。
-    let after = before
-    for (let i = 0; i < 60; i++) {
-      await page.waitForTimeout(500)
-      after = await srcOf()
-      if (after.includes('giftcut-proxies')) break
-    }
-    assert(
-      after.includes('giftcut-proxies'),
-      `360p にしても軽い映像を再生していない（作れていない）\n      前: ${before}\n      後: ${after}`
-    )
-    // 元に戻す（次の項目が軽い映像を見ないように）
-    await page.locator('.pq-preview').first().selectOption('orig')
-    await page.waitForTimeout(600)
-    touchedRef.dirty = true
-  })
-
-  await check('「最高画質(軽い)」は、縮めずに原寸のまま焼いている', async () => {
-    // カットの引っかかりの正体は画質ではなく「キーフレームが数秒に1枚しかない」こと。
-    // だから**縮めずに全コマキーフレームにするだけ**でよい、というのがこの画質。
-    //
-    // **見た目では確かめられない。** 静かに 720p へ落ちていても
+    // **見た目では確かめられない。** 静かに1つ下の画質で再生していても
     // 「なんとなく綺麗」に見えてしまうので、実際の画素数で見る。
     const vid = page.locator('.screen-video').first()
     const sizeOf = () =>
-      vid.evaluate((el) => ({ w: el.videoWidth, h: el.videoHeight, src: el.getAttribute('src') ?? '' }))
-    const before = await sizeOf()
-    assert(before.w > 0, 'プレビューに映像が出ていない')
-
-    await page.locator('.pq-preview').first().selectOption('full')
-    let after = before
-    for (let i = 0; i < 90; i++) {
-      await page.waitForTimeout(500)
-      after = await sizeOf()
-      if (after.src.includes('giftcut-proxies') && after.w > 0) break
+      vid.evaluate((el) => ({
+        w: el.videoWidth,
+        h: el.videoHeight,
+        src: el.getAttribute('src') ?? ''
+      }))
+    const pick = async (res) => {
+      // **作っている間は前の画質のまま映る**（真っ暗にしないための作り）。
+      // なので「焼き直した物か」だけ見ると、切り替わる前に通ってしまう。
+      // 前と違う物に変わるまで待つ
+      const prev = (await sizeOf()).src
+      await page.locator('.pq-preview').first().selectOption(res)
+      let s = await sizeOf()
+      for (let i = 0; i < 90; i++) {
+        await page.waitForTimeout(500)
+        s = await sizeOf()
+        if (s.src !== prev && s.src.includes('giftcut-proxies') && s.h > 0) break
+      }
+      assert(
+        s.src.includes('giftcut-proxies') && s.src !== prev,
+        `${res}p にしても焼き直した映像に切り替わらない（作れていない）: ${s.src}`
+      )
+      return s
     }
-    assert(
-      after.src.includes('giftcut-proxies'),
-      `焼き直した映像を再生していない（作れていない）\n      前: ${before.src}\n      後: ${after.src}`
-    )
-    // **ここが本題。** 原寸のままか
-    assert(
-      after.w === before.w && after.h === before.h,
-      `原寸のはずが縮んでいる（原本 ${before.w}x${before.h} → ${after.w}x${after.h}）`
-    )
-    await page.locator('.pq-preview').first().selectOption('orig')
-    await page.waitForTimeout(600)
+    // **素材そのものの高さを基準にする。**
+    // 確認用の素材は 640x360 に縮めて作ってあるので、720 も 1080 も
+    // 「素材より大きくはしない」規則どおり 360 のままになる。
+    // それを「効いていない」と読むと、正しい物を不具合と呼ぶことになる
+    const srcH = await (async () => {
+      const probe = spawn('ffprobe', [
+        '-v', 'error', '-select_streams', 'v:0',
+        '-show_entries', 'stream=height', '-of', 'csv=p=0', fx.video
+      ])
+      let o = ''
+      probe.stdout.on('data', (d) => (o += d))
+      await new Promise((res) => probe.on('close', res))
+      return Number(o.trim()) || 0
+    })()
+    assert(srcH > 0, '素材の高さを測れなかった')
+
+    const s360 = await pick('360')
+    const s720 = await pick('720')
+    const s1080 = await pick('1080')
+    const want = (h) => (srcH > 0 ? Math.min(srcH, h) : h)
+
+    assert(Math.abs(s360.h - want(360)) <= 2, `360p のはずが ${s360.h}px（素材 ${srcH}px）`)
+    assert(Math.abs(s720.h - want(720)) <= 2, `720p のはずが ${s720.h}px（素材 ${srcH}px）`)
+    assert(Math.abs(s1080.h - want(1080)) <= 2, `1080p のはずが ${s1080.h}px（素材 ${srcH}px）`)
+    // 素材が十分大きいときだけ、3つが本当に違う高さになることも見る
+    if (srcH >= 1080) {
+      assert(s360.h < s720.h && s720.h < s1080.h, `3つが別々の高さになっていない`)
+    }
     touchedRef.dirty = true
   })
 
@@ -5435,6 +6115,11 @@ try {
     await new Promise((res) => p.on('close', res))
     const c = await avgColor(f)
     assert(c.y != null && c.y < 30, `空きの所が黒くない（明るさ ${c.y}）`)
+    // **中身を変えたら必ず立てる。** 立て忘れると次の resetProject が素通りし、
+    // ここで作った「頭の2秒の空き」が次の項目へ残る。
+    // 実際、音の確認が「素材には無い無音が 0.0〜2.0秒にある」と赤くなり、
+    // 本物の不具合と見分けが付かなかった。
+    touchedRef.dirty = true
   })
 
   await check('重ねた動画を選んだあと本編を消しても、重ねた動画は残る', async () => {
@@ -5683,11 +6368,9 @@ try {
     // 元の値を持たない行は ⏱ を押すまで触れなかった。
     // 値を見ながら決めたいのに、先に印を打たせるのは順番が逆
     await openMotion()
-    // 畳んである「詳しい動き」を開く
-    const more = page.locator('.mo-sec', { hasText: '詳しい動き' }).first()
-    assert(await more.count(), '「詳しい動き」の見出しが無い')
-    await more.click()
-    await page.waitForTimeout(400)
+    // 「詳細設定」は畳まずに出ている（見出しを押すと選択になるので、押さない）
+    const more = page.locator('.mo-sec', { hasText: '詳細設定' }).first()
+    assert(await more.count(), '「詳細設定」の見出しが無い')
     const field = moRow('横だけ拡大').locator('input').first()
     assert(await field.count(), '「横だけ拡大」の行が無い')
     assert(!(await field.isDisabled()), '「横だけ拡大」が触れないままになっている')
@@ -5798,6 +6481,213 @@ try {
     )
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(400)
+  })
+
+  // ---- カクつきを数で見る -------------------------------------------------
+  //
+  // **記録の「落としたコマ」では分からない。** 再生ヘッドは壁時計で進むので、
+  // 動画が止まっていてもコマ落ちは 0 と出る（実際それで見逃していた）。
+  //
+  // 見るべきは**絵そのもの**。流しながら一定の間隔で撮り、
+  // 「前のコマと変わっていない」＝止まっていた、として数える。
+  /**
+   * 流して、**動画の時刻が進んでいるか**を刻んで測る。
+   *
+   * 絵が止まっている＝動画の currentTime が進まない、なので、そのまま数で出る。
+   * 連写して見比べるより軽く、止まった長さがミリ秒で分かる。
+   *
+   * 面は2枚ある（カットの先読み用に裏で温める作り）ので、
+   * **どれか1枚でも進んでいれば動いている**とみなす。
+   *
+   * @returns { worstMs, frozenMs, ranMs, dropped } worstMs＝一番長く止まっていた時間
+   */
+  /**
+   * 裏の変換（プレビューの焼き直し）が終わるまで待つ。
+   *
+   * **待たずに測ると、変換に食われた分をカクつきとして数えてしまう。**
+   * 実際、並びで回すたびに落ちる項目が入れ替わり、それがこれだった。
+   * 使う人も「最適化中…」が消えるまで待つので、待つのが本当の条件に近い。
+   */
+  const waitQuiet = async (ms = 90000) => {
+    for (let i = 0; i < ms / 500; i++) {
+      if ((await page.locator('.proxy-badge').count()) === 0) {
+        await page.waitForTimeout(600) // 終わった直後は後片付けが残っている
+        return true
+      }
+      await page.waitForTimeout(500)
+    }
+    return false
+  }
+
+  const stutterScan = async (label, ms = 3000, everyMs = 50) => {
+    await waitQuiet()
+    await page.keyboard.press('Space') // 再生
+    const r = await page.evaluate(
+      async ({ ms, everyMs }) => {
+        const vids = [...document.querySelectorAll('.screen-video')]
+        if (!vids.length) return null
+        const rows = []
+        // **音がぶつ切りになる直接の原因**＝主スレッドを長く塞ぐ処理。
+        // 音は途切れた瞬間しか分からず、あとから確かめようがないので、
+        // 原因のほうを数で押さえる（50ms 以上塞ぐと、その間の音は作れない）
+        const longs = []
+        let obs = null
+        try {
+          obs = new PerformanceObserver((list) => {
+            for (const e of list.getEntries()) longs.push(Math.round(e.duration))
+          })
+          obs.observe({ entryTypes: ['longtask'] })
+        } catch {
+          /* 使えない環境では絵の止まりだけで見る */
+        }
+        const t0 = performance.now()
+        let prev = vids.map((v) => v.currentTime)
+        while (performance.now() - t0 < ms) {
+          await new Promise((res) => setTimeout(res, everyMs))
+          const now = vids.map((v) => v.currentTime)
+          // どれか1枚でも進んだか
+          const moved = now.some((t, i) => t - prev[i] > 0.005)
+          // 止まっているとき**何が起きているか**も採る。
+          // 「止まった」だけでは、絵が来ていないのか・止められているのかが分からない
+          rows.push({
+            at: Math.round(performance.now() - t0),
+            moved,
+            ct: now.map((t) => Math.round(t * 1000) / 1000),
+            paused: vids.map((v) => v.paused),
+            seeking: vids.map((v) => v.seeking),
+            ready: vids.map((v) => v.readyState)
+          })
+          prev = now
+        }
+        obs?.disconnect()
+        const q = vids[0].getVideoPlaybackQuality?.()
+        return { rows, dropped: q?.droppedVideoFrames ?? 0, longs }
+      },
+      { ms, everyMs }
+    )
+    await page.keyboard.press('Space') // 停止
+    await page.waitForTimeout(300)
+    assert(r, 'プレビューに映像が無い')
+    let run = 0
+    let worst = 0
+    let frozen = 0
+    for (const x of r.rows) {
+      if (x.moved) run = 0
+      else {
+        run++
+        frozen++
+        if (run > worst) worst = run
+      }
+    }
+    // 止まっていた間の状態をまとめる（原因の切り分け用）
+    const stuck = r.rows.filter((x) => !x.moved)
+    const why = {
+      止められている: stuck.filter((x) => x.paused.every(Boolean)).length,
+      シーク中: stuck.filter((x) => x.seeking.some(Boolean)).length,
+      絵がまだ来ない: stuck.filter((x) => x.ready.every((v) => v < 3)).length
+    }
+    const longs = r.longs ?? []
+    return {
+      worstMs: worst * everyMs,
+      frozenMs: frozen * everyMs,
+      ranMs: r.rows.length * everyMs,
+      dropped: r.dropped,
+      why,
+      // 音まわり: 主スレッドを塞いだ回数と、一番長かった1回
+      blockCount: longs.length,
+      blockMs: longs.reduce((a, b) => a + b, 0),
+      blockWorst: longs.length ? Math.max(...longs) : 0,
+      // 止まり方そのもの（原因を追うとき用）。先頭だけ
+      trace: r.rows.slice(0, 24).map((x) => `${x.at}:${x.ct.join('/')}${x.moved ? '' : '*'}`),
+      label
+    }
+  }
+
+  /** 画質を選んで、焼き直しが終わるまで待つ */
+  const useRes = async (res) => {
+    const vid = page.locator('.screen-video').first()
+    const srcOf = () => vid.evaluate((el) => el.getAttribute('src') ?? '')
+    const prev = await srcOf()
+    await page.locator('.pq-preview').first().selectOption(String(res))
+    for (let i = 0; i < 90; i++) {
+      await page.waitForTimeout(500)
+      const s = await srcOf()
+      if (s !== prev && s.includes('giftcut-proxies')) return
+    }
+    // 作れていなくても確認は続ける（そのぶん結果に出る）
+  }
+
+  for (const res of [1080, 720, 360]) {
+    await check(`${res}p で流して、絵が止まらない`, async () => {
+      await resetProject()
+      await useRes(res)
+      await seekTo(1)
+      const r = await stutterScan(`${res}p`)
+      console.log(
+        `      \x1b[90m${res}p: 一番長い止まり ${r.worstMs}ms / 止まり合計 ${r.frozenMs}ms / ` +
+          `測った ${r.ranMs}ms / 落としたコマ ${r.dropped} / ` +
+          `主スレッドを塞いだ ${r.blockCount}回・計${r.blockMs}ms・最長${r.blockWorst}ms\x1b[0m`
+      )
+      // 100ms 止まると、目に見えて引っかかる（実測でカット時のシークが
+      // 110〜235ms のとき「カクつく」と言われた）
+      assert(r.worstMs <= 100, `${res}p で ${r.worstMs}ms 絵が止まった`)
+      // ずっと小刻みに止まっているのも引っかかって見える
+      assert(
+        r.frozenMs <= r.ranMs * 0.3,
+        `${res}p で止まっている時間が長い（${r.frozenMs}/${r.ranMs}ms）`
+      )
+      // **音がぶつ切りになる条件**。主スレッドを長く塞ぐと、その間の音は作れない
+      assert(
+        r.blockWorst <= 120,
+        `${res}p で音が途切れる（主スレッドを ${r.blockWorst}ms 塞いだ）`
+      )
+      assert(
+        r.blockMs <= r.ranMs * 0.2,
+        `${res}p で音が途切れがちになる（塞いだ合計 ${r.blockMs}/${r.ranMs}ms）`
+      )
+    })
+  }
+
+  await check('カットを増やしても、流したときに絵が止まらない', async () => {
+    // カットのたびに飛ぶので、ここが一番止まりやすい。
+    // **全コマがキーフレームの映像で再生している**なら、飛んでも1コマぶんで済む
+    await resetProject()
+    await useRes(720)
+    // 0.5秒おきに切る（実際の編集より細かい＝きつい条件）
+    for (let i = 1; i <= 8; i++) {
+      await seekTo(i * 0.5)
+      await page.keyboard.press('Control+k')
+      await page.waitForTimeout(150)
+    }
+    await seekTo(0.2)
+    const r = await stutterScan('カット多め')
+    assert(
+      r.worstMs <= 100,
+      `カットが多いと絵が止まる（一番長い止まり ${r.worstMs}ms / 合計 ${r.frozenMs}ms / 主スレッド最長 ${r.blockWorst}ms）`
+    )
+  })
+
+  await check('文字を重ねても、流したときに絵が止まらない', async () => {
+    // テロップは HTML を毎コマ描き直す。**重ねるほど描画側が重くなる**ので、
+    // 動画の復号とは別の理由で止まりうる
+    await resetProject()
+    await useRes(720)
+    for (let i = 0; i < 6; i++) {
+      await seekTo(0.5 + i * 0.2)
+      await page.keyboard.press('t')
+      await page.waitForTimeout(250)
+    }
+    await seekTo(0.2)
+    const r = await stutterScan('文字多め')
+    console.log(
+      `      \x1b[90m文字多め: 一番長い止まり ${r.worstMs}ms / 合計 ${r.frozenMs}/${r.ranMs}ms / ` +
+        `内訳 ${JSON.stringify(r.why)}\x1b[0m`
+    )
+    console.log(`      \x1b[90m時刻の進み: ${r.trace.join(' ')}\x1b[0m`)
+    assert(
+      r.worstMs <= 100,
+      `文字を重ねると絵が止まる（一番長い止まり ${r.worstMs}ms / 合計 ${r.frozenMs}ms / 主スレッド最長 ${r.blockWorst}ms）`
+    )
   })
 
   await check('再生中、カットのつなぎ目で画面が一瞬抜けない（ちらつき）', async () => {
@@ -5925,6 +6815,12 @@ try {
   // =========================================================================
   section('耳で聴く確認（書き出した音を測る）')
   await resetProject()
+  // **前に焼いた物を測らない。**
+  // 使い回す作りなので、別の状態（例: 頭に空きを入れる項目）で焼かれた物が
+  // 残っていると、まっさらにした後でもそれを測ってしまう。
+  // 実際に「素材には無い無音が 0.0〜2.0秒にある」と赤くなり、
+  // **本物の不具合と見分けが付かなかった**。焼き直しは1本ぶんで済む。
+  rmSync(join(outDir, 'audio-check.mp4'), { force: true })
 
   // 音の確認は同じ書き出しを使い回す（1本焼くのに時間がかかるため）。
   // ただし**絞って回したときに、焼いていないのに測ろうとする**ことがあるので、

@@ -28,11 +28,11 @@ export default function PerfHud({ onClose }: { onClose: () => void }): JSX.Eleme
   const [saved, setSaved] = useState('')
   // **blob のダウンロードは Electron では落ちる**（何も起きないまま「保存した」と
   // 思い込むのが一番まずい）。本体に書かせて、どこへ書いたかを画面に出す。
-  const save = (): void => {
+  const save = (toDownloads: boolean): void => {
     const text = perf.report()
     void navigator.clipboard?.writeText(text).catch(() => {}) // 貼り付けでも渡せるように
     void window.giftcut
-      ?.savePerfReport?.(text)
+      ?.savePerfReport?.(text, toDownloads)
       .then((r) => setSaved(r?.ok ? `保存: ${r.path}` : `保存できません: ${r?.error ?? ''}`))
       .catch((e) => setSaved(`保存できません: ${String(e)}`))
   }
@@ -79,6 +79,15 @@ export default function PerfHud({ onClose }: { onClose: () => void }): JSX.Eleme
                 <b>{s.droppedFrames}</b>
               </td>
             </tr>
+            {/* 絵が再生ヘッドからどれだけ遅れているか。
+                文字は再生ヘッドの時刻で動くので、ここが大きいと
+                **文字だけ先に動いて見える**（動きの置き場所の話と紛らわしい） */}
+            <tr>
+              <td>絵の遅れ</td>
+              <td className="perf-lag">
+                <b>{s.videoLagMs}</b> ms
+              </td>
+            </tr>
             <tr>
               <td>状況</td>
               <td className="perf-note">{s.note}</td>
@@ -90,8 +99,17 @@ export default function PerfHud({ onClose }: { onClose: () => void }): JSX.Eleme
       )}
       {saved && <div className="perf-note perf-saved">{saved}</div>}
       <div className="perf-btns">
-        <button onClick={save} title="userData/perf に書き、同じ内容をコピーもします">
-          記録を保存
+        {/* **確認を出さずにダウンロードへ置く。**
+            調子が悪いと思った時に押すボタンなので、置き場所を聞かれると手が止まる。
+            出てきたファイルをそのまま渡してもらえば、こちらで読み解ける。 */}
+        <button
+          onClick={() => save(true)}
+          title="ダウンロードへ書き出します（確認は出ません）。同じ内容をコピーもします"
+        >
+          記録を書き出す
+        </button>
+        <button onClick={() => save(false)} title="userData/perf に書きます">
+          置き場へ保存
         </button>
         <button onClick={() => perf.start()} title="いまから測り直す">
           測り直す
