@@ -134,3 +134,24 @@ export interface Marker {
   t: number // タイムライン秒
   label: string // メモ（空可）
 }
+
+/**
+ * プレビューの枠で今つまんでいる相手。
+ *
+ * 動画の切片・画像・映像クリップのどれでも同じ形で扱う
+ *（枠の操作はどれも「拡大・回して・ずらす」で同じなので）。
+ */
+export interface ReframeTarget {
+  kind: 'video' | 'img' | 'vclip'
+  id: number
+  /** 固定値のズーム（動きの印が無いときはこれがそのまま画面に出る） */
+  zoom: { scale: number; x: number; y: number }
+  rotate: number
+  track: string
+  name: string
+  /** 動き（キーフレーム）。付いていれば掴んで動かした先が印になる */
+  motion?: ClipMotion
+  /** タイムライン上の始まりと長さ（＝クリップの先頭からの時刻を出すため） */
+  tStart: number
+  len: number
+}
