@@ -352,8 +352,12 @@ describe('未保存の「＊」と自動保存', () => {
     const layoutFrom = src.indexOf('const layoutNow = ()')
     expect(layoutFrom, 'layoutNow が見つからない').toBeGreaterThan(-1)
     const layoutBody = src.slice(layoutFrom, src.indexOf('\n  })', layoutFrom))
+    // **状態は App.tsx の外にもある。**
+    // 画面の配置は state/usePanelLayout へ移したので、そこも読む。
+    // ここを App.tsx だけにしていると、移した瞬間に「何も読めていない」に見える。
+    const layoutSrc = await import('./state/usePanelLayout?raw').then((m) => m.default as string)
     const stateNames = new Set(
-      [...src.matchAll(/const \[(\w+), set\w+\] = useState/g)].map((m) => m[1])
+      [...(src + layoutSrc).matchAll(/const \[(\w+), set\w+\] = useState/g)].map((m) => m[1])
     )
     const layoutStates = [...new Set([...layoutBody.matchAll(/\b([a-zA-Z_]\w*)\b/g)].map((m) => m[1]))]
       .filter((n) => stateNames.has(n))

@@ -187,7 +187,7 @@ export default async function (C) {
       names.some((n) => n.startsWith('素材/') && /\.(mp4|mov|mkv)$/i.test(n)),
       `元動画が入っていない: ${names.join(', ')}`
     )
-  })
+  }, { setup: true })
 
   await check('ZIP の中のプロジェクトは、ZIP の中の場所を指している', async () => {
     // 絶対パスのまま入れると、渡した先で全部「見つかりません」になる
@@ -207,7 +207,9 @@ export default async function (C) {
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
     await page.waitForTimeout(250)
     await page.locator('.menu-drop-item', { hasText: 'まとめたプロジェクトを開く' }).first().click()
-    await page.locator('.toast', { hasText: 'まとめを開きました' }).first().waitFor({ timeout: 120000 })
+    // **2分も待たない。** 開けないときは開けないので、待っても結果は変わらず、
+    // 絞って回したときに「作る側」を飛ばしていると、ただ2分固まって見える
+    await page.locator('.toast', { hasText: 'まとめを開きました' }).first().waitFor({ timeout: 45000 })
     await page.waitForTimeout(1200) // 素材の読み込み（プロキシ生成の開始）まで待つ
     // 展開先に素材が実体として置かれている
     const dir = join(packHome, 'GiftCut', '受け取ったプロジェクト', '持ち出し')

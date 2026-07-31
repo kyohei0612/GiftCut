@@ -147,6 +147,7 @@ import { nextOpenSecs } from '../../shared/accordion'
 import { ensureMinShow, mergeShreds, splitAtPauses } from '../../shared/splitTelop'
 import { alignCues, speechRanges } from '../../shared/alignCues'
 import { LayoutProvider, useLayout } from './state/layoutContext'
+import type { PaneId } from './state/usePanelLayout'
 import { SelectionProvider, useSel } from './state/selectionContext'
 import { ContentProvider, useDoc } from './state/contentContext'
 import { useTracks } from './state/useTracks'
@@ -155,6 +156,7 @@ import { useToast } from './state/useToast'
 import { TracksProvider, useTracksCtx } from './state/tracksContext'
 import { ViewProvider, useViewCtx } from './state/viewContext'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
+import { useEdit } from './state/useEdit'
 import { nearestSnap } from '../../shared/snap'
 import { splitAt, toggleSelect, trimLeft, trimRight } from '../../shared/clipEdit'
 import { mediaQueue, rafThrottle } from './lib/schedule'
@@ -474,6 +476,29 @@ const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10
  * 同じ部品の中で囲いを作ると、その部品自身は中を見に行けない。
  */
 function AppInner(): JSX.Element {
+  // 選んでいる物を書き換える操作は state/useEdit（鍵を見る決まりも中にある）
+  const {
+    updateSelectedImg,
+    updateSelectedSE,
+    updateSelectedVClip,
+    patchCuePos,
+    patchCueScale,
+    patchMotion,
+    patchClipMotion,
+    clearTelopMotions,
+    setSelectedAdjust,
+    setSelectedCrop,
+    setSegZoom,
+    setImgZoom,
+    setVClipZoom,
+    rotateSelectedSeg,
+    flipSelectedSeg,
+    toggleMuteSelectedSegments,
+    resetTelopChannel,
+    nudgeOthers,
+    setSelectedAudio,
+    clearBox,
+  } = useEdit()
   // 見え方（拡大率）とお知らせ
   const { zoom, setZoom, zoomRef } = useViewCtx()
   const { toasts, setToasts, showToast } = useToastCtx()
@@ -722,7 +747,6 @@ function AppInner(): JSX.Element {
     }
   })
   const [currentTime, setCurrentTime] = useState(0)
-  const [monitorTab, setMonitorTab] = useState<'program' | 'mixer'>('program') // プレビュー↔ミキサー
   const [masterVolume, setMasterVolume] = useState(1) // マスター音量（全体）
 
   // ---- 動画 ----
@@ -1009,24 +1033,6 @@ function AppInner(): JSX.Element {
       prev.filter((c) => !selectedImgIds.includes(c.id) || trackStates[c.track]?.locked)
     )
     setSelectedImgIds([])
-  }
-  // 選択中の画像クリップを部分更新（複数選択にまとめて適用）
-  function updateSelectedImg(patch: Partial<ImgClip>): void {
-    if (!selectedImgIds.length) return
-    // ロック中は変更しない（ドラッグ・削除は守っているので揃える）
-    if (imgClips.some((c) => selectedImgIds.includes(c.id) && trackStates[c.track]?.locked)) {
-      showToast('このトラックはロックされています。')
-      return
-    }
-    setImgClips((prev) =>
-      prev.map((c) => (selectedImgIds.includes(c.id) ? { ...c, ...patch } : c))
-    )
-  }
-  // 画像のズームを設定（等倍なら undefined に戻す）
-  function setImgZoom(id: number, z: { scale: number; x: number; y: number }): void {
-    setImgClips((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, zoom: isNeutralZoom(z) ? undefined : z } : c))
-    )
   }
   // 映像レイヤーのCSS transform（回転/反転＋ズーム）。
   // localT はクリップの先頭からの秒。動きが付いていればその瞬間のズームになる
@@ -1440,19 +1446,6 @@ function AppInner(): JSX.Element {
     )
     setSelectedVClipIds([])
   }
-  function updateSelectedVClip(patch: Partial<VClip>): void {
-    if (!selectedVClipIds.length) return
-    if (vClips.some((c) => selectedVClipIds.includes(c.id) && trackStates[c.track]?.locked)) {
-      showToast('このトラックはロックされています。')
-      return
-    }
-    setVClips((prev) => prev.map((c) => (selectedVClipIds.includes(c.id) ? { ...c, ...patch } : c)))
-  }
-  function setVClipZoom(id: number, z: { scale: number; x: number; y: number }): void {
-    setVClips((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, zoom: isNeutralZoom(z) ? undefined : z } : c))
-    )
-  }
   // クリップ内ローカル秒 t における音声フェード係数
   // フェード計算は shared/timeline の fadeGain に集約（音声フェードの実装を1つに保つ）
   function vcFadeGain(c: VClip, t: number): number {
@@ -1725,15 +1718,6 @@ function AppInner(): JSX.Element {
     const outStart = clip.duration - clip.fadeOut
     if (clip.fadeOut > 0 && t > outStart) g = Math.min(g, (clip.duration - t) / clip.fadeOut)
     return clamp(g, 0, 1)
-  }
-  // 選択中SEクリップにまとめてプロパティ適用（音量・フェード）
-  function updateSelectedSE(patch: Partial<SEClip>): void {
-    if (!selectedSeIds.length) return
-    if (seClips.some((c) => selectedSeIds.includes(c.id) && trackStates[c.track]?.locked)) {
-      showToast('このトラックはロックされています。')
-      return
-    }
-    setSeClips((prev) => prev.map((c) => (selectedSeIds.includes(c.id) ? { ...c, ...patch } : c)))
   }
   function removeMedia(id: number): void {
     const m = mediaItems.find((x) => x.id === id)
@@ -2136,7 +2120,6 @@ function AppInner(): JSX.Element {
   // 切り抜きは「絵を見る作業」なので、プレビューを大きく取れることが要る。
   // 使わないパネルを切り離すと、そのぶん残りが自動で広がる（切り離したものは
   // 画面から浮くので、並びの計算から外れる）。掴んで動かし、右下で大きさを変える。
-  type PaneId = 'left' | 'right' | 'preview' | 'timeline'
   const PANE_LABEL: Record<PaneId, string> = {
     left: 'プロパティ',
     right: 'プロジェクト',
@@ -2151,21 +2134,12 @@ function AppInner(): JSX.Element {
   //
   // 覚えさせない（localStorage に残さない）。起動しただけで窓が開くと、
   // モニターを外して起動したときに画面の外へ出たまま行方不明になる。
-  const [popped, setPopped] = useState<Partial<Record<PaneId, true>>>({})
-  const isPopped = (id: PaneId): boolean => !!popped[id]
   // 切り離した窓の大きさ・位置。開き直すときに使う
-  const [paneGeom, setPaneGeom] = useState<Record<string, PaneGeom>>({})
   function popPane(id: PaneId): void {
     setPopped((p) => ({ ...p, [id]: true }))
     showToast(`${PANE_LABEL[id]} を切り離しました。窓を閉じると元に戻ります。`)
   }
-  function unpopPane(id: PaneId): void {
-    setPopped((p) => {
-      const n = { ...p }
-      delete n[id]
-      return n
-    })
-  }
+
   // ---- 画面の配置（保存して、次に開いたときに同じ形で始めるためのもの）----
   //
   // 「今のこの状態」が戻らないと意味が無いので、**保存するその場で読む**。
@@ -2218,21 +2192,6 @@ function AppInner(): JSX.Element {
   //   3. 掴んで横に引っぱる
   // 並び順は勝手に変わらないよう固定。変えたいときだけ右クリックから動かす。
   const TAB_ORDER_KEY = 'giftcut.tabOrder'
-  const [tabOrder, setTabOrder] = useState<Record<string, string[]>>(() => {
-    try {
-      const v = JSON.parse(localStorage.getItem(TAB_ORDER_KEY) || '{}')
-      return v && typeof v === 'object' ? v : {}
-    } catch {
-      return {}
-    }
-  })
-  useEffect(() => {
-    try {
-      localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(tabOrder))
-    } catch {
-      /* 保存できなくても動作には影響しない */
-    }
-  }, [tabOrder])
   /** 保存した並び順を当てる。知らないタブは後ろに残す（項目が増えても消えない） */
   function orderedTabs<T extends { id: string }>(group: string, tabs: T[]): T[] {
     const saved = tabOrder[group]
@@ -2664,7 +2623,6 @@ function AppInner(): JSX.Element {
 
   // ---- 右パネル（プロジェクト/テロップ/エフェクト/トランジション）----
   // 左パネルのタブ（プロパティ＝見た目の設定 / モーション＝時間で変わる動き）
-  const [leftTab, setLeftTab] = useState<'props' | 'motion'>('props')
   const [rightTab, setRightTab] = useState<
     'project' | 'telop' | 'icon' | 'se' | 'transition'
   >('project')
@@ -3715,8 +3673,11 @@ function AppInner(): JSX.Element {
   // ---- パネルサイズ ----
   // パネルのレイアウトは記憶する（毎起動で同じドラッグをやり直さないように）
   // 画面の配置は state/usePanelLayout が持つ（大きさの限界と、掴んで動かす所も一緒）
-  const { leftW, rightW, timelineH, setLeftW, setRightW, setTimelineH, startResize } =
-    useLayout()
+  const {
+    leftW, rightW, timelineH, setLeftW, setRightW, setTimelineH, startResize,
+    leftTab, setLeftTab, monitorTab, setMonitorTab, tabOrder, setTabOrder,
+    popped, setPopped, isPopped, unpopPane, paneGeom, setPaneGeom
+  } = useLayout()
   // タイムラインの高さ。段を太らせるのではなく、領域そのものに余裕を持たせる
   // （プレミアも行は細く、下に余白がある形）。段が増えても足りなくならない。
   // タイムラインの既定の高さ。
@@ -5233,39 +5194,6 @@ function AppInner(): JSX.Element {
   function curSegId(): number | null {
     const src = tToSource(segLayoutRef.current, currentTimeRef.current)
     return src ? (segLayoutRef.current[src.index]?.seg.id ?? null) : null
-  }
-  // 指定切片のズームを設定（DEFAULTなら undefined に戻す）
-  function setSegZoom(segId: number, z: { scale: number; x: number; y: number }): void {
-    setSegments((prev) =>
-      prev.map((s) => (s.id === segId ? { ...s, zoom: isNeutralZoom(z) ? undefined : z } : s))
-    )
-  }
-  // 選択中の動画切片のクロップを部分更新（null=リセット）。各辺 0..0.9、対辺と合わせて0.95未満。
-  function setSelectedCrop(
-    patch: Partial<{ l: number; t: number; r: number; b: number }> | null
-  ): void {
-    if (!selectedVideoIds.length) return
-    setSegments((prev) =>
-      prev.map((s) => {
-        if (!isVideoSel(s.id)) return s
-        if (patch === null) return { ...s, crop: undefined }
-        const next = { ...(s.crop ?? DEFAULT_CROP), ...patch }
-        next.l = clamp(next.l, 0, 0.9)
-        next.t = clamp(next.t, 0, 0.9)
-        next.r = clamp(next.r, 0, 0.9)
-        next.b = clamp(next.b, 0, 0.9)
-        // 対辺の合計が枠を潰さないよう、今動かした辺を優先して制限
-        if (next.l + next.r > 0.95) {
-          if (patch.r != null) next.r = 0.95 - next.l
-          else next.l = 0.95 - next.r
-        }
-        if (next.t + next.b > 0.95) {
-          if (patch.b != null) next.b = 0.95 - next.t
-          else next.t = 0.95 - next.b
-        }
-        return { ...s, crop: isNeutralCrop(next) ? undefined : next }
-      })
-    )
   }
   // リフレーム操作: corner=null で本体ドラッグ=パン、cornerあり=四隅ドラッグで拡大縮小（中心基準）。
   // 対象は「画像を選択中なら画像、それ以外は再生ヘッド位置の動画切片」（reframeTarget）。
@@ -8214,12 +8142,6 @@ function AppInner(): JSX.Element {
     if (holeStart != null) setTime(clamp(holeStart, 0, durationRef.current))
     clearSegSel()
   }
-  // 選択中の音声切片のミュートをトグル（動画は残す。音声を独立して消せる）
-  function toggleMuteSelectedSegments(): void {
-    if (!selectedAudioIds.length || trackStates['A1']?.locked) return
-    const allMuted = segments.filter((s) => isAudioSel(s.id)).every((s) => s.muted)
-    setSegments((prev) => prev.map((s) => (isAudioSel(s.id) ? { ...s, muted: !allMuted } : s)))
-  }
   // 選択中の動画切片を「黒ブランク」にトグル（長さ維持＝詰めない。Deleteの既定動作）
   function toggleBlankSelectedVideo(): void {
     if (!selectedVideoIds.length || trackStates['V1']?.locked) return
@@ -8334,59 +8256,11 @@ function AppInner(): JSX.Element {
     setSegments((prev) => prev.map((s) => (isVideoSel(s.id) ? { ...s, speed } : s)))
     if (sel.length) shiftAfter(sel[sel.length - 1].tEnd, after - before)
   }
-  // 選択中の動画切片の色調整を更新（patch=部分更新 / null=リセット）
-  function setSelectedAdjust(patch: Partial<{ b: number; c: number; s: number }> | null): void {
-    if (!selectedVideoIds.length) return
-    // 回転/反転/速度/映像なし化は V1 のロックを見ているので揃える
-    if (mainLocked()) return
-    setSegments((prev) =>
-      prev.map((s) => {
-        if (!isVideoSel(s.id)) return s
-        if (patch === null) return { ...s, adjust: undefined }
-        const next = { ...(s.adjust ?? DEFAULT_ADJUST), ...patch }
-        return { ...s, adjust: isNeutralAdjust(next) ? undefined : next }
-      })
-    )
-  }
-  // 選択中の動画切片を 90°回転（時計回りに加算・スナップ）。
-  function rotateSelectedSeg(): void {
-    if (!selectedVideoIds.length || trackStates['V1']?.locked) return
-    setSegments((prev) =>
-      prev.map((s) => {
-        if (!isVideoSel(s.id)) return s
-        const next = (Math.round((s.rotate ?? 0) / 90) * 90 + 90) % 360
-        return { ...s, rotate: next === 0 ? undefined : next }
-      })
-    )
-  }
   // 指定 seg の回転角を直接設定（自由回転ハンドル用）。deg は 0..360 に正規化。
   function setSegRotate(segId: number, deg: number): void {
     const d = ((Math.round(deg) % 360) + 360) % 360
     setSegments((prev) =>
       prev.map((s) => (s.id === segId ? { ...s, rotate: d === 0 ? undefined : d } : s))
-    )
-  }
-  // 選択中の音声切片（A1）の音量/フェードを更新。
-  function setSelectedAudio(patch: Partial<{ vol: number; afadeIn: number; afadeOut: number }>): void {
-    if (!selectedAudioIds.length || trackStates['A1']?.locked) return
-    setSegments((prev) =>
-      prev.map((s) => {
-        if (!isAudioSel(s.id)) return s
-        const next = { ...s, ...patch }
-        // 既定値なら未指定に戻す（保存を軽く）
-        if (next.vol === 1) next.vol = undefined
-        if (next.afadeIn === 0) next.afadeIn = undefined
-        if (next.afadeOut === 0) next.afadeOut = undefined
-        return next
-      })
-    )
-  }
-  // 選択中の動画切片の反転をトグル（左右 or 上下）。
-  function flipSelectedSeg(dir: 'h' | 'v'): void {
-    if (!selectedVideoIds.length || trackStates['V1']?.locked) return
-    const key = dir === 'h' ? 'flipH' : 'flipV'
-    setSegments((prev) =>
-      prev.map((s) => (isVideoSel(s.id) ? { ...s, [key]: s[key] ? undefined : true } : s))
     )
   }
   // タイムラインのトランジション枠を選択（動画クリップは選択しない＝トランジションだけを編集対象に）。
@@ -8455,20 +8329,6 @@ function AppInner(): JSX.Element {
    * テロップの「動き」（キーフレーム）を1項目だけ書き換える。
    * 印が全部無くなったら、その項目ごと捨てる（＝固定値に戻る）。
    */
-  function patchMotion(
-    cueId: number,
-    key: MotionKeyName,
-    fn: (keys: Keys | undefined) => Keys | undefined
-  ): void {
-    // 履歴は cues の変化を見て自動で積まれる（ここで積むと二重になる）
-    setCues((prev) =>
-      prev.map((c) => {
-        if (c.id !== cueId) return c
-        const next: Motion = { ...c.motion, [key]: fn(c.motion?.[key]) }
-        return { ...c, motion: hasMotion(next) ? next : undefined }
-      })
-    )
-  }
   /**
    * テロップの動きを丸ごと入れ替える（見本帳から選んだとき・消すとき）。
    *
@@ -8486,13 +8346,6 @@ function AppInner(): JSX.Element {
    * **付ける時は選択中の全部に効くのに、消す時だけ1つずつでは対にならない。**
    * 鍵の掛かっている物は触らない（他の操作と同じ扱い）。
    */
-  function clearTelopMotions(): void {
-    const ids = selectedIds.length ? selectedIds : []
-    if (!ids.length) return
-    setCues((prev) =>
-      prev.map((c) => (ids.includes(c.id) && !telopLocked(c) ? { ...c, motion: undefined } : c))
-    )
-  }
   /**
    * モーションの「選んでいる項目」と、そのコピー。
    *
@@ -8516,17 +8369,6 @@ function AppInner(): JSX.Element {
    */
   const lastCopyRef = useRef<'clip' | 'motion'>('clip')
   /** 選んでいるテロップ全部から、その項目の印だけを捨てる */
-  function resetTelopChannel(key: MotionKeyName): void {
-    const ids = selectedIds.length ? selectedIds : []
-    if (!ids.length) return
-    setCues((prev) =>
-      prev.map((c) => {
-        if (!ids.includes(c.id) || telopLocked(c) || !c.motion) return c
-        const next = { ...c.motion, [key]: undefined }
-        return { ...c, motion: hasMotion(next) ? next : undefined }
-      })
-    )
-  }
   /** 選んでいる映像全部から、その項目の印を捨てる（固定値も既定へ戻す） */
   function resetClipChannel(key: keyof ClipMotion): void {
     const tgt = reframeTargetRef.current
@@ -8599,22 +8441,6 @@ function AppInner(): JSX.Element {
    * 動画切片・画像・映像レイヤーの「動き」を1項目だけ書き換える。
    * 印が全部無くなったら、その項目ごと捨てる（＝固定値に戻る）。テロップの patchMotion と同じ形。
    */
-  function patchClipMotion(
-    kind: 'video' | 'img' | 'vclip',
-    id: number,
-    key: keyof ClipMotion,
-    fn: (keys: Keys | undefined) => Keys | undefined
-  ): void {
-    // 履歴は各リストの変化を見て自動で積まれる（ここで積むと二重になる）
-    const upd = <T extends { id: number; motion?: ClipMotion }>(c: T): T => {
-      if (c.id !== id) return c
-      const next: ClipMotion = { ...c.motion, [key]: fn(c.motion?.[key]) }
-      return { ...c, motion: hasClipMotion(next) ? next : undefined }
-    }
-    if (kind === 'video') setSegments((prev) => prev.map(upd))
-    else if (kind === 'img') setImgClips((prev) => prev.map(upd))
-    else setVClips((prev) => prev.map(upd))
-  }
   /**
    * ⏱ の入り切り。テロップもクリップも同じ動きにする（2か所に書くとどちらかだけ直る）。
    *
@@ -8647,17 +8473,7 @@ function AppInner(): JSX.Element {
     })
   }
   /** テロップの位置（フレーム内の割合）を書き換える */
-  function patchCuePos(cueId: number, patch: { x?: number; y?: number }): void {
-    setCues((prev) =>
-      prev.map((c) => (c.id === cueId ? { ...c, pos: { ...c.pos, ...patch } } : c))
-    )
-  }
   /** テロップの大きさ（倍率）を書き換える */
-  function patchCueScale(cueId: number, scale: number): void {
-    setCues((prev) =>
-      prev.map((c) => (c.id === cueId ? { ...c, scale: Math.max(0.05, scale) } : c))
-    )
-  }
   /**
    * モーションの数値を変えたとき、**選んである他のテロップにも同じだけ配る。**
    *
@@ -8668,27 +8484,6 @@ function AppInner(): JSX.Element {
    * 画面に出ている単位（px・%・度）と、印に入れる値の単位は違う。
    * 掛ける係数をここにまとめてある。**行の定義（toKey）と必ず対で直すこと。**
    */
-  function nudgeOthers(key: MotionKeyName, deltaShown: number, atT: number): void {
-    if (!deltaShown) return
-    for (const c of cues) {
-      if (c.id === selectedIds[0] || !selectedIds.includes(c.id)) continue
-      if (telopLocked(c)) continue
-      // その子自身のクリップ内時刻で打つ（尺が違うと同じ秒でも意味が変わる）
-      const t = clamp(atT, 0, Math.max(0, c.end - c.start))
-      const keys = c.motion?.[key]
-      if (hasKeys(keys)) {
-        // 単位の換算は shared/nudgeShare に置いてある（表を2か所に持たない）
-        const base = valueAt(keys, t, neutralOf(key))
-        const d = keyDelta(key, deltaShown, c.scale ?? 1)
-        patchMotion(c.id, key, (ks) => putKey(ks, t, base + d))
-        continue
-      }
-      // 印が無い項目は、元の値そのものを動かす（位置と大きさだけ元の値がある）
-      if (key === 'tx') patchCuePos(c.id, { x: c.pos.x + deltaShown / 1920 })
-      else if (key === 'ty') patchCuePos(c.id, { y: c.pos.y + deltaShown / 1080 })
-      else if (key === 'sc') patchCueScale(c.id, (c.scale ?? 1) + deltaShown / 100)
-    }
-  }
 
   /**
    * 動画切片・画像・映像レイヤーの数値を変えたとき、
@@ -10884,18 +10679,6 @@ function AppInner(): JSX.Element {
         const st = { ...c.style, anchor: { h: 'l' as const, v: 'm' as const }, align: 'left' as const }
         delete st.box // 内容ぴったり＝枠は常に本体一致
         return { ...c, style: st, pos: axis ?? c.pos }
-      })
-    )
-  }
-  // 固定ボックスを解除（内容ぴったりに戻す）
-  function clearBox(): void {
-    if (!selectedIds.length) return
-    setCues((prev) =>
-      prev.map((c) => {
-        if (!isSelected(c.id)) return c
-        const st = { ...c.style }
-        delete st.box
-        return { ...c, style: st }
       })
     )
   }

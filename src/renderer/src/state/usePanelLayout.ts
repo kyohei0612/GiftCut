@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from 'react'
 import { nextPanelSize, type PanelEdge } from './panelSize'
+import type { PaneGeom } from '../components/PanelChrome'
 
 /** 前に使っていた大きさを読む。無ければ既定値 */
 function loadSize(key: string, def: number): number {
@@ -24,6 +25,14 @@ function loadSize(key: string, def: number): number {
   }
 }
 
+/** 切り離せるパネル */
+export type PaneId = 'left' | 'right' | 'preview' | 'timeline'
+// 窓の大きさ・位置の形は、窓を出す側（PanelChrome）が持っている物をそのまま使う。
+// ここで似た型を作ると、片方だけ直したときに食い違う
+
+/** 右パネルのタブの並び順を覚えておく鍵 */
+const TAB_ORDER_KEY = 'gc.tabOrder'
+
 export interface PanelLayout {
   leftW: number
   rightW: number
@@ -33,6 +42,29 @@ export interface PanelLayout {
   setTimelineH: (n: number) => void
   /** 境目を掴んだときに呼ぶ。離すまで追いかける */
   startResize: (edge: PanelEdge, e: { clientX: number; clientY: number; preventDefault: () => void }) => void
+
+  /** どのタブを開いているか */
+  leftTab: 'props' | 'motion'
+  setLeftTab: React.Dispatch<React.SetStateAction<'props' | 'motion'>>
+  monitorTab: 'program' | 'mixer'
+  setMonitorTab: React.Dispatch<React.SetStateAction<'program' | 'mixer'>>
+  /** タブの並び順（掴んで入れ替えられる。覚えておく） */
+  tabOrder: Record<string, string[]>
+  setTabOrder: React.Dispatch<React.SetStateAction<Record<string, string[]>>>
+
+  /**
+   * 別窓へ切り離しているパネル。
+   *
+   * **覚えさせない（localStorage に残さない）。** 起動しただけで窓が開くと、
+   * モニターを外して起動したときに画面の外へ出たまま行方不明になる。
+   */
+  popped: Partial<Record<PaneId, true>>
+  setPopped: React.Dispatch<React.SetStateAction<Partial<Record<PaneId, true>>>>
+  isPopped: (id: PaneId) => boolean
+  unpopPane: (id: PaneId) => void
+  /** 切り離した窓の大きさ・位置（開き直すときに使う） */
+  paneGeom: Record<string, PaneGeom>
+  setPaneGeom: React.Dispatch<React.SetStateAction<Record<string, PaneGeom>>>
 }
 
 export function usePanelLayout(): PanelLayout {
@@ -80,5 +112,51 @@ export function usePanelLayout(): PanelLayout {
     window.addEventListener('pointercancel', onUp)
   }
 
-  return { leftW, rightW, timelineH, setLeftW, setRightW, setTimelineH, startResize }
+  const [leftTab, setLeftTab] = useState<'props' | 'motion'>('props')
+  const [monitorTab, setMonitorTab] = useState<'program' | 'mixer'>('program')
+  const [tabOrder, setTabOrder] = useState<Record<string, string[]>>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(TAB_ORDER_KEY) || '{}')
+      return v && typeof v === 'object' ? v : {}
+    } catch {
+      return {}
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(tabOrder))
+    } catch {
+      /* 保存できなくても動作には影響しない */
+    }
+  }, [tabOrder])
+
+  const [popped, setPopped] = useState<Partial<Record<PaneId, true>>>({})
+  const [paneGeom, setPaneGeom] = useState<Record<string, PaneGeom>>({})
+
+  return {
+    leftW,
+    rightW,
+    timelineH,
+    setLeftW,
+    setRightW,
+    setTimelineH,
+    startResize,
+    leftTab,
+    setLeftTab,
+    monitorTab,
+    setMonitorTab,
+    tabOrder,
+    setTabOrder,
+    popped,
+    setPopped,
+    isPopped: (id) => !!popped[id],
+    unpopPane: (id) =>
+      setPopped((p) => {
+        const n = { ...p }
+        delete n[id]
+        return n
+      }),
+    paneGeom,
+    setPaneGeom
+  }
 }
