@@ -93,7 +93,13 @@ import { TransitionsTab } from './components/panels/TransitionsTab'
 import { ProjectBinTab } from './components/panels/ProjectBinTab'
 import { MotionTab, type MotionRow } from './components/panels/MotionTab'
 import { PropertiesPanel, RESET_TRANSFORM } from './components/panels/PropertiesPanel'
-import { AudioMixer, PreviewScrub, TransportBar } from './components/panels/PreviewBars'
+import {
+  AudioMixer,
+  PreviewScrub,
+  TransportBar,
+  TransportInfo,
+  type PreviewRes
+} from './components/panels/PreviewBars'
 import { TimelineToolbar } from './components/timeline/TimelineToolbar'
 import { TrackHeaders } from './components/timeline/TrackHeaders'
 import { ClipBand } from './components/timeline/ClipBand'
@@ -344,7 +350,6 @@ const TRACK_H_MAX = 160
  *
  * 数字は「その高さまで小さくする」。素材がそれより小さければそのまま。
  */
-type PreviewRes = 1080 | 720 | 360
 // 元動画（マルチソース）。1タイムラインに複数の動画を連結できる。
 interface ContextMenu {
   x: number
@@ -8439,47 +8444,16 @@ function AppInner(): JSX.Element {
 
   // プレビュー下の1段目に出す「状態」（画質・fps・全体の長さ）。
   // 操作ボタンと同じ行に混ぜると、よく使う再生ボタンが端に押しやられる。
+  // 操作バーの右に出る「いまどう見えているか」は components/panels/PreviewBars.tsx
   const transportInfo = (
-    <>
-    {/* プレビュー解像度: 実際に再生する映像の解像度を切り替える（ラベル＝実挙動）。
-        書き出し設定にも同じ見た目の選択肢があり、実際に取り違えが起きたので、
-        「見るときの画質」だと分かる印を付けて別物にする。 */}
-    <span className="pq-tag" title="再生して見るときの画質（書き出しには影響しません）">
-      👁 プレビュー
-    </span>
-    <select
-      className="pq-select pq-preview"
-      value={String(previewRes)}
-      onChange={(e) => {
-        const v = e.target.value
-        setPreviewRes(v === '1080' ? 1080 : v === '720' ? 720 : 360)
-      }}
-      title={
-        'プレビューの解像度\n' +
-        '**どれも編集用に焼き直した映像で再生します**（全コマがキーフレームなので、\n' +
-        'カットで飛んでも引っかかりません）。素材がその高さより小さければそのままです。\n' +
-        '・1080p＝見た目はほぼ原本。容量は一番使う\n' +
-        '・720p ＝標準。作るのも速い\n' +
-        '・360p ＝最軽量。再描画も間引く\n' +
-        '書き出しは常に原本のフル画質です（この設定は完成品の画質に影響しません）'
-      }
-    >
-      <option value="1080">プレビュー 1080p（高画質）</option>
-      <option value="720">プレビュー 720p（標準）</option>
-      <option value="360">プレビュー 360p（最軽量）</option>
-    </select>
-    {videoSrc && (
-      <span className="tc tc-fps" title="素材の実フレームレート（フレーム送り・タイムコードに反映）">
-        {Number.isInteger(fps) ? fps : fps.toFixed(2)}fps
-      </span>
-    )}
-    <span className="tc">
-      {playRateUI !== 0 && Math.abs(playRateUI) !== 1
-        ? `${playRateUI > 0 ? '' : '-'}${Math.abs(playRateUI)}x / `
-        : ''}
-      {formatTime(duration)}
-    </span>
-    </>
+    <TransportInfo
+      previewRes={previewRes}
+      onPreviewRes={setPreviewRes}
+      hasVideo={!!videoSrc}
+      fps={fps}
+      playRate={playRateUI}
+      duration={duration}
+    />
   )
   // テロップの足し引きと出入りの演出は state/useTelopEdit
   const {

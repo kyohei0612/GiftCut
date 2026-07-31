@@ -9,6 +9,10 @@
 // 端に寄って毎回探すことになる。
 
 import type { JSX, ReactNode } from 'react'
+import { formatTime } from '../../lib/srt'
+
+/** 再生して見るときの映像の高さ。**書き出しの画質とは別物** */
+export type PreviewRes = 1080 | 720 | 360
 
 export interface MixerTrack {
   id: string
@@ -137,6 +141,71 @@ export function PreviewScrub({
         <div className="preview-scrub-head" style={{ left: `${pct}%` }} />
       </div>
     </div>
+  )
+}
+
+/**
+ * 操作バーの右側に出る「いまどう見えているか」。画質・素材のfps・再生速度・尺。
+ *
+ * **書き出しの設定と取り違えやすい。** 書き出し設定にも同じ見た目の解像度選択が
+ * あり、実際に取り違えが起きた。「👁 プレビュー」の札と、選択肢そのものにも
+ * 「プレビュー」を書いて、見るときの話だと分かるようにしてある。
+ */
+export function TransportInfo({
+  previewRes,
+  onPreviewRes,
+  hasVideo,
+  fps,
+  playRate,
+  duration
+}: {
+  previewRes: PreviewRes
+  onPreviewRes: (v: PreviewRes) => void
+  /** 素材が入っているか。無いときは fps を出さない（出すと嘘になる） */
+  hasVideo: boolean
+  fps: number
+  /** 早送り・巻き戻しの倍率。0 と ±1 のときは出さない（等速は言わなくても分かる） */
+  playRate: number
+  duration: number
+}): JSX.Element {
+  return (
+    <>
+      <span className="pq-tag" title="再生して見るときの画質（書き出しには影響しません）">
+        👁 プレビュー
+      </span>
+      <select
+        className="pq-select pq-preview"
+        value={String(previewRes)}
+        onChange={(e) => {
+          const v = e.target.value
+          onPreviewRes(v === '1080' ? 1080 : v === '720' ? 720 : 360)
+        }}
+        title={
+          'プレビューの解像度\n' +
+          '**どれも編集用に焼き直した映像で再生します**（全コマがキーフレームなので、\n' +
+          'カットで飛んでも引っかかりません）。素材がその高さより小さければそのままです。\n' +
+          '・1080p＝見た目はほぼ原本。容量は一番使う\n' +
+          '・720p ＝標準。作るのも速い\n' +
+          '・360p ＝最軽量。再描画も間引く\n' +
+          '書き出しは常に原本のフル画質です（この設定は完成品の画質に影響しません）'
+        }
+      >
+        <option value="1080">プレビュー 1080p（高画質）</option>
+        <option value="720">プレビュー 720p（標準）</option>
+        <option value="360">プレビュー 360p（最軽量）</option>
+      </select>
+      {hasVideo && (
+        <span className="tc tc-fps" title="素材の実フレームレート（フレーム送り・タイムコードに反映）">
+          {Number.isInteger(fps) ? fps : fps.toFixed(2)}fps
+        </span>
+      )}
+      <span className="tc">
+        {playRate !== 0 && Math.abs(playRate) !== 1
+          ? `${playRate > 0 ? '' : '-'}${Math.abs(playRate)}x / `
+          : ''}
+        {formatTime(duration)}
+      </span>
+    </>
   )
 }
 
