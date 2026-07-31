@@ -166,6 +166,7 @@ import { useHistory, type Snap } from './state/useHistory'
 import { useExport } from './state/useExport'
 import { useSubtitles } from './state/useSubtitles'
 import { useMediaOps } from './state/useMediaOps'
+import { loadJson, loadRecentProjects, useProjectState } from './state/useProjectState'
 import { useClipDrag } from './state/useClipDrag'
 import { useLaneHeights } from './state/useLaneHeights'
 import { usePlayback } from './state/usePlayback'
@@ -282,6 +283,8 @@ function setDragChip(e: React.DragEvent, icon: string, label: string): void {
 }
 
 // パス→gcfile URL（# や ? を含むファイル名対策でセグメント単位にエンコード）
+const RECENT_KEY = 'giftcut.recentProjects'
+const RECENT_MAX = 8
 const toGcUrl = (p: string): string =>
   'gcfile://media/' + p.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')
 
@@ -498,6 +501,22 @@ const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10
  * 同じ部品の中で囲いを作ると、その部品自身は中を見に行けない。
  */
 function AppInner(): JSX.Element {
+  // プロジェクトの持ち物と設定（更新しても消えてはいけない物が多い）
+  const {
+    projectPath, setProjectPath, srtPath, setSrtPath, missingMedia, setMissingMedia,
+    recentProjects, setRecentProjects, favorites, setFavorites, catOverrides, setCatOverrides,
+    customCats, setCustomCats, userTemplates, setUserTemplates, newTelopStyle, setNewTelopStyle,
+    transDur, setTransDur, iconAssign, setIconAssignState, laneIconAssign, setLaneIconAssign
+  } = useProjectState({
+    favorites: loadFavorites(),
+    catOverrides: loadCatOverrides(),
+    customCats: loadCustomCats(),
+    userTemplates: loadUserTemplates(),
+    iconAssign: loadIconAssign(),
+    laneIconAssign: loadJson<Record<string, string>>('giftcut.laneIconAssign', {}),
+    recentProjects: loadRecentProjects(RECENT_KEY, RECENT_MAX),
+    newTelopStyle: defaultTelopStyle()
+  })
   // 元に戻す・やり直すための控え（描くための物ではないので ref）
   const {
     undoStackRef, redoStackRef, baselineRef, suppressHistoryRef, pendingTimerRef,
@@ -585,15 +604,9 @@ function AppInner(): JSX.Element {
   } = sel
   const clearAllSelections = sel.clearAll
   // ---- データ ----
-  const [srtPath, setSrtPath] = useState<string | null>(null) // 読み込んだSRTのパス（表示用）
   // プロジェクト(.gcproj)の保存先。srtPath とは必ず別に持つ
   // （兼用にすると「上書き保存」が読み込んだSRTファイルを壊す）。
-  const [projectPath, setProjectPath] = useState<string | null>(null)
   // 開いたプロジェクトで「見つからなかった素材」。保存時に書き戻して情報を失わないため。
-  const [missingMedia, setMissingMedia] = useState<{
-    videoPath: string | null
-    sources: { id?: number; path?: string; name?: string }[]
-  } | null>(null)
   const [menu, setMenu] = useState<ContextMenu | null>(null)
   const [clipMenu, setClipMenu] = useState<ClipMenu | null>(null) // テロップ以外の右クリック
   const idCounter = useRef(1)
@@ -2284,23 +2297,6 @@ function AppInner(): JSX.Element {
     name: string
     at: number
   }
-  const RECENT_KEY = 'giftcut.recentProjects'
-  const RECENT_MAX = 8
-  const [recentProjects, setRecentProjects] = useState<RecentProject[]>(() => {
-    try {
-      const raw = localStorage.getItem(RECENT_KEY)
-      const arr = raw ? JSON.parse(raw) : []
-      return Array.isArray(arr)
-        ? arr
-            .filter(
-              (r): r is RecentProject => !!r && typeof r.path === 'string' && !!r.path
-            )
-            .slice(0, RECENT_MAX)
-        : []
-    } catch {
-      return []
-    }
-  })
   useEffect(() => {
     try {
       localStorage.setItem(RECENT_KEY, JSON.stringify(recentProjects))
@@ -2505,8 +2501,6 @@ function AppInner(): JSX.Element {
   }
 
   // お気に入り（★）とカテゴリ上書き（ローカル保存）
-  const [favorites, setFavorites] = useState<string[]>(loadFavorites)
-  const [catOverrides, setCatOverrides] = useState<Record<string, string>>(loadCatOverrides)
   const isFav = (name: string): boolean => favorites.includes(name)
   const toggleFav = (name: string): void =>
     setFavorites((prev) => {
@@ -2819,7 +2813,6 @@ function AppInner(): JSX.Element {
     }
   }, [orgMenu])
   // ユーザー作成フォルダ（カテゴリ）。既定の色カテゴリ + これ。
-  const [customCats, setCustomCats] = useState<{ key: string; label: string }[]>(loadCustomCats)
   const allCats = [...TELOP_CATS, ...customCats]
   // 実効カテゴリ＝手動移動(上書き)優先→スタイルの見た目の色で自動判定。
   // 上書き先が存在しないカテゴリ(削除フォルダ/旧・使い道カテゴリ)は無視して色判定へ＝自動移行。
@@ -3057,12 +3050,9 @@ function AppInner(): JSX.Element {
     label: string
     kind: 'in' | 'out' | 'between'
   } | null>(null)
-  const [newTelopStyle, setNewTelopStyle] = useState<TelopStyle>(defaultTelopStyle) // 新規テロップの既定
   // 新規トランジションの長さ(秒)。D&D で置く時の初期長さ。置いた後は帯の端ドラッグ/選択で変更。
   // ※プロジェクトに保存する値なので、未保存判定の依存配列より前で宣言しておくこと。
-  const [transDur, setTransDur] = useState(0.4)
   const draggingTemplateRef = useRef<TelopStyle | null>(null) // テンプレをテロップへD&D中
-  const [userTemplates, setUserTemplates] = useState<TelopTemplate[]>(loadUserTemplates)
   function saveCurrentAsTemplate(): void {
     const base = selected?.style ?? newTelopStyle
     askText('テンプレート名', 'マイテロップ' + (userTemplates.length + 1), (name) => {
@@ -3080,11 +3070,7 @@ function AppInner(): JSX.Element {
 
   // ---- アイコン画像ライブラリ（単純な画像置き場。追加時にクロップ）----
   const [iconLibrary, setIconLibrary] = useState<IconItem[]>(loadIconLibrary)
-  const [iconAssign, setIconAssignState] = useState<Record<string, string>>(loadIconAssign) // 色→画像
   // レーン（テロップトラック）→画像。色と別軸でレーン単位でもアイコンを割当できる
-  const [laneIconAssign, setLaneIconAssign] = useState<Record<string, string>>(() =>
-    loadLS('giftcut.laneIconAssign', {})
-  )
   function setIconForLane(lane: string, image: string | null): void {
     setLaneIconAssign((prev) => {
       const n = { ...prev }

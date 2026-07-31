@@ -1,1 +1,1 @@
-{"字幕": ["runSubtitles", "handleImportSrt", "exportSrtFn"], "書き出し": ["audioTrackGainForExport", "exportSrtFn", "openExportDialog", "exportProject"], "素材": ["srcOfSeg", "updateSource", "hydrateSource", "addMediaAtPlayhead", "loadVideo", "registerSource", "addMediaPaths"]}
+{"プロジェクト": ["saveCurrentAsTemplate", "deleteUserTemplate", "restore", "projectJson", "saveProjectFn", "openProjectFn", "templateJson", "applyProjectTemplate", "saveAsTemplateFn", "openTemplateFn", "pickTemplate", "applyProjectData", "applyTemplate", "mergeTemplateKeepFrame", "applyTemplateToCue"]}
