@@ -184,8 +184,13 @@ export function TransitionsTab({
       {selectedVideoBand && <BandEditor band={selectedVideoBand} />}
       {selectedTelopBand && <BandEditor band={selectedTelopBand} />}
       {!selectedVideoBand && !selectedTelopBand && (
+        // **見えていない物を指して案内しない。**
+        // 節は畳んで始まる（1つ開くと他が押し出されるため）ので、
+        // 開く前は「下のトランジションをドラッグ」と言われても、下には何も無い。
+        // まず開くところから案内する。
         <div className="tpl-hint">
-          下のトランジションを<b>タイムラインへドラッグ</b>。落とす<b>マウス位置</b>で置き場所が決まります。
+          下の<b>▶ を押して開く</b>と一覧が出ます。そこから<b>タイムラインへドラッグ</b>。
+          落とす<b>マウス位置</b>で置き場所（頭・間・尻）が決まります。
           置いた<b>帯をクリック</b>で長さ・種類の変更／削除、<b>帯の端をドラッグ</b>で長さ変更。
         </div>
       )}

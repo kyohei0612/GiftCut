@@ -389,6 +389,33 @@ function readWindowState(): WindowState | null {
   }
 }
 
+/**
+ * ダブルクリックで開かれたプロジェクトを、画面へ渡す。
+ *
+ * **関連付けから開くと、パスは起動の引数で来る。**
+ * 受け取る側が居ないと「メモ帳で開きますか？」のまま何も起きない。
+ *
+ * 画面はまだ出来ていないことがあるので、その時は覚えておいて、
+ * 出来上がってから渡す（起動直後に落としたら、開いたのに何も出ない）。
+ */
+let pendingOpenPath: string | null = null
+function sendOpenPath(p: string): void {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (!win || win.webContents.isLoading()) {
+    pendingOpenPath = p
+    return
+  }
+  allowFile(p)
+  win.webContents.send('project:openPath', p)
+  if (win.isMinimized()) win.restore()
+  win.focus()
+}
+function openPathFromArgv(argv: string[]): void {
+  // 先頭は実行ファイル。開発中は「.」も混ざるので、拡張子で選ぶ
+  const p = argv.slice(1).find((a) => /\.gcproj$/i.test(a) && existsSync(a))
+  if (p) sendOpenPath(resolve(p))
+}
+
 function createWindow(): void {
   const displays = screen.getAllDisplays().map((d) => d.workArea)
   const { bounds, maximized } = nextBounds(
@@ -438,6 +465,14 @@ function createWindow(): void {
   mainWindow.on('unmaximize', rememberWindow)
 
   mainWindow.on('ready-to-show', () => mainWindow.show())
+  // 起動の引数で渡されたプロジェクトは、画面が出来てから渡す
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (!pendingOpenPath) return
+    const p = pendingOpenPath
+    pendingOpenPath = null
+    allowFile(p)
+    mainWindow.webContents.send('project:openPath', p)
+  })
 
   // 更新を見に行く。当てていいかは「今なにをしているか」で決める
   // （書き出し中・未保存のときに勝手に再起動しない）。
@@ -542,6 +577,23 @@ function createWindow(): void {
 // temp にテロップPNGが数百枚残ったままになる（実測で残存を確認）。
 app.on('before-quit', killAllChildren)
 app.on('will-quit', killAllChildren)
+
+// **同時に2つ立ち上げない。**
+// 関連付けから別のプロジェクトを開くたびに新しい GiftCut が立ち上がると、
+// 下書き（自動保存）を2つのアプリが取り合い、あとから閉じた方の内容で上書きされる。
+// 2つ目は起動せず、すでに動いている方へ「これを開いて」と伝える。
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', (_e, argv) => {
+    openPathFromArgv(argv)
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+  })
+}
 
 app.whenReady().then(() => {
   // 起動時に、前回落ちたときの書き出し一時ディレクトリを掃除する（1回の失敗で数MB〜が残る）
@@ -828,6 +880,105 @@ app.whenReady().then(() => {
       }
     }
     return { ok: true, root: roots[0], items }
+  })
+
+  // ---- SE を置き場へ入れる ----
+  //
+  // **一覧に「ここへ入れてください」と書くだけでは入口になっていない。**
+  // まっさらな状態の SE タブは「GiftCut/SE フォルダに mp3 を入れてください」
+  // としか出ておらず、そこから辿れるボタンが1つも無かった。
+  // 追加はプロジェクトと同じ作法（ボタンで選ぶ／掴んで落とす）に揃える。
+  //
+  // 入れ方は2通り。**どちらも userData/SE の下に写す**（更新で消えない場所）。
+  //   ファイル … 直下へ。一覧では「その他」に並ぶ
+  //   フォルダ … 名前ごと1階層で写す。一覧では**畳んだ分類**として出る
+  const SE_AUDIO = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac']
+  const seImportRoot = (): string => join(app.getPath('userData'), 'SE')
+  /** 同じ名前があっても上書きしない（消えたと思われるのが一番困る） */
+  const freeName = (dir: string, name: string): string => {
+    const dot = name.lastIndexOf('.')
+    const stem = dot > 0 ? name.slice(0, dot) : name
+    const ext = dot > 0 ? name.slice(dot) : ''
+    let p = join(dir, name)
+    for (let i = 2; existsSync(p); i++) p = join(dir, `${stem} (${i})${ext}`)
+    return p
+  }
+  const isSeAudio = (n: string): boolean =>
+    SE_AUDIO.includes(n.toLowerCase().split('.').pop() ?? '')
+  /**
+   * 受け取った物を SE の置き場へ写す。
+   * ファイルは直下（一覧では「その他」）、フォルダは名前ごと1階層（畳んだ分類）。
+   */
+  const seImportPaths = (
+    list: string[]
+  ): { ok: boolean; files?: number; folders?: number; root?: string; error?: string } => {
+    const root = seImportRoot()
+    mkdirSync(root, { recursive: true })
+    let files = 0
+    let folders = 0
+    for (const src of list) {
+      if (!src || !existsSync(src)) continue
+      if (statSync(src).isDirectory()) {
+        // Windows のパスは \ 区切り。**両方入れること**（片方だと分解できず、
+        // 置き場の下にフルパスの名前でファイルを作ろうとして失敗する）
+        const name = src.split(/[\\/]/).filter(Boolean).pop() ?? 'SE'
+        const dst = freeName(root, name)
+        mkdirSync(dst, { recursive: true })
+        let got = 0
+        for (const f of readdirSync(src)) {
+          const full = join(src, f)
+          try {
+            if (statSync(full).isFile() && isSeAudio(f)) {
+              copyFileSync(full, freeName(dst, f))
+              got++
+            }
+          } catch {
+            /* 読めない物は飛ばす */
+          }
+        }
+        if (got > 0) {
+          folders++
+          files += got
+        } else rmSync(dst, { recursive: true, force: true }) // 空の分類は作らない
+      } else if (isSeAudio(src)) {
+        copyFileSync(src, freeName(root, src.split(/[\\/]/).pop() ?? '音.mp3'))
+        files++
+      }
+    }
+    if (files === 0)
+      return { ok: false, error: '音のファイルが見つかりませんでした（mp3 / wav / m4a など）' }
+    return { ok: true, files, folders, root }
+  }
+  /** 掴んで落とした物・選んだ物を入れる（paths を渡さなければファイル選択を出す） */
+  ipcMain.handle('se:import', async (_e, paths?: string[]) => {
+    try {
+      let list = Array.isArray(paths) ? paths.filter((p) => typeof p === 'string' && p) : []
+      if (!list.length) {
+        const r = await dialog.showOpenDialog({
+          title: '音を追加',
+          filters: [{ name: '音', extensions: SE_AUDIO }],
+          properties: ['openFile', 'multiSelections']
+        })
+        if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true }
+        list = r.filePaths
+      }
+      return seImportPaths(list)
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+  /** フォルダを選んで、そのフォルダごと入れる（分類として畳んだ状態で入る） */
+  ipcMain.handle('se:importFolder', async () => {
+    try {
+      const r = await dialog.showOpenDialog({
+        title: 'フォルダごと音を追加',
+        properties: ['openDirectory', 'multiSelections']
+      })
+      if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true }
+      return seImportPaths(r.filePaths)
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
   })
 
   // ローカルのテロップテンプレ集（GiftCut/telop-presets/*.json）。Geba等・配布に含めない。
@@ -3069,6 +3220,8 @@ ${detail}` : ""),
   })
 
   createWindow()
+  // 引数で渡されたプロジェクトを開く（関連付けからのダブルクリック）
+  openPathFromArgv(process.argv)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

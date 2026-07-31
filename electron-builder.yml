@@ -70,6 +70,15 @@ win:
         - x64
   # 署名はまだ。証明書を用意したらここに certificateFile を足す
 
+# プロジェクトファイルを GiftCut に結び付ける。
+# **これが無いと、保存した .gcproj をダブルクリックしても
+# 「メモ帳で開きますか？」になる。** 作った本人が自分のファイルを開けない。
+fileAssociations:
+  - ext: gcproj
+    name: GiftCut プロジェクト
+    description: GiftCut のプロジェクト
+    role: Editor
+
 nsis:
   oneClick: false # 置き場所を選べるようにする（既定の一発インストールにしない）
   allowToChangeInstallationDirectory: true

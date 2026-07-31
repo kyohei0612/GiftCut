@@ -256,6 +256,36 @@ const api = {
   // ---- プロジェクトテンプレート ----
   listTemplates: (): Promise<{ ok: boolean; items: { name: string; path: string }[]; error?: string }> =>
     ipcRenderer.invoke('template:list'),
+  /**
+   * SE を置き場へ入れる。paths を渡さなければファイル選択を出す。
+   * ファイルは直下、フォルダは名前ごと（一覧では畳んだ分類）。
+   */
+  /**
+   * 関連付け（ダブルクリック）で開かれたプロジェクトの通知。
+   * パスは起動の引数で来るので、画面側で受け取って開く。
+   */
+  onOpenProjectPath: (fn: (path: string) => void): (() => void) => {
+    const h = (_e: unknown, p: string): void => fn(p)
+    ipcRenderer.on('project:openPath', h)
+    return () => ipcRenderer.removeListener('project:openPath', h)
+  },
+  importSe: (
+    paths?: string[]
+  ): Promise<{
+    ok: boolean
+    canceled?: boolean
+    files?: number
+    folders?: number
+    error?: string
+  }> => ipcRenderer.invoke('se:import', paths),
+  /** フォルダを選んで、そのフォルダごと SE へ入れる */
+  importSeFolder: (): Promise<{
+    ok: boolean
+    canceled?: boolean
+    files?: number
+    folders?: number
+    error?: string
+  }> => ipcRenderer.invoke('se:importFolder'),
   /** テンプレートを1つ消す（消せるのは自分で作ったぶんだけ） */
   deleteTemplate: (path: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('template:delete', path),

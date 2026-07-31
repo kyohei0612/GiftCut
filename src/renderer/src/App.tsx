@@ -2836,6 +2836,32 @@ export default function App(): JSX.Element {
   const [editingId, setEditingId] = useState<number | null>(null)
   // 内蔵SEライブラリ（GiftCut/SE をカテゴリ別に読む。ローカルフォルダ参照＝配布同梱しない）
   const [seLibrary, setSeLibrary] = useState<{ category: string; name: string; path: string }[]>([])
+  /**
+   * SE を置き場へ入れる。
+   *
+   *   何も渡さない … ファイルを選ぶ
+   *   'folder'     … フォルダを選ぶ（そのフォルダごと分類になる）
+   *   パスの配列   … 掴んで落とされた物
+   *
+   * **入れたらその場で読み直す。** 入れたのに一覧が変わらないと、
+   * 入ったのかどうか本人には分からない。
+   */
+  async function importSeInto(arg?: 'folder' | string[]): Promise<void> {
+    const r =
+      arg === 'folder'
+        ? await window.giftcut?.importSeFolder?.()
+        : await window.giftcut?.importSe?.(Array.isArray(arg) ? arg : undefined)
+    if (!r || r.canceled) return
+    if (!r.ok) {
+      showToast(`入れられませんでした。\n${r.error ?? ''}`)
+      return
+    }
+    refreshSE()
+    showToast(
+      `SE に ${r.files}件${r.folders ? `（フォルダ ${r.folders}個）` : ''}入れました。` +
+        'そのまま使えます。'
+    )
+  }
   const refreshSE = (): void => {
     void window.giftcut?.listSE?.()?.then((r) => {
       if (r?.ok) setSeLibrary(r.items)
@@ -4142,6 +4168,16 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const off = window.giftcut?.onExportProgress?.(({ percent }) => setExportPct(percent))
     return () => off?.()
+  }, [])
+
+  // 関連付け（ダブルクリック）で開かれたプロジェクトを開く。
+  // **受け取る側が居ないと「メモ帳で開きますか？」のまま何も起きない。**
+  useEffect(() => {
+    const off = window.giftcut?.onOpenProjectPath?.((p) => {
+      void openProjectFn(p)
+    })
+    return () => off?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // 更新の再起動の直前。今の状態を下書きに書いてから「書けた」と返す。
@@ -12754,6 +12790,23 @@ export default function App(): JSX.Element {
                     showToast('タイムラインへドラッグして配置してください（Ctrl+ドロップで挿入）。')
                 }}
                 onRemove={removeMedia}
+                // **音はここからSEへ送れるようにする。**
+                // プロジェクトに入れても SE の一覧には出てこないので、
+                // 「入れたのに使えない」で止まっていた（案内文も SE を指していた）
+                onContextMenu={(m, e) => {
+                  const opts: { label: string; act: () => void }[] = []
+                  if (m.kind === 'audio')
+                    opts.push({
+                      label: '🔊 SE へ入れる（右の SE タブに並びます）',
+                      act: () => void importSeInto([m.path])
+                    })
+                  opts.push({
+                    label: '▶ 再生ヘッドの位置へ置く',
+                    act: () => addMediaAtPlayhead(m)
+                  })
+                  opts.push({ label: '✕ プロジェクトから削除', act: () => removeMedia(m.id) })
+                  setOrgMenu({ x: e.clientX, y: e.clientY, options: opts })
+                }}
                 onDragStart={beginMediaDrag}
                 onDragEnd={() => {
                   draggingMediaRef.current = null
@@ -12869,6 +12922,9 @@ export default function App(): JSX.Element {
                 onAddFolder={addSeFolder}
                 onDeleteFolder={deleteSeFolder}
                 onRefresh={refreshSE}
+                onImport={() => void importSeInto()}
+                onImportFolder={() => void importSeInto('folder')}
+                onDropPaths={(paths) => void importSeInto(paths)}
                 onPreview={previewSE}
                 onMoveTo={setSeFolderOf}
                 onToggleFav={toggleSeFav}

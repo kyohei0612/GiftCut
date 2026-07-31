@@ -203,6 +203,24 @@ export interface GiftcutApi {
   onUpdateFlush: (fn: () => void) => () => void
   updateFlushed: () => void
   listTemplates: () => Promise<{ ok: boolean; items: { name: string; path: string }[]; error?: string }>
+  /** 関連付け（ダブルクリック）で開かれたプロジェクトの通知 */
+  onOpenProjectPath: (fn: (path: string) => void) => () => void
+  /** SE を置き場へ入れる（paths 省略でファイル選択。フォルダは畳んだ分類として入る） */
+  importSe: (paths?: string[]) => Promise<{
+    ok: boolean
+    canceled?: boolean
+    files?: number
+    folders?: number
+    error?: string
+  }>
+  /** フォルダを選んで、そのフォルダごと SE へ入れる */
+  importSeFolder: () => Promise<{
+    ok: boolean
+    canceled?: boolean
+    files?: number
+    folders?: number
+    error?: string
+  }>
   /** テンプレートを1つ消す（消せるのは自分で作ったぶんだけ。同梱の物は断る） */
   deleteTemplate: (path: string) => Promise<{ ok: boolean; error?: string }>
   saveTemplate: (name: string, json: string) => Promise<{ ok: boolean; path?: string; error?: string }>

@@ -30,6 +30,9 @@ export function SeLibraryTab({
   onAddFolder,
   onDeleteFolder,
   onRefresh,
+  onImport,
+  onImportFolder,
+  onDropPaths,
   onPreview,
   onMoveTo,
   onToggleFav,
@@ -54,6 +57,12 @@ export function SeLibraryTab({
   onAddFolder: () => void
   onDeleteFolder: (key: string) => void
   onRefresh: () => void
+  /** 音のファイルを選んで入れる */
+  onImport: () => void
+  /** フォルダを選んで、そのフォルダごと分類として入れる */
+  onImportFolder: () => void
+  /** 掴んで落とされた物（ファイル・フォルダのパス）を入れる */
+  onDropPaths: (paths: string[]) => void
   onPreview: (path: string) => void
   /** null = もとのフォルダへ戻す */
   onMoveTo: (path: string, folder: string | null) => void
@@ -112,14 +121,47 @@ export function SeLibraryTab({
   )
   const favList = library.filter((s) => favorites.includes(s.path))
   return (
-    <div className="panel-body" ref={bodyRef}>
+    <div
+      className="panel-body"
+      ref={bodyRef}
+      // **掴んで落とせる。** 一覧に「ここへ入れて」と書くだけでは入口にならない。
+      // ファイルはそのまま、フォルダは名前ごと（畳んだ分類として）入る。
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('Files')) {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+        }
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
+        // Electron では File にファイルの場所が入っている
+        const paths = [...e.dataTransfer.files]
+          .map((f) => (f as File & { path?: string }).path ?? '')
+          .filter(Boolean)
+        if (paths.length) onDropPaths(paths)
+      }}
+    >
+      {/* **入れる口を先頭に置く。**
+          物が1つも無いのに「フォルダ作成」（＝分類する箱）が先頭に居ると、
+          最初にやりたいこと（入れる）へ辿り着けない。並びはプロジェクトに揃える。 */}
       <div className="bin-toolbar">
-        <button className="btn small" title="新しいフォルダを作成" onClick={onAddFolder}>
+        <button className="btn small" title="音のファイルを選んで入れる" onClick={onImport}>
+          ＋ 音を追加
+        </button>
+        <button
+          className="btn small"
+          title="フォルダを選ぶと、そのフォルダごと分類として入ります"
+          onClick={onImportFolder}
+        >
+          📂 フォルダごと追加
+        </button>
+        <button className="btn small" title="分類（アプリの中だけの箱）を作る" onClick={onAddFolder}>
           📁＋ フォルダ作成
         </button>
         <button
           className="btn small"
-          title="GiftCut/SE フォルダを再読み込み"
+          title="置き場を読み直す"
           style={{ marginLeft: 'auto' }}
           onClick={onRefresh}
         >
@@ -128,9 +170,11 @@ export function SeLibraryTab({
       </div>
       {library.length === 0 ? (
         <div className="empty">
-          SEが見つかりません。
+          まだ音がありません。
           <br />
-          GiftCut/SE フォルダに mp3 を入れてください。
+          <b>ここへ掴んで落とす</b>か、上の「＋ 音を追加」から入れてください。
+          <br />
+          フォルダごと落とせば、そのまま分類になります。
         </div>
       ) : (
         <>

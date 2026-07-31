@@ -42,6 +42,7 @@ export function ProjectBinTab({
   onOpenVideo,
   onRemove,
   onDragStart,
+  onContextMenu,
   onAddAtPlayhead,
   onDragEnd,
   onPickLabel,
@@ -69,6 +70,8 @@ export function ProjectBinTab({
   onOpenVideo: (item: MediaItem) => void
   onRemove: (id: number) => void
   onDragStart: (item: MediaItem, e: React.DragEvent) => void
+  /** 右クリック（SEへ送る等）。渡さなければ何も出ない */
+  onContextMenu?: (item: MediaItem, e: React.MouseEvent) => void
   /** ダブルクリックで再生ヘッドの位置へ足す（音・画像） */
   onAddAtPlayhead: (item: MediaItem) => void
   onDragEnd: () => void
@@ -94,10 +97,16 @@ export function ProjectBinTab({
       </div>
 
       {items.length === 0 ? (
+        // **できないことを書かない。**
+        // 以前は「フォルダ丸ごと追加（SE等）」と書いてあったが、ここへ入れても
+        // SE の一覧には出てこない（SE は SE タブが置き場）。
+        // 案内どおりにやったのに使えない、が一番たちが悪い。
         <div className="empty">
-          ダブルクリックでファイル追加
+          まだ素材がありません。
           <br />
-          📁ボタンでフォルダ丸ごと追加（SE等）
+          <b>ここへ掴んで落とす</b>か、上の「＋ ファイル追加」から入れてください。
+          <br />
+          効果音は右の <b>SE タブ</b>へ入れると、一覧から使えます。
         </div>
       ) : (
         <div className="media-lib">
@@ -129,6 +138,14 @@ export function ProjectBinTab({
                     onClick={(e) => {
                       e.stopPropagation()
                       onSelect(m.id)
+                    }}
+                    // **右クリックで先へ送れるようにする。**
+                    // 音をここへ入れても SE の一覧には出てこないので、
+                    // 「入れたのに使えない」で手が止まっていた
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      onContextMenu?.(m, e)
                     }}
                     onDoubleClick={(e) => {
                       e.stopPropagation()

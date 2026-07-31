@@ -2813,6 +2813,57 @@ try {
     await resetProject()
   })
 
+  await check('SE は、パネルから足せて、その場で一覧に出る', async () => {
+    // **一覧に「ここへ入れて」と書くだけでは入口になっていない。**
+    // まっさらな SE タブには、そこから辿れるボタンが1つも無かった
+    // （あるのは「フォルダ作成」＝中身の無い分類箱と「更新」だけ）。
+    // ここで見るのは「足す口がある」ことと「足したら使える」ことの2つ。
+    await resetProject()
+    await page.locator('.panel-tabs .tab', { hasText: 'SE' }).last().click()
+    await page.waitForTimeout(500)
+    const bar = page.locator('.bin-toolbar').last()
+    const labels = await bar.locator('button').allTextContents()
+    assert(
+      labels.some((t) => t.includes('音を追加')),
+      `SE タブに足す口が無い（${labels.join(' / ')}）`
+    )
+    // **並び順まで見る。** 物が1つも無いのに「分類を作る」が先頭だと、
+    // 最初にやりたいこと（入れる）へ辿り着けない
+    const iAdd = labels.findIndex((t) => t.includes('音を追加'))
+    const iFolder = labels.findIndex((t) => t.includes('フォルダ作成'))
+    assert(
+      iAdd >= 0 && (iFolder < 0 || iAdd < iFolder),
+      `足す口より先に「フォルダ作成」が居る（${labels.join(' / ')}）`
+    )
+
+    // ファイルを1つ足すと、その場で一覧に出ること
+    const before = await page.evaluate(async () => {
+      const r = await window.giftcut.listSE()
+      return (r?.items ?? []).length
+    })
+    const r = await page.evaluate((p) => window.giftcut.importSe([p]), fx.sound)
+    assert(r?.ok, `足せない: ${JSON.stringify(r)}`)
+    assert(existsSync(join(fx.userData, 'SE')), '置き場に入っていない')
+    const after = await page.evaluate(async () => {
+      const rr = await window.giftcut.listSE()
+      return (rr?.items ?? []).length
+    })
+    assert(after > before, `足したのに一覧が増えない（${before} → ${after}）`)
+
+    // **同じ物を2回足しても、上書きで消えないこと**（消えたと思われるのが一番困る）
+    await page.evaluate((p) => window.giftcut.importSe([p]), fx.sound)
+    const after2 = await page.evaluate(async () => {
+      const rr = await window.giftcut.listSE()
+      return (rr?.items ?? []).length
+    })
+    assert(after2 > after, `2回目が上書きされている（${after} → ${after2}）`)
+
+    // 音でない物は断る（何を入れても入る、にしない）
+    const bad = await page.evaluate((p) => window.giftcut.importSe([p]), fx.image)
+    assert(bad?.ok === false, '画像まで SE に入れてしまう')
+    touchedRef.dirty = true
+  })
+
   await check('テンプレートを開く画面から、自分で作ったぶんを消せる', async () => {
     // 作ったはいいが**消す道が無い**と、増える一方で選べなくなる。
     // ただし**同梱のテンプレートは消させない**（消しても更新で戻るし、
