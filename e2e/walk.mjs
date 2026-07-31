@@ -23,6 +23,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { watchdog } from './dismiss.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..')
@@ -62,11 +63,13 @@ writeFileSync(
 const require = createRequire(import.meta.url)
 const app = await electron.launch({
   executablePath: require('electron'),
-  args: [ROOT, `--user-data-dir=${join(dir, 'ud')}`],
+  args: [ROOT, `--user-data-dir=${join(dir, 'ud')}`, '--gc-auto'],
   cwd: ROOT,
   ...(SLOW ? { slowMo: 450 } : null)
 })
 const page = await app.firstWindow()
+// 黙って止まり続けないよう、頭打ちを決めておく（e2e/dismiss.mjs）
+watchdog(15, () => app.close())
 const pageErrors = []
 page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 200)))
 await page.waitForSelector('.app', { timeout: 20000 })

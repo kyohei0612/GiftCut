@@ -269,6 +269,32 @@ const api = {
     ipcRenderer.on('project:openPath', h)
     return () => ipcRenderer.removeListener('project:openPath', h)
   },
+  // ---- 字幕（聞き取り）----
+  /** 聞き取りの準備が手元にあるか。無ければ落とす大きさを返す */
+  subtitleStatus: (): Promise<{
+    ok: boolean
+    exe: boolean
+    model: boolean
+    label: string
+    sizeMB: number
+  }> => ipcRenderer.invoke('subtitles:status'),
+  /** 聞き取る（足りない物があれば先に落とす）。時刻付きの文字起こしを返す */
+  runSubtitles: (
+    videoPath: string
+  ): Promise<{
+    ok: boolean
+    canceled?: boolean
+    segs?: { start: number; end: number; text: string }[]
+    duration?: number
+    error?: string
+  }> => ipcRenderer.invoke('subtitles:run', videoPath),
+  cancelSubtitles: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('subtitles:cancel'),
+  /** 進み具合（落とす → 音を取り出す → 聞き取る） */
+  onSubtitleProgress: (fn: (s: unknown) => void): (() => void) => {
+    const h = (_e: unknown, s: unknown): void => fn(s)
+    ipcRenderer.on('subtitles:progress', h)
+    return () => ipcRenderer.removeListener('subtitles:progress', h)
+  },
   importSe: (
     paths?: string[]
   ): Promise<{

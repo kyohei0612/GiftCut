@@ -34,6 +34,7 @@ import { tmpdir, homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
+import { clearModals, watchdog } from './dismiss.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
@@ -84,16 +85,21 @@ console.log(`焼き直し: ${proxyShared ? '本物の置き場を使い回しま
 
 const app = await electron.launch({
   executablePath: require('electron'),
-  args: [ROOT, `--user-data-dir=${userData}`],
+  args: [ROOT, `--user-data-dir=${userData}`, '--gc-auto'],
   cwd: ROOT
 })
 const page = await app.firstWindow()
+// 黙って止まり続けないよう、頭打ちを決めておく（e2e/dismiss.mjs）
+watchdog(30, () => app.close())
 page.on('pageerror', (e) => console.log('  [画面の例外]', String(e).slice(0, 200)))
 await page.waitForSelector('.app', { timeout: 60000 })
 page.setDefaultTimeout(20000)
 
-// 「前回の作業が残っています」→ 復元する
+// 「前回の作業が残っています」→ 復元する。
+// **重なって出ることがある**（テンプレート選びなど）ので、
+// 余分は e2e/dismiss.mjs でどけてから本命を押す
 await page.waitForTimeout(1500)
+await clearModals(page)
 const restore = page.locator('.restore-btns button', { hasText: /^復元する$/ })
 if (await restore.count().catch(() => 0)) {
   await restore.first().click()

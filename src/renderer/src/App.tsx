@@ -80,6 +80,11 @@ import {
   ShortcutSettings,
   IconAssignSettings
 } from './components/dialogs/SettingsDialogs'
+import {
+  SubtitleDialog,
+  type SubtitleModel,
+  type SubtitlePhase
+} from './components/dialogs/SubtitleDialog'
 import { ContextMenu } from './components/ContextMenu'
 import { StatusBar } from './components/StatusBar'
 import { MenuBar } from './components/MenuBar'
@@ -139,6 +144,9 @@ import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
 // キーフレーム（時間で変わる値）。プレビューも書き出しも同じ計算を使う
 import { valueAt, putKey, removeKey, hasKeys, type Keys } from '../../shared/keyframes'
 import { nextOpenSecs } from '../../shared/accordion'
+import { mergeShreds, splitAtPauses } from '../../shared/splitTelop'
+import { alignCues, speechRanges } from '../../shared/alignCues'
+import { DB_LADDER, enoughSilences } from '../../shared/silenceLadder'
 import {
   zoomAt,
   hasClipMotion,
@@ -863,6 +871,20 @@ export default function App(): JSX.Element {
   const initializedForPathRef = useRef<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [playRateUI, setPlayRateUI] = useState(0)
+  // 字幕づくりの窓。**押してすぐ走らせない**（何分もかかるので必ず確認を挟む）
+  const [subtitleOpen, setSubtitleOpen] = useState(false)
+  const [subtitleState, setSubtitleState] = useState<SubtitlePhase>({ phase: 'idle' })
+  // ここは描画中に走るので loadLS を使えない（定義がこれより下にある）
+  const [subMaxChars, setSubMaxChars] = useState<number>(() => {
+    const v = Number(localStorage.getItem('giftcut.subMaxChars'))
+    return v >= 10 && v <= 30 ? v : 17
+  })
+  const [subReplace, setSubReplace] = useState(true)
+  const [subModel, setSubModel] = useState<SubtitleModel>({
+    ready: false,
+    label: 'large-v3-turbo',
+    sizeMB: 1600
+  })
   // いま動いている本体の版（枠の題名の横に出す）。本体に聞くので、
   // 自動更新で入れ替わればそのまま新しい数字になる
   const [appVersion, setAppVersion] = useState('')
@@ -4252,6 +4274,92 @@ export default function App(): JSX.Element {
     const off = window.giftcut?.onExportProgress?.(({ percent }) => setExportPct(percent))
     return () => off?.()
   }, [])
+
+  // 字幕づくりの進み具合を受け取る
+  useEffect(() => {
+    const off = window.giftcut?.onSubtitleProgress?.((s) => setSubtitleState(s as SubtitlePhase))
+    return () => off?.()
+  }, [])
+  // 窓を開けたら、準備が手元にあるかを聞く（落とす大きさを先に見せるため）
+  useEffect(() => {
+    if (!subtitleOpen) return
+    void window.giftcut?.subtitleStatus?.().then((r) => {
+      if (!r?.ok) return
+      setSubModel({ ready: r.exe && r.model, label: r.label, sizeMB: r.sizeMB })
+    })
+  }, [subtitleOpen])
+
+  /**
+   * 字幕を作る。
+   *
+   *   聞き取る（本体）→ 読める長さに割る → 喋っている所へ合わせる → 並べる
+   *
+   * **合わせるのは画面側**。カット点を知っているのがこちらなので、
+   * 「切った所＝話の始まり」という一番強い手がかりをここで使える。
+   */
+  async function runSubtitles(): Promise<void> {
+    const src = sources[0]?.path ?? videoPath
+    if (!src) {
+      showToast('先に動画を読み込んでください。')
+      return
+    }
+    setSubtitleState({ phase: 'extract' })
+    const r = await window.giftcut.runSubtitles(src)
+    if (r?.canceled) {
+      setSubtitleState({ phase: 'idle' })
+      return
+    }
+    if (!r?.ok || !r.segs?.length) {
+      setSubtitleState({ phase: 'error', message: r?.error ?? '字幕を作れませんでした' })
+      return
+    }
+    setSubtitleState({ phase: 'align' })
+    const total = r.duration || videoDuration || 0
+    // **無音のしきい値は素材で変わる。**
+    // 雑音の多い動画では -35dB だと「どこも無音でない」ことになり、
+    // 合わせる先が1つも取れない（実測: -35dB で1区間、-30dB で37区間）。
+    // 取れるまで少しずつ緩める。緩めすぎると小さい音まで無音扱いになるので、
+    // **十分な数が取れた所で止める**。
+    // 足りているかの判定は src/shared/silenceLadder.ts（測る道具と揃えるため）
+    let silences: { start: number; dur: number }[] = []
+    for (const db of DB_LADDER) {
+      const r = await window.giftcut.detectSilences?.(src, db, 0.2).catch(() => null)
+      const got = r?.ok ? (r.silences ?? []) : []
+      if (got.length > silences.length) silences = got
+      if (enoughSilences(silences.length, total)) break
+    }
+    // **まず「間」で割る。** 1枚＝1つの話の区切りにする。
+    // 文字数だけで割ると、読み終わる前に次へ進んで「音より速い」と感じる
+    //（youtube-pipeline の品質記録にある R-sync 違反と同じ現象）。
+    // こちらは本物の音があるので、実際に黙った所で割れる。
+    const ranges = speechRanges(silences, total)
+    const split = r.segs.flatMap((s) => splitAtPauses(s, ranges, subMaxChars))
+    const aligned = mergeShreds(
+      alignCues(split, silences, total, {
+        // 切ったのは本人。音より強い手がかりとして使う
+        cuts: segLayout.map((L) => L.tStart)
+      }),
+      subMaxChars
+    )
+    const base = subReplace ? [] : cues
+    let id = Math.max(0, ...cues.map((c) => c.id)) + 1
+    const made: Cue[] = aligned.map((a) => ({
+      id: id++,
+      start: a.start,
+      end: a.end,
+      text: a.text,
+      track: 'V2',
+      // 見た目は「次に足すテロップ」の既定に合わせる。
+      // 字幕だけ別の見た目になると、あとで揃え直す手間が増える
+      label: DEFAULT_LABEL,
+      pos: { x: 0.5, y: 0.85 },
+      style: { ...newTelopStyle }
+    }))
+    setCues([...base, ...made].sort((a, b) => a.start - b.start))
+    setSubtitleState({ phase: 'idle' })
+    setSubtitleOpen(false)
+    showToast(`字幕を ${made.length}枚 作りました。`)
+  }
 
   // 関連付け（ダブルクリック）で開かれたプロジェクトを開く。
   // **受け取る側が居ないと「メモ帳で開きますか？」のまま何も起きない。**
@@ -11635,6 +11743,16 @@ export default function App(): JSX.Element {
         <div className="modebar-left">
           <span className="home">⌂</span>
           <button className="mode-tab mode-tab-on">編集</button>
+          {/* **字幕は編集と書き出しの間。**
+              喋りを起こしてから仕上げる、という順番そのものを並びで示す。
+              押してすぐ走らせない（何分もかかる処理なので、必ず確認を挟む）。 */}
+          <button
+            className="mode-tab"
+            onClick={() => setSubtitleOpen(true)}
+            title="喋っている内容を聞き取って、テロップにします"
+          >
+            字幕
+          </button>
           {/* 設定ダイアログを経由する（メニューや Ctrl+M と挙動を揃える。
               以前はここだけ前回設定で即書き出しが始まっていた） */}
           <button className="mode-tab" onClick={() => openExportDialog()}>
@@ -14154,6 +14272,24 @@ export default function App(): JSX.Element {
           }}
         />
       )}
+      {subtitleOpen && (
+        <SubtitleDialog
+          model={subModel}
+          state={subtitleState}
+          maxChars={subMaxChars}
+          onMaxChars={(n) => {
+            setSubMaxChars(n)
+            saveLS('giftcut.subMaxChars', n)
+          }}
+          replace={subReplace}
+          onReplace={setSubReplace}
+          hasTelops={cues.length > 0}
+          onRun={() => void runSubtitles()}
+          onCancel={() => void window.giftcut?.cancelSubtitles?.()}
+          onClose={() => setSubtitleOpen(false)}
+        />
+      )}
+
       {templatePicker && (
         <TemplatePicker
           items={templatePicker.items}

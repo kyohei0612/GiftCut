@@ -37,6 +37,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
+import { watchdog } from './dismiss.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
@@ -460,13 +461,15 @@ try {
     //   何をしても同じ数字しか返ってこない（実際それで気づいた）
     args: [
       ROOT,
-      `--user-data-dir=${fx.userData}`,
+      `--user-data-dir=${fx.userData}`, '--gc-auto',
       '--js-flags=--expose-gc',
       '--enable-precise-memory-info'
     ],
     cwd: ROOT
   })
   page = await app.firstWindow()
+  // 黙って止まり続けないよう、頭打ちを決めておく（e2e/dismiss.mjs）
+  watchdog(60, () => app.close())
   pageRef = page
   await page.waitForSelector('.app', { timeout: 30000 })
   page.setDefaultTimeout(20000)

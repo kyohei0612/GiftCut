@@ -205,6 +205,26 @@ export interface GiftcutApi {
   listTemplates: () => Promise<{ ok: boolean; items: { name: string; path: string }[]; error?: string }>
   /** 関連付け（ダブルクリック）で開かれたプロジェクトの通知 */
   onOpenProjectPath: (fn: (path: string) => void) => () => void
+  // ---- 字幕（聞き取り）----
+  /** 聞き取りの準備が手元にあるか。無ければ落とす大きさ（MB） */
+  subtitleStatus: () => Promise<{
+    ok: boolean
+    exe: boolean
+    model: boolean
+    label: string
+    sizeMB: number
+  }>
+  /** 聞き取る（足りない物があれば先に落とす） */
+  runSubtitles: (videoPath: string) => Promise<{
+    ok: boolean
+    canceled?: boolean
+    segs?: { start: number; end: number; text: string }[]
+    duration?: number
+    error?: string
+  }>
+  cancelSubtitles: () => Promise<{ ok: boolean }>
+  /** 進み具合（落とす → 音を取り出す → 聞き取る） */
+  onSubtitleProgress: (fn: (s: unknown) => void) => () => void
   /** SE を置き場へ入れる（paths 省略でファイル選択。フォルダは畳んだ分類として入る） */
   importSe: (paths?: string[]) => Promise<{
     ok: boolean

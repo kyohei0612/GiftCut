@@ -62,6 +62,13 @@ extraResources:
   # GPL で配ることになる。`npm run check:ffmpeg` が見張っている。
   - from: resources/ffmpeg
     to: ffmpeg
+  # 聞き取り（whisper.cpp・約10MB・MIT）。**同梱する。**
+  # 初回に落とす形にしていたら、取得先が版ごとに変わって 404 になった。
+  # 使う人の初回に外の都合で失敗するのは、こちらでは直せない。
+  # 模型（547MB）だけは大きいので同梱せず、初回に落として userData へ置く。
+  # 置き方は `npm run fetch:whisper`
+  - from: resources/whisper
+    to: whisper
 
 win:
   target:

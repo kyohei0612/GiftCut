@@ -1,6 +1,6 @@
 {
   "name": "giftcut",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "切り抜き動画特化のテロップ編集アプリ",
   "author": "kyohei",
   "main": "./out/main/index.js",
@@ -20,6 +20,9 @@
     "bench": "node e2e/bench.mjs",
     "stutter": "node e2e/stutter.mjs",
     "check:ffmpeg": "node scripts/check-ffmpeg.mjs",
+    "fetch:whisper": "node scripts/fetch-whisper.mjs",
+    "subcheck": "npx tsx e2e/subtitle-check.mjs",
+    "subui": "npx tsx e2e/subtitle-ui.mjs",
     "dist": "npm run check:ffmpeg && npm run build && electron-builder --win --config electron-builder.yml",
     "dist:zip": "npm run check:ffmpeg && npm run build && electron-builder --win zip --config electron-builder.yml",
     "check:packaged": "node scripts/check-packaged.mjs",

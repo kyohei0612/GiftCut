@@ -39,6 +39,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
+import { clearModals, watchdog } from './dismiss.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
@@ -457,10 +458,9 @@ async function check(name, fn, opts = {}) {
         console.log(
           `  \x1b[33m※ 窓が開いたままでした。閉じて続けます（直前: ${prev}）\x1b[0m`
         )
-        const close = pageRef.locator('.restore-btns button', { hasText: /閉じる|キャンセル|空で始める/ })
-        if (await close.count()) await close.first().click({ timeout: 3000 }).catch(() => {})
-        else await pageRef.keyboard.press('Escape')
-        await pageRef.waitForTimeout(400)
+        // どける手順は e2e/dismiss.mjs に1つだけ置いてある
+        // （道具ごとに書くと必ずどれかが抜ける。実際1日で4回踏んだ）
+        await clearModals(pageRef)
       }
     } catch {
       /* 閉じられなくても本題は続ける */
@@ -584,10 +584,12 @@ try {
 
   app = await electron.launch({
     executablePath: require('electron'),
-    args: [ROOT, `--user-data-dir=${fx.userData}`],
+    args: [ROOT, `--user-data-dir=${fx.userData}`, '--gc-auto'],
     cwd: ROOT
   })
   page = await app.firstWindow()
+  // 黙って止まり続けないよう、頭打ちを決めておく（e2e/dismiss.mjs）
+  watchdog(90, () => app.close())
   pageRef = page
   await page.waitForSelector('.app', { timeout: 20000 })
   page.setDefaultTimeout(8000)

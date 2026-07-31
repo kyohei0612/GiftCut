@@ -49,6 +49,15 @@ import { writeZip, extractZip } from './zip'
 import { setupAutoUpdate } from './updater'
 // 同梱素材のパスを今の置き場へ繋ぎ直す（家庭用 exe は起動ごとに展開先が変わる）
 import { relinkBundledPath } from '../shared/relinkBundled'
+import {
+  MODEL,
+  dirOf,
+  downloadTo,
+  findExe,
+  modelPath,
+  modelReady,
+  runWhisper
+} from './subtitles'
 // 書き出し先が素材と同じだと ffmpeg は必ず失敗する。始める前に気づいて日本語で言う
 import { clashingSource } from '../shared/exportTarget'
 
@@ -90,6 +99,18 @@ const FFMPEG = ffBin('ffmpeg')
 const FFPROBE = ffBin('ffprobe')
 
 import { ENCODERS, type Enc } from './encoders'
+
+// 自動実行（e2e・監査・計測）で動かしているかどうか。
+//
+// **窓で止まるのが、自動の道具がこける一番の理由だった。**
+// 中でも厄介なのが「保存せずに終了しますか」で、これは *閉じるのを止める* ため、
+// 機械側からは窓を閉じることすらできず、最後に必ず時間切れで殺される。
+// 画面の中の窓は e2e/dismiss.mjs でどけられるが、これはどけようがない。
+//
+// なので自動実行のときだけ、閉じる確認を飛ばす。
+// **普段の使用には一切効かない**（この印は自動の道具しか付けない）。
+const AUTO = process.argv.includes('--gc-auto') || process.env.GC_AUTO === '1'
+
 /** 実際に1枚焼いてみて、そのエンコーダが本当に使えるか確かめる */
 function tryEncoder(enc: Enc): Promise<boolean> {
   return new Promise((res) => {
@@ -488,7 +509,7 @@ function createWindow(): void {
   // レンダラが app:close-confirmed を返したら allowClose を立てて閉じ直す。
   let allowClose = false
   mainWindow.on('close', (e) => {
-    if (allowClose || !projectDirty) return
+    if (allowClose || !projectDirty || AUTO) return
     e.preventDefault()
     mainWindow.webContents.send('app:close-request')
   })
@@ -1200,6 +1221,112 @@ app.whenReady().then(() => {
       return { ok: true, path: p }
     } catch (e) {
       return { ok: false, error: String(e) }
+    }
+  })
+
+  // ---- 字幕を作る（聞き取り）----
+  //
+  // 流れ: 音を取り出す → 聞き取る → 呼んだ側（画面）が割って合わせる。
+  // **合わせる所は画面側**（カット点を知っているのがそちらなので）。
+  // ここは「音を文字にする」までを受け持つ。
+  const subCancel = { canceled: false }
+  let subProc: ChildProcess | null = null
+  /** 動画の長さ（秒）。進み具合を出すのに要る。取れなければ 0 */
+  const probeDuration = (path: string): Promise<number> =>
+    new Promise((resolve) => {
+      const p = spawn(FFPROBE, [
+        '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path
+      ])
+      let out = ''
+      p.stdout?.on('data', (d) => (out += d.toString()))
+      p.on('error', () => resolve(0))
+      p.on('close', () => {
+        const d = parseFloat(out.trim())
+        resolve(Number.isFinite(d) && d > 0 ? d : 0)
+      })
+    })
+  ipcMain.handle('subtitles:status', () => ({
+    ok: true,
+    exe: !!findExe(),
+    model: modelReady(),
+    label: MODEL.label,
+    // 落とすのは模型だけ（実行ファイルは同梱してある）
+    sizeMB: modelReady() ? 0 : MODEL.sizeMB
+  }))
+  ipcMain.handle('subtitles:cancel', () => {
+    subCancel.canceled = true
+    try {
+      subProc?.kill()
+    } catch {
+      /* すでに終わっている */
+    }
+    return { ok: true }
+  })
+  ipcMain.handle('subtitles:run', async (e, videoPath: string) => {
+    subCancel.canceled = false
+    const send = (s: unknown): void => {
+      if (!e.sender.isDestroyed()) e.sender.send('subtitles:progress', s)
+    }
+    const tmpWav = join(tmpdir(), `giftcut-sub-${Date.now()}.wav`)
+    try {
+      if (!videoPath || !existsSync(videoPath))
+        return { ok: false, error: '聞き取る動画がありません' }
+
+      // 1) 模型を落とす（初回だけ）。実行ファイルは同梱してある
+      if (!findExe())
+        return {
+          ok: false,
+          error: '聞き取りの実行ファイルが見つかりません（同梱物が欠けています）'
+        }
+      if (!modelReady()) {
+        send({ phase: 'download', percent: 0 })
+        const r = await downloadTo(
+          MODEL.url,
+          modelPath(),
+          (p) => send({ phase: 'download', percent: p }),
+          subCancel
+        )
+        if (!r.ok) return { ok: false, error: `聞き取りの模型を落とせません: ${r.error}` }
+      }
+      if (subCancel.canceled) return { ok: false, canceled: true }
+
+      // 2) 音を取り出す。**16kHz モノラルの wav**（whisper.cpp が受ける形）
+      send({ phase: 'extract' })
+      const okWav = await new Promise<boolean>((resolve) => {
+        const ff = spawn(FFMPEG, [
+          '-y', '-i', videoPath,
+          '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le',
+          tmpWav
+        ])
+        subProc = ff
+        ff.on('error', () => resolve(false))
+        ff.on('close', (c) => resolve(c === 0 && existsSync(tmpWav)))
+      })
+      if (subCancel.canceled) return { ok: false, canceled: true }
+      if (!okWav) return { ok: false, error: '音を取り出せませんでした' }
+
+      // 3) 聞き取る
+      send({ phase: 'listen', percent: 0 })
+      const dur = await probeDuration(videoPath)
+      const r = await runWhisper(
+        findExe()!,
+        tmpWav,
+        dur,
+        (p) => send({ phase: 'listen', percent: p }),
+        (p) => (subProc = p)
+      )
+      if (subCancel.canceled) return { ok: false, canceled: true }
+      if (!r.ok || !r.segs) return { ok: false, error: r.error }
+      return { ok: true, segs: r.segs, duration: dur }
+    } catch (er) {
+      return { ok: false, error: String(er) }
+    } finally {
+      subProc = null
+      try {
+        rmSync(tmpWav, { force: true })
+      } catch {
+        /* 消せなくても結果は変わらない */
+      }
     }
   })
 

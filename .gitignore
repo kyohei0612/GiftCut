@@ -39,6 +39,10 @@ e2e/ng-report.json
 # 置き方は resources/ffmpeg/README.md、確認は npm run check:ffmpeg
 resources/ffmpeg/*.exe
 resources/ffmpeg/*.dll
+
+# 同梱する whisper.cpp（約10MB。配布物には入れるが、履歴には入れない）
+# 置き方は npm run fetch:whisper
+resources/whisper/
 dist/
 # 起動中のアプリに掴まれている時に、別の場所へ作った確認用の配布物
 dist-check/

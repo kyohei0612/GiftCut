@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
+import { clearModals, watchdog } from './dismiss.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
@@ -28,21 +29,21 @@ mkdirSync(OUT, { recursive: true })
 const exe = process.argv.slice(2).find((a) => !a.startsWith('--'))
 const ud = mkdtempSync(join(tmpdir(), 'gc-audit-'))
 const app = exe
-  ? await electron.launch({ executablePath: exe, args: [`--user-data-dir=${ud}`] })
+  ? await electron.launch({ executablePath: exe, args: [`--user-data-dir=${ud}`, '--gc-auto'] })
   : await electron.launch({
       executablePath: require('electron'),
-      args: [ROOT, `--user-data-dir=${ud}`],
+      args: [ROOT, `--user-data-dir=${ud}`, '--gc-auto'],
       cwd: ROOT
     })
 const page = await app.firstWindow()
+// 黙って止まり続けないよう、頭打ちを決めておく（e2e/dismiss.mjs）
+watchdog(10, () => app.close())
 await page.waitForSelector('.app', { timeout: 60000 })
 await page.waitForTimeout(2000)
-// 初回のテンプレート選びを閉じる
-const empty = page.locator('.restore-btns button', { hasText: '空で始める' })
-if (await empty.count()) {
-  await empty.first().click()
-  await page.waitForTimeout(800)
-}
+// **窓はまとめてどける**（起動直後は復元やテンプレート選びが出る）。
+// 道具ごとに書くと必ずどれかが抜けるので、e2e/dismiss.mjs に1つだけ置いてある
+const closed = await clearModals(page)
+if (closed.length) console.log('窓をどけました:', closed.join(' / '))
 await page.setViewportSize({ width: 1600, height: 950 }).catch(() => {})
 await page.waitForTimeout(500)
 

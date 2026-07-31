@@ -38,6 +38,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
+import { watchdog } from './dismiss.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
@@ -86,10 +87,12 @@ mkdirSync(userData, { recursive: true })
 
 const app = await electron.launch({
   executablePath: require('electron'),
-  args: [ROOT, `--user-data-dir=${userData}`],
+  args: [ROOT, `--user-data-dir=${userData}`, '--gc-auto'],
   cwd: ROOT
 })
 const page = await app.firstWindow()
+// 黙って止まり続けないよう、頭打ちを決めておく（e2e/dismiss.mjs）
+watchdog(60, () => app.close())
 page.on('pageerror', (e) => console.log('  [画面の例外]', String(e).slice(0, 200)))
 await page.waitForSelector('.app', { timeout: 20000 })
 page.setDefaultTimeout(10000)
