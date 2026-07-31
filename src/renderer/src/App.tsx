@@ -3724,21 +3724,41 @@ export default function App(): JSX.Element {
     setOpenAccSec((p) => ({ ...p, icon: ['lib'] })) // 追加したら開いて見せる（各タブ共通の動作）
   }
   // ライブラリに画像を追加（ファイル選択 → 円形クロップ → 保存）
-  async function addIconImages(): Promise<void> {
-    const inp = document.createElement('input')
-    inp.type = 'file'
-    inp.accept = 'image/*'
-    inp.onchange = async (): Promise<void> => {
-      const f = inp.files?.[0]
+  /**
+   * 画像を1枚ずつ切り抜いて足す。
+   *
+   * **複数まとめて受け取る。** 1枚だけしか受け付けないと、
+   * 何枚も足したい人は同じ操作を繰り返すことになる。
+   * 切り抜きは1枚ずつなので、終わったら次の1枚へ送る。
+   */
+  function addIconFiles(files: File[]): void {
+    const rest = files.filter((f) => f.type.startsWith('image/'))
+    if (!rest.length) return
+    const next = async (): Promise<void> => {
+      const f = rest.shift()
       if (!f) return
       try {
         const src = await fileToDataUrl(f)
         const name = f.name.replace(/\.[^.]+$/, '')
-        setCropSrc({ src, onDone: (img) => appendIconImage(name, img) })
+        setCropSrc({
+          src,
+          onDone: (img) => {
+            appendIconImage(name, img)
+            void next()
+          }
+        })
       } catch {
-        /* スキップ */
+        void next() // 読めない1枚で止めない
       }
     }
+    void next()
+  }
+  async function addIconImages(): Promise<void> {
+    const inp = document.createElement('input')
+    inp.type = 'file'
+    inp.accept = 'image/*'
+    inp.multiple = true
+    inp.onchange = (): void => addIconFiles([...(inp.files ?? [])])
     inp.click()
   }
   function removeIconImage(id: number): void {
@@ -12932,6 +12952,7 @@ export default function App(): JSX.Element {
                 bodyRef={rightBodyRef}
                 accSec={accSec}
                 onAddImages={addIconImages}
+                onDropFiles={addIconFiles}
                 onAddFolder={addIconFolder}
                 onDeleteFolder={deleteIconFolder}
                 onDelete={removeIconImage}

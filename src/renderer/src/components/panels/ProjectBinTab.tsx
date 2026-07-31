@@ -110,6 +110,12 @@ export function ProjectBinTab({
         </div>
       ) : (
         <div className="media-lib">
+          {/* **使い方の案内は、物がある時だけ1行。**
+              他のタブには出ているのにここだけ無く、
+              「置いたあと何ができるのか」がどこにも書いていなかった。 */}
+          <div className="tpl-hint">
+            タイムラインへドラッグで配置／ダブルクリックで再生ヘッドへ／右クリックで送り先
+          </div>
           {(['video', 'audio', 'image'] as const).map((kind) => {
             const list = items.filter((m) => m.kind === kind)
             if (!list.length) return null

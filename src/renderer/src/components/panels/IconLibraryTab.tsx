@@ -25,6 +25,7 @@ export function IconLibraryTab({
   bodyRef,
   accSec,
   onAddImages,
+  onDropFiles,
   onAddFolder,
   onDeleteFolder,
   onDelete,
@@ -49,6 +50,8 @@ export function IconLibraryTab({
     onDelete?: () => void
   ) => JSX.Element
   onAddImages: () => void
+  /** 掴んで落とされた画像。ボタンから足すのと同じ流れ（切り抜き）へ送る */
+  onDropFiles: (files: File[]) => void
   onAddFolder: () => void
   onDeleteFolder: (key: string) => void
   onDelete: (id: number) => void
@@ -114,7 +117,24 @@ export function IconLibraryTab({
   const favList = library.filter((it) => favorites.includes(String(it.id)))
   const libList = library.filter((it) => effective(it.id) === ICON_LIB)
   return (
-    <div className="panel-body" ref={bodyRef}>
+    <div
+      className="panel-body"
+      ref={bodyRef}
+      // 「ここへ掴んで落とす」と書く以上、本当に落とせること。
+      // 案内どおりにやったのに何も起きない、が一番たちが悪い
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('Files')) {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+        }
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
+        const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith('image/'))
+        if (files.length) onDropFiles(files)
+      }}
+    >
       <div className="bin-toolbar">
         <button className="btn small" onClick={onAddImages} title="画像を追加">
           ＋ 画像追加
@@ -123,14 +143,24 @@ export function IconLibraryTab({
           📁＋ フォルダ作成
         </button>
       </div>
-      <div className="tpl-hint">
-        テロップにドラッグ＆ドロップで前にアイコン表示。右クリックでフォルダ移動。
-      </div>
+      {/* **使い方の案内は、物がある時だけ。**
+          1枚も無い状態で「テロップにドラッグして…」と読ませても、
+          ドラッグする物がまだ無い。まず入れる、次に使う、の順にする。 */}
+      {library.length > 0 && (
+        <div className="tpl-hint">
+          テロップにドラッグ＆ドロップで前にアイコン表示。右クリックでフォルダ移動。
+        </div>
+      )}
       {library.length === 0 ? (
+        // 空のときの言い方は、プロジェクト・SE と同じ作法に揃える
+        //（片方は「画面で落とす」、片方は「エクスプローラで入れる」だと、
+        //  同じパネルの中で作法が割れて、毎回どちらか考えることになる）
         <div className="empty">
-          ＋画像追加で
+          まだアイコンがありません。
           <br />
-          アイコン画像を登録
+          <b>ここへ掴んで落とす</b>か、上の「＋ 画像追加」から入れてください。
+          <br />
+          入れた画像は、テロップの前に付けられます。
         </div>
       ) : (
         <>

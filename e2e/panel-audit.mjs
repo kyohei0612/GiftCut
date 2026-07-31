@@ -22,7 +22,10 @@ const require = createRequire(import.meta.url)
 const OUT = join(ROOT, 'e2e', 'audit')
 mkdirSync(OUT, { recursive: true })
 
-const exe = process.argv[2]
+// **印（--open など）を実行ファイル名と取り違えない。**
+// 素で argv[2] を見ると、`--open` を exe のパスとして渡してしまい
+// 「Process failed to launch」で落ちる
+const exe = process.argv.slice(2).find((a) => !a.startsWith('--'))
 const ud = mkdtempSync(join(tmpdir(), 'gc-audit-'))
 const app = exe
   ? await electron.launch({ executablePath: exe, args: [`--user-data-dir=${ud}`] })
@@ -52,11 +55,21 @@ const tabs = await page.evaluate(() => {
 })
 console.log('右パネルのタブ:', tabs.join(' / '))
 
+// --open: 節を1つ開いた状態でも撮る（中身がある時の見え方を見たいとき）
+const OPEN = process.argv.includes('--open')
+
 const findings = []
 for (const t of tabs) {
   const tab = page.locator('.panel-tabs .tab', { hasText: t }).last()
   await tab.click()
   await page.waitForTimeout(700)
+  if (OPEN) {
+    const sec = page.locator('.panel').last().locator('.tpl-acc').first()
+    if (await sec.count()) {
+      await sec.click().catch(() => {})
+      await page.waitForTimeout(600)
+    }
+  }
   const box = await page.locator('.panel').last().boundingBox()
   const file = join(OUT, `右パネル-${t.replace(/[\\/:*?"<>|]/g, '_')}.png`)
   if (box) await page.screenshot({ path: file, clip: box })
@@ -84,7 +97,12 @@ for (const t of tabs) {
   console.log('  並んでいる物:', info.items)
   console.log('  ボタン:', info.buttons.join(' / ') || '（無し）')
   if (info.empty.length) console.log('  空のときの案内:', info.empty.join(' ／ '))
-  if (!info.hints.length) console.log('  ※ 使い方の案内が無い')
+  // **空のときに「使い方が無い」と言わない。**
+  // 物が1つも無い状態で使い方を出しても、使う相手がまだ居ない
+  //（そこは「空のときの案内」の担当）。物があるのに案内が無い時だけ言う。
+  if (!info.hints.length && info.items > 0) console.log('  ※ 物はあるのに使い方の案内が無い')
+  if (!info.empty.length && info.items === 0 && info.sections.length === 0)
+    console.log('  ※ 空なのに、次に何をすればよいかがどこにも出ていない')
   if (!info.hasSearch && info.items > 30) console.log('  ※ 物が多いのに探す手段が無い')
 }
 

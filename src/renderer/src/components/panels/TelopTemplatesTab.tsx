@@ -114,26 +114,32 @@ export function TelopTemplatesTab({
 
   return (
     <div className="panel-body" ref={bodyRef}>
-      <div className="tpl-hint">
-        {hasSelection
-          ? 'クリックで選択中のテロップに適用'
-          : 'クリックで「次に足すテロップ」の既定スタイルに設定'}
-      </div>
+      {/* **道具が先、説明が後。**
+          以前はこの文が一番上にあり、まだ節が閉じていて何も見えていない段階で
+          「クリックで…」と言っていた。押す物が見えてから読ませる。 */}
       <div className="bin-toolbar">
-        <button className="btn small" onClick={onSaveCurrent}>
-          ＋ 現在のスタイルを保存
+        <button className="btn small" onClick={onSaveCurrent} title="いまの見た目を1つ残す">
+          ＋ 保存
         </button>
         <button className="btn small" title="新しいフォルダ（カテゴリ）を作成" onClick={onAddFolder}>
-          📁＋ フォルダ作成
+          📁＋ フォルダ
         </button>
         <button
           className="btn small"
-          title="geba.json を再読み込み（再起動不要）"
+          title="外に置いたテロップ素材（telop-presets）を読み直す。アプリの再起動は要りません"
           style={{ marginLeft: 'auto' }}
           onClick={onRefresh}
         >
           ↻ 更新
         </button>
+      </div>
+      {/* 使い方は「押す物が見えてから」。節を開くまでは、まず開く所を案内する */}
+      <div className="tpl-hint">
+        {openSection
+          ? hasSelection
+            ? 'クリックで選択中のテロップに適用'
+            : 'クリックで「次に足すテロップ」の既定スタイルに設定'
+          : '下の ▶ を押して開くと、見た目の一覧が出ます'}
       </div>
       {secs.map((s) => (
         <div key={s.key} ref={(el) => (sectionRefs.current[s.key] = el)}>
