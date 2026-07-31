@@ -165,6 +165,7 @@ import { MediaProvider, useMediaCtx } from './state/mediaContext'
 import { useHistory, type Snap } from './state/useHistory'
 import { useExport } from './state/useExport'
 import { useSubtitles } from './state/useSubtitles'
+import { useMediaOps } from './state/useMediaOps'
 import { useClipDrag } from './state/useClipDrag'
 import { useLaneHeights } from './state/useLaneHeights'
 import { usePlayback } from './state/usePlayback'
@@ -858,30 +859,6 @@ function AppInner(): JSX.Element {
   useEffect(() => {
     sourcesRef.current = sources
   }, [sources])
-  // seg の元動画を返す（srcId 未指定 or 見つからなければ主ソース）
-  function srcOfSeg(seg: VSeg | undefined): Source | undefined {
-    const list = sourcesRef.current
-    if (!list.length) return undefined
-    if (seg?.srcId == null) return list[0]
-    return list.find((s) => s.id === seg.srcId) ?? list[0]
-  }
-  function updateSource(id: number, patch: Partial<Source>): void {
-    setSources((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
-  }
-  // ソースの付随データ（長さ/fps/プロキシ/波形）を非同期取得して反映（プロジェクト読込の追加ソース用）
-  function hydrateSource(id: number, path: string): void {
-    void window.giftcut.getDuration(path).then((r) => {
-      if (r?.ok && r.duration && r.duration > 0) updateSource(id, { duration: r.duration })
-    })
-    void window.giftcut.getFps(path).then((r) => {
-      if (r?.ok && r.fps && r.fps > 0) updateSource(id, { fps: Math.round(r.fps * 1000) / 1000 })
-    })
-    // プロキシは「プレビュー解像度」の effect が sources を見て一括で用意する（ここでは作らない）
-    void window.giftcut.generateWaveform(path).then((r) => {
-      if (r?.ok && r.min && r.max)
-        updateSource(id, { waveform: { min: r.min, max: r.max, dur: r.duration ?? 0 } })
-    })
-  }
 
   // ---- メディアライブラリ（プロジェクトに追加した動画/SE/画像）----
   interface MediaItem {
@@ -1296,12 +1273,6 @@ function AppInner(): JSX.Element {
    * プレミアも素材のダブルクリック／挿入は再生ヘッド基準。
    * どのレーンに載せるかは、ドラッグで何も指さなかったときと同じ既定に合わせる。
    */
-  function addMediaAtPlayhead(m: MediaItem): void {
-    const t = currentTimeRef.current
-    if (m.kind === 'video') void placeVideoAtDrop(m.path, t, false)
-    else if (m.kind === 'audio') void placeSE(m, t, 'A2')
-    else placeImage(m, t, fallbackTrack('V3', 'video'))
-  }
 
   function dropMediaNearest(m: MediaItem, clientX: number, clientY: number): void {
     const inner = trackInnerRef.current
@@ -3799,6 +3770,33 @@ function AppInner(): JSX.Element {
     const cueEnd = cues.length ? Math.max(...cues.map((c) => c.end)) + 3 : 0
     return Math.max(cueEnd, videoTLen, seEnd, imgEnd, vcEnd, 60)
   }, [cues, videoTLen, seEnd, imgEnd, vcEnd])
+
+  // 素材の読み込みと焼き直しは state/useMediaOps
+  //（焼き直しはプレビュー用。書き出しは必ず原本を使う）
+  const {
+    srcOfSeg, updateSource, hydrateSource, addMediaAtPlayhead, loadVideo,
+    registerSource, addMediaPaths
+  } = useMediaOps({
+    stopPlayback: () => stopPlayback(),
+    setTime: (t: number) => setTime(t),
+    duration,
+    fallbackTrack: (id: string, kind: 'video' | 'audio') => fallbackTrack(id, kind),
+    kindOf: (pth: string) => kindOf(pth),
+    placeImage: (...a: Parameters<typeof placeImage>) => placeImage(...a),
+    placeSE: (...a: Parameters<typeof placeSE>) => placeSE(...a),
+    placeVideoAtDrop: (...a: Parameters<typeof placeVideoAtDrop>) => placeVideoAtDrop(...a),
+    setOpenAccSec: (...a: Parameters<typeof setOpenAccSec>) => setOpenAccSec(...a),
+    videoElsRef,
+    proxyForPathRef,
+    srcAddedAtRef,
+    initializedForPathRef,
+    baselineRef,
+    redoStackRef,
+    pendingTimerRef,
+    undoStackRef,
+    suppressHistoryRef,
+    toGcUrl
+  })
   // ルーラーの目盛り（拡大率・尺だけに依存＝毎フレーム再計算しないようメモ化）。
   const rulerTicks = useMemo(() => {
     const cands = [
@@ -5214,86 +5212,6 @@ function AppInner(): JSX.Element {
   }
 
 
-  // 指定パスの動画をアクティブ動画として読み込む（差し替え）
-  // placed=true: 切片は呼び出し側が置くので、読み込み時の自動配置（先頭に全長1本）はしない。
-  async function loadVideo(path: string, opts?: { placed?: boolean }): Promise<void> {
-    stopPlayback()
-    // 動画差し替え: 履歴を破棄し、segsRef も同期リセット（onLoadedMetadata の初期化レース対策）
-    if (pendingTimerRef.current) {
-      clearTimeout(pendingTimerRef.current)
-      pendingTimerRef.current = null
-    }
-    undoStackRef.current = []
-    redoStackRef.current = []
-    baselineRef.current = { cues: cuesRef.current, segments: [], seClips: seClipsRef.current }
-    segsRef.current = []
-    suppressHistoryRef.current = true
-    setSegments([])
-    clearSegSel()
-    segIdCounter.current = 1
-    setVideoSrc(toGcUrl(path))
-    setVideoPath(path)
-    setVideoName(path.split(/[\\/]/).pop() ?? null)
-    setTime(0)
-    setWaveform(null)
-    setThumbnailSrc(null)
-    // マルチソース: 主ソース(sources[0])として登録し直す（差し替え=単一ソースに戻す）
-    const srcId = sourceIdCounter.current++
-    curSourceIdRef.current = srcId
-    setActiveSrcId(srcId)
-    videoElsRef.current.clear() // 旧ソースの要素は破棄される
-    // 新しい動画なので初期切片を1度だけ作る。ただし呼び出し側が位置を決めて置く場合は、
-    // 「もう初期化済み」にしておいて自動配置（先頭に全長1本）を止める。
-    initializedForPathRef.current = opts?.placed ? path : null
-    setSources([
-      {
-        id: srcId,
-        path,
-        name: path.split(/[\\/]/).pop() ?? path,
-        origUrl: toGcUrl(path),
-        duration: 0,
-        fps: FPS,
-        waveform: null
-      }
-    ])
-    // 素材の実fpsを取得（フレームステップ/タイムコード/カット量子化に反映）。失敗時は既定30。
-    setFps(FPS)
-    void window.giftcut.getFps(path).then((r) => {
-      if (proxyForPathRef.current === path && r?.ok && r.fps && r.fps > 0) {
-        const f = Math.round(r.fps * 1000) / 1000
-        setFps(f)
-        updateSource(srcId, { fps: f })
-      }
-    })
-    // ライブラリに無ければ追加（File メニューからの読み込み等）
-    setMediaItems((prev) =>
-      prev.some((m) => m.path === path)
-        ? prev
-        : [
-            ...prev,
-            { id: mediaIdCounter.current++, path, name: path.split(/[\\/]/).pop() ?? path, kind: 'video' as const }
-          ]
-    )
-    // 編集用プロキシ（キーフレーム密＝シーク高速）は「プレビュー解像度」の effect が sources を
-    // 見て生成し、出来たら上のソース切替 effect が src を差し替える。原本指定なら生成しない。
-    // 書き出しは videoPath(原本) を使うので画質は劣化しない。
-    proxyForPathRef.current = path
-    const [wf, th] = await Promise.all([
-      window.giftcut.generateWaveform(path),
-      window.giftcut.generateThumbnail(path)
-    ])
-    if (proxyForPathRef.current !== path) return // 解析中に別動画へ切替えた（前の波形/サムネを出さない）
-    if (wf?.ok && wf.min && wf.max) {
-      const wv = { min: wf.min, max: wf.max, dur: wf.duration ?? 0 }
-      setWaveform(wv)
-      updateSource(srcId, { waveform: wv })
-    }
-    if (th?.ok && th.path) {
-      const url = toGcUrl(th.path)
-      setThumbnailSrc(url) // タイムラインの動画クリップ用
-      setMediaItems((prev) => prev.map((m) => (m.path === path ? { ...m, thumb: url } : m)))
-    }
-  }
   // 動画をプロジェクト（メディアビン）に貯める。タイムラインには即反映しない。
   // ＝2本目以降が勝手に末尾へ足されないように。配置はビンからタイムラインへドラッグする。
   async function handleOpenVideo(): Promise<void> {
@@ -5323,47 +5241,6 @@ function AppInner(): JSX.Element {
     void loadVideo(res.path)
   }
 
-  // マルチソース: 動画を「新しい元動画」としてソース登録（既存の切片・編集はそのまま）。
-  // プロキシ/波形/fps/サムネは非同期で後追い反映。切片の配置は呼び出し側が行う。
-  async function registerSource(path: string): Promise<{ id: number; dur: number } | null> {
-    const dRes = await window.giftcut.getDuration(path)
-    const dur = dRes?.ok && dRes.duration ? dRes.duration : 0
-    if (dur <= 0) {
-      showToast('動画の長さを取得できませんでした。', 'error')
-      return null
-    }
-    // 同じパスが登録済みならそれを再利用（1動画=1ソース。切片だけ増やす）
-    const existing = sourcesRef.current.find((s) => s.path === path)
-    if (existing) return { id: existing.id, dur: existing.duration || dur }
-    const id = sourceIdCounter.current++
-    const name = path.split(/[\\/]/).pop() ?? path
-    srcAddedAtRef.current.set(id, performance.now()) // GCの猶予用
-    setSources((prev) => [
-      ...prev,
-      { id, path, name, origUrl: toGcUrl(path), duration: dur, fps: FPS, waveform: null }
-    ])
-    // ライブラリにも追加
-    setMediaItems((prev) =>
-      prev.some((m) => m.path === path)
-        ? prev
-        : [...prev, { id: mediaIdCounter.current++, path, name, kind: 'video' as const }]
-    )
-    // 後追い: fps / 波形 / サムネ（プロキシは「プレビュー解像度」の effect が用意する）
-    void window.giftcut.getFps(path).then((r) => {
-      if (r?.ok && r.fps && r.fps > 0) updateSource(id, { fps: Math.round(r.fps * 1000) / 1000 })
-    })
-    void window.giftcut.generateWaveform(path).then((r) => {
-      if (r?.ok && r.min && r.max)
-        updateSource(id, { waveform: { min: r.min, max: r.max, dur: r.duration ?? 0 } })
-    })
-    void window.giftcut.generateThumbnail(path).then((r) => {
-      if (r?.ok && r.path) {
-        const url = toGcUrl(r.path)
-        setMediaItems((prev) => prev.map((m) => (m.path === path ? { ...m, thumb: url } : m)))
-      }
-    })
-    return { id, dur }
-  }
   // 別の動画をタイムライン末尾に丸ごと連結（ファイルメニュー用）
   async function appendVideo(path: string): Promise<void> {
     if (!sourcesRef.current.length) {
@@ -5552,6 +5429,7 @@ function AppInner(): JSX.Element {
     if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return 'image'
     return 'video'
   }
+
   // 動画アイテムのサムネを非同期生成して反映
   function genThumbFor(id: number, path: string): void {
     // 同じファイルを何度も作らない／同時に走らせない（ビンが多いと詰まる）
@@ -5565,39 +5443,6 @@ function AppInner(): JSX.Element {
         }
       })
     )
-  }
-  function addMediaPaths(paths: string[], folder?: string): void {
-    if (!paths.length) return
-    const existing = new Set(mediaItems.map((m) => m.path))
-    const add: MediaItem[] = paths
-      .filter((p) => !existing.has(p))
-      .map((p) => {
-        const kind = kindOf(p)
-        return {
-          id: mediaIdCounter.current++,
-          path: p,
-          name: p.split(/[\\/]/).pop() ?? p,
-          kind,
-          folder,
-          thumb: kind === 'image' ? toGcUrl(p) : undefined
-        }
-      })
-    if (!add.length) return
-    setMediaItems((prev) => [...prev, ...add])
-    // 追加した種類のフォルダを自動で開く（テロップタブと同じ「開いて見せる」動作＝追加が迷子にならない）
-    // 追加した種類は必ず開いた状態にする（追加が迷子にならない）。
-    // プロジェクトタブは複数同時に開けるので、他を閉じずに足すだけでよい。
-    setOpenAccSec((p) => ({
-      ...p,
-      project: [...new Set([...(p.project ?? []), add[0].kind])]
-    }))
-    // サムネと波形は**見えている素材だけ**用意する（ビンが用意できたら onVisible が呼ぶ）。
-    // 全部ぶん用意していた頃は、フォルダ丸ごと追加で500件を超えると
-    // 1操作 94.5ms・1000件ごとに +26.7MB まで膨らんでいた。
-    // 波形は全長デコードなので、見てもいない素材のぶんまで抱えると効く。
-    // 追加しただけではタイムラインに載せない。置く位置は自分で決めるもので、
-    // 勝手に先頭へ置かれると2本目以降が後ろに回って並べ直しになる。
-    // タイムラインへドラッグするか、ビンでダブルクリックすると読み込まれる。
   }
   async function addFilesToProject(): Promise<void> {
     const res = await window.giftcut.addMedia()
