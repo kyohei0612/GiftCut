@@ -241,7 +241,8 @@ const bad = {
   文字数超過: cues.filter((c) => [...txt(c)].length > MAXC),
   語の裂け: cues.filter((c, i) => 続き(c, i) && [...txt(c)].length <= 2),
   助詞始まり: cues.filter((c, i) => 続き(c, i) && JOSHI.test(txt(c))),
-  短すぎ: cues.filter((c) => c.end - c.start < 0.4),
+  // ちょうど下限に延ばした札を弾かない（0.4秒が 0.39999… になる）
+  短すぎ: cues.filter((c) => c.end - c.start < 0.4 - 1e-3),
   空: cues.filter((c) => !txt(c)),
   重なり: cues.filter((c, i) => i > 0 && c.start < cues[i - 1].end - 0.001)
 }

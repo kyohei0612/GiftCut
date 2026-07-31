@@ -144,7 +144,7 @@ import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
 // キーフレーム（時間で変わる値）。プレビューも書き出しも同じ計算を使う
 import { valueAt, putKey, removeKey, hasKeys, type Keys } from '../../shared/keyframes'
 import { nextOpenSecs } from '../../shared/accordion'
-import { mergeShreds, splitAtPauses } from '../../shared/splitTelop'
+import { ensureMinShow, mergeShreds, splitAtPauses } from '../../shared/splitTelop'
 import { alignCues, speechRanges } from '../../shared/alignCues'
 import { mediaQueue, rafThrottle } from './lib/schedule'
 import {
@@ -4114,12 +4114,16 @@ export default function App(): JSX.Element {
     // こちらは本物の音があるので、実際に黙った所で割れる。
     const ranges = speechRanges(silences, total)
     const split = r.segs.flatMap((s) => splitAtPauses(s, ranges, subMaxChars))
-    const aligned = mergeShreds(
-      alignCues(split, silences, total, {
-        // 切ったのは本人。音より強い手がかりとして使う
-        cuts: segLayout.map((L) => L.tStart)
-      }),
-      subMaxChars
+    // 合わせる → 短すぎる札をくっつける → 読む間もない札を少し延ばす、の順。
+    // くっつける方が先。先に延ばすと、隣にぶつかってくっつけられなくなる。
+    const aligned = ensureMinShow(
+      mergeShreds(
+        alignCues(split, silences, total, {
+          // 切ったのは本人。音より強い手がかりとして使う
+          cuts: segLayout.map((L) => L.tStart)
+        }),
+        subMaxChars
+      )
     )
     const base = subReplace ? [] : cues
     let id = Math.max(0, ...cues.map((c) => c.id)) + 1

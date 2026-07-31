@@ -92,15 +92,28 @@ export function splitByParticle(text: string, maxChars = MAX_CHARS): string[] {
     // 書き起こしは書き言葉と違って助詞が散らばるので、ここが効く。
     const MIN_USE = Math.floor(maxChars * 0.6)
     if (cutAt > 0 && cutAt < MIN_USE) cutAt = -1
-    // 助詞が見つからなければ、上限で切る（切らずに伸ばすよりまし）
-    if (cutAt <= 0) cutAt = maxChars
+    // 助詞が見つからなければ、上限で切る（切らずに伸ばすよりまし）。
+    //
+    // **ただし、余りが短くなりすぎない位置で切る。**
+    // 素で上限いっぱいまで詰めると、余りが1〜2文字になり、下の
+    // 「短い余りは前にくっつける」に拾われて**上限超えの札に戻る**。
+    // 実測で18文字の札ができていた（17文字＋余り1文字）。
+    if (cutAt <= 0) {
+      const len = [...rest].length
+      cutAt = len - maxChars < MIN_TAIL ? Math.max(1, len - MIN_TAIL) : maxChars
+      if (cutAt > maxChars) cutAt = maxChars
+    }
     out.push(rest.slice(0, cutAt).trim())
     rest = rest.slice(cutAt).trim()
   }
   if (rest.trim()) {
-    // 最後の余りが短ければ、前の1枚にくっつける
-    if (rest.trim().length < MIN_TAIL && out.length) out[out.length - 1] += rest.trim()
-    else out.push(rest.trim())
+    const tail = rest.trim()
+    const prev = out[out.length - 1]
+    // 最後の余りが短ければ、前の1枚にくっつける。
+    // **くっつけて上限を超えるならやらない**（超えた札を作る方が悪い）
+    if ([...tail].length < MIN_TAIL && prev && [...(prev + tail)].length <= maxChars)
+      out[out.length - 1] = prev + tail
+    else out.push(tail)
   }
   return out.filter(Boolean)
 }
@@ -172,8 +185,16 @@ export function splitAtPauses(
     // 間で割った1つが長ければ、その中だけ文字数で分ける
     out.push(...splitCue({ start: r.start, end: r.end, text: part }, maxChars))
   })
-  // 配り残しがあれば最後へ足す（文字を落とさない）
-  if (used < chars.length && out.length) out[out.length - 1].text += chars.slice(used).join('')
+  // 配り残しがあれば最後へ足す（文字を落とさない）。
+  //
+  // **足したあと、もう一度長さを見る。** ここで素通ししていたため、
+  // 上限17文字のはずが18文字の札ができていた（実測で1枚）。
+  // 足す側だけ見て、足された側の長さを見ていなかった。
+  if (used < chars.length && out.length) {
+    const last = out[out.length - 1]
+    const filled = { ...last, text: last.text + chars.slice(used).join('') }
+    out.splice(out.length - 1, 1, ...splitCue(filled, maxChars))
+  }
   return out.length ? out : splitCue(cue, maxChars)
 }
 
@@ -238,4 +259,26 @@ export function mergeShreds<T extends { start: number; end: number; text: string
     out.push({ ...c })
   }
   return out
+}
+
+/**
+ * 読む間もなく消える札を、少しだけ延ばす。
+ *
+ * **1枚が0.4秒しか出ないと、目が追いつく前に消える。**
+ * 実測で「見 見た」が0.35秒だった。聞き取りが短く刻んだ所や、
+ * 文字数の比で時間を配ったときの端で起きる。
+ *
+ * 延ばすのは**次の札にぶつからない範囲まで**。詰まっている所では諦める
+ *（重ねると、2枚同時に出て読めなくなる方が悪い）。
+ */
+export function ensureMinShow<T extends { start: number; end: number }>(
+  cues: readonly T[],
+  min = 0.4
+): T[] {
+  return cues.map((c, i) => {
+    if (c.end - c.start >= min) return { ...c }
+    const next = cues[i + 1]
+    const room = next ? next.start : Infinity
+    return { ...c, end: Math.min(room, c.start + min) }
+  })
 }

@@ -12,7 +12,8 @@ import {
   splitCue,
   splitIntoSentences,
   splitTelopText,
-  mergeShreds
+  mergeShreds,
+  ensureMinShow
 } from './splitTelop'
 
 describe('文で区切る', () => {
@@ -153,5 +154,24 @@ describe('短すぎる札をくっつける（mergeShreds）', () => {
   it('3文字以上は短すぎとみなさない', () => {
     const r = mergeShreds([c(0, 1, 'そうだね'), c(1, 1.3, 'なるほど')])
     expect(r).toHaveLength(2)
+  })
+})
+
+describe('短い表示を延ばす（ensureMinShow）', () => {
+  const c = (start: number, end: number) => ({ start, end, text: 'あ' })
+
+  it('読む間もない札は延ばす', () => {
+    const r = ensureMinShow([c(0, 0.2)], 0.4)
+    expect(r[0].end).toBeCloseTo(0.4, 5)
+  })
+
+  it('次の札にはぶつけない', () => {
+    const r = ensureMinShow([c(0, 0.2), c(0.3, 1)], 0.4)
+    expect(r[0].end).toBeCloseTo(0.3, 5)
+  })
+
+  it('足りている札は触らない', () => {
+    const r = ensureMinShow([c(0, 2)], 0.4)
+    expect(r[0].end).toBe(2)
   })
 })
