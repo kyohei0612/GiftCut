@@ -146,6 +146,7 @@ import { valueAt, putKey, removeKey, hasKeys, type Keys } from '../../shared/key
 import { nextOpenSecs } from '../../shared/accordion'
 import { ensureMinShow, mergeShreds, splitAtPauses } from '../../shared/splitTelop'
 import { alignCues, speechRanges } from '../../shared/alignCues'
+import { adjustRuns, runAtIndex, splitRunRemoving, styleWithRun } from './lib/textRuns'
 import { LayoutProvider, useLayout } from './state/layoutContext'
 import type { PaneId } from './state/usePanelLayout'
 import { SelectionProvider, useSel } from './state/selectionContext'
@@ -157,6 +158,7 @@ import { TracksProvider, useTracksCtx } from './state/tracksContext'
 import { ViewProvider, useViewCtx } from './state/viewContext'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
 import { useEdit } from './state/useEdit'
+import { IconsProvider, useIconsCtx } from './state/iconsContext'
 import { nearestSnap } from '../../shared/snap'
 import { splitAt, toggleSelect, trimLeft, trimRight } from '../../shared/clipEdit'
 import { mediaQueue, rafThrottle } from './lib/schedule'
@@ -476,6 +478,13 @@ const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10
  * 同じ部品の中で囲いを作ると、その部品自身は中を見に行けない。
  */
 function AppInner(): JSX.Element {
+  // アイコンの出し方（どちら側・ずらし・大きさ・揃えるか）
+  const icons = useIconsCtx()
+  const {
+    iconSide, setIconSide, iconOffset, setIconOffset, iconScale, setIconScale,
+    iconAuto, setIconAuto, iconAnchorPos, setIconAnchorPos,
+    iconSettingsOpen, setIconSettingsOpen
+  } = icons
   // 選んでいる物を書き換える操作は state/useEdit（鍵を見る決まりも中にある）
   const {
     updateSelectedImg,
@@ -3370,19 +3379,13 @@ function AppInner(): JSX.Element {
       return n
     })
   }
-  const [iconSettingsOpen, setIconSettingsOpen] = useState(false)
   const [cropSrc, setCropSrc] = useState<{ src: string; onDone: (img: string) => void } | null>(
     null
   )
   // アイコンの配置：テロップに付随（テキスト量に追従）。位置=どの側 / 微調整=XY(1080px) / サイズ。
   // プロジェクトに保存。
-  const [iconSide, setIconSide] = useState<'left' | 'right' | 'top' | 'bottom'>('left')
-  const [iconOffset, setIconOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
-  const [iconScale, setIconScale] = useState<number>(1)
-  const [iconAuto, setIconAuto] = useState<boolean>(false)
   // アイコン軸: 自動調整ONで全テロップを揃える共有アンカー点（左端・縦中央）。
   // テロップごとに位置がバラつくとアイコンが飛び回るため、軸を1点に固定する（ユーザー要望 2026-07-23）。
-  const [iconAnchorPos, setIconAnchorPos] = useState<{ x: number; y: number } | null>(null)
   const iconScaleFor = (): number => iconScale
   // 自動調整のON/OFF切替時は、サイズ倍率とXYオフセットを既定(100%,0)に戻す。
   // ＝前モードの調整が乗ったまま「+」で効いてズレるのを防ぐ（常にクリーンな基準から調整）。
@@ -3435,10 +3438,9 @@ function AppInner(): JSX.Element {
   }
   // テロップの実効アイコン画像。優先: 個別D&D(iconImage) → 色(ラベル)割当 → レーン(トラック)割当。
   // 何も割り当ててなければ非表示（デフォOFF）。personIcon===false のテロップだけ個別に非表示。
+  // どの画像を出すかの決まりは state/useIcons（割り当ての優先順位も中にある）
   const iconForCue = (c: Cue): string | undefined =>
-    c.personIcon === false
-      ? undefined
-      : (c.iconImage ?? iconAssign[c.label] ?? laneIconAssign[cueTrack(c)])
+    icons.iconForCue(c, iconAssign, laneIconAssign, cueTrack)
   function appendIconImage(name: string, image: string): void {
     // 保存は updater の外で行う（副作用を updater に入れない＋失敗を検知して通知するため）
     const prev = iconLibrary
@@ -7049,34 +7051,6 @@ function AppInner(): JSX.Element {
       prev.map((c) => (c.id === primaryId ? { ...c, text, runs: adjustRuns(c.runs, c.text, text) } : c))
     )
   }
-  // 部分装飾: 文字index gi を含む run（後勝ち）
-  function runAtIndex(runs: TextRun[] | undefined, gi: number): TextRun | null {
-    let hit: TextRun | null = null
-    if (runs) for (const r of runs) if (gi >= r.start && gi < r.end) hit = r
-    return hit
-  }
-  // run上書きを style にマージ＝「その選択文字の実効スタイル」。パネル表示＆変更検出の基準に使う。
-  function styleWithRun(base: TelopStyle, r: TextRun | null): TelopStyle {
-    if (!r) return base
-    const st: TelopStyle = { ...base, fill: { ...base.fill } }
-    if (r.gradient) st.fill.gradient = r.gradient
-    else if (r.color) {
-      st.fill.color = r.color
-      st.fill.gradient = undefined
-    }
-    if (r.fontFamily) st.fontFamily = r.fontFamily
-    if (r.sizeScale && r.sizeScale !== 1) st.fontSize = Math.round(base.fontSize * r.sizeScale)
-    if (r.strokes) st.strokes = r.strokes
-    if (r.shadows) {
-      st.shadow = r.shadows[0]
-        ? { ...r.shadows[0], enabled: true }
-        : { ...base.shadow, enabled: false }
-      st.shadows = r.shadows.slice(1)
-    }
-    if (r.join) st.join = r.join
-    if (r.bgColor) st.background = { ...base.background, enabled: true, color: r.bgColor }
-    return st
-  }
   // 現在の選択文字に対応する実効スタイル（編集中＋選択ありのみ。それ以外はテロップ全体）。
   // 選択はライブ(textarea)優先→なければ editorSel。curSel と同じ基準で routing と表示を一致させる。
   function panelStyleFor(cue: Cue | null | undefined): TelopStyle {
@@ -7212,36 +7186,6 @@ function AppInner(): JSX.Element {
     const ta = editorTextRef.current
     if (ta && ta.selectionEnd > ta.selectionStart) return { start: ta.selectionStart, end: ta.selectionEnd }
     return editorSel
-  }
-  // run r から [s,e) を取り除く（分割）。重なりなしはそのまま。
-  const splitRunRemoving = (r: TextRun, s: number, e: number): TextRun[] => {
-    if (r.end <= s || r.start >= e) return [r]
-    const out: TextRun[] = []
-    if (r.start < s) out.push({ ...r, end: s })
-    if (r.end > e) out.push({ ...r, start: e })
-    return out
-  }
-  // テキスト編集(old→new)に合わせて runs の文字index をシフト/クランプ。
-  // 共通prefix/suffixから編集区間 [editStart,editEnd) と長さ変化 delta を求め、各runの端を移動。
-  function adjustRuns(runs: TextRun[] | undefined, oldText: string, newText: string): TextRun[] | undefined {
-    if (!runs || !runs.length || oldText === newText) return runs
-    const minLen = Math.min(oldText.length, newText.length)
-    let p = 0
-    while (p < minLen && oldText[p] === newText[p]) p++
-    let s = 0
-    while (s < minLen - p && oldText[oldText.length - 1 - s] === newText[newText.length - 1 - s]) s++
-    const editStart = p
-    const editEnd = oldText.length - s
-    const delta = newText.length - oldText.length
-    const adj = (idx: number): number =>
-      idx <= editStart ? idx : idx >= editEnd ? idx + delta : editStart
-    const out: TextRun[] = []
-    for (const r of runs) {
-      const ns = adj(r.start)
-      const ne = adj(r.end)
-      if (ne > ns) out.push({ ...r, start: ns, end: ne })
-    }
-    return out.length ? out : undefined
   }
   // 文字範囲 [start,end) に部分装飾 patch を「マージ」適用。
   // 文字ごとの実効スタイルへ平坦化→範囲にpatchを重ね→連続同一を1runに再結合。
@@ -14099,7 +14043,9 @@ export default function App(): React.JSX.Element {
           <TracksProvider value={tracks}>
             <ViewProvider value={view}>
               <ToasterProvider value={toast}>
-                <AppInner />
+                <IconsProvider>
+                  <AppInner />
+                </IconsProvider>
               </ToasterProvider>
             </ViewProvider>
           </TracksProvider>
