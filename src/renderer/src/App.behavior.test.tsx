@@ -337,9 +337,14 @@ describe('未保存の「＊」と自動保存', () => {
     // 「＊」は 0.8 秒ごとの総当たりをやめ、中身が変わったときだけ見直すように
     // した。依存配列は手で書くので、projectJson に項目を足して依存を足し忘れると
     // 「＊」が出なくなる。人が気づけないので、ここで機械に見張らせる。
-    const src = await import('./App?raw').then((m) => m.default as string)
+    // **見る先は2つ。** 保存する中身は state/useProjectFile へ、
+    // 「＊」の見直しは App.tsx に残っている。片方だけ読むと、
+    // 移した瞬間に「見つからない」で落ちる（実際そうなった）。
+    const app = await import('./App?raw').then((m) => m.default as string)
+    const proj = await import('./state/useProjectFile?raw').then((m) => m.default as string)
+    const src = app + String.fromCharCode(10) + proj
     const fields = savedFields(src)
-    const deps = dirtyDeps(src)
+    const deps = dirtyDeps(app)
 
     expect(fields.length, '保存項目を1つも読み取れていない（書式が変わった？）').toBeGreaterThan(20)
     expect(deps.length, '依存配列を読み取れていない（書式が変わった？）').toBeGreaterThan(20)
@@ -356,6 +361,7 @@ describe('未保存の「＊」と自動保存', () => {
     // 画面の配置は state/usePanelLayout へ移したので、そこも読む。
     // ここを App.tsx だけにしていると、移した瞬間に「何も読めていない」に見える。
     const layoutSrc = await import('./state/usePanelLayout?raw').then((m) => m.default as string)
+    // 心臓へ移した状態も数える（App.tsx だけ見ていると「何も読めていない」に見える）
     const stateNames = new Set(
       [...(src + layoutSrc).matchAll(/const \[(\w+), set\w+\] = useState/g)].map((m) => m[1])
     )
