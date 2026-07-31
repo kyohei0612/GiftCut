@@ -58,6 +58,7 @@ export function StatusBar({
   shuttleRate,
   poppedPanes,
   autosaveNg,
+  appVersion,
   onDock
 }: {
   telopCount: number
@@ -72,6 +73,8 @@ export function StatusBar({
   poppedPanes: { id: string; label: string }[]
   /** 下書き（自動保存）が書けていない。**消える通知だけにしない**ための常時表示 */
   autosaveNg?: boolean
+  /** いま動いている本体の版。名前の横に出す（新旧の取り違えを一目で分かるように） */
+  appVersion?: string
   onDock: (id: string) => void
 }): JSX.Element {
   return (
@@ -107,7 +110,12 @@ export function StatusBar({
           ⧉ {p.label}
         </button>
       ))}
-      <span>GiftCut</span>
+      {/* **いま動いている版。** 自動更新は黙って入れ替わるので、
+          「直したはずが直っていない」と言われたときに、まずここを見れば
+          新旧の取り違えかどうかが分かる。名前と並べて常に見える所に置く。 */}
+      <span title={appVersion ? `GiftCut ${appVersion}` : 'GiftCut'}>
+        GiftCut{appVersion ? ` v${appVersion}` : ''}
+      </span>
     </footer>
   )
 }

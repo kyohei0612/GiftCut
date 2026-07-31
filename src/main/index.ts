@@ -6,6 +6,7 @@ import {
   mkdirSync,
   rmSync,
   renameSync,
+  copyFileSync,
   statSync,
   existsSync,
   readdirSync,
@@ -764,7 +765,6 @@ app.whenReady().then(() => {
   /** SE の置き場（se:list と同じ候補） */
   const seRoots = (): string[] =>
     [
-      join(process.cwd(), 'SE'),
       join(app.getAppPath(), 'SE'),
       join(process.resourcesPath ?? '', 'SE'),
       join(app.getPath('userData'), 'SE')
@@ -772,11 +772,16 @@ app.whenReady().then(() => {
 
   ipcMain.handle('se:list', () => {
     const AUDIO = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac']
-    // 置き場。**userData も見る**のは、配布物では起動のされ方で cwd が変わるため
-    // （ショートカットから開くと、アプリのフォルダとは限らない）。
-    // 渡した相手に「ここへ入れて」と言える固定の場所が要る。
+    // 置き場。渡した相手に「ここへ入れて」と言える固定の場所（userData）が要る。
+    //
+    // **起動時のカレントディレクトリは見ない。**
+    // 以前は候補に入れていたが、
+    //   ・たまたま素材フォルダのある所から起動すると、意図しない素材を読む
+    //   ・手元で配布版を確かめると「素材が入っている」ように見えてしまう
+    //     （実際に検証中、空のはずの配布版でテロップ素材が217件出た）
+    // という事故になる。開発中は appPath がリポジトリ直下を指すので、
+    // これを外しても手元の素材は今までどおり読める。
     const candidates = [
-      join(process.cwd(), 'SE'),
       join(app.getAppPath(), 'SE'),
       // **exe 1つで配る版**は、素材を中に同梱する（解凍させないため）
       join(process.resourcesPath ?? '', 'SE'),
@@ -829,7 +834,6 @@ app.whenReady().then(() => {
   ipcMain.handle('telop:presets', () => {
     // SE と同じ理由で userData も見る（起動のされ方に左右されない置き場）
     const candidates = [
-      join(process.cwd(), 'telop-presets'),
       join(app.getAppPath(), 'telop-presets'),
       join(process.resourcesPath ?? '', 'telop-presets'),
       join(app.getPath('userData'), 'telop-presets')
@@ -877,7 +881,6 @@ app.whenReady().then(() => {
   // .prfpset そのものは持たない。読んだ結果（＝こちらの Motion）だけを残す。
   const motionRoots = (): string[] =>
     [
-      join(process.cwd(), 'motion-presets'),
       join(app.getAppPath(), 'motion-presets'),
       join(app.getPath('userData'), 'motion-presets')
     ].filter((r) => existsSync(r))
@@ -1046,6 +1049,77 @@ app.whenReady().then(() => {
       return { ok: true, path: p }
     } catch (e) {
       return { ok: false, error: String(e) }
+    }
+  })
+
+  // ---- 素材パック（ZIP）をまとめて取り込む ----
+  //
+  // 「フォルダを開いて、展開して、中身を貼る」は手順が3つあり、
+  // **どれか1つでも間違えると素材が出てこない**（しかも間違いに気づけない）。
+  // ZIP を選ぶだけで済むようにする。展開も置き場所の判断もこちらでやる。
+  //
+  // **入れるのは決まった名前のフォルダだけ。** ZIP の中に何が入っていても、
+  // 知らない物は userData へ撒かない（受け取った ZIP を無条件に展開しない）。
+  const ASSET_FOLDERS = ['SE', 'telop-presets', 'motion-presets', 'テンプレート'] as const
+  ipcMain.handle('assets:importZip', async (_e, zipPath?: string) => {
+    let target = zipPath
+    if (!target) {
+      const r = await dialog.showOpenDialog({
+        title: '素材パック（ZIP）を選ぶ',
+        filters: [{ name: '素材パック', extensions: ['zip'] }],
+        properties: ['openFile']
+      })
+      if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true }
+      target = r.filePaths[0]
+    }
+    if (!existsSync(target)) return { ok: false, error: 'ファイルが見つかりません' }
+    // 一度どこにも影響しない場所へ展開してから、要る物だけを移す。
+    // 直接 userData へ展開すると、途中で失敗したときに半端な物が残る。
+    const tmpDir = join(tmpdir(), 'giftcut-assets-' + Date.now())
+    try {
+      mkdirSync(tmpDir, { recursive: true })
+      await extractZip(target, tmpDir)
+      const base = app.getPath('userData')
+      const added: Record<string, number> = {}
+      /** フォルダごと足す（同じ名前は上書き。無い物はそのまま残す） */
+      const merge = (from: string, to: string): number => {
+        let n = 0
+        mkdirSync(to, { recursive: true })
+        for (const name of readdirSync(from)) {
+          const src = join(from, name)
+          const dst = join(to, name)
+          const st = statSync(src)
+          if (st.isDirectory()) n += merge(src, dst)
+          else {
+            copyFileSync(src, dst)
+            n++
+          }
+        }
+        return n
+      }
+      for (const folder of ASSET_FOLDERS) {
+        const src = join(tmpDir, folder)
+        if (!existsSync(src)) continue
+        const n = merge(src, join(base, folder))
+        if (n > 0) added[folder] = n
+      }
+      rmSync(tmpDir, { recursive: true, force: true })
+      if (Object.keys(added).length === 0)
+        return {
+          ok: false,
+          error:
+            'この ZIP には素材が入っていないようです（' +
+            ASSET_FOLDERS.join(' / ') +
+            ' のフォルダを探します）'
+        }
+      return { ok: true, added, path: base }
+    } catch (er) {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true })
+      } catch {
+        /* 消せなくても取り込みの結果は変わらない */
+      }
+      return { ok: false, error: String(er) }
     }
   })
 
@@ -1359,7 +1433,6 @@ app.whenReady().then(() => {
   // 開発機は cwd に本物があるので気づけない（プロキシ・OpenH264 と同じ型の穴）。
   const templateRoots = (): string[] => {
     const cands = [
-      join(process.cwd(), 'テンプレート'),
       join(app.getAppPath(), 'テンプレート'),
       join(process.resourcesPath ?? '', 'テンプレート'),
       join(app.getPath('userData'), 'テンプレート')

@@ -11440,6 +11440,38 @@ export default function App(): JSX.Element {
           // 更新で消えない置き場。**更新はアプリ本体を丸ごと入れ替える**が、
           // ここ（%APPDATA%\GiftCut\）の下は触られない。自分で足した素材の
           // 置き場所であり、退避も引っ越しもここを開ければできる。
+          // **ZIP を選ぶだけで済ませる。**
+          // 「開いて・展開して・貼る」は手順が3つあり、どれか1つ間違えると
+          // 素材が出てこない。しかも間違いに気づけない（何も起きないだけ）。
+          {
+            kind: 'item',
+            label: '素材パック（ZIP）を取り込む…',
+            title:
+              'SE・テロップ素材・動き・テンプレートが入った ZIP を選ぶと、' +
+              '展開して置き場へ入れます（更新しても消えません）',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void window.giftcut
+                .importAssetZip()
+                .then((r) => {
+                  if (r?.canceled) return
+                  if (!r?.ok) {
+                    showToast(`取り込めませんでした。\n${r?.error ?? ''}`)
+                    return
+                  }
+                  const n = Object.entries(r.added ?? {})
+                    .map(([k, v]) => `${k} ${v}件`)
+                    .join(' / ')
+                  // **その場で読み直す。** 「入れました」と言われたのに
+                  // 一覧が変わらないと、入ったのかどうか分からない
+                  refreshSE()
+                  refreshPresets()
+                  showToast(`素材を取り込みました（${n}）`)
+                })
+                .catch((e) => showToast(`取り込めませんでした。\n${String(e)}`))
+            }
+          },
+          { kind: 'sep' },
           { kind: 'label', label: '置き場を開く（更新しても消えません）' },
           ...(
             [
@@ -13930,6 +13962,7 @@ export default function App(): JSX.Element {
           .filter((id) => isPopped(id))
           .map((id) => ({ id, label: PANE_LABEL[id] }))}
         autosaveNg={autosaveNg}
+        appVersion={appVersion}
         onDock={(id) => unpopPane(id as PaneId)}
       />
 

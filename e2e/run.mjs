@@ -2725,6 +2725,66 @@ try {
     )
   })
 
+  await check('素材パック（ZIP）を選ぶだけで、置き場へまとめて入る', async () => {
+    // 「開いて・展開して・貼る」は手順が3つあり、**どれか1つ間違えても
+    // 何も起きないだけ**なので、間違いに気づけない。ZIP を選ぶだけで済ませる。
+    const zip = join(outDir, 'assets.zip')
+    const stage = join(outDir, 'assets-src')
+    mkdirSync(join(stage, 'telop-presets'), { recursive: true })
+    mkdirSync(join(stage, 'motion-presets'), { recursive: true })
+    writeFileSync(
+      join(stage, 'telop-presets', 'pack.json'),
+      JSON.stringify([{ name: 'E2E_パックの素材', style: { fontSize: 60 } }]),
+      'utf-8'
+    )
+    writeFileSync(
+      join(stage, 'motion-presets', 'pack.json'),
+      JSON.stringify([{ name: 'E2E_パックの動き', motion: { tx: [{ t: 0, v: 10 }, { t: 0.3, v: 0 }] } }]),
+      'utf-8'
+    )
+    // ZIP を作る（PowerShell の Compress-Archive を使う。ここは中身より結果が大事）
+    const ps = spawn('powershell', [
+      '-NoProfile',
+      '-Command',
+      `Compress-Archive -Path '${join(stage, '*')}' -DestinationPath '${zip}' -Force`
+    ])
+    await new Promise((res) => ps.on('close', res))
+    assert(existsSync(zip), 'ZIP を作れなかった（この項目の準備が失敗）')
+
+    const r = await page.evaluate((z) => window.giftcut.importAssetZip(z), zip)
+    assert(r?.ok, `取り込めない: ${JSON.stringify(r)}`)
+    assert(r.added?.['telop-presets'] >= 1, `テロップ素材が入っていない: ${JSON.stringify(r.added)}`)
+    assert(r.added?.['motion-presets'] >= 1, `動きが入っていない: ${JSON.stringify(r.added)}`)
+    // **置き場に本当に入っていること**（返事だけ ok なのが一番たちが悪い）
+    assert(
+      existsSync(join(fx.userData, 'telop-presets', 'pack.json')),
+      '置き場にファイルが無い＝入ったことになっているだけ'
+    )
+    // 入れた物がその場で読めること
+    const hit = await page.evaluate(async () => {
+      const rr = await window.giftcut.listTelopPresets()
+      return (rr?.items ?? []).some((x) => x && x.name === 'E2E_パックの素材')
+    })
+    assert(hit, '取り込んだのに一覧へ出てこない')
+
+    // 知らない物は撒かない（受け取った ZIP を無条件に展開しない）
+    const stray = join(outDir, 'stray.zip')
+    mkdirSync(join(outDir, 'stray-src'), { recursive: true })
+    writeFileSync(join(outDir, 'stray-src', 'あやしい.txt'), 'x', 'utf-8')
+    const ps2 = spawn('powershell', [
+      '-NoProfile',
+      '-Command',
+      `Compress-Archive -Path '${join(outDir, 'stray-src', '*')}' -DestinationPath '${stray}' -Force`
+    ])
+    await new Promise((res) => ps2.on('close', res))
+    const r2 = await page.evaluate((z) => window.giftcut.importAssetZip(z), stray)
+    assert(r2?.ok === false, '素材の入っていない ZIP を受け入れてしまう')
+    assert(
+      !existsSync(join(fx.userData, 'あやしい.txt')),
+      '知らないファイルを置き場へ撒いている'
+    )
+  })
+
   await check('自分で足したテロップ素材は、更新で消えない場所から読まれる', async () => {
     // **自動更新はアプリのフォルダを丸ごと入れ替える。**
     // 読む場所が userData の外へ移ると、更新した瞬間に利用者の素材が消える

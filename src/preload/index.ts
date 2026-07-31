@@ -101,6 +101,16 @@ const api = {
   }> => ipcRenderer.invoke('se:list'),
   listTelopPresets: (): Promise<{ ok: boolean; items: unknown[] }> =>
     ipcRenderer.invoke('telop:presets'),
+  /** 素材パック（ZIP）を選んで、置き場へまとめて入れる */
+  importAssetZip: (
+    zipPath?: string
+  ): Promise<{
+    ok: boolean
+    canceled?: boolean
+    added?: Record<string, number>
+    path?: string
+    error?: string
+  }> => ipcRenderer.invoke('assets:importZip', zipPath),
   /** いま動いている本体のバージョン（自動更新で入れ替わったら、その値になる） */
   getVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   // ---- 利用者がいじった物（お気に入り等）の控え ----

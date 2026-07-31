@@ -114,6 +114,15 @@ export interface GiftcutApi {
     error?: string
   }>
   /** 動きの記録を userData/perf へ書く */
+  /** 素材パック（ZIP）を選んで、置き場（userData）へまとめて入れる */
+  importAssetZip: (zipPath?: string) => Promise<{
+    ok: boolean
+    canceled?: boolean
+    /** 入れたフォルダごとの件数 */
+    added?: Record<string, number>
+    path?: string
+    error?: string
+  }>
   /** いま動いている本体のバージョン */
   getVersion: () => Promise<string>
   /** 利用者がいじった物の控えを読む（無ければ空。更新・入れ直し・引っ越しで戻す用） */
