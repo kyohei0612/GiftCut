@@ -18,6 +18,16 @@ import { useRef, useState } from 'react'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, Marker, SEClip, VClip, VSeg } from '../lib/projectTypes'
 
+/**
+ * 写し（ref）を一緒に置いてある理由。
+ *
+ * **掴んでいる最中は、描き直しを待てない。** 毎フレーム「今の中身」を読む必要が
+ * あるので、state とは別に写しを持つ。
+ *
+ * ※ 写しを**いつ更新するか**は App 側（履歴をまとめる効果の先頭）にある。
+ *   ここで更新すると、囲いの効果は中身の効果より**後**に走るため、
+ *   履歴に積む時点で写しが古いままになる。宣言だけをここに置く。
+ */
 export interface Content {
   /** テロップ */
   cues: Cue[]
@@ -42,6 +52,14 @@ export interface Content {
   markers: Marker[]
   setMarkers: React.Dispatch<React.SetStateAction<Marker[]>>
   markerIdCounter: React.MutableRefObject<number>
+
+  /** 掴んでいる最中に読む写し（更新は App 側） */
+  cuesRef: React.MutableRefObject<Cue[]>
+  segsRef: React.MutableRefObject<VSeg[]>
+  seClipsRef: React.MutableRefObject<SEClip[]>
+  imgClipsRef: React.MutableRefObject<ImgClip[]>
+  vClipsRef: React.MutableRefObject<VClip[]>
+  markersRef: React.MutableRefObject<Marker[]>
 }
 
 export function useContent(): Content {
@@ -56,6 +74,13 @@ export function useContent(): Content {
   const vClipIdCounter = useRef(1)
   const [markers, setMarkers] = useState<Marker[]>([])
   const markerIdCounter = useRef(1)
+
+  const cuesRef = useRef<Cue[]>([])
+  const segsRef = useRef<VSeg[]>([])
+  const seClipsRef = useRef<SEClip[]>([])
+  const imgClipsRef = useRef<ImgClip[]>([])
+  const vClipsRef = useRef<VClip[]>([])
+  const markersRef = useRef<Marker[]>([])
 
   return {
     cues,
@@ -74,6 +99,12 @@ export function useContent(): Content {
     vClipIdCounter,
     markers,
     setMarkers,
-    markerIdCounter
+    markerIdCounter,
+    cuesRef,
+    segsRef,
+    seClipsRef,
+    imgClipsRef,
+    vClipsRef,
+    markersRef
   }
 }

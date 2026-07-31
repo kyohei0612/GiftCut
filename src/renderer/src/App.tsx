@@ -163,6 +163,8 @@ import { IconsProvider, useIconsCtx } from './state/iconsContext'
 import { ExportProvider, useExportCtx } from './state/exportContext'
 import { MediaProvider, useMediaCtx } from './state/mediaContext'
 import { useHistory, type Snap } from './state/useHistory'
+import { useExport } from './state/useExport'
+import { useSubtitles } from './state/useSubtitles'
 import { useClipDrag } from './state/useClipDrag'
 import { useLaneHeights } from './state/useLaneHeights'
 import { usePlayback } from './state/usePlayback'
@@ -559,12 +561,14 @@ function AppInner(): JSX.Element {
   const { zoom, setZoom, zoomRef } = useViewCtx()
   const { toasts, setToasts, showToast } = useToastCtx()
   // 段（トラック）と鍵。**鍵はあらゆる編集の手前で見る**ので心臓に置く
-  const { tracks, setTracks, trackStates, setTrackStates, isLocked, toggleTrack } = useTracksCtx()
+  const { tracks, setTracks, trackStates, setTrackStates, isLocked, toggleTrack, tracksRef, trackStatesRef } =
+    useTracksCtx()
   // タイムラインの中身は state/useContent がまとめて持つ（配列と採番は一組）
   const {
     cues, setCues, segments, setSegments, segIdCounter,
     seClips, setSeClips, seIdCounter, imgClips, setImgClips, imgIdCounter,
-    vClips, setVClips, vClipIdCounter, markers, setMarkers, markerIdCounter
+    vClips, setVClips, vClipIdCounter, markers, setMarkers, markerIdCounter,
+    cuesRef, segsRef, seClipsRef, imgClipsRef, vClipsRef, markersRef
   } = useDoc()
   // 選んでいる物は state/useSelection がまとめて持つ（解除の入口も1つ）
   const sel = useSel()
@@ -1105,7 +1109,6 @@ function AppInner(): JSX.Element {
   // ---- 映像レイヤークリップ（V2以降に置く動画。ピクチャーインピクチャー／差し込み用）----
   // V1 の「切片(VSeg)」は隙間なく連結するリップル方式だが、こちらは絶対位置に置く独立クリップ。
   // 音声は必ず対になる音声トラック（V2→A2, V3→A3）に連動表示・再生される＝映像と音は常にセット。
-  const vClipsRef = useRef<VClip[]>([])
   useEffect(() => {
     vClipsRef.current = vClips
   }, [vClips])
@@ -1743,15 +1746,6 @@ function AppInner(): JSX.Element {
     // 音は「鳴らない」方に倒すと気づきにくいので、無ければ普通に鳴らす。
     if (st?.muted) return 0
     if (anyAudioSolo && !st?.solo) return 0
-    return clamp((st?.volume ?? 1) * masterVolume, 0, 1)
-  }
-  // 書き出し用のゲイン。ソロはモニタリング専用（Premiere でも各DAWでも同じ約束）
-  // なので書き出しには効かせない。BGMだけ確認しようとソロにしたまま書き出して
-  // 本編音声もSEも全部無音の動画ができる事故を防ぐ。反映するのはミュートと音量のみ。
-  function audioTrackGainForExport(id: string): number {
-    const st = trackStates[id]
-    // 上と同じ理由。**書き出しでも無音になっていた**ので、こちらの方が実害が大きい
-    if (st?.muted) return 0
     return clamp((st?.volume ?? 1) * masterVolume, 0, 1)
   }
   function setTrackVolume(id: string, v: number): void {
@@ -3493,13 +3487,6 @@ function AppInner(): JSX.Element {
   const clipboardSeRef = useRef<SEClip[]>([]) // SE/BGM のクリップボード
   const clipboardImgRef = useRef<ImgClip[]>([]) // 画像のクリップボード
   const clipboardVcRef = useRef<VClip[]>([]) // 映像レイヤーのクリップボード
-  const cuesRef = useRef<Cue[]>([])
-  const segsRef = useRef<VSeg[]>([])
-  const seClipsRef = useRef<SEClip[]>([])
-  const markersRef = useRef<Marker[]>([])
-  const imgClipsRef = useRef<ImgClip[]>([])
-  const tracksRef = useRef<Track[]>([])
-  const trackStatesRef = useRef<Record<string, TrackState>>({})
   const ratioRef = useRef<Ratio>('16:9')
 
   function setTime(t: number): void {
@@ -3677,6 +3664,7 @@ function AppInner(): JSX.Element {
     }, 0)
   }
 
+
   const primaryId = selectedIds[0] ?? null
   const selected = cues.find((c) => c.id === primaryId) ?? null
 
@@ -3691,6 +3679,22 @@ function AppInner(): JSX.Element {
   useEffect(() => {
     videoTLenRef.current = videoTLen
   }, [videoTLen])
+
+  // 字幕づくりは state/useSubtitles（聞き取り→割る→音に合わせる）
+  const { runSubtitles, handleImportSrt } = useSubtitles({
+    stopPlayback,
+    seekTo,
+    segLayout,
+    resetHistory,
+    askConfirm,
+    idCounter,
+    subMaxChars,
+    subReplace,
+    newTelopStyle,
+    setSrtPath,
+    setSubtitleOpen,
+    setSubtitleState
+  })
 
   // プロキシ生成の進捗を購読（今読み込み中の原本パス分だけ反映）
   useEffect(() => {
@@ -3727,73 +3731,6 @@ function AppInner(): JSX.Element {
    * **合わせるのは画面側**。カット点を知っているのがこちらなので、
    * 「切った所＝話の始まり」という一番強い手がかりをここで使える。
    */
-  async function runSubtitles(): Promise<void> {
-    const src = sources[0]?.path ?? videoPath
-    if (!src) {
-      showToast('先に動画を読み込んでください。')
-      return
-    }
-    setSubtitleState({ phase: 'extract' })
-    const r = await window.giftcut.runSubtitles(src)
-    if (r?.canceled) {
-      setSubtitleState({ phase: 'idle' })
-      return
-    }
-    if (!r?.ok || !r.segs?.length) {
-      setSubtitleState({ phase: 'error', message: r?.error ?? '字幕を作れませんでした' })
-      return
-    }
-    setSubtitleState({ phase: 'align' })
-    const total = r.duration || videoDuration || 0
-    // **無音のしきい値は素材で変わる。**
-    // 雑音の多い動画では -35dB だと「どこも無音でない」ことになり、
-    // 合わせる先が1つも取れない（実測: -35dB で1区間、-30dB で37区間）。
-    // 取れるまで少しずつ緩める。緩めすぎると小さい音まで無音扱いになるので、
-    // **十分な数が取れた所で止める**。
-    // 足りているかの判定は src/shared/silenceLadder.ts（測る道具と揃えるため）
-    let silences: { start: number; dur: number }[] = []
-    for (const db of DB_LADDER) {
-      const r = await window.giftcut.detectSilences?.(src, db, 0.2).catch(() => null)
-      const got = r?.ok ? (r.silences ?? []) : []
-      if (got.length > silences.length) silences = got
-      if (enoughSilences(silences.length, total)) break
-    }
-    // **まず「間」で割る。** 1枚＝1つの話の区切りにする。
-    // 文字数だけで割ると、読み終わる前に次へ進んで「音より速い」と感じる
-    //（youtube-pipeline の品質記録にある R-sync 違反と同じ現象）。
-    // こちらは本物の音があるので、実際に黙った所で割れる。
-    const ranges = speechRanges(silences, total)
-    const split = r.segs.flatMap((s) => splitAtPauses(s, ranges, subMaxChars))
-    // 合わせる → 短すぎる札をくっつける → 読む間もない札を少し延ばす、の順。
-    // くっつける方が先。先に延ばすと、隣にぶつかってくっつけられなくなる。
-    const aligned = ensureMinShow(
-      mergeShreds(
-        alignCues(split, silences, total, {
-          // 切ったのは本人。音より強い手がかりとして使う
-          cuts: segLayout.map((L) => L.tStart)
-        }),
-        subMaxChars
-      )
-    )
-    const base = subReplace ? [] : cues
-    let id = Math.max(0, ...cues.map((c) => c.id)) + 1
-    const made: Cue[] = aligned.map((a) => ({
-      id: id++,
-      start: a.start,
-      end: a.end,
-      text: a.text,
-      track: 'V2',
-      // 見た目は「次に足すテロップ」の既定に合わせる。
-      // 字幕だけ別の見た目になると、あとで揃え直す手間が増える
-      label: DEFAULT_LABEL,
-      pos: { x: 0.5, y: 0.85 },
-      style: { ...newTelopStyle }
-    }))
-    setCues([...base, ...made].sort((a, b) => a.start - b.start))
-    setSubtitleState({ phase: 'idle' })
-    setSubtitleOpen(false)
-    showToast(`字幕を ${made.length}枚 作りました。`)
-  }
 
   // 関連付け（ダブルクリック）で開かれたプロジェクトを開く。
   // **受け取る側が居ないと「メモ帳で開きますか？」のまま何も起きない。**
@@ -4055,6 +3992,7 @@ function AppInner(): JSX.Element {
   }, [mediaItems, vClips, seClips, imgClips, sources])
 
   const v1Hidden = trackStates['V1']?.hidden ?? false
+
 
   // SE の再生: 順再生(等速)中、再生ヘッドが SE 区間に入ったら該当 audio を鳴らす
   useEffect(() => {
@@ -5275,43 +5213,6 @@ function AppInner(): JSX.Element {
     else if (r?.error && r.error !== 'キャンセル') showToast('保存失敗: ' + r.error, 'error')
   }
 
-  // ================= 読み込み =================
-  async function handleImportSrt(): Promise<void> {
-    const res = await window.giftcut.importSrt()
-    if (!res) return
-    stopPlayback() // 再生中に読み込むとヘッドと動画がズレるため必ず停止
-    let parsed = parseSrt(res.content)
-    // アイコン軸が有効なら読み込んだテロップも軸に整列（アイコンが飛ばないように）
-    if (iconAuto && iconAnchorPos) {
-      parsed = parsed.map((c) => ({
-        ...c,
-        pos: { ...iconAnchorPos },
-        style: (() => {
-          const st = { ...c.style, anchor: { h: 'l' as const, v: 'm' as const }, align: 'left' as const }
-          delete st.box
-          return st
-        })()
-      }))
-    }
-    // 既存テロップを全置換するので、消える前に確認する（動画差し替えには確認が
-    // あるのに、こちらは無確認でスタイル済みテロップが全部消え、Undoも効かなかった）
-    if (cuesRef.current.length) {
-      const okToReplace = await askConfirm({
-        title: `現在のテロップ ${cuesRef.current.length} 件をすべて置き換えます`,
-        body: 'スタイルや位置の調整も失われます。この操作は元に戻せません。',
-        okLabel: '置き換える',
-        cancelLabel: '中止',
-        danger: true
-      })
-      if (!okToReplace) return
-    }
-    idCounter.current = parsed.length + 1
-    resetHistory({ cues: parsed, segments: segsRef.current, seClips: seClipsRef.current }) // 履歴リセット（動画切片・SEは維持）
-    setCues(parsed)
-    setSrtPath(res.path)
-    setSelectedIds(parsed[0] ? [parsed[0].id] : [])
-    seekTo(parsed[0]?.start ?? 0)
-  }
 
   // 指定パスの動画をアクティブ動画として読み込む（差し替え）
   // placed=true: 切片は呼び出し側が置くので、読み込み時の自動配置（先頭に全長1本）はしない。
@@ -6569,16 +6470,6 @@ function AppInner(): JSX.Element {
     })
   }, [])
 
-  // SRT 書き出し（編集後のテロップを SRT に戻す）
-  async function exportSrtFn(): Promise<void> {
-    if (!cues.length) {
-      showToast('テロップがありません。')
-      return
-    }
-    const res = await window.giftcut.exportSrt(buildSrt(cues))
-    if (res?.ok && res.path) showToast('SRT を書き出しました:\n' + res.path, 'success')
-    else if (res?.error && res.error !== 'キャンセル') showToast('書き出し失敗: ' + res.error, 'error')
-  }
 
   // テロップを新規追加（再生ヘッド位置に2秒）
   // 新しいテロップを置くトラックを決める。
@@ -7585,6 +7476,19 @@ function AppInner(): JSX.Element {
     if (dur <= 0) return []
     return duckEnvelope(voiceRegions(silenceCut.found, dur), duckOpts)
   }, [silenceCut.found, segments, duckOpts])
+
+  // 書き出しは state/useExport（やり直しが利かないので、道すじを1か所に）
+  const { audioTrackGainForExport, exportSrtFn, openExportDialog, exportProject } = useExport({
+    stopPlayback,
+    srcOfSeg,
+    cueTrack,
+    iconForCue,
+    resolveExportFps,
+    animBreakpoints,
+    duckEnv,
+    seEnd,
+    v1Hidden
+  })
   /** この効果音/BGMクリップに、いまダッキングが効いているか */
   const duckGainAt = (clip: SEClip, t: number): number =>
     clip.duck && duckEnv.length ? gainAt(duckEnv, t) : 1
@@ -9437,149 +9341,6 @@ function AppInner(): JSX.Element {
    * 「書き出す」を押して初めて「動画を読み込んでください」と怒られた。
    * 押す前に分かる方が親切。
    */
-  function openExportDialog(): void {
-    if (!videoPath || !segments.length) {
-      showToast('書き出す中身がありません。先に動画を読み込んでタイムラインに置いてください。')
-      return
-    }
-    if (exportStatus) return // 書き出し中は受け付けない
-    setShowExportDialog(true)
-  }
-  async function exportProject(): Promise<void> {
-    if (!videoPath) {
-      showToast('先に動画を読み込んでください。\n右の「プロジェクト」タブ →「＋ファイル追加」から追加できます。')
-      return
-    }
-    // テロップが無くても書き出せる（カット＋BGM＋画像だけの動画も作れる）
-    if (!segments.length) {
-      showToast('動画の準備が完了していません。少し待ってから再度お試しください。')
-      return
-    }
-    stopPlayback()
-    // 書き出し設定: 1080基準の解像度を resP 倍率でスケール（偶数化）。fps/画質(crf)も反映。
-    const base =
-      ratio === '16:9'
-        ? { width: 1920, height: 1080 }
-        : ratio === '9:16'
-          ? { width: 1080, height: 1920 }
-          : { width: 1080, height: 1080 }
-    const k = exportOpts.resP / 1080
-    const even = (n: number): number => Math.round((n * k) / 2) * 2
-    const size = { width: even(base.width), height: even(base.height) }
-    const crf = exportOpts.quality === 'high' ? 18 : exportOpts.quality === 'low' ? 28 : 23
-    try {
-      // 非表示（👁OFF）トラックのテロップは書き出しに含めない（プレビューと一致させる）
-      const exportCues = cues.filter((c) => !trackStates[cueTrack(c)]?.hidden)
-      setExportStatus(`テロップを画像化中… (0/${exportCues.length})`)
-      const frames: { png: string; start: number; end: number }[] = []
-      for (let i = 0; i < exportCues.length; i++) {
-        const c = exportCues[i]
-        const avatar = iconForCue(c)
-        const asc = avatar ? iconScale : 1
-        const dur = c.end - c.start
-        if (!hasAnim(c.style.anim) && !hasMotion(c.motion)) {
-          const png = await renderCueToPng(
-            c,
-            size.width,
-            size.height,
-            avatar,
-            asc,
-            undefined,
-            iconSide,
-            iconOffset.x,
-            iconOffset.y,
-            iconAuto
-          )
-          frames.push({ png, start: c.start, end: c.end })
-        } else {
-          // アニメあり: 変化する区間を時間分割し、各瞬間のPNGを短い区間で並べる
-          const bps = animBreakpoints(c.style.anim, c.motion, dur, 15)
-          for (let k = 0; k < bps.length; k++) {
-            const t0 = bps[k]
-            const t1 = k + 1 < bps.length ? bps[k + 1] : dur
-            const st = telopStateAt(c.style.anim, c.motion, t0, dur)
-            const png = await renderCueToPng(
-              c,
-              size.width,
-              size.height,
-              avatar,
-              asc,
-              st,
-              iconSide,
-              iconOffset.x,
-              iconOffset.y,
-              iconAuto
-            )
-            frames.push({ png, start: c.start + t0, end: c.start + t1 })
-          }
-        }
-        setExportStatus(`テロップを画像化中… (${i + 1}/${exportCues.length})`)
-      }
-      setExportPct(0)
-      setExportStatus('FFmpegで書き出し中…（動画の長さによっては時間がかかります）')
-      // 実際に焼き込む素材（非表示トラックは除外）だけで「動画尻より後ろ」を判定する。
-      // 全件で判定すると、非表示にした素材のために末尾へ静止画＋無音が付いてしまう。
-      const expImgs = imgClips.filter((c) => !trackStates[c.track]?.hidden)
-      const cueEnd = exportCues.length ? Math.max(...exportCues.map((c) => c.end)) : 0
-      const expImgEnd = expImgs.length
-        ? Math.max(...expImgs.map((c) => c.tStart + c.duration))
-        : 0
-      const expVcEnd = vClips.length
-        ? Math.max(...vClips.map((c) => c.tStart + Math.max(0.05, c.srcEnd - c.srcStart)))
-        : 0
-      // マルチソース: 入力に使う元動画一覧（切片の srcId はこの並びの番号に直る）
-      const srcList = sourcesRef.current.length
-        ? sourcesRef.current
-        : videoPath
-          ? [{ id: 0, path: videoPath }]
-          : []
-
-      // 渡す中身の組み立ては shared/exportPayload（画面を起動せずに確かめられる）。
-      // 「見えていない物は焼かない」「重なりは下から」「等倍・無調整は渡さない」
-      // といった決まりはそちらに書いてある。
-      const payload = buildExportPayload({
-        videoPath,
-        sources: srcList,
-        size,
-        frames,
-        segments,
-        seClips,
-        vClips,
-        imgClips,
-        tracks,
-        hidden: (id) => !!trackStates[id]?.hidden,
-        v1Hidden,
-        gainOf: audioTrackGainForExport,
-        speedOf: (seg) => segSpeed(seg as VSeg),
-        srcDurationOf: (seg) => srcOfSeg(seg as VSeg)?.duration || undefined,
-        xfadeDurAt: (segs, i) => xfadeDurAt(layoutSegs(segs as VSeg[]), i),
-        totalLen: (segs) => totalSegLen(segs as VSeg[]),
-        duckExpr: duckEnv.length ? envToFfmpegExpr(duckEnv) : undefined,
-        loudnormLUFS,
-        fps: resolveExportFps(),
-        crf,
-        // 本編より後ろに置かれている物（ここまで伸ばして黒＋無音で埋める）
-        tailEnds: [cueEnd, seEnd, expImgEnd, expVcEnd]
-      })
-      const res = await window.giftcut.exportVideo(
-        payload as unknown as Parameters<typeof window.giftcut.exportVideo>[0]
-      )
-      setExportStatus(null)
-      setExportPct(null)
-      if (res?.ok) showToast('書き出しが完了しました\n' + res.outPath, 'success')
-      else if (
-        res?.canceled ||
-        res?.error === 'キャンセルされました' ||
-        res?.error === 'キャンセル'
-      ) {
-        /* ユーザーがキャンセル: 通知不要（赤いエラーを出さない） */
-      } else showToast('書き出しできませんでした\n' + (res?.error ?? '不明なエラー'), 'error')
-    } catch (e) {
-      setExportStatus(null)
-      setExportPct(null)
-      showToast('書き出しエラー: ' + String(e), 'error')
-    }
-  }
 
   // ================= パネルリサイズ =================
   // 境目を掴んで動かす所は state/usePanelLayout の中

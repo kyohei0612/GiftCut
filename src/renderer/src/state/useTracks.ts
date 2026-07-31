@@ -13,7 +13,7 @@
 // `trackStates[id]?.locked` を各所で書くと、**書き忘れた1か所だけ鍵が効かない**。
 // 効かない所は「たまたま動いてしまう」ので、気づくのは壊してからになる。
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Track, TrackState } from '../lib/projectTypes'
 
 export interface Tracks {
@@ -24,6 +24,9 @@ export interface Tracks {
   /** その段に鍵が掛かっているか（無い段は掛かっていない扱い） */
   isLocked: (id: string) => boolean
   toggleTrack: (id: string, key: keyof TrackState) => void
+  /** 掴んでいる最中に読む写し（更新は App 側） */
+  tracksRef: React.MutableRefObject<Track[]>
+  trackStatesRef: React.MutableRefObject<Record<string, TrackState>>
 }
 
 export function useTracks(
@@ -34,9 +37,13 @@ export function useTracks(
   const [trackStates, setTrackStates] = useState<Record<string, TrackState>>(() =>
     initStates(defaultTracks)
   )
+  const tracksRef = useRef<Track[]>(defaultTracks)
+  const trackStatesRef = useRef<Record<string, TrackState>>({})
   return {
     tracks,
     setTracks,
+    tracksRef,
+    trackStatesRef,
     trackStates,
     setTrackStates,
     isLocked: (id) => !!trackStates[id]?.locked,
