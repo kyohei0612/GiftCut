@@ -160,6 +160,8 @@ import { ViewProvider, useViewCtx } from './state/viewContext'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
 import { useEdit } from './state/useEdit'
 import { IconsProvider, useIconsCtx } from './state/iconsContext'
+import { usePlayback } from './state/usePlayback'
+import { PlaybackProvider, usePlaybackCtx } from './state/playbackContext'
 import { nearestSnap } from '../../shared/snap'
 import { splitAt, toggleSelect, trimLeft, trimRight } from '../../shared/clipEdit'
 import { mediaQueue, rafThrottle } from './lib/schedule'
@@ -480,6 +482,12 @@ const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10
  * 同じ部品の中で囲いを作ると、その部品自身は中を見に行けない。
  */
 function AppInner(): JSX.Element {
+  // 再生の「今」（時刻・流しているか・速さ）。**追いかけの仕組みは動かしていない**
+  const {
+    currentTime, setCurrentTime, currentTimeRef, durationRef,
+    playing, setPlaying, playRateUI, setPlayRateUI, playRateRef, rafRef,
+    fps, setFps, fpsRef
+  } = usePlaybackCtx()
   // アイコンの出し方（どちら側・ずらし・大きさ・揃えるか）
   const icons = useIconsCtx()
   const {
@@ -757,7 +765,6 @@ function AppInner(): JSX.Element {
       return true
     }
   })
-  const [currentTime, setCurrentTime] = useState(0)
   const [masterVolume, setMasterVolume] = useState(1) // マスター音量（全体）
 
   // ---- 動画 ----
@@ -768,8 +775,6 @@ function AppInner(): JSX.Element {
   const [videoDuration, setVideoDuration] = useState(0)
   // 素材の実フレームレート（読み込み時に ffprobe で取得。未取得は既定30）。
   // フレームステップ/タイムコード/カットのフレーム量子化に使う。
-  const [fps, setFps] = useState(FPS)
-  const fpsRef = useRef(FPS)
   const [proxyPct, setProxyPct] = useState<number | null>(null) // プロキシ生成の進捗（null=非生成/完了）
   // 素材ごとまとめる／まとめを開く の進捗（null=実行していない）。
   // 数GBになることがあり、無反応に見えると二度押しされるので必ず出す。
@@ -784,8 +789,6 @@ function AppInner(): JSX.Element {
   // この動画について初期切片を作ったか。プロキシ完成でsrcが変わると loadedmetadata が再発火するため、
   // 「segments が空」を初期化条件にすると、全消しした直後にカットが勝手に復活してしまう。
   const initializedForPathRef = useRef<string | null>(null)
-  const [playing, setPlaying] = useState(false)
-  const [playRateUI, setPlayRateUI] = useState(0)
   // 字幕づくりの窓。**押してすぐ走らせない**（何分もかかるので必ず確認を挟む）
   const [subtitleOpen, setSubtitleOpen] = useState(false)
   const [subtitleState, setSubtitleState] = useState<SubtitlePhase>({ phase: 'idle' })
@@ -3720,11 +3723,7 @@ function AppInner(): JSX.Element {
   }, [videoTrackH, audioTrackH, tracks.length, syncTimelineVScroll])
 
   // ---- refミラー（stale closure 対策）----
-  const currentTimeRef = useRef(0)
-  const durationRef = useRef(60)
   const videoDurationRef = useRef(0)
-  const playRateRef = useRef(0) // 0 = 停止, 正 = 順再生, 負 = 逆再生
-  const rafRef = useRef<number | null>(null)
   const lastTsRef = useRef(0)
   /**
    * 次にシークを頼んでよい時刻（performance.now）。
@@ -13434,6 +13433,7 @@ export default function App(): React.JSX.Element {
   const tracks = useTracks(DEFAULT_TRACKS, initTrackStates)
   const view = useView()
   const toast = useToast()
+  const playback = usePlayback(FPS)
   return (
     <LayoutProvider>
       <SelectionProvider>
@@ -13442,7 +13442,9 @@ export default function App(): React.JSX.Element {
             <ViewProvider value={view}>
               <ToasterProvider value={toast}>
                 <IconsProvider>
-                  <AppInner />
+                  <PlaybackProvider value={playback}>
+                    <AppInner />
+                  </PlaybackProvider>
                 </IconsProvider>
               </ToasterProvider>
             </ViewProvider>
