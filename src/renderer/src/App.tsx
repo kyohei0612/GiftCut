@@ -138,6 +138,7 @@ import {
 import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
 // キーフレーム（時間で変わる値）。プレビューも書き出しも同じ計算を使う
 import { valueAt, putKey, removeKey, hasKeys, type Keys } from '../../shared/keyframes'
+import { nextOpenSecs } from '../../shared/accordion'
 import {
   zoomAt,
   hasClipMotion,
@@ -3022,7 +3023,9 @@ export default function App(): JSX.Element {
   const [openAccSec, setOpenAccSec] = useState<Record<string, string[]>>(() => {
     const def: Record<string, string[]> = {
       project: ['video', 'audio', 'image'],
-      icon: ['lib'],
+      // お気に入りは、どのタブでも最初から開けておく（一番よく使う所なので）
+      icon: ['fav', 'lib'],
+      telop: ['fav'],
       // 効果音は「★お気に入り」を最初から開けておく。
       // 外から足したフォルダも同じ扱いで、開いたぶんはそのまま残る
       se: ['fav'],
@@ -3057,11 +3060,8 @@ export default function App(): JSX.Element {
       const cur = p[tab] ?? []
       const isOpen = cur.includes(k)
       // 全部開けておくタブは複数同時に開ける。それ以外は従来どおり1つだけ。
-      const next = isOpen
-        ? cur.filter((x) => x !== k)
-        : ALWAYS_OPEN_TABS.includes(tab)
-          ? [...cur, k]
-          : [k]
+      // 決まりは shared/accordion に置いてある（画面を作らずに試せるように）
+      const next = nextOpenSecs(cur, k, ALWAYS_OPEN_TABS.includes(tab))
       if (!isOpen)
         requestAnimationFrame(() =>
           requestAnimationFrame(() =>
