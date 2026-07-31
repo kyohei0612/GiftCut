@@ -152,6 +152,9 @@ import { ContentProvider, useDoc } from './state/contentContext'
 import { useTracks } from './state/useTracks'
 import { useView } from './state/useView'
 import { useToast } from './state/useToast'
+import { TracksProvider, useTracksCtx } from './state/tracksContext'
+import { ViewProvider, useViewCtx } from './state/viewContext'
+import { ToasterProvider, useToastCtx } from './state/toastContext'
 import { nearestSnap } from '../../shared/snap'
 import { splitAt, toggleSelect, trimLeft, trimRight } from '../../shared/clipEdit'
 import { mediaQueue, rafThrottle } from './lib/schedule'
@@ -472,13 +475,10 @@ const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10
  */
 function AppInner(): JSX.Element {
   // 見え方（拡大率）とお知らせ
-  const { zoom, setZoom, zoomRef } = useView()
-  const { toasts, setToasts, showToast } = useToast()
+  const { zoom, setZoom, zoomRef } = useViewCtx()
+  const { toasts, setToasts, showToast } = useToastCtx()
   // 段（トラック）と鍵。**鍵はあらゆる編集の手前で見る**ので心臓に置く
-  const { tracks, setTracks, trackStates, setTrackStates, isLocked, toggleTrack } = useTracks(
-    DEFAULT_TRACKS,
-    initTrackStates
-  )
+  const { tracks, setTracks, trackStates, setTrackStates, isLocked, toggleTrack } = useTracksCtx()
   // タイムラインの中身は state/useContent がまとめて持つ（配列と採番は一組）
   const {
     cues, setCues, segments, setSegments, segIdCounter,
@@ -14304,11 +14304,22 @@ function AppInner(): JSX.Element {
  * その囲いをここに並べる。
  */
 export default function App(): React.JSX.Element {
+  // **中身はここで作る。** 囲いの中で作ると、描き直すたびに作り直されて
+  // 持っていた値が消える（段の鍵や拡大率が勝手に戻る形で出る）
+  const tracks = useTracks(DEFAULT_TRACKS, initTrackStates)
+  const view = useView()
+  const toast = useToast()
   return (
     <LayoutProvider>
       <SelectionProvider>
         <ContentProvider>
-          <AppInner />
+          <TracksProvider value={tracks}>
+            <ViewProvider value={view}>
+              <ToasterProvider value={toast}>
+                <AppInner />
+              </ToasterProvider>
+            </ViewProvider>
+          </TracksProvider>
         </ContentProvider>
       </SelectionProvider>
     </LayoutProvider>
