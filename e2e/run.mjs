@@ -2725,6 +2725,94 @@ try {
     )
   })
 
+  await check('更新で再起動したときは、復元を聞かずに続きから開く', async () => {
+    // **勝手に閉じておいて「復元しますか？」と聞くのは筋が通らない。**
+    // 更新のために自分で落としたときは、黙って続きから開いて、そう伝える。
+    // 印（resumeAfterUpdate）が効いているかを、実際に開き直して見る。
+    await resetProject()
+    // 下書きを作る（更新前に書かれる物と同じ）
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Control+s').catch(() => {})
+    await page.waitForTimeout(300)
+    const wrote = await page.evaluate(async () => {
+      const json = JSON.stringify({
+        cues: [{ id: 1, start: 1, end: 3, text: 'E2E_更新後の続き', style: {} }],
+        segments: [],
+        seClips: []
+      })
+      await window.giftcut.autosaveProject(json)
+      localStorage.setItem('giftcut.resumeAfterUpdate', '1')
+      return true
+    })
+    assert(wrote, '下書きを書けない')
+    await page.reload()
+    await page.waitForSelector('.app', { timeout: 30000 })
+    await page.waitForTimeout(2500)
+    // 復元を聞かれないこと
+    assert(
+      (await page.locator('.restore-box').count()) === 0,
+      '更新後なのに「復元しますか」と聞いている'
+    )
+    // 続きが開いていること
+    const txt = await page.locator('.telop-clip').allTextContents()
+    assert(
+      txt.some((t) => t.includes('E2E_更新後の続き')),
+      `続きから開いていない: ${JSON.stringify(txt)}`
+    )
+    // 印は使い切りであること（残ると、次に落ちたとき黙って読み込んでしまう）
+    const flag = await page.evaluate(() => localStorage.getItem('giftcut.resumeAfterUpdate'))
+    assert(flag === null, '更新の印が残っている（次の起動でも復元を聞かなくなる）')
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
+  await check('保存したプロジェクトは、そのファイルから開き直しても中身が残っている', async () => {
+    // **「保存したつもり」が一番損害が大きい。**
+    // 書けているか・開けるか・開いたあとも同じ中身か・ファイルが残っているかを
+    // 通しで見る（保存の直後だけ見ても、開き直しで落ちる型の事故は見つからない）。
+    await resetProject()
+    const out = join(outDir, '保存して開き直す.gcproj')
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(300)
+    await setDialogFiles(null, out)
+    // 「別名で保存」はファイルメニューから（Ctrl+S は開いているファイルへ上書き）
+    await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
+    await page.waitForTimeout(300)
+    await page.locator('.menu-drop-item', { hasText: '別名で保存' }).first().click()
+    await page.waitForTimeout(2500)
+    assert(existsSync(out), `保存できていない（${out}）`)
+    const before = JSON.parse(readFileSync(out, 'utf-8'))
+    const nCue = (before.cues ?? []).length
+    const nSeg = (before.segments ?? []).length
+    assert(nCue > 0, '保存した中身にテロップが入っていない')
+
+    // いったん別の状態にしてから、そのファイルを開く
+    await resetProject()
+    await setDialogFiles([out], null)
+    await page.keyboard.press('Control+o')
+    await page.waitForTimeout(2500)
+    const cont = page.locator('.modal-btn', { hasText: 'このまま続ける' })
+    if (await cont.count()) {
+      await cont.click()
+      await page.waitForTimeout(1500)
+    }
+    const shown = await page.locator('.telop-clip').count()
+    assert(shown === nCue, `開き直したらテロップの数が違う（${nCue} → ${shown}）`)
+    const segs = await v1Clips().count()
+    assert(segs === nSeg || nSeg === 0, `開き直したら切片の数が違う（${nSeg} → ${segs}）`)
+
+    // **開いたあともファイルが残っていること。**（開くときに壊す/消す事故を見る）
+    assert(existsSync(out), '開いたらプロジェクトファイルが消えた')
+    const after = JSON.parse(readFileSync(out, 'utf-8'))
+    assert(
+      (after.cues ?? []).length === nCue,
+      `開いただけで中身が変わった（${nCue} → ${(after.cues ?? []).length}）`
+    )
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
   await check('素材パック（ZIP）を選ぶだけで、置き場へまとめて入る', async () => {
     // 「開いて・展開して・貼る」は手順が3つあり、**どれか1つ間違えても
     // 何も起きないだけ**なので、間違いに気づけない。ZIP を選ぶだけで済ませる。

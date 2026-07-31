@@ -24,13 +24,23 @@
 /** 残す対象の鍵。この2つで始まる物が「利用者がいじった物」 */
 export const USER_KEY_PREFIXES = ['giftcut.', 'gc.'] as const
 
-/** 残さない鍵。**その場限りの物や、機械が変われば意味が無くなる物** */
+/**
+ * 残さない鍵。**その場限りの物や、機械が変われば意味が無くなる物**
+ *
+ * 一度きりの印を控えてしまうと、**次の起動でそれが蘇る**。
+ * 更新の印なら「更新していないのに、更新後の扱い（復元を聞かない）」になり、
+ * 落ちたときの下書きが黙って読み込まれる——本人には理由の分からない挙動になる。
+ */
 const SKIP = new Set([
-  'giftcut.e2e.probe' // 自動チェックが使う一時的な鍵
+  'giftcut.e2e.probe', // 自動チェックが使う一時的な鍵
+  'giftcut.resumeAfterUpdate' // 更新で再起動した印。読んだら消える一度きりの物
 ])
+/** 前置きで落とす物（消した機能の名残など、控えても意味が無い） */
+const SKIP_PREFIX = ['giftcut.qa'] // 廃止した検査票の画面状態
 
 export function isUserKey(k: string): boolean {
   if (SKIP.has(k)) return false
+  if (SKIP_PREFIX.some((p) => k.startsWith(p))) return false
   return USER_KEY_PREFIXES.some((p) => k.startsWith(p))
 }
 

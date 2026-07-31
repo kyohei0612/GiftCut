@@ -23,6 +23,15 @@ describe('どの鍵を残すか', () => {
   it('自動チェックが使う一時的な鍵は残さない', () => {
     expect(isUserKey('giftcut.e2e.probe')).toBe(false)
   })
+  it('**一度きりの印は残さない**（控えから蘇ると挙動が変わる）', () => {
+    // 更新で再起動した印。控えて次の起動で戻すと、更新していないのに
+    // 「更新後の扱い」＝復元を聞かずに下書きを読む、になってしまう
+    expect(isUserKey('giftcut.resumeAfterUpdate')).toBe(false)
+  })
+  it('消した機能の名残は残さない', () => {
+    expect(isUserKey('giftcut.qa')).toBe(false)
+    expect(isUserKey('giftcut.qa.open')).toBe(false)
+  })
 })
 
 describe('抜き出し', () => {

@@ -1081,6 +1081,10 @@ app.whenReady().then(() => {
       await extractZip(target, tmpDir)
       const base = app.getPath('userData')
       const added: Record<string, number> = {}
+      // **入れた物は1つ残らず覚えておく。**
+      // 途中で失敗したときに戻せないと、半端に入った素材が残る。
+      // 「取り込めませんでした」と言われたのに一部だけ入っている、が一番困る。
+      const written: string[] = []
       /** フォルダごと足す（同じ名前は上書き。無い物はそのまま残す） */
       const merge = (from: string, to: string): number => {
         let n = 0
@@ -1091,27 +1095,47 @@ app.whenReady().then(() => {
           const st = statSync(src)
           if (st.isDirectory()) n += merge(src, dst)
           else {
+            // すでに有る物は上書きしない印を付けておく（戻すときに消さないため）
+            if (!existsSync(dst)) written.push(dst)
             copyFileSync(src, dst)
             n++
           }
         }
         return n
       }
-      for (const folder of ASSET_FOLDERS) {
-        const src = join(tmpDir, folder)
-        if (!existsSync(src)) continue
-        const n = merge(src, join(base, folder))
-        if (n > 0) added[folder] = n
+      /** 入れた物を消して、元の状態へ戻す */
+      const rollback = (): void => {
+        for (const f of written) {
+          try {
+            rmSync(f, { force: true })
+          } catch {
+            /* 消せない物は残るが、できる限り戻す */
+          }
+        }
+      }
+      try {
+        for (const folder of ASSET_FOLDERS) {
+          const src = join(tmpDir, folder)
+          if (!existsSync(src)) continue
+          const n = merge(src, join(base, folder))
+          if (n > 0) added[folder] = n
+        }
+      } catch (er) {
+        rollback()
+        throw er
       }
       rmSync(tmpDir, { recursive: true, force: true })
-      if (Object.keys(added).length === 0)
+      if (Object.keys(added).length === 0) {
+        // **知らない ZIP を選んだとき。** 何も入れずに、何を探したかを言って終わる
+        rollback()
         return {
           ok: false,
           error:
-            'この ZIP には素材が入っていないようです（' +
+            'この ZIP には素材が入っていませんでした（' +
             ASSET_FOLDERS.join(' / ') +
-            ' のフォルダを探します）'
+            ' のフォルダを探します）。何も取り込んでいません。'
         }
+      }
       return { ok: true, added, path: base }
     } catch (er) {
       try {
@@ -1119,7 +1143,7 @@ app.whenReady().then(() => {
       } catch {
         /* 消せなくても取り込みの結果は変わらない */
       }
-      return { ok: false, error: String(er) }
+      return { ok: false, error: `${String(er)}\n何も取り込んでいません。` }
     }
   })
 
