@@ -5,7 +5,7 @@
 // 編集中は気づきにくく、書き出してから分かる類。
 
 import { describe, expect, it } from 'vitest'
-import { RIPPLE_EPS, isAfter, shiftRange, shiftStart } from './ripple'
+import { RIPPLE_EPS, collapseAt, collapseRange, isAfter, shiftRange, shiftStart } from './ripple'
 
 describe('境目より後ろか', () => {
   it('後ろなら true', () => {
@@ -58,5 +58,42 @@ describe('始まりと終わりを持つ物（テロップ）', () => {
     const r = shiftRange({ start: 1, end: 4 }, 0, -5)
     expect(r.end - r.start).toBe(3)
     expect(r.start).toBe(-4)
+  })
+})
+
+describe('区間を捨てて詰める', () => {
+  // [2, 5] の3秒を捨てる、という想定で通す
+  const at = (t: number): number => collapseAt(t, 2, 5, 3)
+
+  it('捨てる区間より後ろは、捨てた長さだけ手前へ寄る', () => {
+    expect(at(8)).toBe(5)
+  })
+
+  it('捨てる区間より前は動かない', () => {
+    expect(at(1)).toBe(1)
+  })
+
+  it('**区間の中に居た物は、区間の頭で止める**（消さない）', () => {
+    expect(at(3)).toBe(2)
+    expect(at(4.9)).toBe(2)
+  })
+
+  it('区間の両端は、詰めたあと同じ位置に重なる', () => {
+    expect(at(2)).toBe(2)
+    expect(at(5)).toBe(2)
+  })
+
+  it('**捨てる長さが区間の幅と違うこともある**（切片の残り丈で頭打ちになる）', () => {
+    // [2, 5] にかかっているが、実際に詰められるのは1秒だけ、という場合
+    expect(collapseAt(8, 2, 5, 1)).toBe(7)
+  })
+
+  it('頭だけ区間にかかった文字は、失わずに尻だけ残る', () => {
+    // [3, 9] の文字。頭は捨てる区間の中、尻は後ろ
+    expect(collapseRange({ start: 3, end: 9 }, 2, 5, 3)).toEqual({ start: 2, end: 6 })
+  })
+
+  it('丸ごと区間に入った文字は長さ0になる（落とすかは呼んだ側の判断）', () => {
+    expect(collapseRange({ start: 3, end: 4 }, 2, 5, 3)).toEqual({ start: 2, end: 2 })
   })
 })

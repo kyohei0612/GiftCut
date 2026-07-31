@@ -47,3 +47,49 @@ export function shiftRange(
 ): { start: number; end: number } {
   return isAfter(r.start, boundary) ? { start: r.start + delta, end: r.end + delta } : r
 }
+
+// ## 区間を丸ごと捨てて詰める（カット点まで詰める操作）
+//
+// 上の shiftStart / shiftRange は「境目より後ろを、まとめてずらす」だけ。
+// カット点まで詰めるときは **捨てる区間の中に居た物**の行き先も要る。
+//
+// 行き先は3通りしかない。
+//
+//   捨てる区間より後ろ … 捨てた長さだけ手前へ寄る
+//   捨てる区間の中     … 区間の頭で止める（**消さずに潰す**）
+//   捨てる区間より前   … 動かない
+//
+// **中に居た物を消さないのは、テロップの片端だけが区間に入っている場合があるから。**
+// 消すと、頭だけ区間にかかっていた文字が丸ごと失われる。頭を区間の入口で
+// 止めておけば、残った尻のぶんはそのまま出る。長さが0になった物だけは
+// 呼んだ側で落とす（ここでは判断しない）。
+
+/**
+ * 区間 [rmStart, rmEnd] を捨てて詰めたあとの時刻。
+ *
+ * @param removeLen 実際に捨てる長さ。**rmEnd - rmStart とは限らない**
+ *                  （切片の残り丈で頭打ちになることがある）ので、別に受け取る
+ */
+export function collapseAt(
+  t: number,
+  rmStart: number,
+  rmEnd: number,
+  removeLen: number
+): number {
+  if (t >= rmEnd) return t - removeLen
+  if (t > rmStart) return rmStart
+  return t
+}
+
+/** 始まりと終わりを持つ物（テロップ）を、区間を捨てて詰めた形にする */
+export function collapseRange(
+  r: { start: number; end: number },
+  rmStart: number,
+  rmEnd: number,
+  removeLen: number
+): { start: number; end: number } {
+  return {
+    start: collapseAt(r.start, rmStart, rmEnd, removeLen),
+    end: collapseAt(r.end, rmStart, rmEnd, removeLen)
+  }
+}

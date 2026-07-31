@@ -179,7 +179,7 @@ import { useLaneHeights } from './state/useLaneHeights'
 import { usePlayback } from './state/usePlayback'
 import { PlaybackProvider, usePlaybackCtx } from './state/playbackContext'
 import { nearestSnap } from '../../shared/snap'
-import { shiftRange, shiftStart } from '../../shared/ripple'
+import { collapseAt, collapseRange, shiftRange, shiftStart } from '../../shared/ripple'
 import { dragModeOf, movedEnough, type SegDropMode } from '../../shared/dragMode'
 import {
   dropLaneAt as dropLaneIn,
@@ -6901,6 +6901,39 @@ function AppInner(): JSX.Element {
     for (const c of vClipsRef.current) out.push(c.tStart, c.tStart + vcLen(c))
     return out
   }
+  /**
+   * 本編の切片から区間を捨てたとき、**載っている物を全部同じだけ詰める**。
+   *
+   * 詰め忘れが1種類でもあると、そこだけ置き去りになって音や文字がずれる
+   * （しかも書き出してから気づく）。行き先の決まりは shared/ripple の
+   * collapseAt にあり、ここは「5種類ぜんぶに掛ける」ことだけを担う。
+   *
+   * **動かない物は同じ物のまま返す。** 作り直すと、変わっていない段まで
+   * 描き直しになる。
+   */
+  function collapseContent(rmStart: number, rmEnd: number, removeLen: number): void {
+    const at = (t: number): number => collapseAt(t, rmStart, rmEnd, removeLen)
+    const atStart = <T extends { tStart: number }>(x: T): T => {
+      const t = at(x.tStart)
+      return t === x.tStart ? x : { ...x, tStart: t }
+    }
+    // テロップだけは長さが潰れることがある。潰れた物はここで落とす
+    setCues((prev) =>
+      prev
+        .map((c) => ({ ...c, ...collapseRange(c, rmStart, rmEnd, removeLen) }))
+        .filter((c) => c.end - c.start > 0.05)
+    )
+    setSeClips((prev) => prev.map(atStart))
+    setImgClips((prev) => prev.map(atStart))
+    // 映像レイヤーも詰める（本編とズレると位置リンクが崩れる）
+    setVClips((prev) => prev.map(atStart))
+    setMarkers((prev) =>
+      prev.map((m) => {
+        const t = at(m.t)
+        return t === m.t ? m : { ...m, t }
+      })
+    )
+  }
   function rippleToPrevCut(): void {
     if (mainLocked()) return
     stopPlayback()
@@ -6943,50 +6976,7 @@ function AppInner(): JSX.Element {
       const gone = new Set(next.filter((x) => x.srcEnd - x.srcStart <= 0.02).map((x) => x.id))
       return gone.size ? cleanupOrphanTrans(next, gone) : next
     })
-    // テロップ・SEも同区間を除去して詰める（同期維持）
-    setCues((prev) =>
-      prev
-        .map((c) => {
-          const ns = c.start >= rmEnd ? c.start - removeLen : c.start > rmStart ? rmStart : c.start
-          const ne = c.end >= rmEnd ? c.end - removeLen : c.end > rmStart ? rmStart : c.end
-          return { ...c, start: ns, end: ne }
-        })
-        .filter((c) => c.end - c.start > 0.05)
-    )
-    setSeClips((prev) =>
-      prev.map((x) =>
-        x.tStart >= rmEnd
-          ? { ...x, tStart: x.tStart - removeLen }
-          : x.tStart > rmStart
-            ? { ...x, tStart: rmStart }
-            : x
-      )
-    )
-    // マーカー・画像も同区間を詰める（同期維持）
-    setMarkers((prev) =>
-      prev.map((m) =>
-        m.t >= rmEnd ? { ...m, t: m.t - removeLen } : m.t > rmStart ? { ...m, t: rmStart } : m
-      )
-    )
-    setImgClips((prev) =>
-      prev.map((c) =>
-        c.tStart >= rmEnd
-          ? { ...c, tStart: c.tStart - removeLen }
-          : c.tStart > rmStart
-            ? { ...c, tStart: rmStart }
-            : c
-      )
-    )
-    // 映像レイヤーも同区間を詰める（本編とズレると位置リンクが崩れる）
-    setVClips((prev) =>
-      prev.map((c) =>
-        c.tStart >= rmEnd
-          ? { ...c, tStart: c.tStart - removeLen }
-          : c.tStart > rmStart
-            ? { ...c, tStart: rmStart }
-            : c
-      )
-    )
+    collapseContent(rmStart, rmEnd, removeLen)
     if (videoRef.current)
       videoRef.current.currentTime = L.seg.srcStart + (rmStart - L.tStart) * sp
     setTime(rmStart) // 再生ヘッドは削った位置（編集点）に留める
@@ -7033,50 +7023,7 @@ function AppInner(): JSX.Element {
       const gone = new Set(next.filter((x) => x.srcEnd - x.srcStart <= 0.02).map((x) => x.id))
       return gone.size ? cleanupOrphanTrans(next, gone) : next
     })
-    // テロップ・SEも同区間を除去して詰める（同期維持）
-    setCues((prev) =>
-      prev
-        .map((c) => {
-          const ns = c.start >= rmEnd ? c.start - removeLen : c.start > rmStart ? rmStart : c.start
-          const ne = c.end >= rmEnd ? c.end - removeLen : c.end > rmStart ? rmStart : c.end
-          return { ...c, start: ns, end: ne }
-        })
-        .filter((c) => c.end - c.start > 0.05)
-    )
-    setSeClips((prev) =>
-      prev.map((x) =>
-        x.tStart >= rmEnd
-          ? { ...x, tStart: x.tStart - removeLen }
-          : x.tStart > rmStart
-            ? { ...x, tStart: rmStart }
-            : x
-      )
-    )
-    // マーカー・画像も同区間を詰める（同期維持）
-    setMarkers((prev) =>
-      prev.map((m) =>
-        m.t >= rmEnd ? { ...m, t: m.t - removeLen } : m.t > rmStart ? { ...m, t: rmStart } : m
-      )
-    )
-    setImgClips((prev) =>
-      prev.map((c) =>
-        c.tStart >= rmEnd
-          ? { ...c, tStart: c.tStart - removeLen }
-          : c.tStart > rmStart
-            ? { ...c, tStart: rmStart }
-            : c
-      )
-    )
-    // 映像レイヤーも同区間を詰める（本編とズレると位置リンクが崩れる）
-    setVClips((prev) =>
-      prev.map((c) =>
-        c.tStart >= rmEnd
-          ? { ...c, tStart: c.tStart - removeLen }
-          : c.tStart > rmStart
-            ? { ...c, tStart: rmStart }
-            : c
-      )
-    )
+    collapseContent(rmStart, rmEnd, removeLen)
     if (videoRef.current) videoRef.current.currentTime = L.seg.srcStart + (t - L.tStart) * sp
     setTime(rmStart) // 再生ヘッドはカット点（元の位置）に留める
     clearSegSel() // 消えたクリップを選択に残さない
