@@ -2813,6 +2813,67 @@ try {
     await resetProject()
   })
 
+  await check('テンプレートを開く画面から、自分で作ったぶんを消せる', async () => {
+    // 作ったはいいが**消す道が無い**と、増える一方で選べなくなる。
+    // ただし**同梱のテンプレートは消させない**（消しても更新で戻るし、
+    // 書き込みできない場所のこともある）。両方をここで見る。
+    await resetProject()
+    // 利用者のテンプレートは userData に居る（配った先では常にここ）。
+    // 開発中の書き込み先はリポジトリ側なので、本番と同じ場所へ直接置いて見る。
+    const made = join(fx.userData, 'テンプレート', 'E2E_消せるテンプレ.gcproj')
+    mkdirSync(join(fx.userData, 'テンプレート'), { recursive: true })
+    writeFileSync(made, JSON.stringify({ cues: [], segments: [] }), 'utf-8')
+    assert(existsSync(made), `テンプレートを置けない（${made}）`)
+
+    // 画面から消せること
+    await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
+    await page.waitForTimeout(300)
+    await page.locator('.menu-drop-item', { hasText: 'テンプレートを開く' }).first().click()
+    await page.waitForTimeout(800)
+    const row = page.locator('.tpl-picker-row', { hasText: 'E2E_消せるテンプレ' }).first()
+    assert(await row.count(), '作ったテンプレートが一覧に出ていない')
+    const del = row.locator('.tpl-picker-del')
+    assert(await del.count(), '消すボタンが無い')
+    // **一発では消えない**（押し間違いで消えると作り直すしかない）
+    await del.click()
+    await page.waitForTimeout(200)
+    assert(existsSync(made), '1回押しただけで消えてしまった')
+    assert(
+      (await del.innerText()).includes('消す'),
+      `1回目で確認の見た目にならない（「${await del.innerText()}」）`
+    )
+    await del.click()
+    await page.waitForTimeout(800)
+    assert(!existsSync(made), '2回押しても消えていない')
+
+    // フォルダを開くボタンが出ていること（一覧に無い物を足す道）
+    const picker = page.locator('.restore-box')
+    if (await picker.count()) {
+      const txt = await picker.innerText()
+      assert(
+        txt.includes('フォルダを開く') || (await page.locator('.tpl-picker-row').count()) === 0,
+        'テンプレートの置き場を開く道が無い'
+      )
+    }
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+
+    // **同梱のテンプレートは消せない**（置き場の外を消す穴にしない）
+    const bad = await page.evaluate(async () => {
+      const list = await window.giftcut.listTemplates()
+      const bundled = (list?.items ?? []).find((t) => !t.path.includes('AppData'))
+      if (!bundled) return { skipped: true }
+      const r = await window.giftcut.deleteTemplate(bundled.path)
+      return { ok: r?.ok, path: bundled.path }
+    })
+    if (!bad.skipped) {
+      assert(bad.ok === false, `同梱のテンプレートを消せてしまう（${bad.path}）`)
+      assert(existsSync(bad.path), '同梱のテンプレートが消えた')
+    }
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
   await check('素材パック（ZIP）を選ぶだけで、置き場へまとめて入る', async () => {
     // 「開いて・展開して・貼る」は手順が3つあり、**どれか1つ間違えても
     // 何も起きないだけ**なので、間違いに気づけない。ZIP を選ぶだけで済ませる。
@@ -2848,12 +2909,19 @@ try {
       existsSync(join(fx.userData, 'telop-presets', 'pack.json')),
       '置き場にファイルが無い＝入ったことになっているだけ'
     )
-    // 入れた物がその場で読めること
+    // **入れた種類が全部その場で使えること。**
+    // 1種類でも読み飛ばすと、そこだけ再起動するまで出てこない
+    //（「入れました」と言われたのに見当たらない、が起きる）
     const hit = await page.evaluate(async () => {
-      const rr = await window.giftcut.listTelopPresets()
-      return (rr?.items ?? []).some((x) => x && x.name === 'E2E_パックの素材')
+      const a = await window.giftcut.listTelopPresets()
+      const b = await window.giftcut.listMotionPresets()
+      return {
+        telop: (a?.items ?? []).some((x) => x && x.name === 'E2E_パックの素材'),
+        motion: (b?.items ?? []).some((x) => x && x.name === 'E2E_パックの動き')
+      }
     })
-    assert(hit, '取り込んだのに一覧へ出てこない')
+    assert(hit.telop, 'テロップ素材が一覧へ出てこない')
+    assert(hit.motion, '動きが一覧へ出てこない')
 
     // 知らない物は撒かない（受け取った ZIP を無条件に展開しない）
     const stray = join(outDir, 'stray.zip')

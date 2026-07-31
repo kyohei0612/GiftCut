@@ -203,6 +203,8 @@ export interface GiftcutApi {
   onUpdateFlush: (fn: () => void) => () => void
   updateFlushed: () => void
   listTemplates: () => Promise<{ ok: boolean; items: { name: string; path: string }[]; error?: string }>
+  /** テンプレートを1つ消す（消せるのは自分で作ったぶんだけ。同梱の物は断る） */
+  deleteTemplate: (path: string) => Promise<{ ok: boolean; error?: string }>
   saveTemplate: (name: string, json: string) => Promise<{ ok: boolean; path?: string; error?: string }>
   loadTemplate: (
     path: string

@@ -11443,12 +11443,13 @@ export default function App(): JSX.Element {
           // **ZIP を選ぶだけで済ませる。**
           // 「開いて・展開して・貼る」は手順が3つあり、どれか1つ間違えると
           // 素材が出てこない。しかも間違いに気づけない（何も起きないだけ）。
+          { kind: 'label', label: '素材を入れる' },
           {
             kind: 'item',
-            label: '素材パック（ZIP）を取り込む…',
+            label: '素材パック（ZIP）を取り込む…（展開しなくて OK）',
             title:
-              'SE・テロップ素材・動き・テンプレートが入った ZIP を選ぶと、' +
-              '展開して置き場へ入れます（更新しても消えません）',
+              'SE・テロップ素材・動き・テンプレートが入った ZIP を選ぶだけで、' +
+              '展開して置き場へ入れ、そのまま使えるようにします（更新しても消えません）',
             onClick: () => {
               setFileMenuOpen(false)
               void window.giftcut
@@ -11462,11 +11463,14 @@ export default function App(): JSX.Element {
                   const n = Object.entries(r.added ?? {})
                     .map(([k, v]) => `${k} ${v}件`)
                     .join(' / ')
-                  // **その場で読み直す。** 「入れました」と言われたのに
-                  // 一覧が変わらないと、入ったのかどうか分からない
+                  // **その場で全部読み直す。** 「入れました」と言われたのに
+                  // 一覧が変わらないと、入ったのかどうか分からない。
+                  // 種類を1つでも読み飛ばすと、そこだけ再起動するまで出てこない。
+                  //（テンプレートは開くときに読むので、ここでは要らない）
                   refreshSE()
                   refreshPresets()
-                  showToast(`素材を取り込みました（${n}）`)
+                  refreshMotionPresets()
+                  showToast(`素材を取り込みました（${n}）。そのまま使えます。`)
                 })
                 .catch((e) => showToast(`取り込めませんでした。\n${String(e)}`))
             }
@@ -14015,6 +14019,25 @@ export default function App(): JSX.Element {
           items={templatePicker.items}
           startup={templatePicker.startup}
           onPick={(path) => void pickTemplate(path)}
+          onDelete={(t) => {
+            void window.giftcut?.deleteTemplate?.(t.path).then(async (r) => {
+              if (!r?.ok) {
+                showToast(`消せませんでした。\n${r?.error ?? ''}`)
+                return
+              }
+              // 消したあとの一覧を出し直す。**残ったままだと消えたのか分からない**
+              const next = await window.giftcut.listTemplates()
+              const items = next?.ok ? next.items : []
+              if (items.length) setTemplatePicker((p) => (p ? { ...p, items } : p))
+              else setTemplatePicker(null) // 空になったら閉じる（何も無い箱を見せない）
+              showToast(`「${t.name}」を消しました。`)
+            })
+          }}
+          onOpenFolder={() => {
+            void window.giftcut?.openFolder?.('template').then((r) => {
+              if (!r?.ok) showToast(`フォルダを開けませんでした。\n${r?.error ?? ''}`)
+            })
+          }}
           onClose={() => setTemplatePicker(null)}
         />
       )}

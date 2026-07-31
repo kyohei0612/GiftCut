@@ -1560,6 +1560,40 @@ app.whenReady().then(() => {
       return { ok: false, error: String(e) }
     }
   })
+  /**
+   * テンプレートを1つ消す。
+   *
+   * **消せるのは置き場の中の物だけ。** 受け取ったパスをそのまま消すと、
+   * 画面側の不具合や細工で**関係ないファイルを消せる穴**になる。
+   * 置き場に居ること・拡張子が合っていることの両方を確かめてから消す。
+   *
+   * 同梱のテンプレート（アプリのフォルダ側）は消させない。消しても更新で戻るし、
+   * 書き込みできない場所のこともある。消せるのは自分で作ったぶん（userData）。
+   */
+  ipcMain.handle('template:delete', (_e, path: string) => {
+    try {
+      if (!path || typeof path !== 'string') return { ok: false, error: 'パスがありません' }
+      const target = resolve(path)
+      if (!/\.(gcproj|json)$/i.test(target))
+        return { ok: false, error: 'テンプレートのファイルではありません' }
+      // **userData の中だけ。** 「書き込み先」を基準にすると、開発中は
+      // リポジトリ直下が書き込み先になるため、**同梱のテンプレートまで消せてしまう**
+      //（自動チェックが実際にそれを捕まえた）。配った先で利用者の物が居るのは
+      // 常に userData なので、そこに固定する。
+      const root = resolve(join(app.getPath('userData'), 'テンプレート'))
+      const inside = target.toLowerCase().startsWith((root + '\\').toLowerCase())
+      if (!inside)
+        return {
+          ok: false,
+          error: '同梱のテンプレートは消せません（自分で作ったぶんだけ消せます）'
+        }
+      if (!existsSync(target)) return { ok: false, error: 'もうありません' }
+      rmSync(target, { force: true })
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
   ipcMain.handle('template:load', (_e, path: string) => {
     try {
       // 置き場が複数あるので、**どれかの下にあれば通す**（1つだけ見ていると、

@@ -256,6 +256,9 @@ const api = {
   // ---- プロジェクトテンプレート ----
   listTemplates: (): Promise<{ ok: boolean; items: { name: string; path: string }[]; error?: string }> =>
     ipcRenderer.invoke('template:list'),
+  /** テンプレートを1つ消す（消せるのは自分で作ったぶんだけ） */
+  deleteTemplate: (path: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('template:delete', path),
   saveTemplate: (name: string, json: string): Promise<{ ok: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke('template:save', name, json),
   loadTemplate: (

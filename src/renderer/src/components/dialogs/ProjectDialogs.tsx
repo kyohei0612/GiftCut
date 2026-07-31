@@ -6,6 +6,9 @@
 //   TemplatePicker       … テンプレートを選ぶ
 //
 // どれも状態は App が持ち、ここは形だけを受け持つ。
+// （例外は「消す？」の2段階だけ。押し間違い防止の一時的な状態で、外に出す意味が無い）
+
+import { useState } from 'react'
 
 export interface ExportOpts {
   resP: 2160 | 1080 | 720 | 480
@@ -183,14 +186,22 @@ export function TemplatePicker({
   items,
   startup,
   onPick,
+  onDelete,
+  onOpenFolder,
   onClose
 }: {
   items: { name: string; path: string }[]
   /** 起動時に出したものか（文言が変わる） */
   startup?: boolean
   onPick: (path: string) => void
+  /** 消す（渡さなければ消すボタンを出さない。同梱の物しか無い場面など） */
+  onDelete?: (t: { name: string; path: string }) => void
+  /** テンプレートの置き場を開く */
+  onOpenFolder?: () => void
   onClose: () => void
 }): React.JSX.Element {
+  // どれを「消す？」の状態にしているか。**押し間違いで消えないように2段階にする**
+  const [confirming, setConfirming] = useState<string | null>(null)
   return (
     <div className="export-overlay">
       <div className="restore-box">
@@ -204,12 +215,39 @@ export function TemplatePicker({
         </div>
         <div className="tpl-picker-list">
           {items.map((t) => (
-            <button key={t.path} className="tpl-picker-item" onClick={() => onPick(t.path)}>
-              📄 {t.name}
-            </button>
+            <div key={t.path} className="tpl-picker-row">
+              <button className="tpl-picker-item" onClick={() => onPick(t.path)}>
+                📄 {t.name}
+              </button>
+              {onDelete && (
+                // **一発では消さない。** 押し間違いで消えると、作り直すしかない。
+                // 1回目で「消す？」に変わり、2回目で消える（外を押せば戻る）。
+                <button
+                  className={`tpl-picker-del ${confirming === t.path ? 'on' : ''}`}
+                  title={confirming === t.path ? 'もう一度押すと消えます' : 'このテンプレートを消す'}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (confirming === t.path) {
+                      setConfirming(null)
+                      onDelete(t)
+                    } else setConfirming(t.path)
+                  }}
+                >
+                  {confirming === t.path ? '消す？' : '✕'}
+                </button>
+              )}
+            </div>
           ))}
         </div>
         <div className="restore-btns">
+          {/* **置き場へ辿れる道をここにも置く。**
+              一覧に無い物を足したい・中身を見たいと思ったときに、
+              メニューまで戻らせると、そこで手が止まる */}
+          {onOpenFolder && (
+            <button className="btn" onClick={onOpenFolder} title="テンプレートの置き場を開く">
+              📂 フォルダを開く
+            </button>
+          )}
           <button className="btn" onClick={onClose}>
             {startup ? '空で始める' : '閉じる'}
           </button>

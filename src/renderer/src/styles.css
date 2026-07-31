@@ -1416,6 +1416,36 @@ body {
   border-color: var(--accent-2);
   background: #23252d;
 }
+/* 1行＝「開く」＋「消す」。押す所を分けて、選ぶつもりで消すのを防ぐ */
+.tpl-picker-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.tpl-picker-row .tpl-picker-item {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tpl-picker-del {
+  flex: 0 0 auto;
+  background: #1b1c22;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  padding: 0 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tpl-picker-del:hover {
+  border-color: var(--danger, #d9534f);
+  color: var(--text);
+}
+/* 「消す？」の状態は赤くする。取り消せない操作は、押す前に見て分かること */
+.tpl-picker-del.on {
+  background: var(--danger, #d9534f);
+  border-color: var(--danger, #d9534f);
+  color: #fff;
+}
 /* プレビュー下の再生バー。全体のどこを見ているかを示し、押した所へ飛べる。
    タイムラインを見に行かなくても位置が分かるようにするためのもの。 */
 .preview-scrub {
