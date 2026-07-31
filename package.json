@@ -16,7 +16,7 @@
     "verify": "npm run typecheck && npm run test",
     "check:dist": "node scripts/check-dist.mjs",
     "release:check": "npm run verify && npm run check:ffmpeg && npm run build && npm run check:dist && npm run dist && npm run check:packaged",
-    "e2e": "node e2e/run.mjs",
+    "e2e": "node e2e/lint-checks.mjs && node e2e/run.mjs",
     "bench": "node e2e/bench.mjs",
     "stutter": "node e2e/stutter.mjs",
     "check:ffmpeg": "node scripts/check-ffmpeg.mjs",
