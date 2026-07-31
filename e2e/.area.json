@@ -1,1 +1,1 @@
-{"クリップ": ["deleteSelectedImg", "placeVClip", "deleteSelectedVClip", "importSeInto"], "コピー貼付け": ["attrSummary", "copyAttributes", "pasteAttributes", "copyMotionRows", "pasteMotionRows", "copySelected", "pasteClipboard"]}
+{"テロップ": ["applyIconToCue", "trackForNewTelop", "addTelop", "updateCueText", "patchCueAnim", "applyTelopAnimSide", "nextCueAfter", "resolveTelopTransDrop", "applyTelopTransDrop", "selectTelopTrans", "updateTelopTransDur", "setTelopTransType", "deleteSelectedTelopTrans", "toggleTelopEmphasis", "alignTelop"]}
