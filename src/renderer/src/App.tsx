@@ -163,6 +163,7 @@ import { IconsProvider, useIconsCtx } from './state/iconsContext'
 import { usePlayback } from './state/usePlayback'
 import { PlaybackProvider, usePlaybackCtx } from './state/playbackContext'
 import { nearestSnap } from '../../shared/snap'
+import { shiftRange, shiftStart } from '../../shared/ripple'
 import {
   dropLaneAt as dropLaneIn,
   laneAtY as laneAtYIn,
@@ -8090,31 +8091,25 @@ function AppInner(): JSX.Element {
   // タイムライン長が変わる操作（トリム/複製/速度変更）で、境界 boundaryT より後ろにある
   // テロップ/SE/画像/マーカーを delta だけ動かして映像との同期を保つ。
   // これが無いと「動画を短くしたら字幕が全部ズレた」になる。
+  /**
+   * 境目より後ろにある物を、まとめてずらす（＝詰まる）。
+   *
+   * **ずらす相手は5種類ある。** 新しく置ける物を足したら、必ずここへも足すこと。
+   * 1つ忘れると、そこだけ置き去りになって「切って詰めたのに文字だけ残る」になる。
+   * ずらし方の決まり（境目の比べ方・前へはみ出させない）は shared/ripple。
+   */
   function shiftAfter(boundaryT: number, delta: number): void {
     if (Math.abs(delta) < 1e-4) return
-    const eps = 1e-6
-    setCues((prev) =>
-      prev.map((c) =>
-        c.start >= boundaryT - eps ? { ...c, start: c.start + delta, end: c.end + delta } : c
-      )
-    )
+    setCues((prev) => prev.map((c) => ({ ...c, ...shiftRange(c, boundaryT, delta) })))
     setSeClips((prev) =>
-      prev.map((c) =>
-        c.tStart >= boundaryT - eps ? { ...c, tStart: Math.max(0, c.tStart + delta) } : c
-      )
+      prev.map((c) => ({ ...c, tStart: shiftStart(c.tStart, boundaryT, delta) }))
     )
     setImgClips((prev) =>
-      prev.map((c) =>
-        c.tStart >= boundaryT - eps ? { ...c, tStart: Math.max(0, c.tStart + delta) } : c
-      )
+      prev.map((c) => ({ ...c, tStart: shiftStart(c.tStart, boundaryT, delta) }))
     )
-    setMarkers((prev) =>
-      prev.map((m) => (m.t >= boundaryT - eps ? { ...m, t: Math.max(0, m.t + delta) } : m))
-    )
+    setMarkers((prev) => prev.map((m) => ({ ...m, t: shiftStart(m.t, boundaryT, delta) })))
     setVClips((prev) =>
-      prev.map((c) =>
-        c.tStart >= boundaryT - eps ? { ...c, tStart: Math.max(0, c.tStart + delta) } : c
-      )
+      prev.map((c) => ({ ...c, tStart: shiftStart(c.tStart, boundaryT, delta) }))
     )
   }
   // 選択中の動画切片を複製（直後にコピーを挿入。タイムラインは伸びる）
