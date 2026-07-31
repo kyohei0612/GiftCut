@@ -179,7 +179,7 @@ import { useLaneHeights } from './state/useLaneHeights'
 import { usePlayback } from './state/usePlayback'
 import { PlaybackProvider, usePlaybackCtx } from './state/playbackContext'
 import { nearestSnap } from '../../shared/snap'
-import { collapseAt, collapseRange, shiftRange, shiftStart } from '../../shared/ripple'
+import { collapseAt, shiftRange, shiftStart } from '../../shared/ripple'
 import { dragModeOf, movedEnough, type SegDropMode } from '../../shared/dragMode'
 import {
   dropLaneAt as dropLaneIn,
@@ -6149,15 +6149,7 @@ function AppInner(): JSX.Element {
       }
       return v
     }
-    setCues((prev) =>
-      prev
-        .map((c) => ({ ...c, start: shift(c.start), end: shift(c.end) }))
-        .filter((c) => c.end - c.start > 0.05)
-    )
-    setSeClips((prev) => prev.map((x) => ({ ...x, tStart: shift(x.tStart) })))
-    setMarkers((prev) => prev.map((m) => ({ ...m, t: shift(m.t) })))
-    setVClips((prev) => prev.map((c) => ({ ...c, tStart: shift(c.tStart) })))
-    setImgClips((prev) => prev.map((c) => ({ ...c, tStart: shift(c.tStart) })))
+    mapContentTimes(shift)
     clearSegSel()
     const sec = totalCutLen(ranges)
     showToast(`${ranges.length}か所・合計 ${sec.toFixed(1)}秒 を詰めました。`, 'success')
@@ -6203,16 +6195,8 @@ function AppInner(): JSX.Element {
       }
       return v
     }
-    setCues((prev) =>
-      prev
-        .map((c) => ({ ...c, start: clampT(c.start), end: clampT(c.end) }))
-        .filter((c) => c.end - c.start > 0.05)
-    )
-    setSeClips((prev) => prev.map((x) => ({ ...x, tStart: clampT(x.tStart) })))
-    // マーカーと画像も同量シフト（映像との同期を保つ）。除去区間内のものは区間頭へ寄せる。
-    setMarkers((prev) => prev.map((m) => ({ ...m, t: clampT(m.t) })))
-    setVClips((prev) => prev.map((c) => ({ ...c, tStart: clampT(c.tStart) })))
-    setImgClips((prev) => prev.map((c) => ({ ...c, tStart: clampT(c.tStart) })))
+    // 除去区間の中に居た物は、区間の頭へ寄せる（映像との同期を保つ）
+    mapContentTimes(clampT)
     // 消した所へ再生ヘッドを寄せる（Q/W のリップルトリムと同じ扱いに揃える）
     if (holeStart != null) setTime(clamp(holeStart, 0, durationRef.current))
     clearSegSel()
@@ -6902,30 +6886,36 @@ function AppInner(): JSX.Element {
     return out
   }
   /**
-   * 本編の切片から区間を捨てたとき、**載っている物を全部同じだけ詰める**。
+   * 本編に載っている物の時刻を、**5種類まとめて**同じ規則で付け替える。
    *
-   * 詰め忘れが1種類でもあると、そこだけ置き去りになって音や文字がずれる
-   * （しかも書き出してから気づく）。行き先の決まりは shared/ripple の
-   * collapseAt にあり、ここは「5種類ぜんぶに掛ける」ことだけを担う。
+   * 相手はテロップ・効果音・画像・映像クリップ・目印の5種類。
+   * **1種類でも掛け忘れると、そこだけ置き去りになる**（音や文字だけ元の位置に
+   * 残る）。編集中は気づきにくく、書き出してから分かるので1か所にまとめる。
+   * 種類が増えたときも、ここへ足せば全員に行き渡る。
+   *
+   * 渡す規則は「時刻→時刻」の関数だけ。詰める・ずらす・複数区間を畳む、
+   * どれもこの形で書ける。
+   *
+   * **端は別々に付け替える。** テロップの片端だけが対象区間にかかることが
+   * あり、まとめて動かすと残すべき尻まで消える。潰れて長さが0になった物は
+   * ここで落とす。
    *
    * **動かない物は同じ物のまま返す。** 作り直すと、変わっていない段まで
    * 描き直しになる。
    */
-  function collapseContent(rmStart: number, rmEnd: number, removeLen: number): void {
-    const at = (t: number): number => collapseAt(t, rmStart, rmEnd, removeLen)
+  function mapContentTimes(at: (t: number) => number): void {
     const atStart = <T extends { tStart: number }>(x: T): T => {
       const t = at(x.tStart)
       return t === x.tStart ? x : { ...x, tStart: t }
     }
-    // テロップだけは長さが潰れることがある。潰れた物はここで落とす
     setCues((prev) =>
       prev
-        .map((c) => ({ ...c, ...collapseRange(c, rmStart, rmEnd, removeLen) }))
+        .map((c) => ({ ...c, start: at(c.start), end: at(c.end) }))
         .filter((c) => c.end - c.start > 0.05)
     )
     setSeClips((prev) => prev.map(atStart))
     setImgClips((prev) => prev.map(atStart))
-    // 映像レイヤーも詰める（本編とズレると位置リンクが崩れる）
+    // 映像レイヤーも動かす（本編とズレると位置リンクが崩れる）
     setVClips((prev) => prev.map(atStart))
     setMarkers((prev) =>
       prev.map((m) => {
@@ -6933,6 +6923,10 @@ function AppInner(): JSX.Element {
         return t === m.t ? m : { ...m, t }
       })
     )
+  }
+  /** 区間 [rmStart, rmEnd] を捨てて、後ろを詰める */
+  function collapseContent(rmStart: number, rmEnd: number, removeLen: number): void {
+    mapContentTimes((t) => collapseAt(t, rmStart, rmEnd, removeLen))
   }
   function rippleToPrevCut(): void {
     if (mainLocked()) return
