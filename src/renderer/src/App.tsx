@@ -186,6 +186,7 @@ import { usePlayback } from './state/usePlayback'
 import { PlaybackProvider, usePlaybackCtx } from './state/playbackContext'
 import { nearestSnap } from '../../shared/snap'
 import { collapseAt, shiftRange, shiftStart } from '../../shared/ripple'
+import { useKeyboard } from './state/useKeyboard'
 import {
   ACTION_LIST,
   DEFAULT_SHORTCUTS,
@@ -7164,218 +7165,7 @@ function AppInner(): JSX.Element {
     return r.start
   }
 
-  // ================= キーボード（refで常に最新のハンドラを呼ぶ）=================
-  const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {})
-  keyHandlerRef.current = (e: KeyboardEvent): void => {
-    // 「このキーを受けるのか / 受けるならどの操作か」は shared/keymap で決める
-    // （文字を打っている最中の扱い、つまみの扱い、Backspace などの別名。
-    //   細かい決まりが溜まる所なので、画面を起動せずに確かめられるようにしてある）。
-    const el = e.target as HTMLElement | null
-    const target = { tag: el?.tagName, type: (el as HTMLInputElement | null)?.type }
-    const id = resolveShortcut(e, target, {
-      shortcuts,
-      capturing: !!capturingId,
-      exporting: !!exportStatus,
-      // 何かを開いている間は Esc 以外を通さない（裏のタイムラインが勝手に動かないように）
-      modalOpen: !!(
-        restorePrompt ||
-        templatePicker ||
-        cropSrc ||
-        showExportDialog ||
-        prefsOpen ||
-        promptState ||
-        confirmState ||
-        iconSettingsOpen
-      )
-    }) as ShortcutId | null
-    if (!id) return
-    e.preventDefault()
-    if (shouldBlur(target)) el?.blur()
-
-    const dispatch: Record<ShortcutId, () => void> = {
-      toolSelect: () => setTool('select'),
-      toolRazor: () => setTool('razor'),
-      toggleSnap: () => toggleSnap(),
-      playPause: () => togglePlay(),
-      shuttleFwd: () => shuttleForward(),
-      shuttleStop: () => stopPlayback(),
-      shuttleRev: () => shuttleReverse(),
-      gotoStart: () => {
-        stopPlayback()
-        seekTo(0)
-      },
-      gotoEnd: () => {
-        stopPlayback()
-        seekTo(contentEndRef.current || durationRef.current)
-      },
-      frameBack: () => {
-        stopPlayback()
-        seekTo(currentTimeRef.current - 1 / fpsRef.current)
-      },
-      frameFwd: () => {
-        stopPlayback()
-        seekTo(currentTimeRef.current + 1 / fpsRef.current)
-      },
-      frameBack5: () => {
-        stopPlayback()
-        seekTo(currentTimeRef.current - 5 / fpsRef.current)
-      },
-      frameFwd5: () => {
-        stopPlayback()
-        seekTo(currentTimeRef.current + 5 / fpsRef.current)
-      },
-      attrCopy: () => copyAttributes(),
-      attrPaste: () => pasteAttributes(),
-      del: () => {
-        // D は「削除」。以前は動画=映像なし化・音声=消音 だったが、
-        // ユーザーの期待どおり“残さず消す”に統一した（Undo で戻せる）。
-        // 素材ビンで選んでいるときはビンの素材を消す。以前はここが素通りして
-        // 見ていない場所（タイムライン）のクリップが消えていた。
-        if (selectedMediaId != null) {
-          removeMedia(selectedMediaId)
-          return
-        }
-        if (selectedMarkerId != null) {
-          deleteMarker(selectedMarkerId)
-          return
-        }
-        if (selectedTrans) {
-          deleteSelectedTrans()
-          return
-        }
-        if (selectedTelopTrans) {
-          deleteSelectedTelopTrans()
-          return
-        }
-        if (selectedTrackId) {
-          deleteTrack(selectedTrackId)
-          return
-        }
-        // 空きを選んでいるなら、D でも詰まる。
-        // 「消す」＝その空きが無くなるということなので、詰まるのが自然な結果になる
-        // （クリップを消したときに空きが残るのとは、意味が逆になる）。
-        if (closeSelectedGaps()) return
-        if (selectedIds.length) deleteSelected()
-        // 本編は消すだけ＝そこは空きになり、後ろのクリップもテロップも動かない
-        if (anySegSelected()) deleteVideoSegmentsLeavingGap()
-        if (selectedSeIds.length) deleteSelectedSE()
-        if (selectedImgIds.length) deleteSelectedImg()
-        if (selectedVClipIds.length) deleteSelectedVClip()
-      },
-      rippleDel: () => {
-        if (selectedMarkerId != null) {
-          deleteMarker(selectedMarkerId)
-          return
-        }
-        if (selectedTrans) {
-          deleteSelectedTrans()
-          return
-        }
-        if (selectedTelopTrans) {
-          deleteSelectedTelopTrans()
-          return
-        }
-        if (selectedTrackId) {
-          deleteTrack(selectedTrackId)
-          return
-        }
-        // 空きを選んでいるなら、まずそれを詰める（途中に別のクリップがあれば手前で止まる）
-        if (closeSelectedGaps()) return
-        if (closeGapAtPlayhead()) return
-        // Delete/Shift+Delete: テロップ削除＋動画切片はリップル削除(後続を詰める・テロップ/SEも同期シフト)＋SE/画像削除。
-        // 詰めは動画切片のみが駆動（テロップを独立リップルすると映像とズレるため）。
-        if (selectedIds.length) deleteSelected()
-        if (anySegSelected()) rippleDeleteVideoSegments()
-        if (selectedSeIds.length) deleteSelectedSE()
-        if (selectedImgIds.length) deleteSelectedImg()
-        if (selectedVClipIds.length) deleteSelectedVClip()
-      },
-      rippleToPrevCut: () => rippleToPrevCut(),
-      rippleToNextCut: () => rippleToNextCut(),
-      selectAll: () => {
-        // 全種別を選択（テロップだけでなく動画切片/SE/画像も。Ctrl+A→Deleteで全消しできる）
-        // clearSegSel だけではトラック選択が残り、Delete がトラック削除に化けて
-        // 「中身のあるトラックは削除できません」だけ出て何も消えなくなる。
-        clearAllSelections()
-        setSelectedIds(cues.map((c) => c.id))
-        setSelectedVideoIds(segments.map((s) => s.id))
-        setSelectedAudioIds(segments.map((s) => s.id))
-        setSelectedSeIds(seClips.map((c) => c.id))
-        setSelectedImgIds(imgClips.map((c) => c.id))
-        setSelectedVClipIds(vClips.map((c) => c.id))
-      },
-      deselect: () => {
-        // リフレーム枠も閉じる（以前は「✓ 完了」ボタンだけが閉じる手段で、
-        // Escape では抜けられずプレビュー上のホイールが拡大縮小になり続けた）
-        clearAllSelections()
-        setEditingId(null) // 編集オーバーレイも閉じる
-      },
-      undo,
-      redo,
-      copy: copySelected,
-      cut: cutSelected,
-      paste: pasteClipboard,
-      duplicate: () => {
-        // ロック中トラックのクリップは複製しない（削除は守っているので揃える）
-        const lockedSel =
-          vClips.some((c) => selectedVClipIds.includes(c.id) && trackStates[c.track]?.locked) ||
-          imgClips.some((c) => selectedImgIds.includes(c.id) && trackStates[c.track]?.locked) ||
-          seClips.some((c) => selectedSeIds.includes(c.id) && trackStates[c.track]?.locked)
-        if (lockedSel) {
-          showToast('このトラックはロックされています。')
-          return
-        }
-        if (selectedVClipIds.length) {
-          const dupes = vClips
-            .filter((c) => selectedVClipIds.includes(c.id))
-            .map((c) => ({
-              ...c,
-              id: vClipIdCounter.current++,
-              tStart: c.tStart + Math.max(0.05, c.srcEnd - c.srcStart)
-            }))
-          setVClips((prev) => [...prev, ...dupes])
-          setSelectedVClipIds(dupes.map((d) => d.id))
-          return
-        }
-        if (selectedImgIds.length) {
-          // 画像は「直後に同じ長さで複製」（動画切片の複製と同じ考え方）
-          const dupes = imgClips
-            .filter((c) => selectedImgIds.includes(c.id))
-            .map((c) => ({ ...c, id: imgIdCounter.current++, tStart: c.tStart + c.duration }))
-          setImgClips((prev) => [...prev, ...dupes])
-          setSelectedImgIds(dupes.map((d) => d.id))
-          return
-        }
-        if (selectedSeIds.length) {
-          const dupes = seClips
-            .filter((c) => selectedSeIds.includes(c.id))
-            .map((c) => ({ ...c, id: seIdCounter.current++, tStart: c.tStart + c.duration }))
-          setSeClips((prev) => [...prev, ...dupes])
-          setSelectedSeIds(dupes.map((d) => d.id))
-          return
-        }
-        if (selectedVideoIds.length) duplicateSelectedSegments()
-        else if (!anySegSelected()) duplicateSelected()
-      },
-      // 何も選んでいなければ再生ヘッドの位置を全部、選んでいればその物だけ。
-      // 判断は cutAtPlayhead が1か所で持つ（ここで種類ごとに分けない）
-      split: () => cutAtPlayhead(),
-      addTelop: () => addTelop(),
-      addMarker: () => addMarkerAtPlayhead(),
-      saveProject: () => void saveProjectFn(),
-      openProject: () => void openProjectFn(),
-      exportVideo: () => {
-        if (exportStatus) return // 書き出し中は受け付けない
-        openExportDialog()
-      }
-    }
-    dispatch[id]()
-  }
-  useEffect(() => {
-    const h = (e: KeyboardEvent): void => keyHandlerRef.current(e)
-    window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
-  }, [])
+  // キーを押したときに何が起きるかは state/useKeyboard（呼ぶのは下の方）
 
   // 環境設定でキー割当をキャプチャ（次の打鍵で確定、Escでキャンセル）
   useEffect(() => {
@@ -8442,6 +8232,58 @@ function AppInner(): JSX.Element {
   })
   projectJsonRef.current = projectJson
 
+
+  // キーを押したときに何が起きるか（state/useKeyboard）。
+  // **ここで呼ぶ。** 渡す物のうち addTelop・saveProjectFn などは、この上の
+  // フックが返す物なので、上の方で呼ぶと初期化前参照になる。
+  useKeyboard({
+    // 何かを開いている間は Esc 以外を通さない（裏のタイムラインが勝手に動かないように）
+    modalOpen: !!(
+      restorePrompt || templatePicker || cropSrc || showExportDialog ||
+      prefsOpen || promptState || confirmState || iconSettingsOpen
+    ),
+    capturing: !!capturingId,
+    exporting: !!exportStatus,
+    shortcuts,
+    setTool,
+    toggleSnap,
+    togglePlay,
+    shuttleForward,
+    shuttleReverse,
+    stopPlayback,
+    seekTo,
+    contentEndRef,
+    copyAttributes,
+    pasteAttributes,
+    copySelected,
+    cutSelected,
+    pasteClipboard,
+    undo,
+    redo,
+    removeMedia,
+    deleteMarker,
+    deleteSelectedTrans,
+    deleteSelectedTelopTrans,
+    deleteTrack,
+    deleteSelected,
+    deleteSelectedSE,
+    deleteSelectedImg,
+    deleteSelectedVClip,
+    deleteVideoSegmentsLeavingGap,
+    closeSelectedGaps,
+    closeGapAtPlayhead,
+    rippleDeleteVideoSegments,
+    rippleToPrevCut,
+    rippleToNextCut,
+    duplicateSelected,
+    duplicateSelectedSegments,
+    cutAtPlayhead,
+    addTelop,
+    addMarkerAtPlayhead,
+    saveProjectFn,
+    openProjectFn,
+    openExportDialog,
+  })
 
   return (
     <div
