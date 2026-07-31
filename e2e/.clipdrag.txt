@@ -1,0 +1,327 @@
+  // SE クリップ: クリック選択 / ドラッグで時間移動
+  function onSePointerDown(clip: SEClip, e: React.PointerEvent, edge?: 'l' | 'r'): void {
+    if (maybeTrackSelect(e)) return
+    e.stopPropagation()
+    if (e.button !== 0) return
+    if (trackStates[clip.track]?.locked) return // ロック中トラックは編集不可
+    setSelectedTrackId(null)
+    setSelectedIds([])
+    clearSegSel()
+    // レザーツール: クリック位置で分割（動画切片/テロップと同じ操作感）
+    if (tool === 'razor' && !edge) {
+      const inner0 = trackInnerRef.current
+      if (!inner0) return
+      const t = (e.clientX - inner0.getBoundingClientRect().left) / zoomRef.current
+      if (t <= clip.tStart + 0.05 || t >= clip.tStart + clip.duration - 0.05) return
+      // 分け方は shared/clipEdit（元の音のどこから鳴らすかが要点）
+      const cut = splitAt(clip, t)
+      if (!cut) return
+      const nid = seIdCounter.current++
+      setSeClips((prev) =>
+        prev.flatMap((c) =>
+          c.id === clip.id ? [{ ...c, ...cut.left }, { ...c, ...cut.right, id: nid }] : [c]
+        )
+      )
+      setSelectedSeIds([nid])
+      return
+    }
+    // Ctrlクリックで複数選択（他のクリップと同じ操作感）
+    if (e.ctrlKey || e.metaKey) {
+      // clearSegSel() が同じバッチで [] を積むので、関数updaterではなく絶対値で上書きする
+      setSelectedSeIds(toggleSelect(selectedSeIds, clip.id))
+      return
+    }
+    // 既に選択済みのクリップを掴んだら選択全体を動かす（テロップは既にこの挙動）
+    const grpIds =
+      selectedSeIds.includes(clip.id) && selectedSeIds.length > 1 ? selectedSeIds : [clip.id]
+    const grpBase = new Map(
+      seClips.filter((c) => grpIds.includes(c.id)).map((c) => [c.id, c.tStart])
+    )
+    setSelectedSeIds(grpIds)
+    const inner = trackInnerRef.current
+    const sx = e.clientX
+    const s0 = clip.tStart
+    const d0 = clip.duration
+    const off0 = clip.srcOffset ?? 0
+    let moved = false
+    const onMove = (ev: PointerEvent): void => {
+      if (!moved && Math.abs(ev.clientX - sx) < 3) return
+      moved = true
+      if (!inner) return
+      const dt = (ev.clientX - sx) / zoomRef.current
+      // 掴んだ時点の姿。動かしている間の途中経過ではなく、ここから測る
+      const base = { tStart: s0, duration: d0, srcOffset: off0, srcDur: clip.srcDur }
+      if (edge === 'r') {
+        // 右端: 長さを変える。**元の音の残りを超えない**（shared/clipEdit）
+        const { duration: nd } = trimRight(base, snapTime(s0 + d0 + dt, [], [clip.id]))
+        setSeClips((prev) => prev.map((c) => (c.id === clip.id ? { ...c, duration: nd } : c)))
+        setDragTip({ x: ev.clientX, y: ev.clientY, text: `長さ ${formatTime(nd)}` })
+      } else if (edge === 'l') {
+        // 左端: 開始位置と音源内オフセットを同時に動かす（終端は固定）
+        const t2 = trimLeft(base, snapTime(s0 + dt, [], [clip.id]))
+        setSeClips((prev) => prev.map((c) => (c.id === clip.id ? { ...c, ...t2 } : c)))
+        setDragTip({ x: ev.clientX, y: ev.clientY, text: `開始 ${formatTime(t2.tStart)}` })
+      } else {
+        const raw = Math.max(0, s0 + dt)
+        const nt = snapClipStart(raw, clip.duration, [clip.id]) // マグネット（左右端）
+        // 縦方向で別の音声トラックへ移動（テロップの上下移動と同じ操作感）
+        const irect = inner.getBoundingClientRect()
+        const lane = laneAtY(ev.clientY - irect.top)
+        // 移動先がロック中なら受け付けない
+        const laneOk =
+          lane &&
+          lane !== 'A1' &&
+          tracks.some((t) => t.id === lane && t.kind === 'audio') &&
+          !trackStates[lane]?.locked
+        const shift = nt - s0
+        setSeClips((prev) =>
+          prev.map((c) => {
+            if (!grpIds.includes(c.id)) return c
+            const base = grpBase.get(c.id) ?? c.tStart
+            return {
+              ...c,
+              tStart: Math.max(0, base + shift),
+              // トラック移動は掴んだ1つだけ（全部同じ行へ寄せると重なって壊れる）
+              track: laneOk && c.id === clip.id ? lane : c.track
+            }
+          })
+        )
+      }
+    }
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      setSnapLineX(null)
+      setDragTip(null)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }
+
+  // 画像クリップ: クリック選択 / 本体ドラッグで移動 / 右端ドラッグで長さ変更
+  function onImgPointerDown(clip: ImgClip, e: React.PointerEvent, edge?: 'l' | 'r'): void {
+    if (maybeTrackSelect(e)) return
+    e.stopPropagation()
+    if (e.button !== 0) return
+    if (trackStates[clip.track]?.locked) return // ロック中トラックは編集不可
+    setSelectedTrackId(null)
+    setSelectedIds([])
+    clearSegSel()
+    setVideoSelected(false) // 動画のリフレーム枠は閉じる（枠の対象を画像に切替える）
+    // レザー: クリック位置で分割（他のクリップと同じ操作感）
+    if (tool === 'razor' && !edge) {
+      const inner0 = trackInnerRef.current
+      if (!inner0) return
+      const t = (e.clientX - inner0.getBoundingClientRect().left) / zoomRef.current
+      const nid = imgIdCounter.current++
+      const leftLen = t - clip.tStart
+      setImgClips((prev) =>
+        prev.flatMap((c) =>
+          c.id === clip.id
+            ? [
+                { ...c, duration: leftLen },
+                { ...c, id: nid, tStart: t, duration: c.duration - leftLen }
+              ]
+            : [c]
+        )
+      )
+      setSelectedImgIds([nid])
+      return
+    }
+    // Ctrlクリックで複数選択（動画切片/テロップと同じ操作感）
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedImgIds(toggleSelect(selectedImgIds, clip.id))
+      return
+    }
+    // 既に選択済みのクリップを掴んだら選択全体を動かす（テロップは既にこの
+    // 挙動。以前は選択を1つに潰してから掴んだクリップだけ動かしていたため、
+    // 矩形選択で5個選んでも1個しか動かず残りの選択も消えていた）
+    const grpIds =
+      selectedImgIds.includes(clip.id) && selectedImgIds.length > 1 ? selectedImgIds : [clip.id]
+    setSelectedImgIds(grpIds)
+    const grpBase = new Map(
+      imgClips.filter((c) => grpIds.includes(c.id)).map((c) => [c.id, c.tStart])
+    )
+    const sx = e.clientX
+    const s0 = clip.tStart
+    const d0 = clip.duration
+    let moved = false
+    const onMove = (ev: PointerEvent): void => {
+      if (!moved && Math.abs(ev.clientX - sx) < 3) return
+      moved = true
+      const dt = (ev.clientX - sx) / zoomRef.current
+      if (edge === 'r') {
+        // 右端もスナップ（カット点/他クリップ端に吸着）＋長さツールチップ
+        const ne = snapTime(s0 + d0 + dt, [], [], [clip.id])
+        const nd = Math.max(0.2, ne - s0)
+        setImgClips((prev) => prev.map((c) => (c.id === clip.id ? { ...c, duration: nd } : c)))
+        setDragTip({ x: ev.clientX, y: ev.clientY, text: `長さ ${formatTime(nd)}` })
+      } else if (edge === 'l') {
+        // 左端: 開始を動かしつつ終端を固定（＝長さも同時に変わる）
+        const ns = clamp(snapTime(s0 + dt, [], [], [clip.id]), 0, s0 + d0 - 0.2)
+        setImgClips((prev) =>
+          prev.map((c) => (c.id === clip.id ? { ...c, tStart: ns, duration: s0 + d0 - ns } : c))
+        )
+        setDragTip({ x: ev.clientX, y: ev.clientY, text: `開始 ${formatTime(ns)}` })
+      } else {
+        const raw = Math.max(0, s0 + dt)
+        const nt = snapClipStart(raw, clip.duration, [], [clip.id])
+        // 縦方向に動かしたら別の映像トラックへ移動（テロップの上下移動と同じ操作感）
+        const irect = trackInnerRef.current?.getBoundingClientRect()
+        const lane = irect ? laneAtY(ev.clientY - irect.top) : null
+        // 移動先がロック中なら受け付けない（映像レイヤー側は既にそうしている）
+        const laneOk =
+          lane &&
+          lane !== 'V1' &&
+          tracks.some((t) => t.id === lane && t.kind === 'video') &&
+          !trackStates[lane]?.locked
+        // 掴んだクリップのずれ量を選択全体に同じだけ適用する
+        const shift = nt - s0
+        setImgClips((prev) =>
+          prev.map((c) => {
+            if (!grpIds.includes(c.id)) return c
+            const base = grpBase.get(c.id) ?? c.tStart
+            return {
+              ...c,
+              tStart: Math.max(0, base + shift),
+              // トラック移動は掴んだ1つだけ（全部同じ行へ寄せると重なって壊れる）
+              track: laneOk && c.id === clip.id ? lane : c.track
+            }
+          })
+        )
+      }
+    }
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      setSnapLineX(null)
+      setDragTip(null)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }
+
+  // 映像レイヤークリップの操作: 本体ドラッグ=移動 / 左右端=トリム / レザー=分割。
+  // 音声側の連動バンドをドラッグしても同じ関数を通す（＝映像と音は必ず一緒に動く）。
+  function onVClipPointerDown(clip: VClip, e: React.PointerEvent, edge?: 'l' | 'r'): void {
+    if (maybeTrackSelect(e)) return
+    e.stopPropagation()
+    if (e.button !== 0) return
+    if (trackStates[clip.track]?.locked) return
+    setSelectedTrackId(null)
+    setSelectedIds([])
+    clearSegSel()
+    setVideoSelected(false)
+    if (tool === 'razor' && !edge) {
+      const inner0 = trackInnerRef.current
+      if (!inner0) return
+      const t = (e.clientX - inner0.getBoundingClientRect().left) / zoomRef.current
+      if (t <= clip.tStart + 0.05 || t >= clip.tStart + vcLen(clip) - 0.05) return
+      const nid = vClipIdCounter.current++
+      const cut = clip.srcStart + (t - clip.tStart)
+      setVClips((prev) =>
+        prev.flatMap((c) =>
+          c.id === clip.id
+            ? [
+                { ...c, srcEnd: cut, afadeOut: undefined },
+                { ...c, id: nid, tStart: t, srcStart: cut, afadeIn: undefined }
+              ]
+            : [c]
+        )
+      )
+      setSelectedVClipIds([nid])
+      return
+    }
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedVClipIds(toggleSelect(selectedVClipIds, clip.id))
+      return
+    }
+    // 既に選択済みのクリップを掴んだら選択全体を動かす（テロップは既にこの挙動）
+    const grpIds =
+      selectedVClipIds.includes(clip.id) && selectedVClipIds.length > 1
+        ? selectedVClipIds
+        : [clip.id]
+    const grpBase = new Map(
+      vClips.filter((c) => grpIds.includes(c.id)).map((c) => [c.id, c.tStart])
+    )
+    setSelectedVClipIds(grpIds)
+    const sx = e.clientX
+    const t0 = clip.tStart
+    const s0 = clip.srcStart
+    const e0 = clip.srcEnd
+    let moved = false
+    const onMove = (ev: PointerEvent): void => {
+      if (!moved && Math.abs(ev.clientX - sx) < 3) return
+      moved = true
+      const dt = (ev.clientX - sx) / zoomRef.current
+      // 端の計算は効果音と同じ規則（shared/clipEdit）。
+      // **持ち方が違うだけ**——こちらは「元動画のイン点・アウト点」、
+      // 向こうは「使い始め＋長さ」。同じ話を2通りに書いていたので、片方へ寄せる。
+      const base = {
+        tStart: t0,
+        duration: e0 - s0,
+        srcOffset: s0,
+        srcDur: clip.srcDur
+      }
+      if (edge === 'r') {
+        const { duration: nd } = trimRight(base, snapTime(t0 + (e0 - s0) + dt, [], [], [], [clip.id]))
+        const ne = s0 + nd
+        setVClips((prev) => prev.map((c) => (c.id === clip.id ? { ...c, srcEnd: ne } : c)))
+        setDragTip({ x: ev.clientX, y: ev.clientY, text: '長さ ' + formatTime(nd) })
+      } else if (edge === 'l') {
+        // 左端: 終端を固定して、開始位置と元動画のイン点を同時に動かす
+        const t2 = trimLeft(base, snapTime(t0 + dt, [], [], [], [clip.id]))
+        setVClips((prev) =>
+          prev.map((c) =>
+            c.id === clip.id ? { ...c, tStart: t2.tStart, srcStart: t2.srcOffset } : c
+          )
+        )
+        setDragTip({ x: ev.clientX, y: ev.clientY, text: '開始 ' + formatTime(t2.tStart) })
+      } else {
+        const nt = snapClipStart(Math.max(0, t0 + dt), e0 - s0, [], [], [clip.id])
+        // 縦方向で別の映像トラックへ移動（V1は切片専用なので不可）
+        const irect = trackInnerRef.current?.getBoundingClientRect()
+        const lane = irect ? laneAtY(ev.clientY - irect.top) : null
+        const laneOk =
+          lane &&
+          lane !== 'V1' &&
+          tracks.some((t) => t.id === lane && t.kind === 'video') &&
+          !trackStates[lane]?.locked
+        // ここではトラックを作らない。以前はポインタが動くたびに確保していたため、
+        // ドラッグ中にトラックが次々増えて画面が上へ暴走していた。
+        // 実際に移す時（指を離した時）にまとめて確保する。
+        if (laneOk && lane !== clip.track) pendingLaneRef.current = lane
+        const shift = nt - t0
+        setVClips((prev) =>
+          prev.map((c) => {
+            if (!grpIds.includes(c.id)) return c
+            const base = grpBase.get(c.id) ?? c.tStart
+            return {
+              ...c,
+              tStart: Math.max(0, base + shift),
+              // トラック移動は掴んだ1つだけ（対の音声トラック確保も1つ分で済む）
+              track: laneOk && c.id === clip.id ? lane : c.track
+            }
+          })
+        )
+      }
+    }
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      setDragTip(null)
+      // 移し終えた時にだけ、対の音声トラックを確保する
+      // （確保しないと A{n} が無く無音になり、音声の帯も消える）
+      const lane = pendingLaneRef.current
+      pendingLaneRef.current = null
+      if (lane) reserveTrackPairForVideo(lane)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }
