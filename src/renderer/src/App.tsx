@@ -186,6 +186,15 @@ import { usePlayback } from './state/usePlayback'
 import { PlaybackProvider, usePlaybackCtx } from './state/playbackContext'
 import { nearestSnap } from '../../shared/snap'
 import { collapseAt, shiftRange, shiftStart } from '../../shared/ripple'
+import {
+  ACTION_LIST,
+  DEFAULT_SHORTCUTS,
+  SC_KEY,
+  formatCombo,
+  loadShortcuts,
+  type ShortcutId,
+  type Shortcuts
+} from '../../shared/shortcuts'
 import { dragModeOf, movedEnough, type SegDropMode } from '../../shared/dragMode'
 import {
   dropLaneAt as dropLaneIn,
@@ -368,115 +377,7 @@ interface ClipMenu {
 // 初期トラック（映像は先頭に連続、音声はその後に連続）。+ボタンで増やせる。
 // 既定で用意する追加音声トラック（クイック追加ボタンの対象・旧プロジェクト補完先）
 
-// ---- キーボードショートカット定義 ----
-const DEFAULT_SHORTCUTS = {
-  toolSelect: 'v',
-  toolRazor: 'c',
-  toggleSnap: 's',
-  playPause: 'space',
-  shuttleFwd: 'l',
-  shuttleStop: 'k',
-  shuttleRev: 'j',
-  gotoStart: 'home',
-  gotoEnd: 'end',
-  frameBack: 'arrowleft',
-  frameFwd: 'arrowright',
-  frameBack5: 'shift+arrowleft',
-  frameFwd5: 'shift+arrowright',
-  del: 'd',
-  rippleDel: 'f',
-  attrCopy: 'ctrl+alt+c',
-  attrPaste: 'ctrl+alt+v',
-  // Premiere 準拠: Q=リップルトリム前方 / W=リップルトリム後方。
-  // 以前は A / F だったが、Premiere の A は非破壊のトラック選択ツールなので
-  // 「押したら映像が削られる」事故になっていた。
-  rippleToPrevCut: 'q',
-  rippleToNextCut: 'w',
-  selectAll: 'ctrl+a',
-  deselect: 'escape',
-  undo: 'ctrl+z',
-  redo: 'ctrl+y',
-  copy: 'ctrl+c',
-  cut: 'ctrl+x',
-  paste: 'ctrl+v',
-  duplicate: 'ctrl+d',
-  split: 'ctrl+k', // Premiere の「編集点を追加」と同じ
-  addTelop: 't',
-  addMarker: 'm',
-  saveProject: 'ctrl+s',
-  openProject: 'ctrl+o',
-  exportVideo: 'ctrl+m' // Premiere と同じ「書き出し」
-}
-type ShortcutId = keyof typeof DEFAULT_SHORTCUTS
-type Shortcuts = Record<ShortcutId, string>
-
-const ACTION_LIST: { id: ShortcutId; label: string; group: string }[] = [
-  { id: 'openProject', label: 'プロジェクトを開く', group: 'ファイル' },
-  { id: 'saveProject', label: 'プロジェクトを保存', group: 'ファイル' },
-  { id: 'exportVideo', label: '動画を書き出し', group: 'ファイル' },
-  { id: 'toolSelect', label: '選択ツール', group: 'ツール' },
-  { id: 'toolRazor', label: 'レザーツール', group: 'ツール' },
-  { id: 'toggleSnap', label: 'スナップ切替', group: 'ツール' },
-  { id: 'playPause', label: '再生 / 一時停止', group: '再生' },
-  { id: 'shuttleFwd', label: '早送りシャトル', group: '再生' },
-  { id: 'shuttleStop', label: '停止シャトル', group: '再生' },
-  { id: 'shuttleRev', label: '逆再生シャトル', group: '再生' },
-  { id: 'gotoStart', label: '先頭へ', group: '再生' },
-  { id: 'gotoEnd', label: '末尾へ', group: '再生' },
-  { id: 'frameBack', label: '1フレーム戻る', group: '再生' },
-  { id: 'frameFwd', label: '1フレーム進む', group: '再生' },
-  { id: 'frameBack5', label: '5フレーム戻る', group: '再生' },
-  { id: 'frameFwd5', label: '5フレーム進む', group: '再生' },
-  { id: 'split', label: '再生ヘッドで分割', group: '編集' },
-  { id: 'attrCopy', label: '設定をコピー（位置・変形・色など）', group: '編集' },
-  { id: 'attrPaste', label: '設定を貼り付け（選んだクリップ全部へ）', group: '編集' },
-  { id: 'del', label: '削除（詰めない。Delete / Backspace も同じ）', group: '編集' },
-  { id: 'rippleDel', label: '削除して詰める（Shift+Delete も同じ）', group: '編集' },
-  { id: 'rippleToPrevCut', label: '前の編集点まで詰めて削除（リップルトリム前方）', group: '編集' },
-  { id: 'rippleToNextCut', label: '次の編集点まで詰めて削除（リップルトリム後方）', group: '編集' },
-  { id: 'selectAll', label: '全選択', group: '編集' },
-  { id: 'deselect', label: '選択解除', group: '編集' },
-  { id: 'undo', label: '元に戻す', group: '編集' },
-  { id: 'redo', label: 'やり直し', group: '編集' },
-  { id: 'copy', label: 'コピー', group: '編集' },
-  { id: 'cut', label: '切り取り', group: '編集' },
-  { id: 'paste', label: '貼り付け', group: '編集' },
-  { id: 'duplicate', label: '複製', group: '編集' },
-  { id: 'addTelop', label: 'テロップを追加', group: '編集' },
-  { id: 'addMarker', label: 'マーカーを追加', group: '編集' }
-]
-
-// KeyboardEvent → 正規化コンボ文字列（例: "ctrl+z", "shift+delete", "space", "arrowleft"）
-// コンボを見やすい表記に（"ctrl+z" → "Ctrl+Z", "arrowleft" → "←"）
-function formatCombo(combo: string): string {
-  const map: Record<string, string> = {
-    ctrl: 'Ctrl',
-    alt: 'Alt',
-    shift: 'Shift',
-    space: 'Space',
-    arrowleft: '←',
-    arrowright: '→',
-    arrowup: '↑',
-    arrowdown: '↓',
-    delete: 'Delete',
-    backspace: 'Backspace',
-    escape: 'Esc',
-    home: 'Home',
-    end: 'End'
-  }
-  return combo
-    .split('+')
-    .map((p) => map[p] ?? p.toUpperCase())
-    .join('+')
-}
-const SC_KEY = 'giftcut.shortcuts'
-function loadShortcuts(): Shortcuts {
-  try {
-    return { ...DEFAULT_SHORTCUTS, ...JSON.parse(localStorage.getItem(SC_KEY) || '{}') }
-  } catch {
-    return { ...DEFAULT_SHORTCUTS }
-  }
-}
+// キーボードの割り当て表は shared/shortcuts.ts（既定・一覧・見やすい表記）
 
 // ゲイン(0..1) ↔ dB 表示
 const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10(g)).toFixed(1))
