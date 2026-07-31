@@ -163,6 +163,12 @@ import { IconsProvider, useIconsCtx } from './state/iconsContext'
 import { usePlayback } from './state/usePlayback'
 import { PlaybackProvider, usePlaybackCtx } from './state/playbackContext'
 import { nearestSnap } from '../../shared/snap'
+import {
+  dropLaneAt as dropLaneIn,
+  laneAtY as laneAtYIn,
+  laneRows,
+  type LaneRow
+} from '../../shared/lanes'
 import { splitAt, toggleSelect, trimLeft, trimRight } from '../../shared/clipEdit'
 import { mediaQueue, rafThrottle } from './lib/schedule'
 import {
@@ -10031,42 +10037,18 @@ function AppInner(): JSX.Element {
 
   // ---- トラック選択ツール（プレミア準拠: クリック位置から左/右を全選択）----
   /** 各トラック行の縦位置（trackInner の上端からの相対 px） */
-  function trackRows(): { id: string; kind: 'video' | 'audio'; top: number; h: number }[] {
-    let top = RULER_H + padTop
-    return tracks.map((t) => {
-      const h = t.kind === 'video' ? videoTrackHRef.current : audioTrackHRef.current
-      const row = { id: t.id, kind: t.kind, top, h }
-      top += h
-      return row
-    })
+  // 段の縦位置と落とし先の判定は shared/lanes（画面を起動せずに確かめられる）。
+  // **外したときに本編へ落とさない**決まりもそこに書いてある
+  function trackRows(): LaneRow[] {
+    return laneRows(tracks, videoTrackHRef.current, audioTrackHRef.current, RULER_H + padTop)
   }
   function laneAtY(yRel: number): string | null {
-    const row = trackRows().find((r) => yRel >= r.top && yRel < r.top + r.h)
-    return row?.id ?? null
+    return laneAtYIn(trackRows(), yRel)
   }
-  /**
-   * ドロップ先のレーンを「一番近い行」に寄せて必ず返す。
-   *
-   * 行の外（ルーラーの上、一番下の余白、別の種類のトラックの上）に来たときに
-   * null を返すと、そこだけ駐禁マークが出て置けなくなる。距離で一番近い行に
-   * 寄せてしまえば、狙いが外れても最短距離の行へ置ける。
-   * forVideoLayer=true のときは V1（本編）を候補から外す（画像・映像レイヤー用）。
-   */
   function dropLaneAt(yRel: number, kind: 'video' | 'audio', forVideoLayer = false): string | null {
-    const main = kind === 'video' ? 'V1' : 'A1'
-    const rows = trackRows().filter((r) => r.kind === kind)
-    const cands = rows.filter((r) => !(forVideoLayer && r.id === main))
-    if (!cands.length) return null
-    // 行の上に乗っているならそこ。本編の行を狙っているなら本編でよい。
-    const hit = cands.find((r) => yRel >= r.top && yRel < r.top + r.h)
-    if (hit) return hit.id
-    // 行の外（上下の余白）に落ちた＝狙いが外れている。ここで本編を選ぶと、
-    // 置いたつもりが本編を上書きして消してしまう。本編以外の中から一番近い行に寄せる。
-    const safe = cands.filter((r) => r.id !== main)
-    const pool = safe.length ? safe : cands
-    const dist = (r: { top: number; h: number }): number => Math.abs(yRel - (r.top + r.h / 2))
-    return pool.reduce((a, b) => (dist(b) < dist(a) ? b : a)).id
+    return dropLaneIn(trackRows(), yRel, kind, forVideoLayer)
   }
+
   function trackSelect(e: React.PointerEvent, dir: number): void {
     const inner = trackInnerRef.current
     if (!inner) return
