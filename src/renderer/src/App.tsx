@@ -160,10 +160,12 @@ import { ViewProvider, useViewCtx } from './state/viewContext'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
 import { useEdit } from './state/useEdit'
 import { IconsProvider, useIconsCtx } from './state/iconsContext'
+import { useLaneHeights } from './state/useLaneHeights'
 import { usePlayback } from './state/usePlayback'
 import { PlaybackProvider, usePlaybackCtx } from './state/playbackContext'
 import { nearestSnap } from '../../shared/snap'
 import { shiftRange, shiftStart } from '../../shared/ripple'
+import { dragModeOf, movedEnough, type SegDropMode } from '../../shared/dragMode'
 import {
   dropLaneAt as dropLaneIn,
   laneAtY as laneAtYIn,
@@ -489,6 +491,11 @@ const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10
  * 同じ部品の中で囲いを作ると、その部品自身は中を見に行けない。
  */
 function AppInner(): JSX.Element {
+  // 段の高さ（種類ごと＋段ごと）。state と ref を1か所で面倒を見る
+  const {
+    videoTrackH, setVideoTrackH, audioTrackH, setAudioTrackH,
+    videoTrackHRef, audioTrackHRef, laneH, setLaneH, laneHRef
+  } = useLaneHeights()
   // 再生の「今」（時刻・流しているか・速さ）。**追いかけの仕組みは動かしていない**
   const {
     currentTime, setCurrentTime, currentTimeRef, durationRef,
@@ -937,7 +944,6 @@ function AppInner(): JSX.Element {
   //   move   = そのまま動かす（置き先を上書き。元の位置は空白になる）
   //   copy   = Alt: 複製（元はその場に残る）
   //   insert = Ctrl: 割り込み（置き先で分割して差し込み、後続は後ろへずれる）
-  type SegDropMode = 'move' | 'copy' | 'insert'
   const [videoGhost, setVideoGhost] = useState<{
     t: number
     name: string
@@ -1928,22 +1934,6 @@ function AppInner(): JSX.Element {
     if (!(v >= TRACK_H_MIN && v <= TRACK_H_MAX)) return def
     return v === OLD_DEF_H[key] ? def : v
   }
-  const [videoTrackH, setVideoTrackH] = useState<number>(() =>
-    loadGroupH('gc.videoTrackH', TRACK_H_MIN)
-  )
-  const [audioTrackH, setAudioTrackH] = useState<number>(() =>
-    loadGroupH('gc.audioTrackH', TRACK_H_MIN)
-  )
-  const videoTrackHRef = useRef(videoTrackH)
-  const audioTrackHRef = useRef(audioTrackH)
-  useEffect(() => {
-    videoTrackHRef.current = videoTrackH
-    saveLS('gc.videoTrackH', videoTrackH)
-  }, [videoTrackH])
-  useEffect(() => {
-    audioTrackHRef.current = audioTrackH
-    saveLS('gc.audioTrackH', audioTrackH)
-  }, [audioTrackH])
   /**
    * 段ごとの高さ（自分で変えた段だけ入る）。
    *
@@ -1954,28 +1944,6 @@ function AppInner(): JSX.Element {
    */
   // **ここは描画中に走るので loadLS を使えない**（定義がこれより下にあり、
   // 読み込み順で「初期化前」になる。実際に起動テストがそれを捕まえた）
-  const [laneH, setLaneH] = useState<Record<string, number>>(() => {
-    // **波形が要るのは A1（本編の音）だけ。**
-    // 最小だと山が潰れて、どこで喋っているのかが読めない（無音カットの当たりも
-    // 付けられない）。ただし音声レーンを全部高くすると、そのぶん段の合計が伸びて
-    // タイムラインを縮めたときに縦へ溢れる。要る1本だけにしておく。
-    const def = { A1: 44 }
-    try {
-      const o = JSON.parse(localStorage.getItem('gc.laneH') ?? 'null')
-      if (!o || typeof o !== 'object') return def
-      const out: Record<string, number> = {}
-      for (const [k, v] of Object.entries(o))
-        if (typeof v === 'number' && v >= TRACK_H_MIN && v <= TRACK_H_MAX) out[k] = v
-      return Object.keys(out).length ? out : def
-    } catch {
-      return def
-    }
-  })
-  const laneHRef = useRef(laneH)
-  useEffect(() => {
-    laneHRef.current = laneH
-    saveLS('gc.laneH', laneH)
-  }, [laneH])
   /** 段の高さ。id を渡せばその段の値、種類だけなら種類の値 */
   const trackHOf = (idOrKind: string): number => {
     const own = laneH[idOrKind]
@@ -7737,11 +7705,11 @@ function AppInner(): JSX.Element {
     // 掴んでいる間は切片の並びが変わらないので、位置の計算は最初の1回だけにする
     const dragLayout = layoutSegs(segsRef.current)
     let moved = false
-    const modeOf = (ev: { altKey: boolean; ctrlKey: boolean; metaKey: boolean }): SegDropMode =>
-      ev.altKey ? 'copy' : ev.ctrlKey || ev.metaKey ? 'insert' : 'move'
+    // 修飾キーの決め事は shared/dragMode（Alt=複製 / Ctrl=割り込み）
+    const modeOf = dragModeOf
     const applyMove = (ev: PointerEvent): void => {
       // 数px の震えで動かさない（クリック＝選択のままにする）
-      if (!moved && Math.abs(ev.clientX - sx) < 4) return
+      if (!moved && !movedEnough(ev.clientX - sx)) return
       if (!moved) {
         moved = true
         stopPlayback()
