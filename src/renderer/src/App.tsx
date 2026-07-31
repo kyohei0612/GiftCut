@@ -147,6 +147,7 @@ import { nextOpenSecs } from '../../shared/accordion'
 import { ensureMinShow, mergeShreds, splitAtPauses } from '../../shared/splitTelop'
 import { alignCues, speechRanges } from '../../shared/alignCues'
 import { nearestSnap } from '../../shared/snap'
+import { splitAt, toggleSelect, trimLeft, trimRight } from '../../shared/clipEdit'
 import { mediaQueue, rafThrottle } from './lib/schedule'
 import {
   loadCues,
@@ -1051,7 +1052,6 @@ export default function App(): JSX.Element {
       const inner0 = trackInnerRef.current
       if (!inner0) return
       const t = (e.clientX - inner0.getBoundingClientRect().left) / zoomRef.current
-      if (t <= clip.tStart + 0.05 || t >= clip.tStart + clip.duration - 0.05) return
       const nid = imgIdCounter.current++
       const leftLen = t - clip.tStart
       setImgClips((prev) =>
@@ -1069,11 +1069,7 @@ export default function App(): JSX.Element {
     }
     // Ctrlクリックで複数選択（動画切片/テロップと同じ操作感）
     if (e.ctrlKey || e.metaKey) {
-      setSelectedImgIds(
-        selectedImgIds.includes(clip.id)
-          ? selectedImgIds.filter((id) => id !== clip.id)
-          : [...selectedImgIds, clip.id]
-      )
+      setSelectedImgIds(toggleSelect(selectedImgIds, clip.id))
       return
     }
     // 既に選択済みのクリップを掴んだら選択全体を動かす（テロップは既にこの
@@ -1469,11 +1465,7 @@ export default function App(): JSX.Element {
       return
     }
     if (e.ctrlKey || e.metaKey) {
-      setSelectedVClipIds(
-        selectedVClipIds.includes(clip.id)
-          ? selectedVClipIds.filter((x) => x !== clip.id)
-          : [...selectedVClipIds, clip.id]
-      )
+      setSelectedVClipIds(toggleSelect(selectedVClipIds, clip.id))
       return
     }
     // 既に選択済みのクリップを掴んだら選択全体を動かす（テロップは既にこの挙動）
@@ -1494,22 +1486,29 @@ export default function App(): JSX.Element {
       if (!moved && Math.abs(ev.clientX - sx) < 3) return
       moved = true
       const dt = (ev.clientX - sx) / zoomRef.current
+      // 端の計算は効果音と同じ規則（shared/clipEdit）。
+      // **持ち方が違うだけ**——こちらは「元動画のイン点・アウト点」、
+      // 向こうは「使い始め＋長さ」。同じ話を2通りに書いていたので、片方へ寄せる。
+      const base = {
+        tStart: t0,
+        duration: e0 - s0,
+        srcOffset: s0,
+        srcDur: clip.srcDur
+      }
       if (edge === 'r') {
-        const wantEnd = snapTime(t0 + (e0 - s0) + dt, [], [], [], [clip.id])
-        const ne = clamp(s0 + (wantEnd - t0), s0 + 0.1, clip.srcDur ?? Number.MAX_SAFE_INTEGER)
+        const { duration: nd } = trimRight(base, snapTime(t0 + (e0 - s0) + dt, [], [], [], [clip.id]))
+        const ne = s0 + nd
         setVClips((prev) => prev.map((c) => (c.id === clip.id ? { ...c, srcEnd: ne } : c)))
-        setDragTip({ x: ev.clientX, y: ev.clientY, text: '長さ ' + formatTime(ne - s0) })
+        setDragTip({ x: ev.clientX, y: ev.clientY, text: '長さ ' + formatTime(nd) })
       } else if (edge === 'l') {
         // 左端: 終端を固定して、開始位置と元動画のイン点を同時に動かす
-        const nt = clamp(
-          snapTime(t0 + dt, [], [], [], [clip.id]),
-          Math.max(0, t0 - s0),
-          t0 + (e0 - s0) - 0.1
-        )
+        const t2 = trimLeft(base, snapTime(t0 + dt, [], [], [], [clip.id]))
         setVClips((prev) =>
-          prev.map((c) => (c.id === clip.id ? { ...c, tStart: nt, srcStart: s0 + (nt - t0) } : c))
+          prev.map((c) =>
+            c.id === clip.id ? { ...c, tStart: t2.tStart, srcStart: t2.srcOffset } : c
+          )
         )
-        setDragTip({ x: ev.clientX, y: ev.clientY, text: '開始 ' + formatTime(nt) })
+        setDragTip({ x: ev.clientX, y: ev.clientY, text: '開始 ' + formatTime(t2.tStart) })
       } else {
         const nt = snapClipStart(Math.max(0, t0 + dt), e0 - s0, [], [], [clip.id])
         // 縦方向で別の映像トラックへ移動（V1は切片専用なので不可）
@@ -7743,23 +7742,13 @@ export default function App(): JSX.Element {
       if (!inner0) return
       const t = (e.clientX - inner0.getBoundingClientRect().left) / zoomRef.current
       if (t <= clip.tStart + 0.05 || t >= clip.tStart + clip.duration - 0.05) return
+      // 分け方は shared/clipEdit（元の音のどこから鳴らすかが要点）
+      const cut = splitAt(clip, t)
+      if (!cut) return
       const nid = seIdCounter.current++
-      const leftLen = t - clip.tStart
       setSeClips((prev) =>
         prev.flatMap((c) =>
-          c.id === clip.id
-            ? [
-                { ...c, duration: leftLen, fadeOut: 0 },
-                {
-                  ...c,
-                  id: nid,
-                  tStart: t,
-                  duration: c.duration - leftLen,
-                  fadeIn: 0,
-                  srcOffset: (c.srcOffset ?? 0) + leftLen
-                }
-              ]
-            : [c]
+          c.id === clip.id ? [{ ...c, ...cut.left }, { ...c, ...cut.right, id: nid }] : [c]
         )
       )
       setSelectedSeIds([nid])
@@ -7768,11 +7757,7 @@ export default function App(): JSX.Element {
     // Ctrlクリックで複数選択（他のクリップと同じ操作感）
     if (e.ctrlKey || e.metaKey) {
       // clearSegSel() が同じバッチで [] を積むので、関数updaterではなく絶対値で上書きする
-      setSelectedSeIds(
-        selectedSeIds.includes(clip.id)
-          ? selectedSeIds.filter((id) => id !== clip.id)
-          : [...selectedSeIds, clip.id]
-      )
+      setSelectedSeIds(toggleSelect(selectedSeIds, clip.id))
       return
     }
     // 既に選択済みのクリップを掴んだら選択全体を動かす（テロップは既にこの挙動）
@@ -7793,24 +7778,18 @@ export default function App(): JSX.Element {
       moved = true
       if (!inner) return
       const dt = (ev.clientX - sx) / zoomRef.current
+      // 掴んだ時点の姿。動かしている間の途中経過ではなく、ここから測る
+      const base = { tStart: s0, duration: d0, srcOffset: off0, srcDur: clip.srcDur }
       if (edge === 'r') {
-        // 右端: 長さを変える（音源の残り尺を超えない）
-        const ne = snapTime(s0 + d0 + dt, [], [clip.id])
-        const maxLen = Math.max(0.1, (clip.srcDur ?? Infinity) - off0)
-        const nd = clamp(ne - s0, 0.1, maxLen)
+        // 右端: 長さを変える。**元の音の残りを超えない**（shared/clipEdit）
+        const { duration: nd } = trimRight(base, snapTime(s0 + d0 + dt, [], [clip.id]))
         setSeClips((prev) => prev.map((c) => (c.id === clip.id ? { ...c, duration: nd } : c)))
         setDragTip({ x: ev.clientX, y: ev.clientY, text: `長さ ${formatTime(nd)}` })
       } else if (edge === 'l') {
         // 左端: 開始位置と音源内オフセットを同時に動かす（終端は固定）
-        const ns = clamp(snapTime(s0 + dt, [], [clip.id]), Math.max(0, s0 - off0), s0 + d0 - 0.1)
-        setSeClips((prev) =>
-          prev.map((c) =>
-            c.id === clip.id
-              ? { ...c, tStart: ns, duration: s0 + d0 - ns, srcOffset: off0 + (ns - s0) }
-              : c
-          )
-        )
-        setDragTip({ x: ev.clientX, y: ev.clientY, text: `開始 ${formatTime(ns)}` })
+        const t2 = trimLeft(base, snapTime(s0 + dt, [], [clip.id]))
+        setSeClips((prev) => prev.map((c) => (c.id === clip.id ? { ...c, ...t2 } : c)))
+        setDragTip({ x: ev.clientX, y: ev.clientY, text: `開始 ${formatTime(t2.tStart)}` })
       } else {
         const raw = Math.max(0, s0 + dt)
         const nt = snapClipStart(raw, clip.duration, [clip.id]) // マグネット（左右端）
@@ -8052,11 +8031,7 @@ export default function App(): JSX.Element {
       if (moved && nt !== null) moveSegmentTo(L.seg.id, nt, mode, segGroupIds)
       // 動かさずに離した＝ただのクリック。Ctrl のときだけ複数選択のトグルにする
       else if (!moved && ctrlDown)
-        setThis(
-          selThis.includes(L.seg.id)
-            ? selThis.filter((id) => id !== L.seg.id)
-            : [...selThis, L.seg.id]
-        )
+        setThis(toggleSelect(selThis, L.seg.id))
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
