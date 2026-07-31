@@ -150,6 +150,10 @@ export function loadSeClips(raw: any): SEClip[] {
         id: i + 1,
         path: String(s.path ?? ''),
         name: String(s.name ?? (s.path ? String(s.path).split(/[\\/]/).pop() : 'SE')),
+        // ラベルの色。**書き忘れると、色を付けて保存しても開くと消える。**
+        // 動画の切片では気づいて直していたが、他の3種類は落ちたままだった
+        //（往復の試験＝projectRoundTrip.test.ts で見つかった）
+        label: typeof s.label === 'string' && s.label ? s.label : undefined,
         tStart: Number(s.tStart) || 0,
         duration: Number(s.duration) || 1,
         volume: typeof s.volume === 'number' ? s.volume : 1,
@@ -182,6 +186,10 @@ export function loadImgClips(raw: any, fallbackTrack: TrackFix): ImgClip[] {
           id: i + 1,
           path: c.path,
           name: String(c.name ?? c.path.split(/[\\/]/).pop() ?? '画像'),
+          // ラベルの色。**書き忘れると、色を付けて保存しても開くと消える。**
+          // 動画の切片では気づいて直していたが、他の3種類は落ちたままだった
+          //（往復の試験＝projectRoundTrip.test.ts で見つかった）
+          label: typeof c.label === 'string' && c.label ? c.label : undefined,
           tStart: Math.max(0, Number(c.tStart) || 0),
           duration: Number(c.duration) > 0 ? Number(c.duration) : 5,
           // 存在しないトラックを指したままだと、タイムラインに出ないのに
@@ -241,6 +249,10 @@ export function loadVClips(raw: any, fallbackTrack: TrackFix): VClip[] {
           id: i + 1,
           path: c.path,
           name: String(c.name ?? c.path.split(/[\\/]/).pop() ?? '動画'),
+          // ラベルの色。**書き忘れると、色を付けて保存しても開くと消える。**
+          // 動画の切片では気づいて直していたが、他の3種類は落ちたままだった
+          //（往復の試験＝projectRoundTrip.test.ts で見つかった）
+          label: typeof c.label === 'string' && c.label ? c.label : undefined,
           track: typeof c.track === 'string' ? c.track : 'V2',
           tStart: Math.max(0, Number(c.tStart) || 0),
           srcStart: Math.max(0, Number(c.srcStart) || 0),

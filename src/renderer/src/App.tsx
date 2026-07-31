@@ -146,6 +146,7 @@ import { valueAt, putKey, removeKey, hasKeys, type Keys } from '../../shared/key
 import { nextOpenSecs } from '../../shared/accordion'
 import { ensureMinShow, mergeShreds, splitAtPauses } from '../../shared/splitTelop'
 import { alignCues, speechRanges } from '../../shared/alignCues'
+import { nearestSnap } from '../../shared/snap'
 import { mediaQueue, rafThrottle } from './lib/schedule'
 import {
   loadCues,
@@ -9628,27 +9629,12 @@ export default function App(): JSX.Element {
       setSnapLineX(null)
       return Math.max(0, tStart)
     }
+    // どこへ寄せるかの判定は shared/snap（画面を起動せずに確かめられる）。
+    // 画面側の仕事は「当て先を集めて、縦線を出す」ところまで。
     const targets = snapTargets([], excludeSeIds, excludeImgIds, excludeVcIds)
-    const thr = 8 / zoomRef.current
-    let bestStart = tStart
-    let bestD = thr
-    let snapLine: number | null = null
-    for (const tg of targets) {
-      const dL = Math.abs(tg - tStart)
-      if (dL < bestD) {
-        bestD = dL
-        bestStart = tg
-        snapLine = tg
-      }
-      const dR = Math.abs(tg - (tStart + dur))
-      if (dR < bestD) {
-        bestD = dR
-        bestStart = tg - dur
-        snapLine = tg
-      }
-    }
-    setSnapLineX(snapLine != null ? Math.max(0, snapLine) * zoomRef.current : null)
-    return Math.max(0, bestStart)
+    const r = nearestSnap(tStart, dur, targets, 8 / zoomRef.current)
+    setSnapLineX(r.line != null ? r.line * zoomRef.current : null)
+    return r.start
   }
 
   // ================= キーボード（refで常に最新のハンドラを呼ぶ）=================
