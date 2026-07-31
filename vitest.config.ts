@@ -11,7 +11,14 @@ export default defineConfig({
   test: {
     //  - src/main … Electron を import しない本体側の道具（ZIP の読み書きなど）。
     //    実際にファイルを作って往復させる。
-    include: ['src/shared/**/*.test.ts', 'src/main/**/*.test.ts', 'src/renderer/src/**/*.test.tsx'],
+    // 画面側は .tsx だけでなく .ts も拾う。
+    // **拾い漏れは「テストが無い」のではなく「有るのに走らない」**ので、
+    // 緑のまま壊れていることに気づけない（画面を使わない道具の試験が .ts になる）
+    include: [
+      'src/shared/**/*.test.ts',
+      'src/main/**/*.test.ts',
+      'src/renderer/src/**/*.test.{ts,tsx}'
+    ],
     environment: 'node',
     reporters: ['default'],
     // 失敗を必ず非ゼロ終了で返す（フック/CI が検知できるように）

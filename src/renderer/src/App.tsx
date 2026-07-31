@@ -146,6 +146,45 @@ import { valueAt, putKey, removeKey, hasKeys, type Keys } from '../../shared/key
 import { nextOpenSecs } from '../../shared/accordion'
 import { mergeShreds, splitAtPauses } from '../../shared/splitTelop'
 import { alignCues, speechRanges } from '../../shared/alignCues'
+import { mediaQueue, rafThrottle } from './lib/schedule'
+import {
+  loadCues,
+  loadSegs,
+  loadSeClips,
+  loadMarkers,
+  loadImgClips,
+  loadVClips
+} from './lib/projectLoad'
+import type {
+  Marker,
+  VSeg,
+  Source,
+  Track,
+  TrackState,
+  SEClip,
+  ImgClip,
+  VClip,
+  SegLayout
+} from './lib/projectTypes'
+import {
+  DEFAULT_ZOOM,
+  DEFAULT_CROP,
+  DEFAULT_ADJUST,
+  isNeutralZoom,
+  isNeutralCrop,
+  isNeutralAdjust,
+  cropInset,
+  adjustCss
+} from './lib/clipLook'
+import {
+  TRANS_TYPES,
+  transLabel,
+  transIco,
+  dipColor,
+  bandClass,
+  loadSegTrans
+} from './lib/transitions'
+import type { TransType, SegTrans } from './lib/transitions'
 import { DB_LADDER, enoughSilences } from '../../shared/silenceLadder'
 import {
   zoomAt,
@@ -240,184 +279,12 @@ const AUTOSAVE_MS = ((): number => {
   return 2 * 60 * 1000
 })()
 
-/**
- * 重い下準備（サムネ・波形・尺）を、同時に走る数を絞って順に流す。
- *
- * 素材ビンに並んだぶんだけ一斉に ffmpeg を起こしていたため、
- * 2000件のプロジェクトを開くのに69秒かかっていた（実測）。
- * 数を絞れば、先頭から順に出そろい、その間も操作できる。
- */
-function makeJobQueue(limit: number): (job: () => Promise<unknown>) => void {
-  const waiting: (() => Promise<unknown>)[] = []
-  let running = 0
-  const pump = (): void => {
-    while (running < limit && waiting.length) {
-      const job = waiting.shift() as () => Promise<unknown>
-      running++
-      void job().finally(() => {
-        running--
-        pump()
-      })
-    }
-  }
-  return (job) => {
-    waiting.push(job)
-    pump()
-  }
-}
-// 同時に4本まで。増やすと出そろうのは速いが、その間アプリ全体が重くなる。
-const mediaQueue = makeJobQueue(4)
-
-/**
- * マウスの動きを「1フレームに1回」へまとめる。
- *
- * マウスは1秒に100回以上動くが、画面は60回しか描き替わらない。
- * まとめないと、描いても見えない絵のために毎回タイムライン全体を作り直すことになる。
- * クリップが増えるほどこれが効いてくる（1000個で1操作75ms かかっていた）。
- *
- * 使うときの約束:
- *   - 離した時に flush() を呼ぶ（最後の位置を取りこぼさない）
- *   - その後に cancel() を呼ぶ（フレーム待ちのまま残さない）
- */
-function rafThrottle<T>(fn: (arg: T) => void): {
-  run: (arg: T) => void
-  flush: () => void
-  cancel: () => void
-} {
-  let id = 0
-  let last: T | null = null
-  const fire = (): void => {
-    const a = last
-    last = null
-    if (a !== null) fn(a)
-  }
-  return {
-    run: (arg: T) => {
-      last = arg
-      if (id) return
-      id = requestAnimationFrame(() => {
-        id = 0
-        fire()
-      })
-    },
-    flush: () => {
-      if (last !== null) fire()
-    },
-    cancel: () => {
-      if (id) cancelAnimationFrame(id)
-      id = 0
-      last = null
-    }
-  }
-}
 
 // トラック高さ（映像/音声グループごとにまとめて可変）。デフォはプレミア風に少し狭め
 const TRACK_H_MIN = 26
 const TRACK_H_MAX = 160
 
 // 動画セグメント（切片）。常に隙間なく連続して並ぶ＝リップル前提。
-interface VSeg {
-  id: number
-  srcId?: number // どの元動画か（マルチソース）。未指定=主ソース(sources[0])。
-  srcStart: number // ソース動画内のイン点（秒）
-  srcEnd: number // アウト点（秒）
-  muted?: boolean // この区間の音声を消す（動画は残す）
-  videoBlank?: boolean // この区間の映像を黒にする（長さは維持＝詰めない。音声は残る）
-  speed?: number // 再生速度（1=等速, 2=2倍速, 0.5=スロー）。未指定は1
-  // 頭(transIn)/尻(transOut)/次クリップとの間(xfade)。全て同じ TransType＝どの種類もどこにでも置ける。
-  transIn?: SegTrans
-  transOut?: SegTrans
-  xfade?: SegTrans
-  // 色調整（明るさ/コントラスト/彩度）。倍率で 1=無調整。プレビュー=CSS filter、書き出し=ffmpeg eq。
-  adjust?: { b: number; c: number; s: number }
-  rotate?: number // 回転角（度・時計回り、自由角度）。未指定=0
-  flipH?: boolean // 左右反転
-  flipV?: boolean // 上下反転
-  vol?: number // この切片の音量倍率（0=無音, 1=等倍）。未指定=1
-  afadeIn?: number // 音声フェードイン（秒）
-  afadeOut?: number // 音声フェードアウト（秒）
-  zoom?: { scale: number; x: number; y: number } // リフレーム（拡大率＋中心オフセット, フレーム比）
-  // 動き（キーフレーム）。上の zoom を時間の関数にする。印が無ければ zoom は固定値のまま。
-  motion?: ClipMotion
-  crop?: { l: number; t: number; r: number; b: number } // クロップ（各辺の切り抜き率 0..1。切った領域は黒）
-  label?: string // ラベルカラー（テロップと同じ。素材の見分け用）
-  gap?: boolean // タイムラインの空白（映像なし・無音）。「位置を指定して配置」した際の隙間埋め。
-}
-const DEFAULT_ZOOM = { scale: 1, x: 0, y: 0 }
-const isNeutralZoom = (z?: { scale: number; x: number; y: number }): boolean =>
-  !z || (Math.abs(z.scale - 1) < 1e-3 && z.x === 0 && z.y === 0)
-const DEFAULT_CROP = { l: 0, t: 0, r: 0, b: 0 }
-const isNeutralCrop = (c?: { l: number; t: number; r: number; b: number }): boolean =>
-  !c || (c.l < 1e-4 && c.t < 1e-4 && c.r < 1e-4 && c.b < 1e-4)
-// クロップのCSS（プレビュー用・clip-path inset）。切った辺は下地(チェッカー)が見える。
-const cropInset = (c?: { l: number; t: number; r: number; b: number }): string | undefined =>
-  isNeutralCrop(c)
-    ? undefined
-    : `inset(${(c!.t * 100).toFixed(2)}% ${(c!.r * 100).toFixed(2)}% ${(c!.b * 100).toFixed(2)}% ${(c!.l * 100).toFixed(2)}%)`
-const DEFAULT_ADJUST = { b: 1, c: 1, s: 1 }
-// 色調整が実質「無調整」か
-const isNeutralAdjust = (a?: { b: number; c: number; s: number }): boolean =>
-  !a || (Math.abs(a.b - 1) < 1e-3 && Math.abs(a.c - 1) < 1e-3 && Math.abs(a.s - 1) < 1e-3)
-// CSS filter 文字列（プレビュー用）
-const adjustCss = (a?: { b: number; c: number; s: number }): string | undefined =>
-  isNeutralAdjust(a) ? undefined : `brightness(${a!.b}) contrast(${a!.c}) saturate(${a!.s})`
-// トランジションの種類。頭/間/尻すべてで共通に使う（ffmpeg xfade の transition 名がベース）。
-// dipblack/dipwhite は「間」では fadeblack/fadewhite（黒/白に沈んで戻る）、頭/尻では黒/白フェード。
-type TransType =
-  | 'fade'
-  | 'dipblack'
-  | 'dipwhite'
-  | 'slideleft'
-  | 'slideright'
-  | 'slideup'
-  | 'slidedown'
-  | 'wipeleft'
-  | 'wiperight'
-const TRANS_TYPES: { type: TransType; ico: string; label: string }[] = [
-  { type: 'fade', ico: '◧', label: 'ディゾルブ' },
-  { type: 'dipblack', ico: '🌑', label: '黒フェード' },
-  { type: 'dipwhite', ico: '⚡', label: '白フェード' },
-  { type: 'slideright', ico: '➡', label: 'スライド右' },
-  { type: 'slideleft', ico: '⬅', label: 'スライド左' },
-  { type: 'slideup', ico: '⬆', label: 'スライド上' },
-  { type: 'slidedown', ico: '⬇', label: 'スライド下' },
-  { type: 'wiperight', ico: '▶', label: 'ワイプ右' },
-  { type: 'wipeleft', ico: '◀', label: 'ワイプ左' }
-]
-const transLabel = (t?: TransType): string =>
-  TRANS_TYPES.find((x) => x.type === (t ?? 'fade'))?.label ?? 'ディゾルブ'
-const transIco = (t?: TransType): string =>
-  TRANS_TYPES.find((x) => x.type === (t ?? 'fade'))?.ico ?? '◧'
-// dip系のフェード色（頭/尻フェードの色）。fade も黒扱い。slide/wipe は null。
-const dipColor = (t: TransType): 'black' | 'white' | null =>
-  t === 'dipwhite' ? 'white' : t === 'dipblack' || t === 'fade' ? 'black' : null
-// タイムライン帯のクラス（見た目: 黒/白ディップ or モーション）。
-const bandClass = (t: TransType): string =>
-  t === 'dipwhite'
-    ? 'ttrans-dip ttrans-white'
-    : t === 'dipblack'
-      ? 'ttrans-dip ttrans-black'
-      : t === 'fade'
-        ? 'ttrans-xfade'
-        : 'ttrans-motion'
-// クリップ単体（頭/尻）または間の1トランジション。
-interface SegTrans {
-  type: TransType
-  dur: number // 秒
-}
-// 保存データ→SegTrans 復元。旧形式 {color:'black'|'white'} は dip系へ移行。不正は undefined。
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function loadSegTrans(raw: any): SegTrans | undefined {
-  if (!raw || !(Number(raw.dur) > 0)) return undefined
-  const dur = Number(raw.dur)
-  if (TRANS_TYPES.some((x) => x.type === raw.type)) return { type: raw.type as TransType, dur }
-  // 旧: 色ディップ
-  if (raw.color === 'white') return { type: 'dipwhite', dur }
-  if (raw.color === 'black') return { type: 'dipblack', dur }
-  // 旧 xfade: type 無し＝fade
-  return { type: 'fade', dur }
-}
-/* eslint-enable @typescript-eslint/no-explicit-any */
 // プレビュー解像度。'orig'=原本をそのまま再生、数値=その高さの編集用プロキシ。
 /**
  * プレビューの画質。**どれを選んでも、必ず焼き直した映像で再生する。**
@@ -434,18 +301,6 @@ function loadSegTrans(raw: any): SegTrans | undefined {
  */
 type PreviewRes = 1080 | 720 | 360
 // 元動画（マルチソース）。1タイムラインに複数の動画を連結できる。
-interface Source {
-  id: number
-  path: string // 原本パス（書き出しに使用＝無劣化）
-  name: string
-  origUrl: string // 原本の gcfile URL（プレビュー用プロキシは path をキーに proxyMap で持つ）
-  duration: number
-  fps: number
-  // 波形は自分が解析した音声の長さ(dur)も持つ。動画の尺で位置を計算すると
-  // 音声ストリームとの尺差ぶん、後ろに行くほど再生ヘッドとズレる。
-  waveform?: { min: number[]; max: number[]; dur: number } | null
-}
-type SegLayout = Layout<VSeg>
 interface ContextMenu {
   x: number
   y: number
@@ -460,11 +315,6 @@ interface ClipMenu {
   name: string
 }
 
-interface Track {
-  id: string
-  name: string
-  kind: 'video' | 'audio'
-}
 // 初期トラック（映像は先頭に連続、音声はその後に連続）。+ボタンで増やせる。
 const DEFAULT_TRACKS: Track[] = [
   { id: 'V3', name: 'V3', kind: 'video' }, // テロップ上段（V2から上下移動できる先）
@@ -587,14 +437,6 @@ function loadShortcuts(): Shortcuts {
   }
 }
 
-interface TrackState {
-  target: boolean
-  hidden: boolean
-  muted: boolean
-  solo: boolean
-  locked: boolean
-  volume: number // 音量ゲイン 0..1（オーディオミキサー用。1=0dB）
-}
 function newTrackState(id: string): TrackState {
   return {
     target: id === 'V1' || id === 'A1',
@@ -1089,22 +931,6 @@ export default function App(): JSX.Element {
   }
 
   // ---- SE クリップ（A2 トラックに配置した効果音）----
-  interface SEClip {
-    id: number
-    label?: string
-    path: string
-    name: string
-    tStart: number
-    duration: number
-    volume: number
-    fadeIn: number // フェードイン秒
-    fadeOut: number // フェードアウト秒
-    track: string // 載っているトラック（'A2'=SE / 'A3'=BGM）。既定はA2。
-    srcOffset?: number // 音源内の開始オフセット秒（左端トリム/分割で進む）。未指定=0
-    srcDur?: number // 音源の全長（右端トリムの上限）。未取得なら undefined
-    /** 声が入っている間だけ音量を下げる（ダッキング）。BGM に付ける */
-    duck?: boolean
-  }
   const [seClips, setSeClips] = useState<SEClip[]>([])
   const [selectedSeIds, setSelectedSeIds] = useState<number[]>([])
   const seIdCounter = useRef(1)
@@ -1131,24 +957,6 @@ export default function App(): JSX.Element {
   }
 
   // ---- 画像クリップ（V2/V3等の映像トラックに置く静止画。プレミアの画像配置に相当）----
-  interface ImgClip {
-    id: number
-    label?: string
-    path: string
-    name: string
-    tStart: number
-    duration: number
-    track: string // 載っている映像トラック（V1以外）
-    // 動画切片と同じ変形/調整（プレビューのリフレーム枠・プロパティで編集）
-    zoom?: { scale: number; x: number; y: number }
-    motion?: ClipMotion // 動き（キーフレーム）。zoom を時間の関数にする
-    rotate?: number
-    flipH?: boolean
-    flipV?: boolean
-    opacity?: number // 0..1（未指定=1）
-    adjust?: { b: number; c: number; s: number }
-    crop?: { l: number; t: number; r: number; b: number }
-  }
   const [imgClips, setImgClips] = useState<ImgClip[]>([])
   const [selectedImgIds, setSelectedImgIds] = useState<number[]>([])
   const imgIdCounter = useRef(1)
@@ -1340,29 +1148,6 @@ export default function App(): JSX.Element {
   // ---- 映像レイヤークリップ（V2以降に置く動画。ピクチャーインピクチャー／差し込み用）----
   // V1 の「切片(VSeg)」は隙間なく連結するリップル方式だが、こちらは絶対位置に置く独立クリップ。
   // 音声は必ず対になる音声トラック（V2→A2, V3→A3）に連動表示・再生される＝映像と音は常にセット。
-  interface VClip {
-    id: number
-    label?: string
-    path: string
-    name: string
-    track: string
-    tStart: number
-    srcStart: number
-    srcEnd: number
-    srcDur?: number
-    zoom?: { scale: number; x: number; y: number }
-    motion?: ClipMotion // 動き（キーフレーム）。zoom を時間の関数にする
-    rotate?: number
-    flipH?: boolean
-    flipV?: boolean
-    opacity?: number
-    adjust?: { b: number; c: number; s: number }
-    crop?: { l: number; t: number; r: number; b: number }
-    muted?: boolean
-    vol?: number
-    afadeIn?: number
-    afadeOut?: number
-  }
   const [vClips, setVClips] = useState<VClip[]>([])
   const [selectedVClipIds, setSelectedVClipIds] = useState<number[]>([])
   const vClipIdCounter = useRef(1)
@@ -1770,11 +1555,6 @@ export default function App(): JSX.Element {
   }
 
   // ---- マーカー（タイムライン上の目印。頭出し/メモ用。書き出しには影響しない）----
-  interface Marker {
-    id: number
-    t: number // タイムライン秒
-    label: string // メモ（空可）
-  }
   const [markers, setMarkers] = useState<Marker[]>([])
   const [selectedMarkerId, setSelectedMarkerId] = useState<number | null>(null)
   const [editingMarkerId, setEditingMarkerId] = useState<number | null>(null)
@@ -6676,115 +6456,11 @@ export default function App(): JSX.Element {
     // 復元でも「落ちる前と同じ形」で戻ってくる
     applyLayout(d?.layout)
     // id はファイルの値を信用せず振り直す（NaN/重複による採番汚染を防ぐ）
-    const loadedCues: Cue[] = Array.isArray(d.cues)
-      ? d.cues.map((c: any, i: number) => ({
-          id: i + 1,
-          start: Number(c.start) || 0,
-          end: Number(c.end) || 0,
-          text: String(c.text ?? ''),
-          style: { ...defaultTelopStyle(), ...(c.style ?? {}) },
-          // 部分装飾（保存はcues丸ごとだが読込側で落ちていた＝保存→開くとリッチテキスト消失バグの修正）
-          runs:
-            Array.isArray(c.runs) && c.runs.length
-              ? c.runs
-                  .filter(
-                    (r: any) =>
-                      typeof r?.start === 'number' && typeof r?.end === 'number' && r.end > r.start
-                  )
-                  .map((r: any) => ({ ...r }))
-              : undefined,
-          scale: typeof c.scale === 'number' && c.scale > 0 ? c.scale : undefined, // テロップ拡縮も同様に復元
-          label: typeof c.label === 'string' ? c.label : DEFAULT_LABEL,
-          iconImage: typeof c.iconImage === 'string' ? c.iconImage : undefined,
-          personIcon: c.personIcon === false ? false : undefined,
-          pos:
-            c.pos && typeof c.pos.x === 'number' && typeof c.pos.y === 'number'
-              ? { x: c.pos.x, y: c.pos.y }
-              : { x: 0.5, y: 0.85 },
-          // V1以外の映像トラックIDはそのまま維持（V4等へ退避したテロップが戻らなくなるのを防ぐ）
-          track:
-            typeof c.track === 'string' && /^V\d+$/.test(c.track) && c.track !== 'V1'
-              ? c.track
-              : undefined,
-          // 自分で打った動き（モーション）。ここで拾い忘れると、保存して開き直した
-          // 瞬間に動きだけ静かに消える（クリップの色で同じ事故があった）
-          motion: sanitizeMotion(c.motion)
-        }))
-      : []
-    const loadedSegs: VSeg[] = Array.isArray(d.segments)
-      ? d.segments.map((s: any, i: number) => ({
-          id: i + 1,
-          srcId: typeof s.srcId === 'number' ? s.srcId : undefined,
-          srcStart: Number(s.srcStart) || 0,
-          srcEnd: Number(s.srcEnd) || 0,
-          muted: s.muted === true ? true : undefined,
-          videoBlank: s.videoBlank === true ? true : undefined,
-          // atempo は 0.5〜100 しか受け付けないので、読み込み時にその範囲へクランプ
-          speed:
-            typeof s.speed === 'number' && s.speed > 0 ? clamp(s.speed, 0.5, 8) : undefined,
-          transIn: loadSegTrans(s.transIn),
-          transOut: loadSegTrans(s.transOut),
-          xfade: loadSegTrans(s.xfade),
-          adjust:
-            s.adjust &&
-            typeof s.adjust.b === 'number' &&
-            typeof s.adjust.c === 'number' &&
-            typeof s.adjust.s === 'number' &&
-            !isNeutralAdjust(s.adjust)
-              ? { b: s.adjust.b, c: s.adjust.c, s: s.adjust.s }
-              : undefined,
-          rotate: typeof s.rotate === 'number' && s.rotate ? (((s.rotate % 360) + 360) % 360) || undefined : undefined,
-          flipH: s.flipH === true ? true : undefined,
-          flipV: s.flipV === true ? true : undefined,
-          vol: typeof s.vol === 'number' && s.vol >= 0 && s.vol !== 1 ? s.vol : undefined,
-          afadeIn: typeof s.afadeIn === 'number' && s.afadeIn > 0 ? s.afadeIn : undefined,
-          afadeOut: typeof s.afadeOut === 'number' && s.afadeOut > 0 ? s.afadeOut : undefined,
-          zoom:
-            s.zoom &&
-            typeof s.zoom.scale === 'number' &&
-            typeof s.zoom.x === 'number' &&
-            typeof s.zoom.y === 'number' &&
-            !isNeutralZoom(s.zoom)
-              ? { scale: s.zoom.scale, x: s.zoom.x, y: s.zoom.y }
-              : undefined,
-          // 自分で打った動き。ここで拾い忘れると、保存して開き直した瞬間に
-          // 動きだけ静かに消える（テロップの色・モーションで同じ事故がある）
-          motion: sanitizeClipMotion(s.motion),
-          crop:
-            s.crop &&
-            typeof s.crop.l === 'number' &&
-            typeof s.crop.t === 'number' &&
-            typeof s.crop.r === 'number' &&
-            typeof s.crop.b === 'number' &&
-            !isNeutralCrop(s.crop)
-              ? { l: s.crop.l, t: s.crop.t, r: s.crop.r, b: s.crop.b }
-              : undefined,
-          // ラベルカラー。ここに書き忘れていたため、色を付けて保存しても
-          // 開き直すと消えていた（他の種類は保存されるので余計に分かりにくい）。
-          label: typeof s.label === 'string' && s.label ? s.label : undefined,
-          gap: s.gap === true ? true : undefined
-        }))
-      : []
+    const loadedCues: Cue[] = loadCues(d.cues)
+    const loadedSegs: VSeg[] = loadSegs(d.segments)
     /* eslint-enable @typescript-eslint/no-explicit-any */
     /* eslint-disable @typescript-eslint/no-explicit-any */
-    const loadedSe: SEClip[] = Array.isArray(d.seClips)
-      ? d.seClips.map((s: any, i: number) => ({
-          id: i + 1,
-          path: String(s.path ?? ''),
-          name: String(s.name ?? (s.path ? String(s.path).split(/[\\/]/).pop() : 'SE')),
-          tStart: Number(s.tStart) || 0,
-          duration: Number(s.duration) || 1,
-          volume: typeof s.volume === 'number' ? s.volume : 1,
-          fadeIn: typeof s.fadeIn === 'number' ? s.fadeIn : 0,
-          fadeOut: typeof s.fadeOut === 'number' ? s.fadeOut : 0,
-          track: typeof s.track === 'string' ? s.track : 'A2',
-          srcOffset: typeof s.srcOffset === 'number' && s.srcOffset > 0 ? s.srcOffset : undefined,
-          srcDur: typeof s.srcDur === 'number' && s.srcDur > 0 ? s.srcDur : undefined,
-          // ここに足し忘れると、保存して開き直したときに設定だけ消える
-          // （クリップの色で実際にやらかしている）
-          duck: s.duck === true ? true : undefined
-        }))
-      : []
+    const loadedSe: SEClip[] = loadSeClips(d.seClips)
     // トラック構成（追加レーン）を復元。形式が不正ならデフォルトに戻す
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const loadedTracks: Track[] = Array.isArray(d.tracks)
@@ -6853,111 +6529,11 @@ export default function App(): JSX.Element {
     setSelectedTrackId(null)
     // マーカー復元（t 昇順、idは振り直し）
     /* eslint-disable @typescript-eslint/no-explicit-any */
-    const loadedMarkers: Marker[] = Array.isArray(d.markers)
-      ? d.markers
-          .filter((m: any) => m && typeof m.t === 'number' && m.t >= 0)
-          .map((m: any, i: number) => ({ id: i + 1, t: m.t, label: String(m.label ?? '') }))
-          .sort((a: Marker, b: Marker) => a.t - b.t)
-      : []
+    const loadedMarkers: Marker[] = loadMarkers(d.markers)
     // 画像クリップ復元
-    const loadedImgs: ImgClip[] = Array.isArray(d.imgClips)
-      ? d.imgClips
-          .filter((c: any) => c && typeof c.path === 'string' && typeof c.tStart === 'number')
-          .map((c: any, i: number) => ({
-            id: i + 1,
-            path: c.path,
-            name: String(c.name ?? c.path.split(/[\\/]/).pop() ?? '画像'),
-            tStart: Math.max(0, Number(c.tStart) || 0),
-            duration: Number(c.duration) > 0 ? Number(c.duration) : 5,
-            // 存在しないトラックを指したままだと、タイムラインに出ないのに
-            // プレビューと書き出しには出る「見えないクリップ」になる
-            track: fallbackTrack(typeof c.track === 'string' ? c.track : 'V3', 'video'),
-            zoom:
-              c.zoom &&
-              typeof c.zoom.scale === 'number' &&
-              typeof c.zoom.x === 'number' &&
-              typeof c.zoom.y === 'number' &&
-              !isNeutralZoom(c.zoom)
-                ? { scale: c.zoom.scale, x: c.zoom.x, y: c.zoom.y }
-                : undefined,
-            motion: sanitizeClipMotion(c.motion),
-            rotate:
-              typeof c.rotate === 'number' && c.rotate
-                ? ((c.rotate % 360) + 360) % 360 || undefined
-                : undefined,
-            flipH: c.flipH === true ? true : undefined,
-            flipV: c.flipV === true ? true : undefined,
-            opacity:
-              typeof c.opacity === 'number' && c.opacity >= 0 && c.opacity < 1
-                ? c.opacity
-                : undefined,
-            adjust:
-              c.adjust &&
-              typeof c.adjust.b === 'number' &&
-              typeof c.adjust.c === 'number' &&
-              typeof c.adjust.s === 'number' &&
-              !isNeutralAdjust(c.adjust)
-                ? { b: c.adjust.b, c: c.adjust.c, s: c.adjust.s }
-                : undefined,
-            crop:
-              c.crop &&
-              typeof c.crop.l === 'number' &&
-              typeof c.crop.t === 'number' &&
-              typeof c.crop.r === 'number' &&
-              typeof c.crop.b === 'number' &&
-              !isNeutralCrop(c.crop)
-                ? { l: c.crop.l, t: c.crop.t, r: c.crop.r, b: c.crop.b }
-                : undefined
-          }))
-      : []
+    const loadedImgs: ImgClip[] = loadImgClips(d.imgClips, fallbackTrack)
     // 映像レイヤークリップ復元
-    const loadedVc: VClip[] = Array.isArray(d.vClips)
-      ? d.vClips
-          .filter(
-            (c: any) =>
-              c &&
-              typeof c.path === 'string' &&
-              typeof c.tStart === 'number' &&
-              typeof c.srcEnd === 'number'
-          )
-          .map((c: any, i: number) => ({
-            id: i + 1,
-            path: c.path,
-            name: String(c.name ?? c.path.split(/[\\/]/).pop() ?? '動画'),
-            track: typeof c.track === 'string' ? c.track : 'V2',
-            tStart: Math.max(0, Number(c.tStart) || 0),
-            srcStart: Math.max(0, Number(c.srcStart) || 0),
-            srcEnd: Number(c.srcEnd) || 0,
-            srcDur: typeof c.srcDur === 'number' && c.srcDur > 0 ? c.srcDur : undefined,
-            zoom:
-              c.zoom && typeof c.zoom.scale === 'number' && !isNeutralZoom(c.zoom)
-                ? { scale: c.zoom.scale, x: c.zoom.x, y: c.zoom.y }
-                : undefined,
-            motion: sanitizeClipMotion(c.motion),
-            rotate:
-              typeof c.rotate === 'number' && c.rotate
-                ? ((c.rotate % 360) + 360) % 360 || undefined
-                : undefined,
-            flipH: c.flipH === true ? true : undefined,
-            flipV: c.flipV === true ? true : undefined,
-            opacity:
-              typeof c.opacity === 'number' && c.opacity >= 0 && c.opacity < 1
-                ? c.opacity
-                : undefined,
-            adjust:
-              c.adjust && typeof c.adjust.b === 'number' && !isNeutralAdjust(c.adjust)
-                ? { b: c.adjust.b, c: c.adjust.c, s: c.adjust.s }
-                : undefined,
-            crop:
-              c.crop && typeof c.crop.l === 'number' && !isNeutralCrop(c.crop)
-                ? { l: c.crop.l, t: c.crop.t, r: c.crop.r, b: c.crop.b }
-                : undefined,
-            muted: c.muted === true ? true : undefined,
-            vol: typeof c.vol === 'number' && c.vol !== 1 ? c.vol : undefined,
-            afadeIn: typeof c.afadeIn === 'number' && c.afadeIn > 0 ? c.afadeIn : undefined,
-            afadeOut: typeof c.afadeOut === 'number' && c.afadeOut > 0 ? c.afadeOut : undefined
-          }))
-      : []
+    const loadedVc: VClip[] = loadVClips(d.vClips, fallbackTrack)
     /* eslint-enable @typescript-eslint/no-explicit-any */
     idCounter.current = loadedCues.length + 1
     segIdCounter.current = loadedSegs.length + 1
