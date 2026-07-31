@@ -170,6 +170,8 @@ import { loadJson, loadRecentProjects, useProjectState } from './state/useProjec
 import { ProjectStateProvider, useProjectStateCtx } from './state/projectStateContext'
 import { DEFAULT_TRACKS, EXTRA_AUDIO_TRACK, initTrackStates, newTrackState } from './lib/trackState'
 import { useProjectFile } from './state/useProjectFile'
+import { useDragPreview } from './state/useDragPreview'
+import { useClipboard, type CopiedAttrs } from './state/useClipboard'
 import { useClipDrag } from './state/useClipDrag'
 import { useLaneHeights } from './state/useLaneHeights'
 import { usePlayback } from './state/usePlayback'
@@ -480,6 +482,16 @@ const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10
  * 同じ部品の中で囲いを作ると、その部品自身は中を見に行けない。
  */
 function AppInner(): JSX.Element {
+  // 掴んでいる最中に出す物（影・吹き出し・吸い付きの線・囲い）と、コピーの控え
+  const {
+    seGhost, setSeGhost, videoGhost, setVideoGhost, imgGhost, setImgGhost,
+    snapLineX, setSnapLineX, dragTip, setDragTip, marquee, setMarquee,
+    overwriteIds, setOverwriteIds
+  } = useDragPreview()
+  const {
+    clipboardRef, clipboardSeRef, clipboardImgRef, clipboardVcRef, lastCopyRef,
+    copiedAttrs, setCopiedAttrs
+  } = useClipboard()
   // プロジェクトの持ち物と設定（更新しても消えてはいけない物が多い）
   const {
     projectPath, setProjectPath, srtPath, setSrtPath, missingMedia, setMissingMedia,
@@ -899,41 +911,17 @@ function AppInner(): JSX.Element {
   const draggingMediaRef = useRef<MediaItem | null>(null)
   const dragSeDurRef = useRef(2) // ドラッグ中SEの尺（ゴースト幅用。dragStartでgetDurationして更新）
   // タイムラインへSE配置中の半透明ゴースト（プレミア風に配置位置を可視化）
-  const [seGhost, setSeGhost] = useState<{
-    t: number
-    name: string
-    dur: number
-    track: string
-    path: string
-  } | null>(null)
   // タイムラインへ動画配置中のゴースト（V1）。insert=Ctrl押下（挿入モード）
   // 本編クリップを掴んで動かすときの動作（プレミア準拠）。
   //   move   = そのまま動かす（置き先を上書き。元の位置は空白になる）
   //   copy   = Alt: 複製（元はその場に残る）
   //   insert = Ctrl: 割り込み（置き先で分割して差し込み、後続は後ろへずれる）
-  const [videoGhost, setVideoGhost] = useState<{
-    t: number
-    name: string
-    dur: number
-    insert: boolean
-    path: string
-    track: string // 置き先の映像トラック（'V1'=本編のカット列 / それ以外=映像レイヤー）
-    moving?: boolean // 既にある本編クリップを掴んで動かしている（新規配置ではない）
-    mode?: SegDropMode // 掴んで動かしているときの動作（そのまま/Alt=複製/Ctrl=割り込み）
-  } | null>(null)
   // 本編クリップをドラッグ中の移動先（タイムライン秒）。指を離した時に確定する。
   // state だと onUp のクロージャが古い値を見るので ref で持つ。
   const segMoveToRef = useRef<number | null>(null)
   const segDropModeRef = useRef<SegDropMode>('move')
   // 今このまま離すと「丸ごと」上書きされてしまうクリップ。赤く縁取って警告する。
-  const [overwriteIds, setOverwriteIds] = useState<number[]>([])
   // タイムラインへ画像配置中のゴースト（V2/V3等の映像トラック）
-  const [imgGhost, setImgGhost] = useState<{
-    t: number
-    name: string
-    dur: number
-    track: string
-  } | null>(null)
   // ドラッグ中のポインタ直下のトラックidを返す（kind指定でフィルタ）。無ければnull。
   function trackFromEvent(e: { target: EventTarget | null }, kind?: 'video' | 'audio'): string | null {
     const el = (e.target as HTMLElement | null)?.closest?.('[data-tid]')
@@ -1795,14 +1783,6 @@ function AppInner(): JSX.Element {
   // ---- タイムラインのガイド・ツールチップ ----
   const [hoverX, setHoverX] = useState<number | null>(null)
   const lastHoverPaintRef = useRef(0) // マウスの印の間引き（下の onPointerMove を参照）
-  const [snapLineX, setSnapLineX] = useState<number | null>(null)
-  const [dragTip, setDragTip] = useState<{ x: number; y: number; text: string } | null>(null)
-  const [marquee, setMarquee] = useState<{
-    x0: number
-    y0: number
-    x1: number
-    y1: number
-  } | null>(null)
 
   // ---- 書き出し ----
   // 書き出し設定（解像度・fps・画質）
@@ -1994,28 +1974,6 @@ function AppInner(): JSX.Element {
   // 種類をまたいで写せるもの（変形・色調整・クロップ・不透明度・ラベル）と、
   // その種類にしか無いもの（テロップの見た目や位置、音量やフェード）がある。
   // 混ざった選択に貼っても壊れないよう、**貼れるものだけ貼る**。
-  interface CopiedAttrs {
-    from: 'telop' | 'seg' | 'img' | 'vclip' | 'se'
-    fromName: string
-    // 種類をまたいで写せるもの
-    zoom?: { scale: number; x: number; y: number }
-    rotate?: number
-    flipH?: boolean
-    flipV?: boolean
-    opacity?: number
-    adjust?: { b: number; c: number; s: number }
-    crop?: { l: number; t: number; r: number; b: number }
-    label?: string
-    // 音まわり（音を持つものだけ）
-    vol?: number
-    afadeIn?: number
-    afadeOut?: number
-    // テロップだけ
-    telopPos?: { x: number; y: number }
-    telopScale?: number
-    telopStyle?: Cue['style']
-  }
-  const [copiedAttrs, setCopiedAttrs] = useState<CopiedAttrs | null>(null)
   /** 何を写せるかの一覧（人に見せる文言） */
   function attrSummary(a: CopiedAttrs): string {
     const parts: string[] = []
@@ -3396,10 +3354,6 @@ function AppInner(): JSX.Element {
 
   // ---- クリップボード & 編集履歴（Undo/Redo）----
   // 履歴は cues / segments / seClips / markers / imgClips を1スナップショットで管理する（統合Undo）
-  const clipboardRef = useRef<Cue[]>([])
-  const clipboardSeRef = useRef<SEClip[]>([]) // SE/BGM のクリップボード
-  const clipboardImgRef = useRef<ImgClip[]>([]) // 画像のクリップボード
-  const clipboardVcRef = useRef<VClip[]>([]) // 映像レイヤーのクリップボード
   const ratioRef = useRef<Ratio>('16:9')
 
   function setTime(t: number): void {
@@ -6951,7 +6905,6 @@ function AppInner(): JSX.Element {
    * クリップを写したつもりで貼っても動きが入る＝黙って別の事が起きる。
    * 何を写したかで決めれば、迷いようがない。
    */
-  const lastCopyRef = useRef<'clip' | 'motion'>('clip')
   /** 選んでいるテロップ全部から、その項目の印だけを捨てる */
   /** 選んでいる映像全部から、その項目の印を捨てる（固定値も既定へ戻す） */
   function resetClipChannel(key: keyof ClipMotion): void {
