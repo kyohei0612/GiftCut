@@ -160,6 +160,9 @@ import { ViewProvider, useViewCtx } from './state/viewContext'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
 import { useEdit } from './state/useEdit'
 import { IconsProvider, useIconsCtx } from './state/iconsContext'
+import { ExportProvider, useExportCtx } from './state/exportContext'
+import { MediaProvider, useMediaCtx } from './state/mediaContext'
+import { useHistory, type Snap } from './state/useHistory'
 import { useClipDrag } from './state/useClipDrag'
 import { useLaneHeights } from './state/useLaneHeights'
 import { usePlayback } from './state/usePlayback'
@@ -492,6 +495,25 @@ const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10
  * 同じ部品の中で囲いを作ると、その部品自身は中を見に行けない。
  */
 function AppInner(): JSX.Element {
+  // 元に戻す・やり直すための控え（描くための物ではないので ref）
+  const {
+    undoStackRef, redoStackRef, baselineRef, suppressHistoryRef, pendingTimerRef,
+    bumpHist: setHistTick
+  } = useHistory()
+  // 素材（取り込んだ物）と元動画（いま使っている物）。videoSrc は差し替わるが
+  // videoPath は原本なので差し替えない（焼き直した粗い映像で書き出さないため）
+  const {
+    videoSrc, setVideoSrc, videoPath, setVideoPath, videoName, setVideoName,
+    videoDuration, setVideoDuration, proxyPct, setProxyPct, waveform, setWaveform,
+    thumbnailSrc, setThumbnailSrc, sources, setSources, sourcesRef, sourceIdCounter,
+    curSourceIdRef, activeSrcId, setActiveSrcId, mediaItems, setMediaItems, mediaIdCounter
+  } = useMediaCtx()
+  // 書き出しの設定と進み具合（設定はプロジェクトの一部、進み具合は画面の一部）
+  const {
+    ratio, setRatio, masterVolume, setMasterVolume, loudnormLUFS, setLoudnormLUFS,
+    exportOpts, setExportOpts, showExportDialog, setShowExportDialog,
+    exportStatus, setExportStatus, exportPct, setExportPct
+  } = useExportCtx()
   // 段の高さ（種類ごと＋段ごと）。state と ref を1か所で面倒を見る
   const {
     videoTrackH, setVideoTrackH, audioTrackH, setAudioTrackH,
@@ -573,7 +595,6 @@ function AppInner(): JSX.Element {
 
   // ---- 編集状態 ----
   const [tool, setTool] = useState<Tool>('select')
-  const [ratio, setRatio] = useState<Ratio>('16:9')
   // 比率を変更する。テロップの箱(box)と文字サイズは「フレーム高さ1080基準の絶対値」なので、
   // 比率が変わると幅に対する見た目の比率が崩れる（16:9で幅83%の箱が9:16では画面外へ）。
   // 幅の変化率で box.w とフォントサイズを補正して、見た目の収まりを保つ。
@@ -780,17 +801,11 @@ function AppInner(): JSX.Element {
       return true
     }
   })
-  const [masterVolume, setMasterVolume] = useState(1) // マスター音量（全体）
 
   // ---- 動画 ----
   // videoSrc=プレビュー用（生成後は編集用プロキシ）、videoPath=書き出し用の原本パス
-  const [videoSrc, setVideoSrc] = useState<string | null>(null)
-  const [videoPath, setVideoPath] = useState<string | null>(null)
-  const [videoName, setVideoName] = useState<string | null>(null)
-  const [videoDuration, setVideoDuration] = useState(0)
   // 素材の実フレームレート（読み込み時に ffprobe で取得。未取得は既定30）。
   // フレームステップ/タイムコード/カットのフレーム量子化に使う。
-  const [proxyPct, setProxyPct] = useState<number | null>(null) // プロキシ生成の進捗（null=非生成/完了）
   // 素材ごとまとめる／まとめを開く の進捗（null=実行していない）。
   // 数GBになることがあり、無反応に見えると二度押しされるので必ず出す。
   const [packPct, setPackPct] = useState<number | null>(null)
@@ -829,22 +844,11 @@ function AppInner(): JSX.Element {
   }, [])
   const lastPaintRef = useRef(0) // 再生中の最後にsetTimeした時刻（再描画スロットル用）
   // 動画ズーム（リフレーム）は切片ごと（VSeg.zoom）。編集対象は再生ヘッド位置の切片。
-  const [waveform, setWaveform] = useState<{
-    min: number[]
-    max: number[]
-    dur: number
-  } | null>(null)
-  const [thumbnailSrc, setThumbnailSrc] = useState<string | null>(null)
 
   // ---- マルチソース（複数の元動画を1タイムラインに連結）----
   // sources[0]=主ソース。既存のvideoPath/videoSrc/videoDuration/fps は「現在プレビュー中のソース」を表す。
   // 各 VSeg.srcId が元動画を指す（未指定=主ソース）。プレビューは再生ヘッドのソースへ<video>のsrcを切替。
-  const [sources, setSources] = useState<Source[]>([])
-  const sourcesRef = useRef<Source[]>([])
-  const sourceIdCounter = useRef(1)
-  const curSourceIdRef = useRef<number | null>(null) // 今<video>に読み込まれているソースID
   // 表示中のソースID（描画に使うのでstate）。切替は要素の表示切替だけ＝再ロードしないのでちらつかない
-  const [activeSrcId, setActiveSrcId] = useState<number | null>(null)
   // ソースを登録した時刻（GCが「配置直前のソース」を消してしまう競合を防ぐ猶予に使う）
   const srcAddedAtRef = useRef<Map<number, number>>(new Map())
   useEffect(() => {
@@ -884,7 +888,6 @@ function AppInner(): JSX.Element {
     folder?: string
     thumb?: string // サムネイル(gcfile url)
   }
-  const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
   // 取り込み済み素材の「尺」と「音声波形」をパスごとに先に用意しておく。
   // ドラッグ中のゴーストに波形をそのまま出せるようにするため（保存対象ではないキャッシュ）。
   const [mediaMeta, setMediaMeta] = useState<
@@ -929,7 +932,6 @@ function AppInner(): JSX.Element {
         .finally(() => metaInFlightRef.current.delete(path))
     )
   }
-  const mediaIdCounter = useRef(1)
   const draggingMediaRef = useRef<MediaItem | null>(null)
   const dragSeDurRef = useRef(2) // ドラッグ中SEの尺（ゴースト幅用。dragStartでgetDurationして更新）
   // タイムラインへSE配置中の半透明ゴースト（プレミア風に配置位置を可視化）
@@ -1855,17 +1857,9 @@ function AppInner(): JSX.Element {
   } | null>(null)
 
   // ---- 書き出し ----
-  const [exportStatus, setExportStatus] = useState<string | null>(null)
-  const [exportPct, setExportPct] = useState<number | null>(null) // FFmpegエンコード進捗%（null=不明/画像化中）
   // 書き出し設定（解像度・fps・画質）
-  const [showExportDialog, setShowExportDialog] = useState(false)
   // fps は 'source'＝素材と同じ（既定）。素材が60fpsなのに黙って30に落ちるのを防ぐため、
   // 実数への解決は書き出し直前に行い、main へは従来どおり数値だけを渡す。
-  const [exportOpts, setExportOpts] = useState<ExportOpts>({
-    resP: 1080,
-    fps: 'source',
-    quality: 'high'
-  })
   // 素材fps（未取得なら既定30）。29.97 のような小数もそのまま使う（main が分数で ffmpeg に渡す）
   const srcFpsForExport = (): number => (Number.isFinite(fps) && fps > 0 ? fps : FPS)
   // 表示用: 整数なら「60」、そうでなければ「29.97」
@@ -2385,7 +2379,6 @@ function AppInner(): JSX.Element {
     })
   }
   // ラウドネス正規化の目標LUFS（null=OFF）。既定はYouTube最適の -14
-  const [loudnormLUFS, setLoudnormLUFS] = useState<number | null>(-14)
 
   // ---- 右パネル（プロジェクト/テロップ/エフェクト/トランジション）----
   // 左パネルのタブ（プロパティ＝見た目の設定 / モーション＝時間で変わる動き）
@@ -3496,22 +3489,6 @@ function AppInner(): JSX.Element {
 
   // ---- クリップボード & 編集履歴（Undo/Redo）----
   // 履歴は cues / segments / seClips / markers / imgClips を1スナップショットで管理する（統合Undo）
-  interface Snap {
-    cues: Cue[]
-    segments: VSeg[]
-    seClips: SEClip[]
-    markers?: Marker[]
-    imgClips?: ImgClip[]
-    vClips?: VClip[]
-    // トラック構成/状態・比率・元動画一覧も履歴に含める。
-    // 含めないと「トラックを追加→Ctrl+Z」で1つ前の別操作が取り消されて驚く。
-    tracks?: Track[]
-    trackStates?: Record<string, TrackState>
-    ratio?: Ratio
-    // ※sources は履歴に含めない。波形/プロキシ/尺は非同期で後追いで入るキャッシュなので、
-    //   履歴に混ぜると Undo で解析結果まで巻き戻って波形が消える。
-    //   参照されなくなったソースは専用の GC effect で片付ける。
-  }
   const clipboardRef = useRef<Cue[]>([])
   const clipboardSeRef = useRef<SEClip[]>([]) // SE/BGM のクリップボード
   const clipboardImgRef = useRef<ImgClip[]>([]) // 画像のクリップボード
@@ -3524,12 +3501,6 @@ function AppInner(): JSX.Element {
   const tracksRef = useRef<Track[]>([])
   const trackStatesRef = useRef<Record<string, TrackState>>({})
   const ratioRef = useRef<Ratio>('16:9')
-  const undoStackRef = useRef<Snap[]>([])
-  const redoStackRef = useRef<Snap[]>([])
-  const baselineRef = useRef<Snap>({ cues: [], segments: [], seClips: [] }) // 最後に確定した状態
-  const pendingTimerRef = useRef<number | null>(null)
-  const suppressHistoryRef = useRef(false) // undo/redo 自身の set を履歴化しない
-  const [, setHistTick] = useState(0)
 
   function setTime(t: number): void {
     currentTimeRef.current = t
@@ -3622,7 +3593,7 @@ function AppInner(): JSX.Element {
         pushUndo(baselineRef.current)
         baselineRef.current = snapNow()
         redoStackRef.current = []
-        setHistTick((t) => t + 1)
+        setHistTick()
       }
     }, 450)
     return () => {
@@ -3653,7 +3624,7 @@ function AppInner(): JSX.Element {
     setSelectedIds((prev) => prev.filter((id) => s.cues.some((c) => c.id === id)))
     setEditingId(null) // Undo/Redoで消えたテロップの編集画面が残らないように
     clearSegSel()
-    setHistTick((t) => t + 1)
+    setHistTick()
   }
   // 保留中（デバウンス未確定）の変更を確定。分岐編集があれば redo を無効化する
   function commitPending(): void {
@@ -3698,7 +3669,7 @@ function AppInner(): JSX.Element {
     if (base.trackStates) trackStatesRef.current = base.trackStates
     if (base.ratio) ratioRef.current = base.ratio
     suppressHistoryRef.current = true
-    setHistTick((t) => t + 1)
+    setHistTick()
     // 保険: 続く setCues 等のエフェクトでフラグが消費されなかった場合、次tickで確実に解除
     // （消費済みなら false のまま＝no-op。残留すると次の本物の編集がundoに積まれない不具合の対策）
     setTimeout(() => {
@@ -13080,7 +13051,11 @@ export default function App(): React.JSX.Element {
               <ToasterProvider value={toast}>
                 <IconsProvider>
                   <PlaybackProvider value={playback}>
-                    <AppInner />
+                    <ExportProvider>
+                      <MediaProvider>
+                        <AppInner />
+                      </MediaProvider>
+                    </ExportProvider>
                   </PlaybackProvider>
                 </IconsProvider>
               </ToasterProvider>
