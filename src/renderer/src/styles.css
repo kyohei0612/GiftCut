@@ -1546,7 +1546,30 @@ body {
   display: flex;
   gap: 6px;
   justify-content: center;
+  align-items: center;
   flex-wrap: wrap;
+}
+/* **再生ボタンだけが行の中心に来る。**
+   左右を同じ幅で伸ばして挟むので、ボタンが増えても中心は動かない。
+   一番よく押す物の位置が毎回変わらないのが狙い。 */
+.tb-side {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.tb-side-l {
+  justify-content: flex-end;
+}
+.tb-side-r {
+  justify-content: flex-start;
+}
+/* 中心の物は少し大きく。探さずに押せるように */
+.tbtn-play {
+  width: 44px;
+  font-size: 14px;
 }
 .tbtn {
   background: var(--panel-2);
@@ -1656,11 +1679,16 @@ body {
   bottom: 10px;
   left: 10px;
 }
+/* **絵の外へ出す。**
+   絵の上に重ねると、いじっている当の映像がその帯で隠れる。
+   一番見たい所（上の方＝人の顔やテロップが乗る所）を覆っていた。
+   枠のすぐ下、映像の外側に置く。 */
 .reframe-bar {
   position: absolute;
-  top: 6px;
+  top: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
+  white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2059,7 +2087,9 @@ body {
   will-change: transform;
 }
 .th-spacer {
-  height: 24px;
+  /* **目盛り(.ruler)と必ず同じ高さにすること。**
+     片方だけ変えると、段の見出しと行がその差だけ縦にずれる */
+  height: 30px;
   /* 目盛り(sticky)と並ぶ位置。ここだけは送っても動かない */
   position: relative;
   z-index: 2;
@@ -2309,7 +2339,9 @@ body {
     w-resize !important;
 }
 .ruler {
-  height: 24px;
+  /* **少し高くする。** 掴んで再生位置を動かす所なので、細いと狙いにくい。
+     秒数の文字も 24px だと上下がかつかつで読みづらかった。 */
+  height: 30px;
   /* 縦に送っても秒数を残す。
      ※以前ここだけ sticky にして戻した経緯がある。左の段見出しが追従せず、
      行と見出しがずれる問題は何も解決しないまま、別の壊れ方だけ増えたため。

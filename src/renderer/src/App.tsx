@@ -2154,7 +2154,47 @@ export default function App(): JSX.Element {
     audioTrackHRef.current = audioTrackH
     saveLS('gc.audioTrackH', audioTrackH)
   }, [audioTrackH])
-  const trackHOf = (kind: string): number => (kind === 'video' ? videoTrackH : audioTrackH)
+  /**
+   * 段ごとの高さ（自分で変えた段だけ入る）。
+   *
+   * **掴んだ段だけ太らせたい。** 以前は映像なら映像の段が全部、音声なら音声の段が
+   * 全部まとめて変わっていた。波形を見たいのは音声の1本だけ、ということの方が多く、
+   * 巻き添えで他まで太ると画面が足りなくなる。
+   * ここに入っていない段は、今までどおり種類ごとの高さを使う。
+   */
+  // **ここは描画中に走るので loadLS を使えない**（定義がこれより下にあり、
+  // 読み込み順で「初期化前」になる。実際に起動テストがそれを捕まえた）
+  const [laneH, setLaneH] = useState<Record<string, number>>(() => {
+    // **波形が要るのは A1（本編の音）だけ。**
+    // 最小だと山が潰れて、どこで喋っているのかが読めない（無音カットの当たりも
+    // 付けられない）。ただし音声レーンを全部高くすると、そのぶん段の合計が伸びて
+    // タイムラインを縮めたときに縦へ溢れる。要る1本だけにしておく。
+    const def = { A1: 44 }
+    try {
+      const o = JSON.parse(localStorage.getItem('gc.laneH') ?? 'null')
+      if (!o || typeof o !== 'object') return def
+      const out: Record<string, number> = {}
+      for (const [k, v] of Object.entries(o))
+        if (typeof v === 'number' && v >= TRACK_H_MIN && v <= TRACK_H_MAX) out[k] = v
+      return Object.keys(out).length ? out : def
+    } catch {
+      return def
+    }
+  })
+  const laneHRef = useRef(laneH)
+  useEffect(() => {
+    laneHRef.current = laneH
+    saveLS('gc.laneH', laneH)
+  }, [laneH])
+  /** 段の高さ。id を渡せばその段の値、種類だけなら種類の値 */
+  const trackHOf = (idOrKind: string): number => {
+    const own = laneH[idOrKind]
+    if (own != null) return own
+    if (idOrKind === 'video' || idOrKind === 'audio')
+      return idOrKind === 'video' ? videoTrackH : audioTrackH
+    const t = tracks.find((x) => x.id === idOrKind)
+    return t?.kind === 'audio' ? audioTrackH : videoTrackH
+  }
   const cueTrack = (c: Cue): string => c.track ?? 'V2' // テロップの配置トラック（未指定=V2）
   // オーディオトラックの実効ゲイン（ミュート/ソロ/音量×マスターを合成）
   const anyAudioSolo = tracks.some((t) => t.kind === 'audio' && trackStates[t.id]?.solo)
@@ -2213,11 +2253,34 @@ export default function App(): JSX.Element {
   function startGroupResize(
     kind: 'video' | 'audio',
     above: number,
-    e: React.PointerEvent
+    e: React.PointerEvent,
+    trackId?: string
   ): void {
     e.preventDefault()
     e.stopPropagation()
     const startY = e.clientY
+    // **掴んだ段だけ動かす。**
+    // まとめて変える作りだと、波形を1本だけ見たいときにも他の段まで太り、
+    // 画面が足りなくなる。掴んだ線の下にある段はそのまま押し下がる。
+    if (trackId) {
+      const startOwn = trackHOf(trackId)
+      const prevCur = document.body.style.cursor
+      document.body.style.cursor = 'row-resize'
+      const mv = (ev: PointerEvent): void => {
+        const h = clamp(startOwn + (ev.clientY - startY), TRACK_H_MIN, TRACK_H_MAX)
+        setLaneH((p) => ({ ...p, [trackId]: h }))
+      }
+      const up = (): void => {
+        document.body.style.cursor = prevCur
+        window.removeEventListener('pointermove', mv)
+        window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', up)
+      }
+      window.addEventListener('pointermove', mv)
+      window.addEventListener('pointerup', up)
+      window.addEventListener('pointercancel', up)
+      return
+    }
     const startH = kind === 'video' ? videoTrackHRef.current : audioTrackHRef.current
     const rows = Math.max(1, kind === 'video' ? above + TRACK_PAD_ROWS : above)
     const setter = kind === 'video' ? setVideoTrackH : setAudioTrackH
@@ -13289,7 +13352,7 @@ export default function App(): JSX.Element {
                     data-tid={tr.id}
                     className={`track track-${tr.kind}`}
                     style={{
-                      height: trackHOf(tr.kind),
+                      height: trackHOf(tr.id),
                       cursor:
                         tool === 'razor'
                           ? 'crosshair'

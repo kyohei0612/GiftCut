@@ -63,6 +63,21 @@ const CHANGED = process.argv.includes('--changed')
 // 見た目を見たいだけのとき用。確認は一切せず、起動して復元して1枚撮って終わる。
 // これが無いと、画面を見るためだけにテストを回すことになる。
 const SHOT_ONLY = process.argv.includes('--shot')
+/**
+ * 画面の縦横比。既定は 16:9。
+ *
+ *   npm run e2e -- --ratio=9:16   ショート（縦長）で通す
+ *
+ * **縦長は横長の使い回しでは通らない。** 幅と高さが入れ替わるので、
+ * テロップの箱・プレビューの当たり判定・書き出しの寸法が別々の壊れ方をしうる。
+ * ショートを作る人には毎回効く所なので、同じ確認を縦長でも回せるようにする。
+ * 比率は「プロジェクトを戻すたび」に当て直す（読み込みで 16:9 に戻るため）。
+ */
+const RATIO = (process.argv.find((a) => a.startsWith('--ratio=')) ?? '').slice(8) || '16:9'
+if (!['16:9', '9:16', '1:1'].includes(RATIO)) {
+  console.error(`知らない比率です: ${RATIO}（16:9 / 9:16 / 1:1）`)
+  process.exit(2)
+}
 
 // --changed: いま直している所に関わる確認だけを回す。
 //
@@ -350,6 +365,22 @@ ${t}
 const results = []
 // 前のリセット以降に確認を実行したか（実行していれば状態が変わっている可能性がある）
 const touchedRef = { dirty: true }
+/** 後始末で戻し切れなかった回数。最後にまとめて出す（黙って流さない） */
+const viewWarnRef = { n: 0 }
+/** 縦横比を当て直す関数の置き場（check から呼ぶ。定義は下の run の中） */
+const applyRatioRef = { fn: null }
+/**
+ * この比率では成り立たない確認を、理由付きで飛ばす。
+ *
+ * **黙って通さないこと。** 元動画（横長）と直接比べる作りの確認は、
+ * 縦長にすると必ず食い違う（レターボックスの黒帯が入るため）。
+ * 赤にしても直しようが無く、緑にすると見ていないのに見たことになる。
+ */
+function skipHere(reason) {
+  const e = new Error(reason)
+  e.__skip = reason
+  throw e
+}
 let curSection = ''
 let pageRef = null
 const TOTAL_HINT = 46 // だいたいの件数（進み具合の表示用。増減しても表示が崩れないだけ）
@@ -414,6 +445,34 @@ async function check(name, fn, opts = {}) {
   await banner({ status: 'run', name: esc(name), section: esc(curSection), done: results.length, total })
   // 何を確認しているか読めるだけの間を置く（--slow ならもっと長く）
   if (pageRef) await pageRef.waitForTimeout(SLOW ? 900 : 320)
+  // **前の項目が窓を開けっぱなしにしていたら、ここで閉じる。**
+  //
+  // 開いたままの窓は画面全体を覆うので、以降の項目が「押せない」で落ち続ける。
+  // 実際、通しで**1件の閉じ忘れが20件以上を巻き添え**にした。
+  // ただし黙って直すと閉じ忘れ自体が見えなくなるので、**誰の後始末かを出す**。
+  if (pageRef && !opts.setup) {
+    try {
+      if (await pageRef.locator('.export-overlay').count()) {
+        const prev = results.filter((r) => !r.skipped).slice(-1)[0]?.name ?? '（不明）'
+        console.log(
+          `  \x1b[33m※ 窓が開いたままでした。閉じて続けます（直前: ${prev}）\x1b[0m`
+        )
+        const close = pageRef.locator('.restore-btns button', { hasText: /閉じる|キャンセル|空で始める/ })
+        if (await close.count()) await close.first().click({ timeout: 3000 }).catch(() => {})
+        else await pageRef.keyboard.press('Escape')
+        await pageRef.waitForTimeout(400)
+      }
+    } catch {
+      /* 閉じられなくても本題は続ける */
+    }
+  }
+  // 縦横比を指定して回すときは、**各項目の頭で当て直す**。
+  // 比率はプロジェクトに入っているので、開き直すたびに 16:9 へ帰る。
+  // ここで当て直さないと、縦長で通したつもりが途中から横長になっていて、
+  // 通ったことにならない（起動直後は窓が出ていて押せないので、そこも拾い直す）
+  if (pageRef && RATIO !== '16:9' && typeof applyRatioRef.fn === 'function') {
+    await applyRatioRef.fn().catch(() => {})
+  }
   try {
     touchedRef.dirty = true
     await fn()
@@ -421,6 +480,14 @@ async function check(name, fn, opts = {}) {
     console.log(`  \x1b[32m✓\x1b[0m ${name}`)
     await banner({ status: 'ok', name: esc(name), section: esc(curSection), done: results.length, total })
   } catch (e) {
+    // **「この比率では見られない」は赤にしない。**
+    // ただし黙って通すと、見ていないのに緑を見て「大丈夫」と読んでしまう。
+    // 飛ばした理由をその場に出し、最後の集計でも「見ていない」に数える。
+    if (e && e.__skip) {
+      results.push({ name, skipped: true })
+      console.log(`  \x1b[33m－\x1b[0m ${name}\n      見ていません: ${e.__skip}`)
+      return
+    }
     const msg = String(e?.message ?? e).split('\n')[0]
     const state = await ngState()
     let png = null
@@ -543,6 +610,11 @@ try {
     },
     { video: fx.video, image: fx.image, sound: fx.sound, outDir }
   )
+  // 縦横比を指定されていれば、最初から当てておく（以降は resetProject が当て直す）
+  if (RATIO !== '16:9') {
+    console.log(`\x1b[36m画面の縦横比: ${RATIO} で通します\x1b[0m`)
+    await applyRatio()
+  }
   /** 次に「開く／保存」で選ばれるファイルを差し替える */
   const setDialogFiles = (open, save) =>
     app.evaluate(
@@ -840,15 +912,26 @@ try {
       // 映像と音声の境目を枠に残すので、起動直後から送られていることがある
       // （実際に 32px 送られた状態が既定だった）。0 に戻すと「戻したのに違う」
       // となって、後始末そのものが失敗する。
+      // ※**中身が枠に収まらない間は、送られているのが正しい。**
+      // アプリは高さが変わるたびに映像と音声の境目を枠に残すので、
+      // 溢れている状態では 0 に戻しても即座に送り直される。
+      // そこを「戻せなかった」と数えると、段を高くしただけで後始末が失敗する
+      // （音声の段を既定で高くしたときに、実際にそうなった）。
       read: () =>
-        page.evaluate(() =>
-          String(Math.round(document.querySelector('.track-scroll')?.scrollTop ?? 0))
-        ),
+        page.evaluate(() => {
+          const el = document.querySelector('.track-scroll')
+          if (!el) return '0'
+          // **ここを甘くしないこと。**
+          // 一度「収まらない間は見ない」にしたら、送られたまま次へ進み、
+          // 座標で押している項目が3件ずれた（範囲選択・SEのまとめ移動・目盛りの印）。
+          // 送られたままなら、それは本当に直すべき状態。
+          return String(Math.round(el.scrollTop))
+        }),
       restore: async (base) => {
         await page.evaluate((v) => {
           const el = document.querySelector('.track-scroll')
-          if (el) el.scrollTop = v
-        }, Number(base) || 0)
+          if (el) el.scrollTop = Number(v) || 0
+        }, base)
         await page.waitForTimeout(250)
       }
     },
@@ -962,10 +1045,18 @@ try {
       if (typeof d.s.restore === 'function') await d.s.restore(d.base)
     }
     const left = await viewDrift()
-    assert(
-      !left.length,
-      `画面の状態を戻せなかった（${left.map((d) => `${d.s.name}=${d.now}（起動時 ${d.base}）`).join(' / ')}）`
-    )
+    // **戻し切れなくても、そこで通しを打ち切らない。**
+    // 後始末は各項目の合間に走るので、ここで例外にすると
+    // **1件の戻し漏れで残り全部が回らなくなる**（実際、通しが4回止まった）。
+    // 見落とさないよう必ず出したうえで、確認は続ける。
+    if (left.length) {
+      console.log(
+        `  \x1b[33m※ 戻し切れなかった: ${left
+          .map((d) => `${d.s.name}=${d.now}（起動時 ${d.base}）`)
+          .join(' / ')}\x1b[0m`
+      )
+      viewWarnRef.n++
+    }
   }
   /**
    * 用意した状態に戻す。各章の頭で呼ぶ。
@@ -1034,6 +1125,27 @@ try {
     const after = await viewDrift()
     if (after.length) await restoreView(after)
     assert((await v1Clips().count()) === 3, '状態を戻せなかった（クリップが3つにならない）')
+    await applyRatio()
+  }
+  /**
+   * 指定された縦横比に合わせる（--ratio）。
+   *
+   * **プロジェクトを開くたびに当て直す。** 比率はプロジェクトに入っているので、
+   * 戻すたびに 16:9 へ帰る。ここで当て直さないと、縦長で通したつもりが
+   * 途中から横長に戻っていて、**通ったことにならない**。
+   */
+  applyRatioRef.fn = applyRatio
+  async function applyRatio() {
+    if (RATIO === '16:9') return
+    // 窓（復元の確認・テンプレート選び）が出ている間は押せない。
+    // ここで粘らずに見送る——次の項目の頭でまた当てるので取りこぼさない
+    if (await page.locator('.export-overlay').count()) return
+    const chip = page.locator('.ratio-group .chip', { hasText: RATIO }).first()
+    if (!(await chip.count())) return
+    const on = await page.locator('.ratio-group .chip.chip-on').innerText().catch(() => '')
+    if (on.includes(RATIO)) return
+    await chip.click({ timeout: 3000 }).catch(() => {})
+    await page.waitForTimeout(400)
   }
   /** 秒を指定して再生位置を移す（拡大率に依存しない） */
   async function seekTo(sec) {
@@ -2270,7 +2382,9 @@ try {
     probe.stdout.on('data', (d) => (o += d))
     await new Promise((res) => probe.on('close', res))
     const [w, h] = o.trim().split(',').map(Number)
-    assert(h === 720, `高さが720になっていない（${w}x${h}）`)
+    // **見るのは「短い辺」。** 縦長（9:16）では 720x1280 になるのが正しく、
+    // 高さで見ていると縦長で必ず落ちる（720p＝短い辺が720、という意味なので）
+    assert(Math.min(w, h) === 720, `短い辺が720になっていない（${w}x${h}）`)
   })
 
   await check('ショート（9:16）でも、縦長のまま中身が入って書き出せる', async () => {
@@ -2288,6 +2402,9 @@ try {
     await setDialogFiles(null, out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
+    // **解像度は自分で決める。** 書き出しの設定は残るので、前の項目が 720 に
+    // していると 720x1280 で出て「縦長になっていない」と誤検知する（通しで踏んだ）
+    await page.locator('.pq-export').first().selectOption('1080')
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
     assert(existsSync(out), '書き出しファイルができていない')
@@ -2443,6 +2560,11 @@ try {
   })
 
   await check('素材を追加しても、タイムラインには載らない', async () => {
+    // **押すボタンのある所を自分で開く。**
+    // 直前が SE タブを見たまま終わっていると、プロジェクトの「ファイル追加」が
+    // 見つからずに落ちる（通しで実際に踏んだ）
+    await page.locator('.panel-tabs-strip').last().locator('.tab', { hasText: 'プロジェクト' }).first().click()
+    await page.waitForTimeout(400)
     const n0 = await v1Clips().count()
     await setDialogFiles([fx.video], null)
     await page.locator('button', { hasText: 'ファイル追加' }).first().click()
@@ -2862,6 +2984,9 @@ try {
     const bad = await page.evaluate((p) => window.giftcut.importSe([p]), fx.image)
     assert(bad?.ok === false, '画像まで SE に入れてしまう')
     touchedRef.dirty = true
+    // **見ていたタブを戻す。** SE タブに置いたまま抜けると、次の項目が
+    // プロジェクトのボタンを探して見つけられない（通しで23件が巻き添えになった）
+    await resetProject()
   })
 
   await check('テンプレートを開く画面から、自分で作ったぶんを消せる', async () => {
@@ -2906,8 +3031,11 @@ try {
         'テンプレートの置き場を開く道が無い'
       )
     }
-    await page.keyboard.press('Escape')
-    await page.waitForTimeout(300)
+    // **窓は必ず閉じる。** Escape では閉じない作りなので、閉じるボタンを押す
+    //（開けっぱなしだと画面全体を覆い、次の項目が何も押せなくなる）
+    const closeBtn = page.locator('.restore-btns button', { hasText: /閉じる|空で始める/ })
+    if (await closeBtn.count()) await closeBtn.first().click()
+    await page.waitForTimeout(400)
 
     // **同梱のテンプレートは消せない**（置き場の外を消す穴にしない）
     const bad = await page.evaluate(async () => {
@@ -2990,6 +3118,15 @@ try {
       !existsSync(join(fx.userData, 'あやしい.txt')),
       '知らないファイルを置き場へ撒いている'
     )
+    // **入れた物は片付ける。**
+    // 置き場は次の項目とも共有なので、残すと件数を数えている項目が狂う
+    //（実際、動きの見本帳の件数が1件ずれて通しで落ちた）
+    for (const f of [
+      join(fx.userData, 'motion-presets', 'pack.json'),
+      join(fx.userData, 'telop-presets', 'pack.json')
+    ])
+      rmSync(f, { force: true })
+    await page.evaluate(() => window.giftcut.listMotionPresets())
   })
 
   await check('自分で足したテロップ素材は、更新で消えない場所から読まれる', async () => {
@@ -3817,6 +3954,9 @@ try {
   })
 
   await check('書き出した動画でも、クリップが本当に寄っている', async () => {
+    // 縦長では**元動画（横長）と直接比べられない**（上下に黒帯が入るため）。
+    // 寄せの計算そのものは比率に依らないので、ここは 16:9 で見る。
+    if (RATIO !== '16:9') skipHere('元動画（横長）と直接比べる作りなので、縦長では成り立たない')
     // **ここが本番。** プレビューで寄っても、書き出しで寄らなければ意味が無い。
     //
     // 「前と後ろの絵が違う」だけでは通ってしまう（元動画の中身が動いているので、
@@ -3907,6 +4047,8 @@ try {
   })
 
   await check('動きを付けた画像が、書き出しでも置いた場所から動かない', async () => {
+    // ここも元動画（横長）と直接比べる作り。縦長では黒帯が入って必ず食い違う
+    if (RATIO !== '16:9') skipHere('元動画（横長）と直接比べる作りなので、縦長では成り立たない')
     // 画像は元が1枚しか無いので、書き出しでは**尺のぶんだけ増やしてから**動かす。
     // 増やしたものは時刻0から並ぶので、置いた時刻へずらし直す必要がある。
     // ずらし忘れると「重なる窓が開く頃には最後の1枚で止まっている」＝
@@ -4585,9 +4727,15 @@ try {
     const xs1 = await page.locator('.se-clip').evaluateAll((els) =>
       els.map((e) => Math.round(e.getBoundingClientRect().x))
     )
+    // **並び順で比べないこと。**
+    // 動かしたあとに要素の並びが入れ替わることがあり、添字どうしで比べると
+    // 「317,506 → 566,377」のように**両方ちゃんと +60 動いていても落ちる**。
+    // 見たいのは「どれも右へ動いたか」なので、位置順に並べてから比べる。
+    const a = [...xs0].sort((p, q) => p - q)
+    const b = [...xs1].sort((p, q) => p - q)
     assert(
-      xs1.every((x, i) => x > xs0[i] + 5),
-      `まとめて動いていない（${xs0.join(',')} → ${xs1.join(',')}）`
+      b.every((x, i) => x > a[i] + 5),
+      `まとめて動いていない（${a.join(',')} → ${b.join(',')}）`
     )
   })
 
@@ -7152,6 +7300,12 @@ try {
   const skipped = results.filter((r) => r.skipped).length
   const ng = results.filter((r) => !r.ok && !r.skipped)
   console.log(`\n\x1b[1m結果: ${ok} / ${results.length} 件が期待どおり\x1b[0m`)
+  // 戻し切れなかった回数は必ず出す。**黙って流すと、次に何かが落ちたときに
+  // 「本物か、前の項目の残りか」を毎回調べ直すことになる**
+  if (viewWarnRef.n)
+    console.log(
+      `\x1b[33m※ 画面の状態を戻し切れなかった回数: ${viewWarnRef.n}（上の「戻し切れなかった」を参照）\x1b[0m`
+    )
   // 絞って回したときは、必ず「全部は見ていない」と出す。
   // これが無いと、緑を見て「通った＝大丈夫」と読んでしまう。
   if (ONLY.length && skipped) {

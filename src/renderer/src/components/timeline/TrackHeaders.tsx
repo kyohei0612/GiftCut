@@ -50,7 +50,8 @@ export function TrackHeaders({
   tracks: HeaderTrack[]
   stateOf: (id: string) => HeaderState
   selectedId: string | null
-  heightOf: (kind: 'video' | 'audio') => number
+  /** 段の高さ。段の id を渡す（段ごとに変えられる） */
+  heightOf: (trackId: string) => number
   /** 段の上下に置く余白。トラック側と必ず同じ値にする
    *  （ずれると、押した段と実際の段が食い違う） */
   padTop: number
@@ -60,15 +61,21 @@ export function TrackHeaders({
   /** 縦スクロールに追従させるための入れ物への参照（呼ぶ側が transform で動かす） */
   bodyRef?: Ref<HTMLDivElement>
   /**
-   * 段の下の境目を掴んで高さを変える（プレミアと同じ操作）。
+   * 段の下の境目を掴んで高さを変える。
    *
-   * @param kind その境目より上の段の種類。映像なら映像レーン全体、
-   *             音声なら音声レーン全体がまとめて変わる（プレミアの挙動）
+   * **既定は「掴んだ段だけ」**（trackId を渡す）。波形を1本だけ大きく見たい、が
+   * ほとんどで、まとめて太ると画面が足りなくなる。
+   * Shift を押しながらなら trackId を渡さず、同じ種類をまとめて変える（従来の動き）。
+   *
    * @param above その境目より上に、同じ種類の段がいくつあるか（1から数える）。
-   *              掴んだ線をカーソルに追従させるのに要る。渡し忘れると、
-   *              掴んだ場所と線が離れていく
+   *              まとめて変えるとき、掴んだ線をカーソルに追従させるのに要る。
    */
-  onResizeStart?: (kind: 'video' | 'audio', above: number, e: React.PointerEvent) => void
+  onResizeStart?: (
+    kind: 'video' | 'audio',
+    above: number,
+    e: React.PointerEvent,
+    trackId?: string
+  ) => void
   onSelect: (id: string) => void
   onRename: (id: string, current: string) => void
   onToggle: (id: string, key: 'locked' | 'hidden' | 'muted' | 'solo') => void
@@ -94,7 +101,7 @@ export function TrackHeaders({
             <div
               key={tr.id}
               className={`th th-${tr.kind} ${selectedId === tr.id ? 'th-selected' : ''}`}
-              style={{ height: heightOf(tr.kind) }}
+              style={{ height: heightOf(tr.id) }}
               onClick={() => onSelect(tr.id)}
               title="クリックでトラック選択（Deleteで削除）"
             >
@@ -174,14 +181,12 @@ export function TrackHeaders({
               {onResizeStart && (
                 <div
                   className="th-divider"
-                  title={
-                    tr.kind === 'video'
-                      ? '上下にドラッグで映像レーンの高さを変える'
-                      : '上下にドラッグで音声レーンの高さを変える'
-                  }
+                  title="上下にドラッグでこの段の高さを変える（Shiftで同じ種類をまとめて）"
                   onPointerDown={(e) => {
                     e.stopPropagation() // 段を選ぶ動作にしない
-                    onResizeStart(tr.kind, above, e)
+                    // **既定は掴んだ段だけ。** まとめて変えたい時だけ Shift。
+                    // 波形を1本だけ見たいことの方が多く、巻き添えで太ると画面が足りない
+                    onResizeStart(tr.kind, above, e, e.shiftKey ? undefined : tr.id)
                   }}
                   onClick={(e) => e.stopPropagation()}
                 />

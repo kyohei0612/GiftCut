@@ -171,7 +171,12 @@ export function TransportBar({
         <span className="tc tc-cur">{timecode}</span>
         <div className="transport-info-right">{info}</div>
       </div>
+      {/* **再生ボタンを行のど真ん中に置く。**
+          並べただけだと、左右のボタンの数で中心がずれる（前は左寄りだった）。
+          左右を同じ幅の入れ物で挟み、真ん中に再生だけを置けば、
+          ボタンが増えても中心は動かない。一番よく押す物の位置を毎回探さずに済む。 */}
       <div className="transport-btns">
+        <div className="tb-side tb-side-l">
         <button className="tbtn" onClick={() => onSkip(-10)} title="10秒戻る">
           «10
         </button>
@@ -181,6 +186,7 @@ export function TransportBar({
         <button className="tbtn" onClick={() => onStep(-1)} title={`1フレーム戻る (${keyHint.back})`}>
           ◁ǀ
         </button>
+        </div>
         <button
           className="tbtn tbtn-play"
           onClick={onTogglePlay}
@@ -188,6 +194,7 @@ export function TransportBar({
         >
           {playing ? '⏸' : '▶'}
         </button>
+        <div className="tb-side tb-side-r">
         <button className="tbtn" onClick={() => onStep(1)} title={`1フレーム進む (${keyHint.fwd})`}>
           ǀ▷
         </button>
@@ -217,6 +224,7 @@ export function TransportBar({
         <button className="tbtn" onClick={() => onJumpMarker(1)} title="次のマーカーへ">
           🚩⟩
         </button>
+        </div>
       </div>
     </div>
   )
