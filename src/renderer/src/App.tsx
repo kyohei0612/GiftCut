@@ -147,6 +147,11 @@ import { nextOpenSecs } from '../../shared/accordion'
 import { ensureMinShow, mergeShreds, splitAtPauses } from '../../shared/splitTelop'
 import { alignCues, speechRanges } from '../../shared/alignCues'
 import { LayoutProvider, useLayout } from './state/layoutContext'
+import { SelectionProvider, useSel } from './state/selectionContext'
+import { ContentProvider, useDoc } from './state/contentContext'
+import { useTracks } from './state/useTracks'
+import { useView } from './state/useView'
+import { useToast } from './state/useToast'
 import { nearestSnap } from '../../shared/snap'
 import { splitAt, toggleSelect, trimLeft, trimRight } from '../../shared/clipEdit'
 import { mediaQueue, rafThrottle } from './lib/schedule'
@@ -466,9 +471,34 @@ const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10
  * 同じ部品の中で囲いを作ると、その部品自身は中を見に行けない。
  */
 function AppInner(): JSX.Element {
+  // 見え方（拡大率）とお知らせ
+  const { zoom, setZoom, zoomRef } = useView()
+  const { toasts, setToasts, showToast } = useToast()
+  // 段（トラック）と鍵。**鍵はあらゆる編集の手前で見る**ので心臓に置く
+  const { tracks, setTracks, trackStates, setTrackStates, isLocked, toggleTrack } = useTracks(
+    DEFAULT_TRACKS,
+    initTrackStates
+  )
+  // タイムラインの中身は state/useContent がまとめて持つ（配列と採番は一組）
+  const {
+    cues, setCues, segments, setSegments, segIdCounter,
+    seClips, setSeClips, seIdCounter, imgClips, setImgClips, imgIdCounter,
+    vClips, setVClips, vClipIdCounter, markers, setMarkers, markerIdCounter
+  } = useDoc()
+  // 選んでいる物は state/useSelection がまとめて持つ（解除の入口も1つ）
+  const sel = useSel()
+  const {
+    selectedIds, setSelectedIds, selectedVideoIds, setSelectedVideoIds,
+    selectedAudioIds, setSelectedAudioIds, selectedSeIds, setSelectedSeIds,
+    selectedImgIds, setSelectedImgIds, selectedVClipIds, setSelectedVClipIds,
+    selectedTrans, setSelectedTrans, selectedTelopTrans, setSelectedTelopTrans,
+    selectedTrackId, setSelectedTrackId, selectedMarkerId, setSelectedMarkerId,
+    editingMarkerId, setEditingMarkerId, editingId, setEditingId,
+    selectedMediaId, setSelectedMediaId, videoSelected, setVideoSelected,
+    isSelected, isVideoSel, isAudioSel, anySegSelected, clearSegSel
+  } = sel
+  const clearAllSelections = sel.clearAll
   // ---- データ ----
-  const [cues, setCues] = useState<Cue[]>([])
-  const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [srtPath, setSrtPath] = useState<string | null>(null) // 読み込んだSRTのパス（表示用）
   // プロジェクト(.gcproj)の保存先。srtPath とは必ず別に持つ
   // （兼用にすると「上書き保存」が読み込んだSRTファイルを壊す）。
@@ -506,7 +536,6 @@ function AppInner(): JSX.Element {
     }
     setRatio(next)
   }
-  const [zoom, setZoom] = useState(24) // px / 秒
   // マグネットの ON/OFF は編集の癖なのでPCに覚えさせる（プレビュー解像度や
   // パネル幅は保存しているのに、ここだけ毎回ONに戻っていた）。
   // loadLS はこの行より後ろで定義されるので使えない（使うと起動時に
@@ -747,7 +776,6 @@ function AppInner(): JSX.Element {
   }, [])
   const lastPaintRef = useRef(0) // 再生中の最後にsetTimeした時刻（再描画スロットル用）
   // 動画ズーム（リフレーム）は切片ごと（VSeg.zoom）。編集対象は再生ヘッド位置の切片。
-  const [videoSelected, setVideoSelected] = useState(false) // プレビューで動画を選択中（リフレーム枠を表示）
   const [waveform, setWaveform] = useState<{
     min: number[]
     max: number[]
@@ -848,7 +876,6 @@ function AppInner(): JSX.Element {
         .finally(() => metaInFlightRef.current.delete(path))
     )
   }
-  const [selectedMediaId, setSelectedMediaId] = useState<number | null>(null)
   const mediaIdCounter = useRef(1)
   const draggingMediaRef = useRef<MediaItem | null>(null)
   const dragSeDurRef = useRef(2) // ドラッグ中SEの尺（ゴースト幅用。dragStartでgetDurationして更新）
@@ -940,9 +967,6 @@ function AppInner(): JSX.Element {
   }
 
   // ---- SE クリップ（A2 トラックに配置した効果音）----
-  const [seClips, setSeClips] = useState<SEClip[]>([])
-  const [selectedSeIds, setSelectedSeIds] = useState<number[]>([])
-  const seIdCounter = useRef(1)
   const seAudioRefs = useRef<Map<number, HTMLAudioElement>>(new Map())
   // ref コールバックはクリップIDごとに固定する。毎レンダー新規の無名関数だと
   // detach→attach が毎回起きて、detach時のpauseで鳴っている音が切れてしまう。
@@ -966,9 +990,6 @@ function AppInner(): JSX.Element {
   }
 
   // ---- 画像クリップ（V2/V3等の映像トラックに置く静止画。プレミアの画像配置に相当）----
-  const [imgClips, setImgClips] = useState<ImgClip[]>([])
-  const [selectedImgIds, setSelectedImgIds] = useState<number[]>([])
-  const imgIdCounter = useRef(1)
   function placeImage(m: MediaItem, t: number, track: string): void {
     if (trackStates[track]?.locked) {
       showToast('このトラックはロックされています。')
@@ -1152,9 +1173,6 @@ function AppInner(): JSX.Element {
   // ---- 映像レイヤークリップ（V2以降に置く動画。ピクチャーインピクチャー／差し込み用）----
   // V1 の「切片(VSeg)」は隙間なく連結するリップル方式だが、こちらは絶対位置に置く独立クリップ。
   // 音声は必ず対になる音声トラック（V2→A2, V3→A3）に連動表示・再生される＝映像と音は常にセット。
-  const [vClips, setVClips] = useState<VClip[]>([])
-  const [selectedVClipIds, setSelectedVClipIds] = useState<number[]>([])
-  const vClipIdCounter = useRef(1)
   const vClipsRef = useRef<VClip[]>([])
   useEffect(() => {
     vClipsRef.current = vClips
@@ -1562,10 +1580,6 @@ function AppInner(): JSX.Element {
   }
 
   // ---- マーカー（タイムライン上の目印。頭出し/メモ用。書き出しには影響しない）----
-  const [markers, setMarkers] = useState<Marker[]>([])
-  const [selectedMarkerId, setSelectedMarkerId] = useState<number | null>(null)
-  const [editingMarkerId, setEditingMarkerId] = useState<number | null>(null)
-  const markerIdCounter = useRef(1)
   // 再生ヘッド位置にマーカーを追加（同じ位置に既にあれば選択のみ）
   function addMarkerAtPlayhead(): void {
     const t = currentTimeRef.current
@@ -1787,13 +1801,7 @@ function AppInner(): JSX.Element {
   const clockStartPosRef = useRef(0) // 再生開始時のタイムライン位置（秒）
 
   // ---- 動画セグメント（切片編集）----
-  const [segments, setSegments] = useState<VSeg[]>([])
   // 動画と音声の選択は独立（クリックは片方、ドラッグは両方に掛かれば両方）
-  const [selectedVideoIds, setSelectedVideoIds] = useState<number[]>([])
-  const [selectedAudioIds, setSelectedAudioIds] = useState<number[]>([])
-  const isVideoSel = (id: number): boolean => selectedVideoIds.includes(id)
-  const isAudioSel = (id: number): boolean => selectedAudioIds.includes(id)
-  const anySegSelected = (): boolean => selectedVideoIds.length > 0 || selectedAudioIds.length > 0
   // どのクリップにもラベルカラーを付けられる（以前はテロップだけの機能だった）。
   // 素材が増えると見分けが付かなくなるため、色で分類できるようにする。
   function setClipLabel(kind: string, id: number, color?: string): void {
@@ -1806,45 +1814,19 @@ function AppInner(): JSX.Element {
     else if (kind === 'vclip')
       setVClips((prev) => prev.map((c) => (c.id === id ? { ...c, label: color } : c)))
   }
-  function clearSegSel(): void {
-    setSelectedVideoIds([])
-    setSelectedAudioIds([])
-    setSelectedSeIds([])
-    setSelectedImgIds([])
-    setSelectedVClipIds([])
-    setSelectedTrans(null)
-    setSelectedTelopTrans(null)
-    // マーカー選択も解除（残っているとDelete/Dがマーカー削除に横取りされるため）
-    setSelectedMarkerId(null)
-  }
+
   // 選択という選択を全部解除する唯一の入口。
   // 以前は解除処理が6箇所に散っていて、それぞれ違う部分集合しか消していなかった。
   // その結果「動画クリップを消したのにマーカーだけ消える」「Ctrl+A→Delete が
   // 無反応」「プレビューのリフレーム枠から抜けられない」が同時に起きていた。
   // 解除したい場所は必ずここを通すこと（部分的に消したい場合を除く）。
-  function clearAllSelections(): void {
-    clearSegSel() // テロップ以外のクリップ＋トランジション＋マーカー
-    setSelectedIds([]) // テロップ
-    setSelectedTrackId(null) // トラック選択（残ると Delete がトラック削除に化ける）
-    setVideoSelected(false) // プレビューのリフレーム枠（残るとホイールが拡大縮小になる）
-    setSelectedMediaId(null) // 素材ビンの選択（残ると Delete の対象が分からなくなる）
-  }
+
   // タイムライン上で選択中のトランジション（動画クリップの頭/尻ディップ or カット間ディゾルブ）。
   // クリップ本体とは別枠で選択でき、ここが選択中なら右パネルでそのトランジションだけを編集/削除できる。
-  const [selectedTrans, setSelectedTrans] = useState<{
-    segId: number
-    kind: 'in' | 'out' | 'xfade'
-  } | null>(null)
   // 選択中のテロップ出入りアニメ（動画トランジションと同じ選択/編集/削除の仕組み）。
-  const [selectedTelopTrans, setSelectedTelopTrans] = useState<{
-    cueId: number
-    kind: 'in' | 'out'
-  } | null>(null)
-  const segIdCounter = useRef(1)
   const currentSegRef = useRef(0) // 再生中に追従しているセグメント index
 
   // ---- トラック（可変。+ボタンで増やせる）----
-  const [tracks, setTracks] = useState<Track[]>(DEFAULT_TRACKS)
   const nVideoTracks = useMemo(() => tracks.filter((t) => t.kind === 'video').length, [tracks])
   const nAudioTracks = useMemo(() => tracks.filter((t) => t.kind === 'audio').length, [tracks])
   const v1Index = useMemo(() => tracks.findIndex((t) => t.id === 'V1'), [tracks])
@@ -1864,7 +1846,6 @@ function AppInner(): JSX.Element {
     setTrackStates((s) => ({ ...s, [id]: newTrackState(id) }))
   }
   // 選択中のトラック（ヘッダークリックで選択。Deleteショートカットで削除）
-  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null)
   // そのトラックに中身があるか（動画=切片, 音声=SE, テロップ=そのトラックのcue）
   function trackHasContent(id: string): boolean {
     if (id === 'V1' || id === 'A1') return segsRef.current.length > 0 // メイン動画/音声
@@ -1924,12 +1905,7 @@ function AppInner(): JSX.Element {
   }
 
   // ---- トラック状態 ----
-  const [trackStates, setTrackStates] = useState<Record<string, TrackState>>(() =>
-    initTrackStates(DEFAULT_TRACKS)
-  )
-  function toggleTrack(id: string, key: keyof TrackState): void {
-    setTrackStates((s) => ({ ...s, [id]: { ...s[id], [key]: !s[id][key] } }))
-  }
+  // 段とその状態（鍵など）は state/useTracks が持つ
 
   // ---- トラック高さ（映像/音声グループごとにまとめて可変・localStorage 永続化）----
   // プレミア同様、映像レーン全体・音声レーン全体をそれぞれ一括で高さ調整する
@@ -2148,21 +2124,8 @@ function AppInner(): JSX.Element {
   const resolveExportFps = (): number =>
     exportOpts.fps === 'source' ? srcFpsForExport() : exportOpts.fps
   // ---- トースト通知（OS標準alertの置き換え。右下にふわっと出て自動で消える）----
-  const [toasts, setToasts] = useState<Toast[]>([])
-  const toastIdRef = useRef(1)
-  // お知らせは「積み上げない・すぐ消える」を守る。
-  // 以前は4秒×無制限だったので、続けて操作すると3つ4つと積み上がって
-  // タイムラインの右側が隠れ、肝心の失敗メッセージも埋もれていた。
-  const TOAST_MAX = 2
-  function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info'): void {
-    const id = toastIdRef.current++
-    setToasts((t) => [...t, { id, msg, type }].slice(-TOAST_MAX))
-    // 失敗は読む時間が要るので少し長く出す
-    window.setTimeout(
-      () => setToasts((t) => t.filter((x) => x.id !== id)),
-      type === 'error' ? 5000 : 3000
-    )
-  }
+  // お知らせは state/useToast（積み上げない決まりも中にある）
+
   // ---- テキスト入力モーダル（OS標準promptの置き換え）----
   const [promptState, setPromptState] = useState<PromptState | null>(null)
   function askText(title: string, defaultValue: string, onOk: (v: string) => void): void {
@@ -2706,7 +2669,6 @@ function AppInner(): JSX.Element {
     'project' | 'telop' | 'icon' | 'se' | 'transition'
   >('project')
   // プレビュー内インライン編集中のテロップ（セッション保存で参照するためここで宣言）
-  const [editingId, setEditingId] = useState<number | null>(null)
   // 内蔵SEライブラリ（GiftCut/SE をカテゴリ別に読む。ローカルフォルダ参照＝配布同梱しない）
   const [seLibrary, setSeLibrary] = useState<{ category: string; name: string; path: string }[]>([])
   /**
@@ -3796,7 +3758,6 @@ function AppInner(): JSX.Element {
   const currentTimeRef = useRef(0)
   const durationRef = useRef(60)
   const videoDurationRef = useRef(0)
-  const zoomRef = useRef(24)
   const playRateRef = useRef(0) // 0 = 停止, 正 = 順再生, 負 = 逆再生
   const rafRef = useRef<number | null>(null)
   const lastTsRef = useRef(0)
@@ -4031,7 +3992,6 @@ function AppInner(): JSX.Element {
 
   const primaryId = selectedIds[0] ?? null
   const selected = cues.find((c) => c.id === primaryId) ?? null
-  const isSelected = (id: number): boolean => selectedIds.includes(id)
 
   // 動画のタイムライン長（＝切片の合計。カットするほど短くなる）とレイアウト
   const segLayout = useMemo(() => layoutSegs(segments), [segments])
@@ -4286,9 +4246,6 @@ function AppInner(): JSX.Element {
   useEffect(() => {
     fpsRef.current = fps
   }, [fps])
-  useEffect(() => {
-    zoomRef.current = zoom
-  }, [zoom])
 
   // 音声ミュート/音量を動画要素に反映（A1トラック＝メイン音声。切片ミュート・音量・フェードも合成）
   useEffect(() => {
@@ -14349,7 +14306,11 @@ function AppInner(): JSX.Element {
 export default function App(): React.JSX.Element {
   return (
     <LayoutProvider>
-      <AppInner />
+      <SelectionProvider>
+        <ContentProvider>
+          <AppInner />
+        </ContentProvider>
+      </SelectionProvider>
     </LayoutProvider>
   )
 }
