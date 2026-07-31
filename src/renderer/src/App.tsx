@@ -146,6 +146,7 @@ import { valueAt, putKey, removeKey, hasKeys, type Keys } from '../../shared/key
 import { nextOpenSecs } from '../../shared/accordion'
 import { ensureMinShow, mergeShreds, splitAtPauses } from '../../shared/splitTelop'
 import { alignCues, speechRanges } from '../../shared/alignCues'
+import { LayoutProvider, useLayout } from './state/layoutContext'
 import { nearestSnap } from '../../shared/snap'
 import { splitAt, toggleSelect, trimLeft, trimRight } from '../../shared/clipEdit'
 import { mediaQueue, rafThrottle } from './lib/schedule'
@@ -458,7 +459,13 @@ function initTrackStates(tracks: Track[]): Record<string, TrackState> {
 const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10(g)).toFixed(1))
 
 
-export default function App(): JSX.Element {
+/**
+ * 画面の中身。
+ *
+ * **囲い（App）と分けてあるのは、配置を context から見に行くため。**
+ * 同じ部品の中で囲いを作ると、その部品自身は中を見に行けない。
+ */
+function AppInner(): JSX.Element {
   // ---- データ ----
   const [cues, setCues] = useState<Cue[]>([])
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -3745,8 +3752,9 @@ export default function App(): JSX.Element {
 
   // ---- パネルサイズ ----
   // パネルのレイアウトは記憶する（毎起動で同じドラッグをやり直さないように）
-  const [leftW, setLeftW] = useState(() => loadLS('gc.leftW', 250))
-  const [rightW, setRightW] = useState(() => loadLS('gc.rightW', 300))
+  // 画面の配置は state/usePanelLayout が持つ（大きさの限界と、掴んで動かす所も一緒）
+  const { leftW, rightW, timelineH, setLeftW, setRightW, setTimelineH, startResize } =
+    useLayout()
   // タイムラインの高さ。段を太らせるのではなく、領域そのものに余裕を持たせる
   // （プレミアも行は細く、下に余白がある形）。段が増えても足りなくならない。
   // タイムラインの既定の高さ。
@@ -3755,7 +3763,6 @@ export default function App(): JSX.Element {
   // 使えていなかった（実測: 枠845pxに対し映像326px）。切り抜きは
   // 「プレビューを見ながらテロップを詰める」作業なので、映像側を優先する。
   // 配置は保存されるので、好みで広げればその形が次から続く。
-  const [timelineH, setTimelineH] = useState(() => loadLS('gc.timelineH', 370))
 
   // ※「V と A の境目を真ん中に残す」処理をここに入れて**壊した**ので、記録として残す。
   //
@@ -3767,11 +3774,7 @@ export default function App(): JSX.Element {
   //
   // やるなら見出し列を同じ量だけ動かす作りが先。縦スクロール自体を
   // 前提にしていない所へ、スクロールだけ足してはいけない。
-  useEffect(() => {
-    saveLS('gc.leftW', leftW)
-    saveLS('gc.rightW', rightW)
-    saveLS('gc.timelineH', timelineH)
-  }, [leftW, rightW, timelineH])
+  // 大きさの保存は usePanelLayout の中
 
   // プレビューとの境目を動かした＝タイムラインの高さが変わった。
   // 上と下が一緒に小さくなるよう、映像と音声の境目を残す。
@@ -10280,29 +10283,8 @@ export default function App(): JSX.Element {
   }
 
   // ================= パネルリサイズ =================
-  function startResize(kind: 'left' | 'right' | 'timeline', e: React.PointerEvent): void {
-    e.preventDefault()
-    const sx = e.clientX
-    const sy = e.clientY
-    const sLeft = leftW
-    const sRight = rightW
-    const sTL = timelineH
-    function onMove(ev: PointerEvent): void {
-      if (kind === 'left') setLeftW(clamp(sLeft + (ev.clientX - sx), 170, 520))
-      else if (kind === 'right') setRightW(clamp(sRight - (ev.clientX - sx), 200, 560))
-      else setTimelineH(clamp(sTL - (ev.clientY - sy), 150, 620))
-    }
-    function onUp(): void {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-      document.body.style.cursor = ''
-    }
-    document.body.style.cursor = kind === 'timeline' ? 'row-resize' : 'col-resize'
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
-  }
+  // 境目を掴んで動かす所は state/usePanelLayout の中
+
 
   // ================= タイムライン操作 =================
   // スクラブ（ルーラー・再生ヘッドのみ。プレミア準拠でスクラブ開始時に再生停止）
@@ -14354,5 +14336,20 @@ export default function App(): JSX.Element {
         />
       )}
     </div>
+  )
+}
+
+/**
+ * 入口。**中身を囲うだけ**で、ここには処理を書かない。
+ *
+ * 区画（左パネル・プレビュー・タイムライン…）を切り出していくと、
+ * それぞれが `useLayout()` などで必要な物を自分で見に行く形になる。
+ * その囲いをここに並べる。
+ */
+export default function App(): React.JSX.Element {
+  return (
+    <LayoutProvider>
+      <AppInner />
+    </LayoutProvider>
   )
 }
