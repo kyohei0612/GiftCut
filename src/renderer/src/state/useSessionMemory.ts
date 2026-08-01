@@ -21,7 +21,7 @@
 // 落ち着いてから書く作りなので、閉じる直前には**待たずに1回書く**。
 // これが無いと「最後の数秒の操作だけ消える」になる。
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
@@ -57,10 +57,6 @@ export interface UseSessionMemoryDeps {
   suppressHistoryRef: any
   redoStackRef: any
   setHistTick: any
-  /** 読み終わるまで待たせてある「前回の続き」 */
-  pendingSelRef: any
-  pendingEditRef: any
-  pendingTimeRef: any
   setTime: (t: number) => void
   /** 横スクロールと、右パネルの中身 */
   scrollRef: React.RefObject<HTMLDivElement>
@@ -68,8 +64,6 @@ export interface UseSessionMemoryDeps {
   rightTab: string
   /** 画面比。履歴の写しに入れる */
   ratioRef: React.MutableRefObject<string>
-  /** 右パネルの縦スクロール。読み終わるまで待たせてある分 */
-  pendingRsxRef: any
   /** 右パネルの一覧の件数（増えてから位置を戻す） */
   localTemplates: any
   setRightTab: any
@@ -81,9 +75,16 @@ export function useSessionMemory(deps: UseSessionMemoryDeps): void {
     AUTOSAVE_MS, writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef,
     lastAutosaveRef, hasContentRef, applyProjectData, askConfirm, setRestorePrompt,
     setTemplatePicker, isDirty, snapNow, pushUndo, baselineRef, pendingTimerRef,
-    suppressHistoryRef, redoStackRef, setHistTick, pendingSelRef, pendingEditRef,
-    pendingTimeRef, setTime, scrollRef, rightBodyRef, rightTab, setRightTab, ratioRef, pendingRsxRef, localTemplates
+    suppressHistoryRef, redoStackRef, setHistTick, setTime,
+    scrollRef, rightBodyRef, rightTab, setRightTab, ratioRef, localTemplates
   } = deps
+  // 読み終わるまで待たせてある「前回の続き」。**読み終わるまで書かない**ための札で、
+  // 外からは触らないのでここで持つ（App に置くと、渡すだけの行が増える）
+  const pendingSelRef = useRef<number[] | null>(null)
+  const pendingTimeRef = useRef<number | null>(null)
+  const pendingEditRef = useRef<number | null>(null)
+  /** 右パネルの縦スクロール。一覧が伸びて届く高さになってから戻す */
+  const pendingRsxRef = useRef<number | null>(null)
   const {
     cues, cuesRef, segments, segsRef, seClips, seClipsRef, imgClips, imgClipsRef,
     vClips, vClipsRef, markers, markersRef

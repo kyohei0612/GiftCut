@@ -1231,12 +1231,6 @@ function AppInner(): JSX.Element {
     refreshPresets()
   }, [])
 
-  // 復元（マウント時1回）。選択テロップは自動保存復元(applyProjectData)が selectedIds を[]に
-  // リセットするため、cues読込後に適用する（pendingSelRefに保留）。
-  const pendingSelRef = useRef<number[] | null>(null)
-  const pendingTimeRef = useRef<number | null>(null)
-  const pendingEditRef = useRef<number | null>(null)
-  const pendingRsxRef = useRef<number | null>(null)
   const rightBodyRef = useRef<HTMLDivElement>(null)
   const sePreviewRef = useRef<HTMLAudioElement | null>(null)
   // SEライブラリの試聴（クリック）。使い回しのAudioで前の音を止めてから再生。
@@ -2807,9 +2801,8 @@ function AppInner(): JSX.Element {
     AUTOSAVE_MS, writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef,
     lastAutosaveRef, hasContentRef, applyProjectData, askConfirm, setRestorePrompt,
     setTemplatePicker, isDirty, snapNow, pushUndo, baselineRef, pendingTimerRef,
-    suppressHistoryRef, redoStackRef, setHistTick, pendingSelRef, pendingEditRef,
-    pendingTimeRef, setTime, scrollRef, rightBodyRef, rightTab, setRightTab, ratioRef,
-    pendingRsxRef, localTemplates
+    suppressHistoryRef, redoStackRef, setHistTick, setTime,
+    scrollRef, rightBodyRef, rightTab, setRightTab, ratioRef, localTemplates
   })
   projectJsonRef.current = projectJson
 
