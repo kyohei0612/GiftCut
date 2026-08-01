@@ -8,6 +8,7 @@
 // 「Alt=複製 / Ctrl=割り込み」のように、その場で使える物だけを出す。
 
 import type { JSX } from 'react'
+import { ZOOM_MAX, ZOOM_MIN } from '../../state/useView'
 
 export type TimelineTool = 'select' | 'razor' | 'trackFwd' | 'trackBack'
 
@@ -109,10 +110,13 @@ export function TimelineToolbar({
           ↔
         </button>
         <span>拡大</span>
+        {/* 範囲は state/useView.ts の ZOOM_MIN / ZOOM_MAX。
+            バーとホイールとフィットで同じ限界を使う（別々に書くと、
+            バーは端まで行ったのにホイールではまだ寄れる、が起きる） */}
         <input
           type="range"
-          min={6}
-          max={120}
+          min={ZOOM_MIN}
+          max={ZOOM_MAX}
           value={zoom}
           onChange={(e) => onZoom(Number(e.target.value))}
           title="タイムラインの拡大率（Ctrl+ホイールでも操作可）"

@@ -158,6 +158,8 @@ import { useView } from './state/useView'
 import { useToast } from './state/useToast'
 import { TracksProvider, useTracksCtx } from './state/tracksContext'
 import { ViewProvider, useViewCtx } from './state/viewContext'
+// 寄れる限界。バー・ホイール・フィットで同じ物を使う
+import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
 import { useEdit } from './state/useEdit'
 import { IconsProvider, useIconsCtx } from './state/iconsContext'
@@ -2582,7 +2584,8 @@ function AppInner(): JSX.Element {
       const raw = localStorage.getItem('giftcut.session')
       if (!raw) return
       const s = JSON.parse(raw)
-      if (typeof s.zoom === 'number') setZoom(s.zoom)
+      // 保存してある拡大率は範囲へ収めてから使う（0 や NaN で中身が消えるのを防ぐ）
+      if (s.zoom != null) setZoom(clampZoom(s.zoom))
       if (typeof s.t === 'number') pendingTimeRef.current = s.t
       if (Array.isArray(s.sel)) pendingSelRef.current = s.sel
       if (typeof s.edit === 'number') pendingEditRef.current = s.edit
@@ -7075,7 +7078,7 @@ function AppInner(): JSX.Element {
   function fitTimelineZoom(): void {
     const vw = scrollRef.current?.clientWidth ?? 800
     const end = Math.max(contentEndRef.current, 10)
-    setZoom(clamp((vw - 40) / end, 6, 120))
+    setZoom(clamp((vw - 40) / end, ZOOM_MIN, ZOOM_MAX))
     requestAnimationFrame(() => {
       if (scrollRef.current) scrollRef.current.scrollLeft = 0
     })
@@ -7189,7 +7192,7 @@ function AppInner(): JSX.Element {
         const rect = el.getBoundingClientRect()
         const mx = e.clientX - rect.left
         const timeAt = (el.scrollLeft + mx) / zoomRef.current
-        const nz = clamp(zoomRef.current * (e.deltaY < 0 ? 1.15 : 0.87), 6, 120)
+        const nz = clamp(zoomRef.current * (e.deltaY < 0 ? 1.15 : 0.87), ZOOM_MIN, ZOOM_MAX)
         setZoom(nz)
         requestAnimationFrame(() => {
           el.scrollLeft = Math.max(0, timeAt * nz - mx)
