@@ -79,7 +79,6 @@ export interface DialogsValue {
   iconAssign: any
   laneIconAssign: any
   iconLibrary: any
-  toGcUrl: any
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 

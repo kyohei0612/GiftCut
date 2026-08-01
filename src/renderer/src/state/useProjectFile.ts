@@ -11,6 +11,7 @@
 //
 // **原本を汚さない。** テンプレートから始めたら「新規」扱いにして、
 // 上書き保存でテンプレート自体を潰さないようにする。
+import { toGcUrl } from '../lib/gcUrl'
 import { clamp, FPS_FALLBACK as FPS } from '../../../shared/timeline'
 import { loadCues, loadSegs, loadSeClips, loadMarkers, loadImgClips, loadVClips } from '../lib/projectLoad'
 import { defaultTelopStyle, type TelopStyle, type TextRun } from '../lib/telopStyle'
@@ -79,13 +80,11 @@ export interface UseProjectFileDeps {
   pendingTimerRef: any
   hydrateSource: any
   updateSource: any
-  setHistTick: any
-  toGcUrl: (p: string) => string
-  /* eslint-enable @typescript-eslint/no-explicit-any */
+  setHistTick: any  /* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
 export function useProjectFile(deps: UseProjectFileDeps) {
-  const { stopPlayback, setTime, duration, fallbackTrack, kindOf, applyLayout, layoutNow, snapNow, resetHistory, confirmDiscard, hasProjectContent, askText, rememberProject, prepareMediaMeta, mediaMeta, runColorFromStyle, applyRunRange, curSel, selected, audioTrackGain, commitPending, idCounter, savedJsonRef, projectJsonRef, markUnsavedRef, lastAutosaveRef, initializedForPathRef, proxyForPathRef, videoElsRef, videoRef, setTemplatePicker, saveLS, baselineRef, undoStackRef, redoStackRef, suppressHistoryRef, pendingTimerRef, hydrateSource, updateSource, setHistTick, toGcUrl } = deps
+  const { stopPlayback, setTime, duration, fallbackTrack, kindOf, applyLayout, layoutNow, snapNow, resetHistory, confirmDiscard, hasProjectContent, askText, rememberProject, prepareMediaMeta, mediaMeta, runColorFromStyle, applyRunRange, curSel, selected, audioTrackGain, commitPending, idCounter, savedJsonRef, projectJsonRef, markUnsavedRef, lastAutosaveRef, initializedForPathRef, proxyForPathRef, videoElsRef, videoRef, setTemplatePicker, saveLS, baselineRef, undoStackRef, redoStackRef, suppressHistoryRef, pendingTimerRef, hydrateSource, updateSource, setHistTick } = deps
   const { cues, setCues, segments, setSegments, seClips, setSeClips, imgClips, setImgClips, vClips, setVClips, markers, setMarkers, segIdCounter, seIdCounter, imgIdCounter, vClipIdCounter, markerIdCounter, cuesRef, segsRef, seClipsRef, imgClipsRef, vClipsRef, markersRef } = useDoc()
   const { setSelectedIds, clearAll, clearSegSel, isSelected, editingId, setEditingId, setSelectedTrackId, setSelectedVClipIds,
     setSelectedMarkerId, setSelectedSeIds, setSelectedImgIds, setSelectedVideoIds, setSelectedAudioIds,

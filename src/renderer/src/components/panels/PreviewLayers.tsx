@@ -14,6 +14,7 @@
 // 動画は消すと読み直しになって再生が引っかかるため。音は鳴り続ける
 // （👁 は「映像だけ消す」で、消音とは別）。
 
+import { toGcUrl } from '../../lib/gcUrl'
 import type { JSX } from 'react'
 import { adjustCss, cropInset } from '../../lib/clipLook'
 import TelopText from '../TelopText'
@@ -32,7 +33,6 @@ export function VideoLayers({
   vcRefCb,
   vcXform,
   previewUrl,
-  toGcUrl,
   onSelect
 }: {
   /** いま窓に入っているぶんだけ（全部置くと要素が増えすぎる） */
@@ -41,7 +41,6 @@ export function VideoLayers({
   vcRefCb: (id: number) => (el: HTMLVideoElement | null) => void
   vcXform: (c: any, localT: number) => string | undefined
   previewUrl: (path: string, orig: string) => string
-  toGcUrl: (p: string) => string
   onSelect: (e: React.PointerEvent, t: { kind: 'vclip'; clip: any }) => void
 }): JSX.Element {
   const { trackStates } = useTracksCtx()
@@ -88,11 +87,9 @@ export function VideoLayers({
  */
 export function ImageLayers({
   imgXform,
-  toGcUrl,
   onSelect
 }: {
   imgXform: (c: any, localT: number) => string | undefined
-  toGcUrl: (p: string) => string
   onSelect: (e: React.PointerEvent, t: { kind: 'img'; clip: any }) => void
 }): JSX.Element {
   const { imgClips } = useDoc()

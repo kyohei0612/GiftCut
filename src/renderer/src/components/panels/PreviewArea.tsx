@@ -56,7 +56,7 @@ export function PreviewArea(p: PreviewAreaProps): JSX.Element {
     orderedTabs, TAB_DEFS, monitorTab, pickTab, setTabMenu, setTabOverflow, setTabOrder,
     shortcuts, cueTrack, srcOfSeg, loadVideo, updateSource, segLayoutRef, segsRef,
     segIdCounter, suppressHistoryRef, initializedForPathRef, stopPlayback, clearSegSel,
-    toggleTrack, duration, draggingMediaRef, toGcUrl, gainToDb
+    toggleTrack, duration, draggingMediaRef, gainToDb
   } = p
   const {
     screenRef, videoRef, videoBRef, videoElsRef, elKey, activeHalf, effActiveSrcId,
@@ -267,10 +267,9 @@ export function PreviewArea(p: PreviewAreaProps): JSX.Element {
               vcRefCb={vcRefCb}
               vcXform={vcXform}
               previewUrl={previewUrl}
-              toGcUrl={toGcUrl}
               onSelect={selectPreviewOverlay}
             />
-            <ImageLayers imgXform={imgXform} toGcUrl={toGcUrl} onSelect={selectPreviewOverlay} />
+            <ImageLayers imgXform={imgXform} onSelect={selectPreviewOverlay} />
             <TelopLayer
               activeCues={activeCues}
               cueTrack={cueTrack}

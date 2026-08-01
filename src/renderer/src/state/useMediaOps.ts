@@ -7,6 +7,7 @@
 // 別に作っておき、プレビューではそちらを流す。
 //
 // **書き出しは必ず原本を使う**（焼き直しは粗いので、完成品の画質には影響させない）。
+import { toGcUrl } from '../lib/gcUrl'
 import { FPS_FALLBACK as FPS } from '../../../shared/timeline'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 import type { Source, VSeg } from '../lib/projectTypes'
@@ -43,13 +44,11 @@ export interface UseMediaOpsDeps {
   pendingTimerRef: React.MutableRefObject<number | null>
   undoStackRef: React.MutableRefObject<any[]>
   suppressHistoryRef: React.MutableRefObject<boolean>
-  /** パス → gcfile URL */
-  toGcUrl: (p: string) => string
-  /* eslint-enable @typescript-eslint/no-explicit-any */
+  /** パス → gcfile URL */  /* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
 export function useMediaOps(deps: UseMediaOpsDeps) {
-  const { stopPlayback, setTime, duration, fallbackTrack, kindOf, placeImage, placeSE, placeVideoAtDrop, setOpenAccSec, videoElsRef, proxyForPathRef, srcAddedAtRef, initializedForPathRef, baselineRef, redoStackRef, pendingTimerRef, undoStackRef, suppressHistoryRef, toGcUrl } = deps
+  const { stopPlayback, setTime, duration, fallbackTrack, kindOf, placeImage, placeSE, placeVideoAtDrop, setOpenAccSec, videoElsRef, proxyForPathRef, srcAddedAtRef, initializedForPathRef, baselineRef, redoStackRef, pendingTimerRef, undoStackRef, suppressHistoryRef } = deps
   const { segments, setSegments, segIdCounter, cuesRef, segsRef, seClipsRef } = useDoc()
   const { clearSegSel } = useSel()
   const { videoPath, setVideoPath, videoSrc, setVideoSrc, setVideoName, setVideoDuration, setProxyPct, setWaveform, setThumbnailSrc, sources, setSources, sourcesRef, sourceIdCounter, curSourceIdRef, setActiveSrcId, mediaItems, setMediaItems, mediaIdCounter } = useMediaCtx()

@@ -1,3 +1,4 @@
+import { toGcUrl } from './lib/gcUrl'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   PanelTabs,
@@ -160,6 +161,7 @@ import { useTelopLook } from './state/useTelopLook'
 import { useAsk } from './state/useAsk'
 import { useMarkers } from './state/useMarkers'
 import { useSnap } from './state/useSnap'
+import { useShortcutPrefs } from './state/useShortcutPrefs'
 import { useViewNav } from './state/useViewNav'
 import { useTransitions } from './state/useTransitions'
 import { useMotion } from './state/useMotion'
@@ -245,15 +247,7 @@ import type { OpenClipMenu } from './components/timeline/ClipBand'
 import { TelopBands, TelopDropGhost } from './components/timeline/TelopBands'
 import { MainAudioBands, MainVideoBands } from './components/timeline/MainClipBands'
 import { SeBands } from './components/timeline/SeBands'
-import {
-  ACTION_LIST,
-  DEFAULT_SHORTCUTS,
-  SC_KEY,
-  formatCombo,
-  loadShortcuts,
-  type ShortcutId,
-  type Shortcuts
-} from '../../shared/shortcuts'
+import { ACTION_LIST, formatCombo } from '../../shared/shortcuts'
 import { dragModeOf, movedEnough, type SegDropMode } from '../../shared/dragMode'
 import {
   dropLaneAt as dropLaneIn,
@@ -306,7 +300,7 @@ import {
 // 書き出しに渡す中身の組み立て（画面に依らない・単体で確かめてある）
 import { buildExportPayload } from '../../shared/exportPayload'
 // 押されたキーをどの操作に割り当てるか（受ける/受けないの判断もこちら）
-import { comboFromEvent, resolveShortcut, shouldBlur } from '../../shared/keymap'
+import { resolveShortcut, shouldBlur } from '../../shared/keymap'
 // テンプレートを開いたとき、いまの設定とどう混ぜるか（置き換えない）
 import {
   mergeFavorites,
@@ -355,11 +349,8 @@ function setDragChip(e: React.DragEvent, icon: string, label: string): void {
   setTimeout(() => el.remove(), 0)
 }
 
-// パス→gcfile URL（# や ? を含むファイル名対策でセグメント単位にエンコード）
 const RECENT_KEY = 'giftcut.recentProjects'
 const RECENT_MAX = 8
-const toGcUrl = (p: string): string =>
-  'gcfile://media/' + p.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')
 
 const FPS = FPS_FALLBACK // 既定フレームレート（素材fps未取得時のフォールバック）
 const XF_GRACE = 0.08 // クロスディゾルブのカット通過後、mainがBへシークし終わるまでvideoBを保持する猶予(秒)
@@ -1056,30 +1047,17 @@ function AppInner(): JSX.Element {
     icons.iconForCue(c, iconAssign, laneIconAssign, cueTrack)
   // ライブラリに画像を追加（ファイル選択 → 円形クロップ → 保存）
 
-  // ---- ショートカット / 環境設定 ----
-  const [shortcuts, setShortcuts] = useState<Shortcuts>(loadShortcuts)
-  const [prefsOpen, setPrefsOpen] = useState(false)
-  const [fileMenuOpen, setFileMenuOpen] = useState(false)
-  const [capturingId, setCapturingId] = useState<ShortcutId | null>(null)
-  function updateShortcut(id: ShortcutId, combo: string): void {
-    setShortcuts((prev) => {
-      const next = { ...prev, [id]: combo }
-      try {
-        localStorage.setItem(SC_KEY, JSON.stringify(next))
-      } catch {
-        /* noop */
-      }
-      return next
-    })
-  }
-  function resetShortcuts(): void {
-    setShortcuts({ ...DEFAULT_SHORTCUTS })
-    try {
-      localStorage.setItem(SC_KEY, JSON.stringify(DEFAULT_SHORTCUTS))
-    } catch {
-      /* noop */
-    }
-  }
+  // キーの割り当てと、環境設定・ファイルメニューの開け閉めは state/useShortcutPrefs
+  const {
+    shortcuts,
+    resetShortcuts,
+    prefsOpen,
+    setPrefsOpen,
+    fileMenuOpen,
+    setFileMenuOpen,
+    capturingId,
+    setCapturingId
+  } = useShortcutPrefs()
 
   // ---- プレビュー内インライン編集 ---- （宣言はセッション保存/復元より前に移動済み）
   const screenRef = useRef<HTMLDivElement>(null)
@@ -1376,8 +1354,7 @@ function AppInner(): JSX.Element {
     redoStackRef,
     pendingTimerRef,
     undoStackRef,
-    suppressHistoryRef,
-    toGcUrl
+    suppressHistoryRef
   })
   // ルーラーの目盛り（拡大率・尺だけに依存＝毎フレーム再計算しないようメモ化）。
   const rulerTicks = useMemo(() => {
@@ -2073,45 +2050,7 @@ function AppInner(): JSX.Element {
 
   // キーを押したときに何が起きるかは state/useKeyboard（呼ぶのは下の方）
 
-  // 環境設定でキー割当をキャプチャ（次の打鍵で確定、Escでキャンセル）
-  useEffect(() => {
-    if (!capturingId) return
-    function onKey(e: KeyboardEvent): void {
-      e.preventDefault()
-      e.stopPropagation()
-      if (e.key === 'Escape') {
-        setCapturingId(null)
-        return
-      }
-      const combo = comboFromEvent(e)
-      if (!combo) return // 修飾キーのみ → 打鍵待ち継続
-      updateShortcut(capturingId as ShortcutId, combo)
-      setCapturingId(null)
-    }
-    window.addEventListener('keydown', onKey, true) // capture フェーズで先取り
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [capturingId])
-
-  // ファイルメニューを外側クリック・Escape で閉じる。
-  //
-  // **Escape が効かなかった。** 他のメニューも画面も全部 Escape で閉じるので、
-  // ここだけ効かないと「閉じたつもり」のまま次の操作へ進む。しかも見出しの
-  // 「ファイル」をもう一度押す動きは*開く*ではなく*閉じる*なので、
-  // 閉じたつもりで押すと開かない——という分かりにくい形で表に出る
-  // （通しの確認が実際にこれで1件落ちた）。
-  useEffect(() => {
-    if (!fileMenuOpen) return
-    const close = (): void => setFileMenuOpen(false)
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close()
-    }
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [fileMenuOpen])
+  // キー割当の待ち受けと、ファイルメニューの開け閉めは state/useShortcutPrefs
 
 
   // 再生中は再生ヘッドを画面内に自動スクロール
@@ -2448,8 +2387,7 @@ function AppInner(): JSX.Element {
     pendingTimerRef,
     hydrateSource,
     updateSource,
-    setHistTick,
-    toGcUrl
+    setHistTick
   })
 
   // 素材とプロジェクトの出し入れ（開く・足す・持ち出す・下書き）は state/useProjectIO
@@ -2459,7 +2397,7 @@ function AppInner(): JSX.Element {
     packProjectFn, openPackFn, writeAutosave
   } = useProjectIO({
     RECENT_MAX, setRecentProjects, projectPath, projectJson, currentJsonRef, savedJsonRef,
-    applyProjectData, askConfirm, loadVideo, registerSource, addMediaPaths, toGcUrl,
+    applyProjectData, askConfirm, loadVideo, registerSource, addMediaPaths,
     mediaQueue, thumbDoneRef, packBusyRef, setPackPct, autosaveNgRef, autosavedRevRef,
     lastAutosaveRef, setAutosaveNg, hasProjectContent
   })
@@ -2613,7 +2551,7 @@ const dialogs: DialogsValue = {
     silenceOpen, setSilenceCut, applySilenceCut, setSilenceOpen, duckOpen, duckOpts,
     setDuckOpts, duckEnv, setDuckOpen, seRefCb, prefsOpen, resetShortcuts,
     setPrefsOpen, setIconForColor, setIconForLane, perfOpen, setPerfOpen, setPerfStopped,
-    toasts, closeConfirm    , iconAssign, laneIconAssign, iconLibrary, toGcUrl
+    toasts, closeConfirm    , iconAssign, laneIconAssign, iconLibrary
   }
 
   return (

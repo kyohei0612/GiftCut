@@ -16,6 +16,7 @@
 //
 // 覆い固有の物は state/dialogsContext。**props で配ると70個近くになる。**
 
+import { toGcUrl } from '../../lib/gcUrl'
 import { lazy, Suspense, type JSX } from 'react'
 
 /** 計測の小窓。**配布した物でも開ける**が、要るまで読み込まない */
@@ -57,7 +58,7 @@ const {
     setDuckOpts, duckEnv, setDuckOpen, seRefCb, prefsOpen, resetShortcuts,
     setPrefsOpen, setIconForColor, setIconForLane, perfOpen, setPerfOpen, setPerfStopped,
     toasts, closeConfirm
-    , iconAssign, laneIconAssign, iconLibrary, toGcUrl
+    , iconAssign, laneIconAssign, iconLibrary
   } = useDialogs()
   const { cues, segments, seClips } = useDoc()
   const { tracks } = useTracksCtx()

@@ -16,6 +16,7 @@
 // 開くと、いま触っている中身は消える。保存していない変更があるときだけ聞く
 // （毎回聞くと、聞かれること自体に慣れて読まなくなる）。
 
+import { toGcUrl } from '../lib/gcUrl'
 import type { RecentProject } from './useProjectState'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
@@ -39,9 +40,7 @@ export interface UseProjectIODeps {
   /** 素材を読む・登録する */
   loadVideo: any
   registerSource: any
-  addMediaPaths: any
-  toGcUrl: any
-  /** これから調べる素材の待ち行列 */
+  addMediaPaths: any  /** これから調べる素材の待ち行列 */
   mediaQueue: any
   /** サムネを作り終えた素材 */
   thumbDoneRef: any
@@ -61,7 +60,7 @@ export interface UseProjectIODeps {
 export function useProjectIO(deps: UseProjectIODeps) {
   const {
     RECENT_MAX, setRecentProjects, projectPath, projectJson, currentJsonRef, savedJsonRef,
-    applyProjectData, askConfirm, loadVideo, registerSource, addMediaPaths, toGcUrl,
+    applyProjectData, askConfirm, loadVideo, registerSource, addMediaPaths,
     mediaQueue, thumbDoneRef, packBusyRef, setPackPct, autosaveNgRef, autosavedRevRef,
     lastAutosaveRef, setAutosaveNg, hasProjectContent
   } = deps
