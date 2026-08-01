@@ -18,6 +18,7 @@
 // 右側が 534px 要るのに 505px しかなく、ボタンが折り返したため。
 // 左右対称をやめれば入るが、それは再生ボタンの中央維持を捨てることになる。
 
+import { gainToDb } from '../../lib/appConst'
 import type { JSX } from 'react'
 import { formatTime } from '../../lib/srt'
 
@@ -52,9 +53,7 @@ export function AudioMixer({
   onToggleSolo,
   onVolume,
   onMaster,
-  startFader,
-  gainToDb
-}: {
+  startFader,}: {
   tracks: MixerTrack[]
   master: number
   onToggleMute: (id: string) => void
@@ -62,9 +61,7 @@ export function AudioMixer({
   onVolume: (id: string, v: number) => void
   onMaster: (v: number) => void
   /** つまみを掴んで動かす処理（0..1 を返す） */
-  startFader: (e: React.PointerEvent, set: (v: number) => void) => void
-  gainToDb: (g: number) => string
-}): JSX.Element {
+  startFader: (e: React.PointerEvent, set: (v: number) => void) => void}): JSX.Element {
   const fader = (value: number, set: (v: number) => void): JSX.Element => (
     <div className="mix-fader" onPointerDown={(e) => startFader(e, set)}>
       <div className="mix-fill" style={{ height: `${value * 100}%` }} />

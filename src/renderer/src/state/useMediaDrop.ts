@@ -21,6 +21,7 @@
 // 尺や波形が分からないと、ゴーストの長さも波形も出せない。
 // 掴んだ時点で調べ始めて、間に合わなければ「解析中」と書く。
 
+import { EMPTY_DRAG_IMG } from '../lib/dragChip'
 import { clamp, fadeGain } from '../../../shared/timeline'
 import { zoomAt, type ClipMotion } from '../../../shared/clipMotion'
 import { isNeutralZoom } from '../lib/clipLook'
@@ -37,9 +38,7 @@ import { useViewCtx } from './viewContext'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseMediaDropDeps {
-  /** 掴んでいる絵を消すための透明画像（既定の巨大なゴーストを出さない） */
-  EMPTY_DRAG_IMG: any
-  /** 効果音を置くとき、足りなければ増やす音声段の名前 */
+  /** 掴んでいる絵を消すための透明画像（既定の巨大なゴーストを出さない） */  /** 効果音を置くとき、足りなければ増やす音声段の名前 */
   EXTRA_AUDIO_TRACK: string
   dragSeDurRef: any
   /** いま掴んでいる素材 */
@@ -85,7 +84,7 @@ export interface UseMediaDropDeps {
 
 export function useMediaDrop(deps: UseMediaDropDeps) {
   const {
-    EMPTY_DRAG_IMG, EXTRA_AUDIO_TRACK, dragSeDurRef, draggingMediaRef, dropLaneAt,
+    EXTRA_AUDIO_TRACK, dragSeDurRef, draggingMediaRef, dropLaneAt,
     fallbackTrack, insertTrackOrdered, mediaInUse, mediaMetaRef, mediaQueue,
     metaInFlightRef, pairedAudioOf, placeVideoAtDrop, reserveTrackPairForVideo,
     scrollRef, trackInnerRef, snapClipStart, staleSourceIds, trackFromEvent, trackNum,

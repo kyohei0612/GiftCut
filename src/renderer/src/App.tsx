@@ -172,6 +172,11 @@ import { useTrackGeom } from './state/useTrackGeom'
 import { useMainEvents } from './state/useMainEvents'
 import { useTimelineSpan } from './state/useTimelineSpan'
 import { useBandDrag } from './state/useBandDrag'
+import { EMPTY_DRAG_IMG, setDragChip } from './lib/dragChip'
+import {
+  AUTOSAVE_MS, FPS, RECENT_KEY, RECENT_MAX, RULER_H, TRACK_PAD_ROWS, XF_GRACE, gainToDb
+} from './lib/appConst'
+import { TRACK_H_MAX, TRACK_H_MIN } from './state/useLaneHeights'
 import type { MediaItem } from './components/panels/ProjectBinTab'
 import { useViewNav } from './state/useViewNav'
 import { useTransitions } from './state/useTransitions'
@@ -326,69 +331,9 @@ import { envToFfmpegExpr } from '../../shared/ducking'
 type Tool = 'select' | 'razor' | 'trackFwd' | 'trackBack'
 type Ratio = '16:9' | '9:16' | '1:1'
 
-// ドラッグ中にカーソルへ付く既定のゴースト画像を消すための透明1px画像
-// （配置位置はタイムライン上のゴーストで示すので、カーソルには何も握らせない）
-const EMPTY_DRAG_IMG =
-  typeof Image !== 'undefined'
-    ? Object.assign(new Image(), {
-        src: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-      })
-    : null
-
-// トランジションのD&D時、カーソルに付く小さな「持ってます」チップを表示する。
-// 既定の大きいゴースト（ボタン全体）ではなく、アイコンだけの小さなピルにする。
-function setDragChip(e: React.DragEvent, icon: string, label: string): void {
-  e.dataTransfer.effectAllowed = 'copy'
-  if (typeof document === 'undefined') return
-  const el = document.createElement('div')
-  el.className = 'drag-chip'
-  el.textContent = `${icon} ${label}`
-  document.body.appendChild(el)
-  try {
-    e.dataTransfer.setDragImage(el, 14, 14)
-  } catch {
-    /* noop */
-  }
-  // setDragImage は同期スナップショットなので、次tickで除去してよい
-  setTimeout(() => el.remove(), 0)
-}
-
-const RECENT_KEY = 'giftcut.recentProjects'
-const RECENT_MAX = 8
-
-const FPS = FPS_FALLBACK // 既定フレームレート（素材fps未取得時のフォールバック）
-const XF_GRACE = 0.08 // クロスディゾルブのカット通過後、mainがBへシークし終わるまでvideoBを保持する猶予(秒)
-const RULER_H = 24
-// タイムラインの上下に持たせる余白（テロップ3段ぶん）。
-// 端に貼り付いていると、上や下に足す余地が見えず窮屈に感じる。
-// ※位置の計算はすべて RULER_H + TRACK_PAD_TOP を起点にすること。
-//   ここだけ足して他を直し忘れると、掴んだ場所と実際の段がずれる。
-const TRACK_PAD_ROWS = 2
-
-// 自動保存（落ちたときの下書き）の間隔。
-// 落ちて失うのは最大でこの間隔ぶん。普通に閉じた場合は beforeunload で書き出すので
-// 取りこぼさない。短くすれば安心だが、そのぶん書き込みが増える。
-//
-// **確認のときだけ短くできるようにしてある。** 2分待つ確認は書けないので、
-// ここを外から縮められないと「自動保存が本当に走っているか」を誰も見ないままになる
-// （復元する側だけ見て安心する、という空振りが起きる）。
-const AUTOSAVE_MS = ((): number => {
-  try {
-    const v = Number(localStorage.getItem('giftcut.autosaveMs'))
-    if (Number.isFinite(v) && v >= 500) return v
-  } catch {
-    /* localStorage が使えない環境では既定のまま */
-  }
-  // 2分。落ちて失う上限がそのままこの数字になる。
-  // 中身が変わっていないときは文字列にすらしないので、待機中・再生中の負担はゼロ。
-  // 効くのは「編集し続けている間」だけで、そこは書いてよい所。
-  return 2 * 60 * 1000
-})()
 
 
-// トラック高さ（映像/音声グループごとにまとめて可変）。デフォはプレミア風に少し狭め
-const TRACK_H_MIN = 26
-const TRACK_H_MAX = 160
+
 
 // タイムラインに載る物の形（VSeg / Source など）は lib/projectTypes、
 // プレビューの画質（PreviewRes）は components/panels/PreviewBars。
@@ -411,8 +356,6 @@ interface ClipMenu {
 
 // キーボードの割り当て表は shared/shortcuts.ts（既定・一覧・見やすい表記）
 
-// ゲイン(0..1) ↔ dB 表示
-const gainToDb = (g: number): string => (g <= 0.0001 ? '-∞' : (20 * Math.log10(g)).toFixed(1))
 
 
 /**
@@ -697,7 +640,7 @@ function AppInner(): JSX.Element {
     telopLocked, trackHasContentInner, canDeleteTrack, deleteTrack, selectTrack,
     audioTrackGain, setTrackVolume, startFader, startGroupResize
   } = useTracksAdmin({
-    TRACK_PAD_ROWS, anyAudioSolo, cueTrack, trackNum, trackHOf, nVideoTracks, nAudioTracks,
+    anyAudioSolo, cueTrack, trackNum, trackHOf, nVideoTracks, nAudioTracks,
     videoTrackHRef, audioTrackHRef, setVideoTrackH, setAudioTrackH, setLaneH
   })
   // 上下の余白。段の高さを変えたら一緒に変わる。
@@ -1142,7 +1085,7 @@ function AppInner(): JSX.Element {
   const {
     curSegXform, videoZoomTransform, inOutPreview, transOverlay, videoMainStyle,
     xfPreview, xfNextBUrl, xfDipOverlay
-  } = usePreviewFrame({ XF_GRACE, segLayout, srcOfSeg, curSegZoom, curCropInset, previewUrl })
+  } = usePreviewFrame({ segLayout, srcOfSeg, curSegZoom, curCropInset, previewUrl })
 
 
 
@@ -1364,7 +1307,7 @@ function AppInner(): JSX.Element {
     updateDropGhost, clearDropGhosts, dropMediaNearest, videoDropLane, placeVClip,
     deleteSelectedVClip, vcFadeGain, placeSE, trackForNewBgm, addBgm, seFadeGain, removeMedia
   } = useMediaDrop({
-    EMPTY_DRAG_IMG, EXTRA_AUDIO_TRACK, dragSeDurRef, draggingMediaRef, dropLaneAt,
+    EXTRA_AUDIO_TRACK, dragSeDurRef, draggingMediaRef, dropLaneAt,
     fallbackTrack, insertTrackOrdered, mediaInUse, mediaMetaRef, mediaQueue,
     metaInFlightRef, pairedAudioOf, placeVideoAtDrop, reserveTrackPairForVideo,
     scrollRef, trackInnerRef, snapClipStart, staleSourceIds, trackFromEvent, trackNum,
@@ -1684,7 +1627,7 @@ function AppInner(): JSX.Element {
 
   // 作業位置と下書きを覚えておくのは state/useSessionMemory
   useSessionMemory({
-    AUTOSAVE_MS, writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef,
+    writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef,
     lastAutosaveRef, hasContentRef, applyProjectData, askConfirm, setRestorePrompt,
     setTemplatePicker, isDirty, snapNow, pushUndo, baselineRef, pendingTimerRef,
     suppressHistoryRef, redoStackRef, setHistTick, setTime,
@@ -1942,7 +1885,7 @@ const dialogs: DialogsValue = {
             suppressHistoryRef={suppressHistoryRef}
             initializedForPathRef={initializedForPathRef} stopPlayback={stopPlayback}
             clearSegSel={clearSegSel} toggleTrack={toggleTrack} duration={duration}
-            draggingMediaRef={draggingMediaRef} toGcUrl={toGcUrl} gainToDb={gainToDb}
+            draggingMediaRef={draggingMediaRef}
           />
           </PaneHost>
 
@@ -1955,7 +1898,7 @@ const dialogs: DialogsValue = {
             pickTab={pickTab} setTabOrder={setTabOrder} setTabMenu={setTabMenu}
             setTabOverflow={setTabOverflow} setTplMenu={setTplMenu} setOrgMenu={setOrgMenu}
             rightTab={rightTab} setTransDrop={setTransDrop} draggingTransRef={draggingTransRef}
-            draggingTelopAnimRef={draggingTelopAnimRef} setDragChip={setDragChip}
+            draggingTelopAnimRef={draggingTelopAnimRef}
             setTelopDrop={setTelopDrop} toggleTelopEmphasis={toggleTelopEmphasis}
             myMotions={myMotions} motionPresets={motionPresets}
             applyMotionPreset={applyMotionPreset} deleteMyMotion={deleteMyMotion}

@@ -21,6 +21,7 @@
 //
 // プレビュー固有の物は state/previewContext。**props で配ると100個を超える。**
 
+import { gainToDb } from '../../lib/appConst'
 import type { JSX } from 'react'
 import { PanelTabs } from '../PanelChrome'
 import { AudioMixer, PreviewScrub, TransportBar } from './PreviewBars'
@@ -56,7 +57,7 @@ export function PreviewArea(p: PreviewAreaProps): JSX.Element {
     orderedTabs, TAB_DEFS, monitorTab, pickTab, setTabMenu, setTabOverflow, setTabOrder,
     shortcuts, cueTrack, srcOfSeg, loadVideo, updateSource, segLayoutRef, segsRef,
     segIdCounter, suppressHistoryRef, initializedForPathRef, stopPlayback, clearSegSel,
-    toggleTrack, duration, draggingMediaRef, gainToDb
+    toggleTrack, duration, draggingMediaRef
   } = p
   const {
     screenRef, videoRef, videoBRef, videoElsRef, elKey, activeHalf, effActiveSrcId,
@@ -352,7 +353,6 @@ export function PreviewArea(p: PreviewAreaProps): JSX.Element {
             onVolume={setTrackVolume}
             onMaster={(v) => setMasterVolume(clamp(v, 0, 1))}
             startFader={startFader}
-            gainToDb={gainToDb}
           />
         )}
         <PreviewScrub

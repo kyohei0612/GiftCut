@@ -400,7 +400,8 @@ describe('未保存の「＊」と自動保存', () => {
   })
 
   it('自動保存の間隔は1〜10分（落ちて失う量の上限）', async () => {
-    const src = await import('./App?raw').then((m) => m.default as string)
+    // 定数は lib/appConst へ移してある。**切り出したら、ここの読む先も直すこと。**
+    const src = await import('./lib/appConst?raw').then((m) => m.default as string)
     // 既定値の行（`return 5 * 60 * 1000`）を読む。確認のときだけ縮められる作りなので、
     // 定数そのものは式になっている
     const m = src.match(/return ([\d\s*]+)\n\s*\}\)\(\)/)
@@ -414,7 +415,7 @@ describe('未保存の「＊」と自動保存', () => {
   it('自動保存の間隔を外から縮められる（確認のため）＋ 短すぎる値は受け付けない', async () => {
     // 5分待つ確認は書けないので、確認のときだけ縮められるようにしてある。
     // ただし**縮め放題にはしない**（0 や負の数を入れられると、書き込みが暴走する）。
-    const src = await import('./App?raw').then((m) => m.default as string)
+    const src = await import('./lib/appConst?raw').then((m) => m.default as string)
     expect(src, '外から間隔を変える口が無い').toContain('giftcut.autosaveMs')
     expect(src, '下限（500ms）の歯止めが無い').toMatch(/v >= 500/)
   })

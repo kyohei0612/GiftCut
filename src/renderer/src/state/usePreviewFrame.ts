@@ -21,6 +21,7 @@
 // 次に来る演出のB側は**少し前から読み込んでおく**。始まる瞬間に読み込むと、
 // そこで引っかかる。
 
+import { XF_GRACE } from '../lib/appConst'
 import { clamp, segSpeed, tToSource, xfadeDurAt } from '../../../shared/timeline'
 import { dipColor } from '../lib/transitions'
 import { useDoc } from './contentContext'
@@ -31,7 +32,6 @@ import { isNeutralZoom } from '../lib/clipLook'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UsePreviewFrameDeps {
   /** クロスディゾルブを、カットを過ぎてから何秒だけ重ねたままにするか */
-  XF_GRACE: number
   segLayout: any
   srcOfSeg: any
   /** 再生ヘッド位置の切片の拡大・切り抜き */
@@ -43,7 +43,7 @@ export interface UsePreviewFrameDeps {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function usePreviewFrame(deps: UsePreviewFrameDeps) {
-  const { XF_GRACE, segLayout, srcOfSeg, curSegZoom, curCropInset, previewUrl } = deps
+  const { segLayout, srcOfSeg, curSegZoom, curCropInset, previewUrl } = deps
   const { segments } = useDoc()
   const { videoSrc, sources } = useMediaCtx()
   const { currentTime } = usePlaybackCtx()

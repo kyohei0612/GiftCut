@@ -21,6 +21,7 @@
 // 落ち着いてから書く作りなので、閉じる直前には**待たずに1回書く**。
 // これが無いと「最後の数秒の操作だけ消える」になる。
 
+import { AUTOSAVE_MS } from '../lib/appConst'
 import { useEffect, useRef } from 'react'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
@@ -33,9 +34,7 @@ import { useExportCtx } from './exportContext'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseSessionMemoryDeps {
-  /** 下書き（自動保存）を、変更が落ち着いてから何ms後に書くか */
-  AUTOSAVE_MS: number
-  writeAutosave: (json: string) => Promise<void>
+  /** 下書き（自動保存）を、変更が落ち着いてから何ms後に書くか */  writeAutosave: (json: string) => Promise<void>
   /** いまの中身を文字列にした物と、その版 */
   currentJsonRef: any
   projectRevRef: any
@@ -72,7 +71,7 @@ export interface UseSessionMemoryDeps {
 
 export function useSessionMemory(deps: UseSessionMemoryDeps): void {
   const {
-    AUTOSAVE_MS, writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef,
+    writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef,
     lastAutosaveRef, hasContentRef, applyProjectData, askConfirm, setRestorePrompt,
     setTemplatePicker, isDirty, snapNow, pushUndo, baselineRef, pendingTimerRef,
     suppressHistoryRef, redoStackRef, setHistTick, setTime,

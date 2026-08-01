@@ -20,6 +20,7 @@
 // 「鍵が掛かっていたら触らない」は全部の操作で同じ。散らすと、
 // キーでは消えるのにボタンでは消えない、のような食い違いが出る。
 
+import { TRACK_PAD_ROWS } from '../lib/appConst'
 import { clamp } from '../../../shared/timeline'
 import { newTrackState } from '../lib/trackState'
 import { TRACK_H_MAX, TRACK_H_MIN } from './useLaneHeights'
@@ -34,7 +35,6 @@ import { useToastCtx } from './toastContext'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseTracksAdminDeps {
   /** 段の上下に置く余白（映像の段の高さ × これ） */
-  TRACK_PAD_ROWS: number
   /** どれか1本でもソロなら、それ以外は鳴らさない */
   anyAudioSolo: boolean
   cueTrack: (c: Cue) => string
@@ -54,7 +54,7 @@ export interface UseTracksAdminDeps {
 
 export function useTracksAdmin(deps: UseTracksAdminDeps) {
   const {
-    TRACK_PAD_ROWS, anyAudioSolo, cueTrack, trackNum, trackHOf, nVideoTracks, nAudioTracks,
+    anyAudioSolo, cueTrack, trackNum, trackHOf, nVideoTracks, nAudioTracks,
     videoTrackHRef, audioTrackHRef, setVideoTrackH, setAudioTrackH, setLaneH
   } = deps
   const {

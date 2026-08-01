@@ -9,6 +9,7 @@
 //
 // 右パネル固有の物は state/rightPanelContext。**props で配ると100個を超える。**
 
+import { setDragChip } from '../../lib/dragChip'
 import type { JSX } from 'react'
 import { PaneHost, PanelTabs } from '../PanelChrome'
 import { ProjectBinTab } from './ProjectBinTab'
@@ -41,7 +42,7 @@ export function RightPanelArea(p: RightPanelAreaProps): JSX.Element {
   const {
     PANE_LABEL, orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow,
     setTplMenu, setOrgMenu, rightTab, setTransDrop, draggingTransRef, draggingTelopAnimRef,
-    setDragChip, setTelopDrop, toggleTelopEmphasis, myMotions, motionPresets,
+    setTelopDrop, toggleTelopEmphasis, myMotions, motionPresets,
     applyMotionPreset, deleteMyMotion
   } = p
 const {
