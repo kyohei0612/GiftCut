@@ -170,6 +170,8 @@ import { useAutosaveMark } from './state/useAutosaveMark'
 import { TELOP_MOTIONS, motionLabel, useLabelsPresets } from './state/useLabelsPresets'
 import { useTrackGeom } from './state/useTrackGeom'
 import { useMainEvents } from './state/useMainEvents'
+import { useTimelineSpan } from './state/useTimelineSpan'
+import { useBandDrag } from './state/useBandDrag'
 import type { MediaItem } from './components/panels/ProjectBinTab'
 import { useViewNav } from './state/useViewNav'
 import { useTransitions } from './state/useTransitions'
@@ -814,30 +816,12 @@ function AppInner(): JSX.Element {
   }, [])
 
   const rightBodyRef = useRef<HTMLDivElement>(null)
-  const draggingIconRef = useRef<string | null>(null) // コラボアイコン(ラベル色)をテロップへD&D中
-  // トランジションをタイムラインへD&D中の種類。置き場所(頭/間/尻)はドロップ位置で自動判別する。
-  const draggingTransRef = useRef<{ type: TransType } | null>(null)
-  // ドラッグ中の配置プレビュー = 実際に置かれる帯そのもの（left/width=トラック行内px）を
-  // 該当レーンに表示してマグネット感を出す。segId=どのV1クリップ行に描くか。
-  const [transDrop, setTransDrop] = useState<{
-    segId: number
-    left: number
-    width: number
-    label: string
-    kind: 'in' | 'out' | 'xfade'
-  } | null>(null)
-  // テロップの出入りアニメを D&D 中の種類（動画トランジションと同じ流儀）。頭=in / 間=both / 尻=out に配置。
-  const draggingTelopAnimRef = useRef<{ type: AnimIn } | null>(null)
-  const [telopDrop, setTelopDrop] = useState<{
-    cueId: number
-    left: number
-    width: number
-    label: string
-    kind: 'in' | 'out' | 'between'
-  } | null>(null)
-  // 新規トランジションの長さ(秒)。D&D で置く時の初期長さ。置いた後は帯の端ドラッグ/選択で変更。
-  // ※プロジェクトに保存する値なので、未保存判定の依存配列より前で宣言しておくこと。
-  const draggingTemplateRef = useRef<TelopStyle | null>(null) // テンプレをテロップへD&D中
+  // 帯になる物（つなぎ目の演出・テロップの出入り・見本・色）を運んでいる最中の
+  // 持ち物は state/useBandDrag（ref と state に分ける理由も中にある）
+  const {
+    draggingIconRef, draggingTransRef, transDrop, setTransDrop,
+    draggingTelopAnimRef, telopDrop, setTelopDrop, draggingTemplateRef
+  } = useBandDrag()
 
   // ---- アイコン画像ライブラリ（単純な画像置き場。追加時にクロップ）----
   const [iconLibrary, setIconLibrary] = useState<IconItem[]>(loadIconLibrary)
@@ -1055,27 +1039,10 @@ function AppInner(): JSX.Element {
   }, [subtitleOpen])
 
 
-  const seEnd = useMemo(
-    () => (seClips.length ? Math.max(...seClips.map((s) => s.tStart + s.duration)) : 0),
-    [seClips]
-  )
-  // 画像クリップの終端（動画より後ろに置いたエンドカード等もタイムライン尺に含める）
-  const imgEnd = useMemo(
-    () => (imgClips.length ? Math.max(...imgClips.map((c) => c.tStart + c.duration)) : 0),
-    [imgClips]
-  )
-  // 映像レイヤークリップの終端もタイムライン尺に含める
-  const vcEnd = useMemo(
-    () =>
-      vClips.length
-        ? Math.max(...vClips.map((c) => c.tStart + Math.max(0.05, c.srcEnd - c.srcStart)))
-        : 0,
-    [vClips]
-  )
-  const duration = useMemo(() => {
-    const cueEnd = cues.length ? Math.max(...cues.map((c) => c.end)) + 3 : 0
-    return Math.max(cueEnd, videoTLen, seEnd, imgEnd, vcEnd, 60)
-  }, [cues, videoTLen, seEnd, imgEnd, vcEnd])
+  // タイムラインの長さ（出す長さ／本当の終わり）と、ものさしの目盛りは
+  // state/useTimelineSpan（長さが2つある理由も中にある）
+  const { seEnd, imgEnd, vcEnd, duration, contentEnd, contentEndRef, rulerTicks } =
+    useTimelineSpan({ videoTLen, zoom, fps })
 
   // 素材の読み込みと焼き直しは state/useMediaOps
   //（焼き直しはプレビュー用。書き出しは必ず原本を使う）
@@ -1102,44 +1069,6 @@ function AppInner(): JSX.Element {
     undoStackRef,
     suppressHistoryRef
   })
-  // ルーラーの目盛り（拡大率・尺だけに依存＝毎フレーム再計算しないようメモ化）。
-  const rulerTicks = useMemo(() => {
-    const cands = [
-      1 / fps, 2 / fps, 5 / fps, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600
-    ]
-    const minLabelPx = 84
-    let major = cands[cands.length - 1]
-    for (const c of cands)
-      if (c * zoom >= minLabelPx) {
-        major = c
-        break
-      }
-    const majorPx = major * zoom
-    const sub = [10, 5, 4, 2, 1].find((n) => majorPx / n >= 7) ?? 1
-    const minor = major / sub
-    // 上限は高ズーム×長尺でも右端まで目盛りが出るよう十分大きく（メモ化＝毎フレーム再計算はしない）
-    const nMinor = Math.min(20000, Math.floor(duration / minor) + 1)
-    const ticks: { left: number; major: boolean; label?: string }[] = []
-    for (let i = 0; i <= nMinor; i++) {
-      const time = i * minor
-      const isMajor = Math.abs(time / major - Math.round(time / major)) < 1e-6
-      ticks.push({
-        left: time * zoom,
-        major: isMajor,
-        label: isMajor ? formatTimecode(time, fps) : undefined
-      })
-    }
-    return ticks
-  }, [zoom, duration, fps])
-  // 実コンテンツの終端（再生はここで止める。タイムライン表示幅の最低60秒とは別物）
-  const contentEnd = useMemo(() => {
-    const cueEnd = cues.length ? Math.max(...cues.map((c) => c.end)) : 0
-    return Math.max(cueEnd, videoTLen, seEnd, imgEnd, vcEnd)
-  }, [cues, videoTLen, seEnd, imgEnd, vcEnd])
-  const contentEndRef = useRef(0)
-  useEffect(() => {
-    contentEndRef.current = contentEnd
-  }, [contentEnd])
   // 再生の心臓（流す・止める・飛ぶ・コマ送り）は state/usePlaybackEngine
   const {
     getPlayEnd, stopPlayback, startRafClock, startVideoSegClock, startVideoClock,
