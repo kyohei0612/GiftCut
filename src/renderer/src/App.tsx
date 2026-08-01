@@ -207,6 +207,12 @@ import {
   VideoGhost
 } from './components/timeline/DropGhosts'
 import {
+  ImageBand,
+  VideoLayerAudioBand,
+  VideoLayerBand,
+  type OpenClipMenu
+} from './components/timeline/OverlayClipBands'
+import {
   ACTION_LIST,
   DEFAULT_SHORTCUTS,
   SC_KEY,
@@ -7450,6 +7456,17 @@ function AppInner(): JSX.Element {
     openExportDialog,
   })
 
+  // 帯を右クリックしたとき。**押した1つだけを選び直してから**品書きを出す。
+  // 複数選んだまま右クリックすると、押した物ではない方へ操作が飛ぶ。
+  const openClipMenu: OpenClipMenu = (e, kind, clip) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (kind === 'vclip') setSelectedVClipIds([clip.id])
+    else setSelectedImgIds([clip.id])
+    setMenu(null)
+    setClipMenu({ x: e.clientX, y: e.clientY, kind, id: clip.id, name: clip.name })
+  }
+
   return (
     <div
       className="app"
@@ -8794,150 +8811,40 @@ function AppInner(): JSX.Element {
                           )}
                         </ClipBand>
                       ))}
-                    {/* 映像レイヤークリップ（V2以降の動画）。音声は対の音声トラックに連動表示。 */}
-                    {tr.kind === 'video' &&
-                      tr.id !== 'V1' &&
-                      vClips
-                        .filter((c) => c.track === tr.id)
-                        .map((clip) => (
-                          <ClipBand
-                            key={`vc-${clip.id}`}
-                            className="video-clip vclip"
-                            label={clip.label}
-                            left={clip.tStart * zoom}
-                            width={Math.max(vcLen(clip) * zoom - 1, 12)}
-                            selected={selectedVClipIds.includes(clip.id)}
-                            title={`${clip.name}（音声は ${pairedAudioOf(clip.track)} に連動）`}
-                            onPointerDown={(e) => onVClipPointerDown(clip, e)}
-                            onTrimLeft={(e) => onVClipPointerDown(clip, e, 'l')}
-                            onTrimRight={(e) => onVClipPointerDown(clip, e, 'r')}
-                            onContextMenu={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              setSelectedVClipIds([clip.id])
-                              setMenu(null)
-                              setClipMenu({
-                                x: e.clientX,
-                                y: e.clientY,
-                                kind: 'vclip',
-                                id: clip.id,
-                                name: clip.name
-                              })
-                            }}
-                          >
-                            {(() => {
-                              const th = mediaItems.find((m) => m.path === clip.path)?.thumb
-                              return th ? <img className="clip-thumb" src={th} alt="" /> : null
-                            })()}
-                            <span className="clip-text">🎬 {clip.name}</span>
-                            <KeyMarks
-                              times={clipMotionKeyTimes(clip.motion)}
-                              zoom={zoom}
-                              clipStart={clip.tStart}
-                            />
-                          </ClipBand>
-                        ))}
-                    {/* 映像レイヤーの音声（対の音声トラックに同じ位置・同じ長さで表示。掴めば映像も動く） */}
-                    {tr.kind === 'audio' &&
-                      vClips
-                        .filter((c) => 'A' + trackNum(c.track) === tr.id)
-                        .map((clip) => (
-                          <ClipBand
-                            key={`vca-${clip.id}`}
-                            className={`audio-clip vclip-audio ${clip.muted ? 'clip-muted' : ''}`}
-                            label={clip.label}
-                            left={clip.tStart * zoom}
-                            width={Math.max(vcLen(clip) * zoom - 1, 12)}
-                            selected={selectedVClipIds.includes(clip.id)}
-                            title={`${clip.name} の音声（${clip.track} の映像とリンク）`}
-                            onPointerDown={(e) => onVClipPointerDown(clip, e)}
-                            onTrimLeft={(e) => onVClipPointerDown(clip, e, 'l')}
-                            onTrimRight={(e) => onVClipPointerDown(clip, e, 'r')}
-                            onContextMenu={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              setSelectedVClipIds([clip.id])
-                              setMenu(null)
-                              setClipMenu({
-                                x: e.clientX,
-                                y: e.clientY,
-                                kind: 'vclip',
-                                id: clip.id,
-                                name: clip.name
-                              })
-                            }}
-                          >
-                            {mediaMeta[clip.path]?.wave ? (
-                              <WaveformCanvas
-                                min={mediaMeta[clip.path]!.wave!.min}
-                                max={mediaMeta[clip.path]!.wave!.max}
-                                srcStart={clip.srcStart}
-                                srcEnd={clip.srcEnd}
-                                audioDuration={
-                                  mediaMeta[clip.path]!.wave!.dur ||
-                                  clip.srcDur ||
-                                  mediaMeta[clip.path]?.dur ||
-                                  vcLen(clip)
-                                }
-                                width={Math.max(vcLen(clip) * zoom - 1, 12)}
-                                height={trackHOf('audio') - 6}
-                              />
-                            ) : (
-                              <span className="clip-text audio-loading">波形解析中…</span>
-                            )}
-                            {clip.muted && <span className="clip-mute-badge">🔇 消音</span>}
-                          </ClipBand>
-                        ))}
-                    {/* 画像クリップ（映像トラックの静止画。移動/右端リサイズ/削除可） */}
-                    {tr.kind === 'video' &&
-                      tr.id !== 'V1' &&
-                      imgClips
-                        .filter((c) => c.track === tr.id && inView(c.tStart, c.tStart + c.duration))
-                        .map((clip) => (
-                          <ClipBand
-                            key={`img-${clip.id}`}
-                            className="img-clip"
-                            label={clip.label}
-                            left={clip.tStart * zoom}
-                            width={Math.max(clip.duration * zoom - 1, 12)}
-                            selected={selectedImgIds.includes(clip.id)}
-                            title={`${clip.name}（ドラッグで移動・左右端で長さ変更・Deleteで削除）`}
-                            onPointerDown={(e) => onImgPointerDown(clip, e)}
-                            onTrimLeft={(e) => onImgPointerDown(clip, e, 'l')}
-                            onTrimRight={(e) => onImgPointerDown(clip, e, 'r')}
-                            onContextMenu={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              setSelectedImgIds([clip.id])
-                              setMenu(null)
-                              setClipMenu({
-                                x: e.clientX,
-                                y: e.clientY,
-                                kind: 'img',
-                                id: clip.id,
-                                name: clip.name
-                              })
-                            }}
-                            deleteTitle="画像を削除"
-                            onDelete={(e) => {
-                              e.stopPropagation()
-                              // ロック中は消さない（Delete キー側は守っているので揃える）
-                              if (trackStates[clip.track]?.locked) {
-                                showToast('このトラックはロックされています。')
-                                return
-                              }
-                              setImgClips((prev) => prev.filter((c) => c.id !== clip.id))
-                              setSelectedImgIds([])
-                            }}
-                          >
-                            <span className="clip-text">🖼 {clip.name}</span>
-                            <KeyMarks
-                              times={clipMotionKeyTimes(clip.motion)}
-                              zoom={zoom}
-                              clipStart={clip.tStart}
-                            />
-                          </ClipBand>
-                        ))}
+                    {/* 本編以外の段に並ぶ帯は components/timeline/OverlayClipBands.tsx。
+                        重ねた動画は映像と音を別の段に描くが中身は1つ（どちらを掴んでも動く） */}
+                    {tr.kind === 'video' && tr.id !== 'V1' && (
+                      <VideoLayerBand
+                        clips={vClips.filter((c) => c.track === tr.id)}
+                        zoom={zoom}
+                        vcLen={vcLen}
+                        pairedAudioOf={pairedAudioOf}
+                        mediaItems={mediaItems}
+                        onPointerDown={onVClipPointerDown}
+                        openClipMenu={openClipMenu}
+                      />
+                    )}
+                    {tr.kind === 'audio' && (
+                      <VideoLayerAudioBand
+                        clips={vClips.filter((c) => 'A' + trackNum(c.track) === tr.id)}
+                        zoom={zoom}
+                        vcLen={vcLen}
+                        mediaMeta={mediaMeta}
+                        trackH={trackHOf('audio')}
+                        onPointerDown={onVClipPointerDown}
+                        openClipMenu={openClipMenu}
+                      />
+                    )}
+                    {tr.kind === 'video' && tr.id !== 'V1' && (
+                      <ImageBand
+                        clips={imgClips.filter(
+                          (c) => c.track === tr.id && inView(c.tStart, c.tStart + c.duration)
+                        )}
+                        zoom={zoom}
+                        onPointerDown={onImgPointerDown}
+                        openClipMenu={openClipMenu}
+                      />
+                    )}
                     {imgGhost && imgGhost.track === tr.id && (
                       <ImageGhost ghost={imgGhost} zoom={zoom} />
                     )}
