@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import {
   formatGraphProblems,
   hasGraphError,
+  overlayEnableExpr,
   validateFilterGraph,
   type GraphInput
 } from './filterGraph'
@@ -264,5 +265,55 @@ describe('壊れた入力でも例外を投げない', () => {
     const a = validateFilterGraph(MINIMAL, { inputs: [AV], maps: ['[v]', '[aout]'] })
     const b = validateFilterGraph(MINIMAL, { inputs: [AV], maps: ['v', 'aout'] })
     expect(a).toEqual(b)
+  })
+})
+
+// ============================================================================
+// 重ね物を出す時間の窓（点滅の再発防止）
+// ============================================================================
+//
+// 「エフェクトを付けたテロップが書き出した動画でチカチカする」を出した原因は、
+// 窓の終わりを半フレーム詰めていたこと。動きの付いたテロップは短い窓を延々と
+// 並べるので、詰めてできた隙間に出力フレームが落ちるたびテロップが消えていた。
+//
+// ここでは overlayEnableExpr が実際に返した文字列をそのまま読み直して、
+// 「どの出力フレームもちょうど1つの窓に入る」ことを確かめる。式の書き方を
+// 変えても、この性質が壊れれば必ず赤くなる。
+describe('overlayEnableExpr（重ね物を出す窓）', () => {
+  // 返ってきた式を評価する。ffmpeg と同じ意味で読む。
+  //
+  // カンマの前のバックスラッシュも必須にしてある。エスケープが1つ抜けると
+  // ffmpeg はそこをフィルタの区切りと読んで「No such filter」で落ちる（実際に出た）。
+  function truthAt(expr: string, t: number): boolean {
+    const m = expr.match(/^gte\(t\\,([\d.]+)\)\*lt\(t\\,([\d.]+)\)$/)
+    if (!m) throw new Error('見たことのない式: ' + expr)
+    return t >= Number(m[1]) && t < Number(m[2])
+  }
+
+  it('隣り合う窓は重ならず、隙間もできない', () => {
+    // 動きの付いたテロップ2秒ぶんを 30fps で刻んだのと同じ並び
+    const fps = 30
+    const step = 1 / fps
+    const wins: string[] = []
+    for (let i = 0; i < 60; i++) {
+      wins.push(overlayEnableExpr(1 + i * step, 1 + (i + 1) * step))
+    }
+    // 出力フレームは書き出し fps の刻みで来る。位相はそろっているとは限らないので、
+    // 窓の刻みとずれた位相でも確かめる（点滅はまさにこのずれで出た）。
+    for (const phase of [0, 0.3, 0.5, 0.7]) {
+      for (let n = 0; n < 60; n++) {
+        const t = 1 + (n + phase) * step
+        const hit = wins.filter((w) => truthAt(w, t)).length
+        expect({ phase, t: t.toFixed(4), hit }).toEqual({ phase, t: t.toFixed(4), hit: 1 })
+      }
+    }
+  })
+
+  it('始まりは含み、終わりは含まない', () => {
+    const w = overlayEnableExpr(1.5, 2.5)
+    expect(truthAt(w, 1.5)).toBe(true)
+    expect(truthAt(w, 2.4999)).toBe(true)
+    expect(truthAt(w, 2.5)).toBe(false)
+    expect(truthAt(w, 1.4999)).toBe(false)
   })
 })

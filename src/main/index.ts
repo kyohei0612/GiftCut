@@ -24,6 +24,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import {
   formatGraphProblems,
   hasGraphError,
+  overlayEnableExpr,
   validateFilterGraph,
   type GraphInput
 } from '../shared/filterGraph'
@@ -3090,23 +3091,21 @@ app.whenReady().then(() => {
           filter += `${useV(idx)}${geom}${iop}[img${k}];`
         }
         const out = `[ib${k}]`
-        // 隣接する画像が境界で1フレーム二重に重ならないよう半フレーム詰める（テロップと同様）
-        const iEndRaw = im.tStart + Math.max(0.05, im.duration)
-        const iEnd = iEndRaw - 0.5 / outFps > im.tStart ? iEndRaw - 0.5 / outFps : iEndRaw
-        filter += `${last}[img${k}]overlay=0:0:enable=between(t\\,${im.tStart.toFixed(3)}\\,${iEnd.toFixed(3)})${out};`
+        // テロップと同じ半開区間。隣接する画像が境界で二重に重ならず、
+        // 「半フレーム詰めた隙間に出力フレームが落ちて1枚抜ける」も起きない。
+        const iEnd = im.tStart + Math.max(0.05, im.duration)
+        filter += `${last}[img${k}]overlay=0:0:enable=${overlayEnableExpr(im.tStart, iEnd)}${out};`
         last = out
       })
     }
     if (frames.length) {
-      // between は両端を含むため、隣接フレーム(end == 次のstart)が境界で1フレーム重なって
-      // 二重像になる。終端を半フレーム手前に詰めて重なりを断つ。
-      const halfF = 0.5 / outFps
+      // 窓の作り方（なぜ半開区間か）は shared/filterGraph の overlayEnableExpr に書いてある。
+      // 動きの付いたテロップは短い窓を延々と並べるので、ここの取り違えが直接
+      // 「書き出した動画のテロップがチカチカする」になる。
       frames.forEach((f, i) => {
         const out = i === frames.length - 1 ? '[v]' : `[o${i}]`
-        // ただし詰めると表示窓が潰れてしまう極短テロップは、そのままの尺を使う（消えるより重なる方がマシ）
-        const end = f.end - halfF > f.start ? f.end - halfF : f.end
-        // テロップPNGは1枚1入力（重複なし）。enableのカンマはエスケープ。
-        filter += `${last}${useV(pngInput[i])}overlay=0:0:enable=between(t\\,${f.start.toFixed(3)}\\,${end.toFixed(3)})${out};`
+        // テロップPNGは1枚1入力（重複なし）。
+        filter += `${last}${useV(pngInput[i])}overlay=0:0:enable=${overlayEnableExpr(f.start, f.end)}${out};`
         last = out
       })
     } else {

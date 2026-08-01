@@ -113,6 +113,8 @@ export function useExport(deps: UseExportDeps) {
     try {
       // 非表示（👁OFF）トラックのテロップは書き出しに含めない（プレビューと一致させる）
       const exportCues = cues.filter((c) => !trackStates[cueTrack(c)]?.hidden)
+      // 動きの刻みはここに合わせる（出力の1フレームに1枚ずつ当てる）
+      const expFps = resolveExportFps()
       setExportStatus(`テロップを画像化中… (0/${exportCues.length})`)
       const frames: { png: string; start: number; end: number }[] = []
       for (let i = 0; i < exportCues.length; i++) {
@@ -135,8 +137,13 @@ export function useExport(deps: UseExportDeps) {
           )
           frames.push({ png, start: c.start, end: c.end })
         } else {
-          // アニメあり: 変化する区間を時間分割し、各瞬間のPNGを短い区間で並べる
-          const bps = animBreakpoints(c.style.anim, c.motion, dur, 15)
+          // アニメあり: 変化する区間を時間分割し、各瞬間のPNGを短い区間で並べる。
+          //
+          // **刻みは書き出しの fps に合わせる。** 以前は 15 固定で、30fps や 60fps で
+          // 書き出しても動きは秒15コマのままだった＝カクついて見える。
+          // 出力の1フレームに1枚ずつ当たるようにすれば、プレビューと同じ滑らかさで焼ける。
+          // そのぶん画像は増える（60fps なら 15fps の4倍）ので、書き出しは長くなる。
+          const bps = animBreakpoints(c.style.anim, c.motion, dur, expFps)
           for (let k = 0; k < bps.length; k++) {
             const t0 = bps[k]
             const t1 = k + 1 < bps.length ? bps[k + 1] : dur
