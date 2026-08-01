@@ -31,9 +31,7 @@ import { shouldCut, spansCut } from '../../shared/cutScope'
 import { keyDelta, neutralOf } from '../../shared/nudgeShare'
 import {
   BUILTIN_TEMPLATES,
-  loadUserTemplates,
-  saveUserTemplates,
-  TELOP_CATS,
+  loadUserTemplates,  TELOP_CATS,
   loadFavorites,
   saveFavorites,
   loadCatOverrides,
@@ -43,7 +41,7 @@ import {
   saveCustomCats,
   type TelopTemplate
 } from './lib/telopTemplates'
-import { LABEL_COLORS, DEFAULT_LABEL } from './lib/labels'
+import { DEFAULT_LABEL } from './lib/labels'
 import { renderCueToPng } from './lib/rasterize'
 import { fileToDataUrl } from './lib/people'
 import {
@@ -169,6 +167,7 @@ import { useSilenceDuck } from './state/useSilenceDuck'
 import { useCurrentLook } from './state/useCurrentLook'
 import { useWindowDrop } from './state/useWindowDrop'
 import { useAutosaveMark } from './state/useAutosaveMark'
+import { TELOP_MOTIONS, motionLabel, useLabelsPresets } from './state/useLabelsPresets'
 import type { MediaItem } from './components/panels/ProjectBinTab'
 import { useViewNav } from './state/useViewNav'
 import { useTransitions } from './state/useTransitions'
@@ -1263,10 +1262,7 @@ function AppInner(): JSX.Element {
       return currentTime >= eff && currentTime < c.end
     })
     .sort((a, b) => tracks.findIndex((t) => t.id === cueTrack(b)) - tracks.findIndex((t) => t.id === cueTrack(a)))
-  const labelGroups = LABEL_COLORS.map((l) => ({
-    ...l,
-    count: cues.filter((c) => c.label === l.color).length
-  })).filter((g) => g.count > 0)
+  // 色ラベルの並びは state/useLabelsPresets
 
   useEffect(() => {
     durationRef.current = duration
@@ -1549,44 +1545,10 @@ function AppInner(): JSX.Element {
     clearSegSel, mainLocked, showToast, transDur
   })
 
-  // ===== テロップの出入りアニメ（動画トランジションと同じ流儀: D&D配置 / 帯表示 / 選択 / 削除）=====
-  // 選択可能なモーション種（頭=in / 尻=out に付く）。emphasis は範囲を持たないので別扱い。
-  const TELOP_MOTIONS: { type: AnimIn; ico: string; label: string }[] = [
-    { type: 'fade', ico: '🌫', label: 'フェード' },
-    { type: 'pop', ico: '✨', label: 'ポップ' },
-    { type: 'slideL', ico: '⬅', label: 'スライド左' },
-    { type: 'slideR', ico: '➡', label: 'スライド右' },
-    { type: 'slideU', ico: '⬆', label: 'スライド上' },
-    { type: 'slideD', ico: '⬇', label: 'スライド下' }
-  ]
-  const motionLabel = (t: AnimIn): string =>
-    TELOP_MOTIONS.find((m) => m.type === t)?.label ?? String(t)
-  // 動きを1項目ずつ書き換える・捨てる・他のテロップへ配るのは state/useEdit
-  /** モーションの表で選んでいる行（コピーする項目）。写す・貼るは state/useCopyPaste */
+  /** 動きの表で選んでいる行（コピーする項目）。写す・貼るは state/useCopyPaste */
   const motionSelRef = useRef<string[]>([])
-
-  // 詰めて削除する話（カット点まで・空きを閉じる・どこで止めるか）は
-  // state/useTimelineEdit。判定そのものは shared/timeline（テストで固定済み）。
-
-  function setLabelFor(cueId: number, color: string): void {
-    const targets = isSelected(cueId) ? selectedIds : [cueId]
-    setCues((prev) => prev.map((c) => (targets.includes(c.id) ? { ...c, label: color } : c)))
-  }
-  function selectByLabel(color: string): void {
-    clearSegSel()
-    setSelectedIds(cues.filter((c) => c.label === color).map((c) => c.id))
-  }
-
-  // ---- プリセット ----
-  // スタイルの保存は「テロップ」タブのテンプレ(userTemplates)に一本化
-  function savePreset(name: string): void {
-    const n = name.trim()
-    const base = selected?.style ?? newTelopStyle
-    if (!n) return
-    const next = [...userTemplates, { name: n, style: structuredClone(base) }]
-    setUserTemplates(next)
-    saveUserTemplates(next)
-  }
+  // 色ラベルと見本の保存、出入りアニメの一覧は state/useLabelsPresets
+  const { labelGroups, setLabelFor, selectByLabel, savePreset } = useLabelsPresets()
 
   // マグネット（吸着）は state/useSnap
   const { snapTargets, snapTime, snapClipStart } = useSnap({ snap, segLayoutRef })
