@@ -17,7 +17,6 @@ import { hasAnim, hasMotion, telopStateAt } from '../lib/telopStyle'
 import { renderCueToPng } from '../lib/rasterize'
 import type { VSeg } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
-import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useExportCtx } from './exportContext'
 import { useMediaCtx } from './mediaContext'
@@ -50,11 +49,9 @@ export interface UseExportDeps {
 
 export function useExport(deps: UseExportDeps) {
   const { stopPlayback, srcOfSeg, cueTrack, iconForCue, resolveExportFps, animBreakpoints, duckEnv, seEnd, v1Hidden } = deps
-  const { cues, segments, seClips, imgClips, vClips } = useDoc()
-  const { selectedIds } = useSel()
-  const { tracks, trackStates } = useTracksCtx()
+  const { cues, segments, seClips, imgClips, vClips } = useDoc()  const { tracks, trackStates } = useTracksCtx()
   const { ratio, exportOpts, masterVolume, loudnormLUFS, setShowExportDialog, setExportStatus, setExportPct, exportStatus } = useExportCtx()
-  const { videoPath, sources, sourcesRef } = useMediaCtx()
+  const { videoPath,  sourcesRef } = useMediaCtx()
   const { iconSide, iconOffset, iconScale, iconAuto } = useIconsCtx()
   const { showToast } = useToastCtx()
 

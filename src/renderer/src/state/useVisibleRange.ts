@@ -21,8 +21,6 @@
 import { useEffect, useState } from 'react'
 import { useViewCtx } from './viewContext'
 
-/** 幅がまだ測れないときに使う「全部入り」の範囲 */
-const ALL_VIEW = { a: -1e9, b: 1e9 }
 
 export function useVisibleRange(scrollRef: React.RefObject<HTMLDivElement>): {
   a: number

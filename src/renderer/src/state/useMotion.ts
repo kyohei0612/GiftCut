@@ -45,7 +45,7 @@ export interface UseMotionDeps {
 
 export function useMotion(deps: UseMotionDeps) {
   const { reframeTargetRef, askConfirm, showToast, segLayout, patchClipMotion, setSegZoom, setImgZoom, setVClipZoom, vcLen, seekTo } = deps
-  const { cues, setCues, segments, setSegments, imgClips, setImgClips, vClips, setVClips } = useDoc()
+  const { cues, setCues,  setSegments, imgClips, setImgClips, vClips, setVClips } = useDoc()
   const { selectedIds, selectedVideoIds, selectedImgIds, selectedVClipIds, selectedTelopTrans } = useSel()
   const { currentTimeRef } = usePlaybackCtx()
   const { trackStates } = useTracksCtx()

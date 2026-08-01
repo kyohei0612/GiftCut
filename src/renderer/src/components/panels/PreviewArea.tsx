@@ -21,7 +21,6 @@
 //
 // プレビュー固有の物は state/previewContext。**props で配ると100個を超える。**
 
-import { gainToDb } from '../../lib/appConst'
 import type { JSX } from 'react'
 import { PanelTabs } from '../PanelChrome'
 import { AudioMixer, PreviewScrub, TransportBar } from './PreviewBars'

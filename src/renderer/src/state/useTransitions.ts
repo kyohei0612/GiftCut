@@ -40,12 +40,12 @@ export interface UseTransitionsDeps {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useTransitions(deps: UseTransitionsDeps) {
-  const { segLayout, segLayoutRef, draggingTransRef, trackInnerRef, setRightTab, clearSegSel, mainLocked, showToast, transDur } = deps
+  const {  segLayoutRef, draggingTransRef, trackInnerRef, setRightTab,  mainLocked, showToast, transDur } = deps
   const { segments, setSegments } = useDoc()
   const {
     selectedTrans, setSelectedTrans, setSelectedIds, setSelectedTrackId, setEditingId,
-    setSelectedVideoIds, setSelectedAudioIds, setSelectedSeIds, setSelectedImgIds,
-    setSelectedVClipIds, setSelectedTelopTrans, setVideoSelected
+    setSelectedVideoIds, setSelectedAudioIds, setSelectedSeIds, 
+     setSelectedTelopTrans, setVideoSelected
   } = useSel()
   const { zoomRef } = useViewCtx()
 

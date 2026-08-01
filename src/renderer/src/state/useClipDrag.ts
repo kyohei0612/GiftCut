@@ -69,9 +69,7 @@ export interface ClipDragDeps {
 export function useClipDrag(deps: ClipDragDeps) {
   const {
     trackInnerRef,
-    tool,
-    duration,
-    laneAtY,
+    tool,    laneAtY,
     maybeTrackSelect,
     setDragTip,
     setSnapLineX,

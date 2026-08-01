@@ -16,8 +16,7 @@ import {
   hexToRgba,
   ICON_BASE_PX,
   LINE_BASE,
-  type AnimState,
-  type TelopStyle
+  type AnimState
 } from './telopStyle'
 import type { Cue } from './srt'
 

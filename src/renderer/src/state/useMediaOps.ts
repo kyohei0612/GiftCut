@@ -48,12 +48,12 @@ export interface UseMediaOpsDeps {
 }
 
 export function useMediaOps(deps: UseMediaOpsDeps) {
-  const { stopPlayback, setTime, duration, fallbackTrack, kindOf, placeImage, placeSE, placeVideoAtDrop, setOpenAccSec, videoElsRef, proxyForPathRef, srcAddedAtRef, initializedForPathRef, baselineRef, redoStackRef, pendingTimerRef, undoStackRef, suppressHistoryRef } = deps
-  const { segments, setSegments, segIdCounter, cuesRef, segsRef, seClipsRef } = useDoc()
+  const { stopPlayback, setTime, fallbackTrack, kindOf, placeImage, placeSE, placeVideoAtDrop, setOpenAccSec, videoElsRef, proxyForPathRef, srcAddedAtRef, initializedForPathRef, baselineRef, redoStackRef, pendingTimerRef, undoStackRef, suppressHistoryRef } = deps
+  const { setSegments, segIdCounter, cuesRef, segsRef, seClipsRef } = useDoc()
   const { clearSegSel } = useSel()
-  const { videoPath, setVideoPath, videoSrc, setVideoSrc, setVideoName, setVideoDuration, setProxyPct, setWaveform, setThumbnailSrc, sources, setSources, sourcesRef, sourceIdCounter, curSourceIdRef, setActiveSrcId, mediaItems, setMediaItems, mediaIdCounter } = useMediaCtx()
+  const { setVideoPath, setVideoSrc, setVideoName, setWaveform, setThumbnailSrc, setSources, sourcesRef, sourceIdCounter, curSourceIdRef, setActiveSrcId, mediaItems, setMediaItems, mediaIdCounter } = useMediaCtx()
   const { showToast } = useToastCtx()
-  const { setFps, fpsRef, currentTimeRef } = usePlaybackCtx()
+  const { setFps, currentTimeRef } = usePlaybackCtx()
 
   // seg の元動画を返す（srcId 未指定 or 見つからなければ主ソース）
   function srcOfSeg(seg: VSeg | undefined): Source | undefined {

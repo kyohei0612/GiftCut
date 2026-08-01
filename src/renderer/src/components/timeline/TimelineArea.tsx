@@ -83,7 +83,7 @@ export function TimelineArea(): JSX.Element {
   const { markers, setMarkers, vClips, imgClips } = useDoc()
   const {
     selectedTrans, selectedTrackId, selectedMarkerId, setSelectedMarkerId,
-    editingId, editingMarkerId, setEditingMarkerId
+     editingMarkerId, setEditingMarkerId
   } = useSel()
   const { tracks, trackStates } = useTracksCtx()
   const { zoom, zoomRef } = useViewCtx()

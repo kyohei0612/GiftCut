@@ -14,7 +14,7 @@
 //   npm run check -- path/to/project.gcproj        人が読む形
 //   npm run check -- path/to/project.gcproj --json 機械が読む形
 // ============================================================================
-import { EPS, segTLen, type TimeSeg } from './timeline'
+import { EPS } from './timeline'
 
 export interface ProjectProblem {
   /** error = データとして壊れている。warning = 動くが設計意図と食い違う */

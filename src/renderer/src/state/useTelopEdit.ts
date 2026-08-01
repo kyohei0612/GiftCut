@@ -12,11 +12,7 @@
 import { clamp } from '../../../shared/timeline'
 import { adjustRuns } from '../lib/textRuns'
 import {
-  defaultAnim,
-  defaultTelopStyle,
-  hasAnim,
-  sanitizeMotion,
-  type AnimIn,
+  defaultAnim,  hasAnim,  type AnimIn,
   type TelopAnim
 } from '../lib/telopStyle'
 import type { Cue } from '../lib/srt'
@@ -52,12 +48,12 @@ export function useTelopEdit(deps: UseTelopEditDeps) {
   const { cueTrack, telopLocked, idCounter, trackNum, insertTrackOrdered, motionLabel, draggingTelopAnimRef, setRightTab } = deps
   const { cues, setCues, vClips } = useDoc()
   const { selectedIds, setSelectedIds, selectedTelopTrans, setSelectedTelopTrans, setEditingId, isSelected, clearAll: clearAllSelections, setSelectedTrackId,
-    setSelectedVideoIds, setSelectedAudioIds, setSelectedSeIds, setSelectedImgIds,
-    setSelectedVClipIds, setSelectedTrans, setSelectedMarkerId, setVideoSelected,
-    setSelectedMediaId } = useSel()
+    setSelectedVideoIds, setSelectedAudioIds, setSelectedSeIds, 
+     setSelectedTrans,  setVideoSelected,
+     } = useSel()
   const { tracks, setTracks, trackStates, setTrackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
-  const { newTelopStyle, transDur } = useProjectStateCtx()
+  const { newTelopStyle,  } = useProjectStateCtx()
   const { currentTimeRef } = usePlaybackCtx()
   const { ratio } = useExportCtx()
   const { iconAuto, iconAnchorPos } = useIconsCtx()

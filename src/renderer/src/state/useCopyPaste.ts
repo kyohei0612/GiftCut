@@ -53,7 +53,7 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
     data: Record<string, Keys | undefined>
   } | null>(null)
   const { cues, setCues, segments, setSegments, seClips, setSeClips, imgClips, setImgClips, vClips, setVClips, seIdCounter, imgIdCounter, vClipIdCounter } = useDoc()
-  const { selectedIds, setSelectedIds, selectedSeIds, setSelectedSeIds, selectedImgIds, setSelectedImgIds, selectedVClipIds, setSelectedVClipIds, selectedVideoIds, selectedAudioIds, isSelected } = useSel()
+  const { selectedIds, setSelectedIds, selectedSeIds, setSelectedSeIds, selectedImgIds, setSelectedImgIds, selectedVClipIds, setSelectedVClipIds, selectedVideoIds,  isSelected } = useSel()
   const { trackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
   const {

@@ -26,8 +26,6 @@ import { useClipDrag } from './useClipDrag'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
-import { useToastCtx } from './toastContext'
-import { usePlaybackCtx } from './playbackContext'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseTimelineDragDeps {
@@ -89,17 +87,15 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     setDragTip, setMarquee, setSnapLineX, snapClipStart, snapTime,
     scrubFromClientX, reserveTrackPairForVideo, pendingLaneRef, setMenu
   } = deps
-  const { cues, setCues, segments, seClips, imgClips, vClips } = useDoc()
+  const { cues, setCues,  seClips, imgClips, vClips } = useDoc()
   const {
     selectedIds, setSelectedIds, setSelectedVideoIds, setSelectedAudioIds,
     setSelectedSeIds, setSelectedImgIds, setSelectedVClipIds,
-    setSelectedTrans, setSelectedTelopTrans, setSelectedTrackId, setSelectedMarkerId,
-    setVideoSelected, setSelectedMediaId, setEditingId,
-    isSelected, clearAll: clearAllSelections, clearSegSel
+      setSelectedTrackId, 
+    setVideoSelected,  
+    isSelected, clearAll:  clearSegSel
   } = useSel()
-  const { tracks, trackStates } = useTracksCtx()
-  const { showToast } = useToastCtx()
-  const { currentTimeRef, fpsRef } = usePlaybackCtx()
+  const { tracks } = useTracksCtx()
 
   function startScrub(e: React.PointerEvent): void {
     blurActiveInput()

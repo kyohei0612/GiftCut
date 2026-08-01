@@ -118,15 +118,6 @@ export function useAppLayout(deps: UseAppLayoutDeps) {
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  // ---- パネルのタブ帯（見切れ対策と並べ替え）----
-  //
-  // パネルを狭めるとタブが端から切れて、奥のタブへ一生たどり着けなかった。
-  // 3つの逃げ道を用意する:
-  //   1. 端の「送り」ボタン（押しっぱなしで送り続ける）
-  //   2. 「≫」から、いま見えていないタブを一覧で選ぶ
-  //   3. 掴んで横に引っぱる
-  // 並び順は勝手に変わらないよう固定。変えたいときだけ右クリックから動かす。
-  const TAB_ORDER_KEY = 'giftcut.tabOrder'
   /** 保存した並び順を当てる。知らないタブは後ろに残す（項目が増えても消えない） */
   function orderedTabs<T extends { id: string }>(group: string, tabs: T[]): T[] {
     const saved = tabOrder[group]

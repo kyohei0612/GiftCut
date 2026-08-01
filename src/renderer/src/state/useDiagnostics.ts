@@ -47,12 +47,12 @@ export interface UseDiagnosticsDeps {
 
 export function useDiagnostics(deps: UseDiagnosticsDeps): void {
   const {
-    setPerfOpen, dragTip, marquee, segLayoutRef, previewResRef, videoRef
+    setPerfOpen,   segLayoutRef, previewResRef, videoRef
   } = deps
   const { cuesRef, segsRef } = useDoc()
   const { setSnapLineX } = useDragPreviewCtx()
   const {
-    playRateRef, currentTimeRef, playing,
+    playRateRef, currentTimeRef, 
     // 裏から戻ったら測り直すための起点（心臓が持っている）
     clockStartPosRef, clockStartWallRef, lastTsRef
   } = usePlaybackCtx()

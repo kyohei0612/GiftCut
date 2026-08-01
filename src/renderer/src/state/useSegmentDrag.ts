@@ -30,9 +30,6 @@ import { rafThrottle } from '../lib/schedule'
 import { type SegLayout } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
-import { useTracksCtx } from './tracksContext'
-import { useToastCtx } from './toastContext'
-import { usePlaybackCtx } from './playbackContext'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseSegmentDragDeps {
@@ -74,7 +71,7 @@ export interface UseSegmentDragDeps {
 
 export function useSegmentDrag(deps: UseSegmentDragDeps) {
   const {
-    tool, mainLocked, maybeTrackSelect, stopPlayback, undo,
+    tool, mainLocked, maybeTrackSelect, stopPlayback, 
     moveSegmentTo, razorSegment, srcOfSeg, shiftAfter,
     trackInnerRef, zoomRef, videoDurationRef, videoName, videoPath,
     setDragTip, setSnapLineX, setVideoGhost, setOverwriteIds,
@@ -85,22 +82,17 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
   const segDropModeRef = useRef<SegDropMode>('move')
   const segMoveToRef = useRef<number | null>(null)
   const {
-    segments, setSegments, segIdCounter, segsRef,
+     setSegments,  segsRef,
     cues, setCues, seClips, setSeClips, imgClips, setImgClips,
     vClips, setVClips, markers, setMarkers
   } = useDoc()
   const {
     selectedVideoIds, setSelectedVideoIds, selectedAudioIds, setSelectedAudioIds,
-    selectedIds, setSelectedIds, selectedSeIds, setSelectedSeIds,
-    selectedImgIds, setSelectedImgIds, selectedVClipIds, setSelectedVClipIds,
+    selectedIds,  selectedSeIds, 
+    selectedImgIds,  selectedVClipIds, 
     selectedMarkerId,
-    setSelectedTrans, setSelectedTelopTrans, setSelectedTrackId, setSelectedMarkerId,
-    setVideoSelected, setSelectedMediaId, setEditingId,
-    isVideoSel, isAudioSel, anySegSelected, clearSegSel, clearAll: clearAllSelections
+      setSelectedTrackId,         clearAll: clearAllSelections
   } = useSel()
-  const { tracks, trackStates } = useTracksCtx()
-  const { showToast } = useToastCtx()
-  const { currentTimeRef, durationRef, fpsRef } = usePlaybackCtx()
 
   // 動画/音声の切片クリック（選択 / レザー分割 / ドラッグで並べ替え）
   // track: 'video'(V1) か 'audio'(A1)。選択は独立、カットは共有

@@ -19,8 +19,6 @@
 import { toGcUrl } from '../lib/gcUrl'
 import type { RecentProject } from './useProjectState'
 import { useDoc } from './contentContext'
-import { useSel } from './selectionContext'
-import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { useMediaCtx } from './mediaContext'
 

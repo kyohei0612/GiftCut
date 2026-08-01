@@ -9,7 +9,6 @@ import { buildTelopSVG, hexToRgba } from '../lib/telopStyle'
 import { TELOP_CATS, type TelopTemplate } from '../lib/telopTemplates'
 
 const THUMB_TEXT = 'あア'
-const THUMB_FONT_1080 = 780 // 1080基準のフォントサイズ。62px高サムネで約45px表示（本家風にカードいっぱい）
 export default function TemplateCard({
   tpl,
   onApply,

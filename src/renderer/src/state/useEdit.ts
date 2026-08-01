@@ -19,14 +19,14 @@ import { useTracksCtx } from './tracksContext'
 import { useViewCtx } from './viewContext'
 import { useToastCtx } from './toastContext'
 import type { Cue } from '../lib/srt'
-import type { ImgClip, SEClip, VClip, VSeg } from '../lib/projectTypes'
+import type { ImgClip, SEClip, VClip,  } from '../lib/projectTypes'
 import type { ClipMotion } from '../../../shared/clipMotion'
 import { clamp } from '../../../shared/timeline'
 import { hasKeys, putKey, valueAt } from '../../../shared/keyframes'
 import { keyDelta, neutralOf } from '../../../shared/nudgeShare'
 import { hasMotion, type Motion } from '../lib/telopStyle'
 import { hasClipMotion } from '../../../shared/clipMotion'
-import { DEFAULT_ADJUST, DEFAULT_CROP, DEFAULT_ZOOM, isNeutralAdjust, isNeutralCrop, isNeutralZoom } from '../lib/clipLook'
+import { DEFAULT_ADJUST, DEFAULT_CROP,  isNeutralAdjust, isNeutralCrop, isNeutralZoom } from '../lib/clipLook'
 import type { MotionKeyName } from '../../../shared/telopMotion'
 import type { Keys } from '../../../shared/keyframes'
 
@@ -37,7 +37,7 @@ export function useEdit() {
   const doc = useDoc()
   const sel = useSel()
   const trk = useTracksCtx()
-  const { zoom } = useViewCtx()
+  const { } = useViewCtx()
   const { showToast } = useToastCtx()
 
   const { cues, setCues, segments, setSegments, seClips, setSeClips, imgClips, setImgClips, vClips, setVClips } = doc

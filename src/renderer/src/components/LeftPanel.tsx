@@ -24,7 +24,6 @@ import { useLayout } from '../state/layoutContext'
 import { useLeftPanel } from '../state/leftPanelContext'
 import { useSel } from '../state/selectionContext'
 import { useDoc } from '../state/contentContext'
-import { useTracksCtx } from '../state/tracksContext'
 import { useViewCtx } from '../state/viewContext'
 import { useIconsCtx } from '../state/iconsContext'
 import { useToastCtx } from '../state/toastContext'
@@ -108,9 +107,7 @@ export function LeftPanel(): React.JSX.Element {
     applyTemplate,
     changeIconAuto,
     clearClipMotions,
-    currentTime,
-    duration,
-    motionSelRef,
+    currentTime,    motionSelRef,
     nudgeClips,
     pairedAudioOf,
     panelStyleFor,
@@ -126,9 +123,7 @@ export function LeftPanel(): React.JSX.Element {
     toggleKeys,
     updateSelectedStyle,
     updateSelectedText,
-    userTemplates,
-    vcLen,
-    iconForCue
+    userTemplates,    iconForCue
   } = useLeftPanel()
 
   // **区画は props で受け取らず、心臓から自分で見に行く**（state/layoutContext.tsx）。
@@ -137,7 +132,7 @@ export function LeftPanel(): React.JSX.Element {
   const { leftW, leftTab, setLeftTab } = useLayout()
   const { selectedIds, selectedSeIds, selectedImgIds, selectedVClipIds, selectedVideoIds, selectedAudioIds } = useSel()
   const { segments, seClips, imgClips, vClips } = useDoc()
-  const { zoom } = useViewCtx()
+  const { } = useViewCtx()
   const { showToast } = useToastCtx()
   const { iconSide, setIconSide, iconOffset, setIconOffset, iconScale, setIconScale, iconAuto, setIconSettingsOpen } = useIconsCtx()
   const { updateSelectedImg, updateSelectedSE, updateSelectedVClip, patchCuePos, patchCueScale, patchMotion, patchClipMotion, clearTelopMotions, setSelectedAdjust, setSelectedCrop, setSegZoom, setImgZoom, setVClipZoom, rotateSelectedSeg, flipSelectedSeg, toggleMuteSelectedSegments, resetTelopChannel, nudgeOthers, setSelectedAudio, clearBox, selected } = useEdit()

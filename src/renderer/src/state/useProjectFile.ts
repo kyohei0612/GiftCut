@@ -14,7 +14,7 @@
 import { toGcUrl } from '../lib/gcUrl'
 import { clamp, FPS_FALLBACK as FPS } from '../../../shared/timeline'
 import { loadCues, loadSegs, loadSeClips, loadMarkers, loadImgClips, loadVClips } from '../lib/projectLoad'
-import { defaultTelopStyle, type TelopStyle, type TextRun } from '../lib/telopStyle'
+import {  type TelopStyle, type TextRun } from '../lib/telopStyle'
 import { DEFAULT_TRACKS, EXTRA_AUDIO_TRACK, initTrackStates, newTrackState } from '../lib/trackState'
 import { mergeAssignments, mergeFavorites, mergeFolders, mergeNamed } from '../../../shared/templateMerge'
 import { saveCatOverrides, saveCustomCats, saveFavorites, saveUserTemplates } from '../lib/telopTemplates'
@@ -27,7 +27,6 @@ import { useDoc } from './contentContext'
 import { useProjectStateCtx } from './projectStateContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
-import { useViewCtx } from './viewContext'
 import { useToastCtx } from './toastContext'
 import { useExportCtx } from './exportContext'
 import { useMediaCtx } from './mediaContext'
@@ -84,18 +83,16 @@ export interface UseProjectFileDeps {
 }
 
 export function useProjectFile(deps: UseProjectFileDeps) {
-  const { stopPlayback, setTime, duration, fallbackTrack, kindOf, applyLayout, layoutNow, snapNow, resetHistory, confirmDiscard, hasProjectContent, askText, rememberProject, prepareMediaMeta, mediaMeta, runColorFromStyle, applyRunRange, curSel, selected, audioTrackGain, commitPending, idCounter, savedJsonRef, projectJsonRef, markUnsavedRef, lastAutosaveRef, initializedForPathRef, proxyForPathRef, videoElsRef, videoRef, setTemplatePicker, saveLS, baselineRef, undoStackRef, redoStackRef, suppressHistoryRef, pendingTimerRef, hydrateSource, updateSource, setHistTick } = deps
-  const { cues, setCues, segments, setSegments, seClips, setSeClips, imgClips, setImgClips, vClips, setVClips, markers, setMarkers, segIdCounter, seIdCounter, imgIdCounter, vClipIdCounter, markerIdCounter, cuesRef, segsRef, seClipsRef, imgClipsRef, vClipsRef, markersRef } = useDoc()
-  const { setSelectedIds, clearAll, clearSegSel, isSelected, editingId, setEditingId, setSelectedTrackId, setSelectedVClipIds,
-    setSelectedMarkerId, setSelectedSeIds, setSelectedImgIds, setSelectedVideoIds, setSelectedAudioIds,
-    setSelectedTrans, setSelectedTelopTrans, setSelectedMediaId, setVideoSelected, setEditingMarkerId, selectedIds } = useSel()
-  const { tracks, setTracks, trackStates, setTrackStates, tracksRef, trackStatesRef } = useTracksCtx()
-  const { setZoom } = useViewCtx()
-  const { showToast } = useToastCtx()
+  const { stopPlayback, setTime, fallbackTrack, kindOf, applyLayout, layoutNow, snapNow, resetHistory, confirmDiscard, hasProjectContent, askText, rememberProject, prepareMediaMeta, runColorFromStyle, applyRunRange, curSel, selected, commitPending, idCounter, savedJsonRef, projectJsonRef, markUnsavedRef, lastAutosaveRef, initializedForPathRef, proxyForPathRef, videoElsRef, videoRef, setTemplatePicker, saveLS, baselineRef, suppressHistoryRef, hydrateSource, updateSource, setHistTick } = deps
+  const { cues, setCues, segments, setSegments, seClips, setSeClips, imgClips, setImgClips, vClips, setVClips, markers, setMarkers, segIdCounter, seIdCounter, imgIdCounter, vClipIdCounter, markerIdCounter } = useDoc()
+  const { setSelectedIds, clearSegSel, isSelected, editingId, setEditingId, setSelectedTrackId, setSelectedVClipIds,
+    setSelectedMarkerId, setSelectedSeIds,
+    setSelectedMediaId, setEditingMarkerId, selectedIds } = useSel()
+  const { tracks, setTracks, trackStates, setTrackStates } = useTracksCtx()  const { showToast } = useToastCtx()
   const { ratio, setRatio, exportOpts, setExportOpts, masterVolume, setMasterVolume, loudnormLUFS, setLoudnormLUFS } = useExportCtx()
-  const { videoPath, setVideoPath, setVideoSrc, setVideoName, setVideoDuration, sources, setSources, sourcesRef, sourceIdCounter, curSourceIdRef, setActiveSrcId, mediaItems, setMediaItems, mediaIdCounter, setWaveform, setThumbnailSrc, setProxyPct } = useMediaCtx()
+  const { videoPath, setVideoPath, setVideoSrc, setVideoName, setVideoDuration, sources, setSources, sourceIdCounter, curSourceIdRef, setActiveSrcId, mediaItems, setMediaItems, mediaIdCounter, setWaveform, setThumbnailSrc, setProxyPct } = useMediaCtx()
   const { iconSide, setIconSide, iconOffset, setIconOffset, iconScale, setIconScale, iconAuto, setIconAuto, iconAnchorPos, setIconAnchorPos } = useIconsCtx()
-  const { setFps, fpsRef, currentTimeRef } = usePlaybackCtx()
+  const { setFps } = usePlaybackCtx()
   const {
     projectPath, setProjectPath, setSrtPath, setMissingMedia, setRecentProjects,
     favorites, setFavorites, catOverrides, setCatOverrides, customCats, setCustomCats,

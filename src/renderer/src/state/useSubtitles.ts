@@ -16,7 +16,6 @@
 import { alignCues, speechRanges } from '../../../shared/alignCues'
 import { DB_LADDER, enoughSilences } from '../../../shared/silenceLadder'
 import { ensureMinShow, mergeShreds, splitAtPauses } from '../../../shared/splitTelop'
-import { defaultTelopStyle } from '../lib/telopStyle'
 import { parseSrt, type Cue } from '../lib/srt'
 import { DEFAULT_LABEL } from '../lib/labels'
 import { useDoc } from './contentContext'

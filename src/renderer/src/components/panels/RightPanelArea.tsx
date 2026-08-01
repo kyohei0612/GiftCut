@@ -61,8 +61,8 @@ export function RightPanelArea(): JSX.Element {
   } = useSel()
   const { videoPath, mediaItems } = useMediaCtx()
   const { showToast } = useToastCtx()
-  const { popped, isPopped, paneGeom, unpopPane, rightW } = useLayout()
-  const { favorites, userTemplates, customCats, transDur, setTransDur } = useProjectStateCtx()
+  const {  isPopped, paneGeom, unpopPane, rightW } = useLayout()
+  const {  userTemplates, customCats, transDur, setTransDur } = useProjectStateCtx()
   const { setSeGhost, setVideoGhost, setImgGhost } = useDragPreviewCtx()
   return (
       <PaneHost id="right" title={PANE_LABEL.right} popped={isPopped('right')}
