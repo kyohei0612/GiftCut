@@ -695,8 +695,6 @@ function AppInner(): JSX.Element {
   //   insert = Ctrl: 割り込み（置き先で分割して差し込み、後続は後ろへずれる）
   // 本編クリップをドラッグ中の移動先（タイムライン秒）。指を離した時に確定する。
   // state だと onUp のクロージャが古い値を見るので ref で持つ。
-  const segMoveToRef = useRef<number | null>(null)
-  const segDropModeRef = useRef<SegDropMode>('move')
 
   // ---- SE クリップ（A2 トラックに配置した効果音）----
   const seAudioRefs = useRef<Map<number, HTMLAudioElement>>(new Map())
@@ -1316,7 +1314,6 @@ function AppInner(): JSX.Element {
   // ---- プレビュー内インライン編集 ---- （宣言はセッション保存/復元より前に移動済み）
   const screenRef = useRef<HTMLDivElement>(null)
   // プレビュー上テロップの手動ダブルタップ検出（ネイティブdblclickが状態依存で不発なため）
-  const lastTelopTapRef = useRef<{ id: number; t: number }>({ id: -1, t: 0 })
   const trackInnerRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   // 縦スクロールに追従させる相手＝左の段見出しの並び。
@@ -2295,10 +2292,6 @@ function AppInner(): JSX.Element {
    * 全部を選んで貼っても、写した種類の物にだけ入るようにする。
    */
   const motionSelRef = useRef<string[]>([])
-  const motionClipRef = useRef<{
-    kind: 'telop' | 'clip'
-    data: Record<string, Keys | undefined>
-  } | null>(null)
   /**
    * 最後にコピーしたのはどちらか。**貼り付けは「最後に写した物」に従う。**
    *
@@ -2639,14 +2632,13 @@ function AppInner(): JSX.Element {
     srcOfSeg, shiftAfter,
     trackInnerRef, zoomRef, videoDurationRef, videoName, videoPath,
     setDragTip, setSnapLineX, setVideoGhost, setOverwriteIds,
-    segDropModeRef, segMoveToRef, snapClipStart, snapTime
+    snapClipStart, snapTime
   })
 
   // プレビュー内テロップのドラッグ移動
   // プレビューの上でテロップを掴む・拡げる・枠内に寄せるのは state/useTelopBox
   const { onTelopPointerDown, onTelopResizeStart, setBoxAnchor, applyIconAutoLeft } = useTelopBox({
     screenRef,
-    lastTelopTapRef,
     telopLocked,
     stopPlayback,
     seekTo,
@@ -2710,7 +2702,6 @@ function AppInner(): JSX.Element {
     telopLocked,
     selected,
     idCounter,
-    motionClipRef,
     motionSelRef,
     reframeTargetRef,
     srcOfSeg,

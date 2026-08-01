@@ -16,6 +16,7 @@
 // ずらすのではなく**その時刻に印を置く**。プレミアと同じで、これが動きを
 // 付ける一番自然なやり方。位置そのものを動かすと、付けた動きが丸ごとずれる。
 
+import { useRef } from 'react'
 import { clamp } from '../../../shared/timeline'
 import { hasKeys, putKey } from '../../../shared/keyframes'
 import type { Motion } from '../../../shared/telopMotion'
@@ -28,7 +29,6 @@ export interface UseTelopBoxDeps {
   /** プレビューの映像面。位置はこの矩形を基準に測る */
   screenRef: React.RefObject<HTMLDivElement | null>
   /** 手作りのダブルタップ判定に使う（前回どのテロップをいつ叩いたか） */
-  lastTelopTapRef: React.MutableRefObject<{ id: number; t: number }>
   telopLocked: (c: Cue) => boolean
   stopPlayback: () => void
   seekTo: (t: number) => void
@@ -45,7 +45,9 @@ export interface TelopBox {
 }
 
 export function useTelopBox(deps: UseTelopBoxDeps): TelopBox {
-  const { screenRef, lastTelopTapRef, telopLocked, stopPlayback, seekTo, iconAuto, setIconAnchorPos } = deps
+  const { screenRef, telopLocked, stopPlayback, seekTo, iconAuto, setIconAnchorPos } = deps
+  /** 最後に押したテロップと時刻。ダブルタップの判定にだけ使う（外からは触らない） */
+  const lastTelopTapRef = useRef<{ id: number; t: number }>({ id: -1, t: 0 })
   const { cues, setCues } = useDoc()
   const {
     selectedIds, setSelectedIds, setVideoSelected, setSelectedTrans,

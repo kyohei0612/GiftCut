@@ -13,6 +13,7 @@
 //
 // テロップを全部選んで貼っても、動画クリップには入らない。持っていない設定を
 // 無理に当てると壊れるので、**持っている物だけ**を写す。
+import { useRef } from 'react'
 import type { ClipMotion } from '../../../shared/clipMotion'
 import type { Keys } from '../../../shared/keyframes'
 import { sanitizeMotion, type Motion } from '../lib/telopStyle'
@@ -33,7 +34,6 @@ export interface UseCopyPasteDeps {
   idCounter: React.MutableRefObject<number>
   /* eslint-disable @typescript-eslint/no-explicit-any */
   /** モーションのどの行を選んでいるか（貼るときの当て先） */
-  motionClipRef: any
   motionSelRef: any
   /** プレビューの枠で今つまんでいる相手 */
   reframeTargetRef: any
@@ -43,7 +43,15 @@ export interface UseCopyPasteDeps {
 }
 
 export function useCopyPaste(deps: UseCopyPasteDeps) {
-  const { cueTrack, fallbackTrack, mainLocked, telopLocked, selected, idCounter, motionClipRef, motionSelRef, reframeTargetRef, srcOfSeg, leftTab } = deps
+  const { cueTrack, fallbackTrack, mainLocked, telopLocked, selected, idCounter, motionSelRef, reframeTargetRef, srcOfSeg, leftTab } = deps
+  /**
+   * 写し取った動きの控え。**貼り付けは種類を跨がない**ので、
+   * どちらから写したか（テロップ／映像）も一緒に覚えておく。
+   */
+  const motionClipRef = useRef<{
+    kind: 'telop' | 'clip'
+    data: Record<string, Keys | undefined>
+  } | null>(null)
   const { cues, setCues, segments, setSegments, seClips, setSeClips, imgClips, setImgClips, vClips, setVClips, seIdCounter, imgIdCounter, vClipIdCounter } = useDoc()
   const { selectedIds, setSelectedIds, selectedSeIds, setSelectedSeIds, selectedImgIds, setSelectedImgIds, selectedVClipIds, setSelectedVClipIds, selectedVideoIds, selectedAudioIds, isSelected } = useSel()
   const { trackStates } = useTracksCtx()

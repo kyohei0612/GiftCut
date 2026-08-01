@@ -21,8 +21,9 @@
 // クリップを短くするのではなく、素材のどこからどこまでを使うかを変える。
 // **縮めた分は捨てていない**ので、あとから伸ばして戻せる。
 
+import { useRef } from 'react'
 import { clamp, layoutSegs, segSpeed } from '../../../shared/timeline'
-import { dragModeOf, movedEnough } from '../../../shared/dragMode'
+import { dragModeOf, movedEnough, type SegDropMode } from '../../../shared/dragMode'
 import { toggleSelect } from '../../../shared/clipEdit'
 import { formatTime } from '../lib/srt'
 import { rafThrottle } from '../lib/schedule'
@@ -66,9 +67,6 @@ export interface UseSegmentDragDeps {
   setVideoGhost: any
   /** 落とすと上書きされる相手。赤く見せるために覚えておく */
   setOverwriteIds: React.Dispatch<React.SetStateAction<number[]>>
-  /** 落とし方（動かす／複製／割り込み）と落とし先 */
-  segDropModeRef: any
-  segMoveToRef: React.MutableRefObject<number | null>
   snapClipStart: any
   snapTime: any
 }
@@ -80,8 +78,12 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
     moveSegmentTo, razorSegment, srcOfSeg, shiftAfter,
     trackInnerRef, zoomRef, videoDurationRef, videoName, videoPath,
     setDragTip, setSnapLineX, setVideoGhost, setOverwriteIds,
-    segDropModeRef, segMoveToRef, snapClipStart, snapTime
+    snapClipStart, snapTime
   } = deps
+  // 落とし方（動かす／複製／割り込み）と落とし先。
+  // **掴んでいる間だけの覚え書き**で外からは触らないので、ここで持つ
+  const segDropModeRef = useRef<SegDropMode>('move')
+  const segMoveToRef = useRef<number | null>(null)
   const {
     segments, setSegments, segIdCounter, segsRef,
     cues, setCues, seClips, setSeClips, imgClips, setImgClips,
