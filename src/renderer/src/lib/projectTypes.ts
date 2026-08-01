@@ -11,6 +11,7 @@ import type { ClipMotion } from '../../../shared/clipMotion'
 import type { Layout } from '../../../shared/timeline'
 import type { SegTrans } from './transitions'
 
+/** 動画セグメント（切片）。**常に隙間なく連続して並ぶ**＝リップル前提 */
 export interface VSeg {
   id: number
   srcId?: number // どの元動画か（マルチソース）。未指定=主ソース(sources[0])。
@@ -39,6 +40,7 @@ export interface VSeg {
   gap?: boolean // タイムラインの空白（映像なし・無音）。「位置を指定して配置」した際の隙間埋め。
 }
 
+/** 元動画（マルチソース）。1タイムラインに複数の動画を連結できる */
 export interface Source {
   id: number
   path: string // 原本パス（書き出しに使用＝無劣化）

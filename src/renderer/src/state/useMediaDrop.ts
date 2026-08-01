@@ -263,6 +263,10 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
     setSnapLineX(null)
   }
 
+  /**
+   * タイムラインの外（トラックヘッダー列・パネルの上など）で離された素材を、
+   * 一番近い位置に置く。どこも受け取らずに掴んだものが消えるのを防ぐための最終受け皿。
+   */
   function dropMediaNearest(m: MediaItem, clientX: number, clientY: number): void {
     const inner = trackInnerRef.current
     const scroll = scrollRef.current
@@ -283,6 +287,15 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
       placeImage(m, t, fallbackTrack(dropLaneAt(yRel, 'video', true) ?? 'V3', 'video'))
     }
   }
+  /**
+   * 動画のドロップ先レーンを決める。
+   *
+   * トラックの行の外（下の余白、音声トラックの上など）に落ちたとき、以前は V1 ＝
+   * 本編の上書きに倒れていた。置いたつもりが本編を壊す。行の外でも駐禁を出さずに
+   * 置けるようにしたいので、**縦位置が一番近い映像トラック**に寄せる。
+   * どうしても決まらないときだけ1つ上の新しいレーンを作る
+   * （V{n}/A{n} は reserveTrackPairForVideo が作る）。
+   */
   function videoDropLane(e: { target: EventTarget | null }, yRel?: number): string {
     const tid = trackFromEvent(e, 'video')
     if (tid) return tid

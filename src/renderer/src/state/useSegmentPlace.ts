@@ -57,6 +57,10 @@ export function useSegmentPlace(deps: UseSegmentPlaceDeps) {
   const { showToast } = useToastCtx()
   const { sourcesRef } = useMediaCtx()
 
+  /**
+   * タイムライン範囲 [tA, tB) を切り出して除去した切片配列を返す（プレミアの「上書き」の下ごしらえ）。
+   * 端にかかる切片は速度を考慮してトリムし、insertAt ＝ 新クリップを挿す位置（配列index）を返す。
+   */
   function cutRangeFromSegs(segs: VSeg[], tA: number, tB: number): { out: VSeg[]; insertAt: number } {
     return cutRange(segs, tA, tB, segSplit)
   }

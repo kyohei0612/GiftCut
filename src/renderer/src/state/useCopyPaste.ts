@@ -62,6 +62,7 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
   } = useClipboardCtx()
   const { currentTimeRef } = usePlaybackCtx()
 
+  /** 何を写せるかの一覧（人に見せる文言） */
   function attrSummary(a: CopiedAttrs): string {
     const parts: string[] = []
     if (a.telopPos || a.telopScale != null) parts.push('位置と大きさ')
@@ -75,6 +76,7 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
     return parts.length ? parts.join('・') : '設定なし'
   }
 
+  /** 選んでいるクリップ1つから属性をコピーする */
   function copyAttributes(): void {
     const cue = cues.find((c) => selectedIds.includes(c.id))
     if (cue) {
@@ -161,6 +163,13 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
     showToast('コピーするクリップを選んでください。')
   }
 
+  /**
+   * コピーした属性を、選んでいるクリップすべてに貼り付ける。
+   *
+   * テロップの見た目をコピーして全部選んで貼っても、動画や画像には
+   * 貼らずテロップにだけ貼る。全部に貼ろうとして何も起きないより、
+   * 貼れるものにだけ貼って「何件に貼ったか」を伝えるほうが親切。
+   */
   function pasteAttributes(): void {
     const a = copiedAttrs
     if (!a) {

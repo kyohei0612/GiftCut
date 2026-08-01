@@ -83,6 +83,14 @@ export function useMediaOps(deps: UseMediaOpsDeps) {
     })
   }
 
+  /**
+   * 素材を**再生ヘッドの位置へ置く**（ダブルクリック用）。
+   *
+   * 置く場所をマウスで指す必要があるのはドラッグだけで、
+   * 「とりあえず今いる所に足したい」ときにドラッグを強いるのは手間なだけ。
+   * プレミアも素材のダブルクリック／挿入は再生ヘッド基準。
+   * どのレーンに載せるかは、ドラッグで何も指さなかったときと同じ既定に合わせる。
+   */
   function addMediaAtPlayhead(m: MediaItem): void {
     const t = currentTimeRef.current
     if (m.kind === 'video') void placeVideoAtDrop(m.path, t, false)

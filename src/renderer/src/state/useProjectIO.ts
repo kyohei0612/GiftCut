@@ -227,6 +227,16 @@ export function useProjectIO(deps: UseProjectIODeps) {
     }
   }
 
+  /**
+   * 下書きを1回書く。**失敗を握りつぶさない。**
+   *
+   * 以前は結果を捨てていた。ディスクが一杯・書き込みを止められている（ウイルス対策）
+   * といった理由で書けなくても誰も気づかず、しかも「書いた」と記録してしまうので
+   * **次の回もやり直さない**。落ちて初めて「下書きが無い」と分かる、という
+   * 一番たちの悪い壊れ方をする。守っているつもりの網が破れていても分からない。
+   *
+   * 失敗したら記録を戻して次の回でやり直し、画面にも出し続ける（消える通知だけにしない）。
+   */
   async function writeAutosave(json: string): Promise<void> {
     const prev = lastAutosaveRef.current
     lastAutosaveRef.current = json // 同じ内容で二重に書かない

@@ -94,18 +94,24 @@ export function useEdit() {
     setVClips((prev) => prev.map((c) => (selectedVClipIds.includes(c.id) ? { ...c, ...patch } : c)))
   }
 
+  /** テロップの位置（フレーム内の割合）を書き換える */
   function patchCuePos(cueId: number, patch: { x?: number; y?: number }): void {
     setCues((prev) =>
       prev.map((c) => (c.id === cueId ? { ...c, pos: { ...c.pos, ...patch } } : c))
     )
   }
 
+  /** テロップの大きさ（倍率）を書き換える */
   function patchCueScale(cueId: number, scale: number): void {
     setCues((prev) =>
       prev.map((c) => (c.id === cueId ? { ...c, scale: Math.max(0.05, scale) } : c))
     )
   }
 
+  /**
+   * テロップの「動き」（キーフレーム）を1項目だけ書き換える。
+   * 印が全部無くなったら、その項目ごと捨てる（＝固定値に戻る）。
+   */
   function patchMotion(
     cueId: number,
     key: MotionKeyName,
@@ -121,6 +127,10 @@ export function useEdit() {
     )
   }
 
+  /**
+   * 動画切片・画像・映像レイヤーの「動き」を1項目だけ書き換える。
+   * 印が全部無くなったら、その項目ごと捨てる（＝固定値に戻る）。テロップの patchMotion と同じ形。
+   */
   function patchClipMotion(
     kind: 'video' | 'img' | 'vclip',
     id: number,
@@ -138,6 +148,12 @@ export function useEdit() {
     else setVClips((prev) => prev.map(upd))
   }
 
+  /**
+   * 選んでいるテロップ全部の動きを捨てる。
+   *
+   * **付ける時は選択中の全部に効くのに、消す時だけ1つずつでは対にならない。**
+   * 鍵の掛かっている物は触らない（他の操作と同じ扱い）。
+   */
   function clearTelopMotions(): void {
     const ids = selectedIds.length ? selectedIds : []
     if (!ids.length) return
@@ -237,6 +253,7 @@ export function useEdit() {
     setSegments((prev) => prev.map((s) => (isAudioSel(s.id) ? { ...s, muted: !allMuted } : s)))
   }
 
+  /** 選んでいるテロップ全部から、その項目の印だけを捨てる */
   function resetTelopChannel(key: MotionKeyName): void {
     const ids = selectedIds.length ? selectedIds : []
     if (!ids.length) return
@@ -249,6 +266,16 @@ export function useEdit() {
     )
   }
 
+  /**
+   * モーションの数値を変えたとき、**選んである他のテロップにも同じだけ配る。**
+   *
+   * 配るのは「変えた量（差分）」であって、値そのものではない。
+   * 同じ値を配ると、ばらばらに置いてある物が1か所に揃ってしまう。
+   * それぞれの**いまの値からのズレ**として足せば、位置関係は崩れない。
+   *
+   * 単位の換算（画面の px・%・度 → 印に入れる値）は shared/nudgeShare にある。
+   * 表を2か所に持たないこと。
+   */
   function nudgeOthers(key: MotionKeyName, deltaShown: number, atT: number): void {
     if (!deltaShown) return
     for (const c of cues) {

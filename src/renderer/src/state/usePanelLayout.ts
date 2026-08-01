@@ -130,6 +130,12 @@ export function usePanelLayout(): PanelLayout {
     }
   }, [tabOrder])
 
+  // 切り離す＝**そのパネルを別の窓にする**。それだけ。
+  // 以前は「画面の中で浮かせる」と「別ウィンドウで開く」の2つがあったが、
+  // 窓なら本体の上にも別モニターにも自由に置けるので、分ける意味が無かった。
+  //
+  // **覚えさせない**（localStorage に残さない）。起動しただけで窓が開くと、
+  // モニターを外して起動したときに画面の外へ出たまま行方不明になる。
   const [popped, setPopped] = useState<Partial<Record<PaneId, true>>>({})
   const [paneGeom, setPaneGeom] = useState<Record<string, PaneGeom>>({})
 

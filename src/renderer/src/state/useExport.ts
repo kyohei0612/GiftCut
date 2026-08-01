@@ -79,6 +79,13 @@ export function useExport(deps: UseExportDeps) {
     else if (res?.error && res.error !== 'キャンセル') showToast('書き出し失敗: ' + res.error, 'error')
   }
 
+  /**
+   * 書き出しの設定画面を開く。
+   *
+   * **中身が無いときは開かない。** 以前は空でも開き、設定を選んで
+   * 「書き出す」を押して初めて「動画を読み込んでください」と怒られた。
+   * 押す前に分かる方が親切。
+   */
   function openExportDialog(): void {
     if (!videoPath || !segments.length) {
       showToast('書き出す中身がありません。先に動画を読み込んでタイムラインに置いてください。')
