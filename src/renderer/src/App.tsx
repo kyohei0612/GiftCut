@@ -983,7 +983,12 @@ function AppInner(): JSX.Element {
     motionPresets, setMotionPresets, refreshMotionPresets, importMotionPresets,
     MY_MOTIONS_KEY, myMotions, setMyMotions, putMyMotions, saveMyMotion, deleteMyMotion,
     isFav, toggleFav, setTplCat, openTplSec, setOpenTplSec, toggleTplSec,
-    openAccSec, setOpenAccSec, accSecRefs, toggleAccSec, accSec, loadLS, saveLS
+    openAccSec, setOpenAccSec, accSecRefs, toggleAccSec, accSec, loadLS, saveLS,
+    seFavs, setSeFavs, seFolders, setSeFolders, seOv, setSeOv,
+    iconFavs, setIconFavs, iconFolders, setIconFolders, iconOv, setIconOv,
+    toggleSeFav, toggleIconFav, setSeFolderOf, setIconFolderOf,
+    addSeFolder, deleteSeFolder, addIconFolder, deleteIconFolder,
+    orgMenu, setOrgMenu, allCats, catOf, addCustomCat, deleteCustomCat
   } = useLibraries({ askText })
   // ---- プレビュー解像度（アプリ設定。プロジェクトではなくPCごとの好みなので localStorage）----
   // 1080 / 720 / 360 のどれかで、**どれも焼き直した映像**で再生する。
@@ -1069,137 +1074,6 @@ function AppInner(): JSX.Element {
       })
     })
   }, [previewRes, sources, vClips, proxyMap, proxyTick])
-  const [seFavs, setSeFavs] = useState<string[]>(() => loadLS('giftcut.seFavorites', []))
-  const [seFolders, setSeFolders] = useState<{ key: string; label: string }[]>(() =>
-    loadLS('giftcut.seFolders', [])
-  )
-  const [seOv, setSeOv] = useState<Record<string, string>>(() => loadLS('giftcut.seOverrides', {}))
-  const [iconFavs, setIconFavs] = useState<string[]>(() => loadLS('giftcut.iconFavorites', []))
-  const [iconFolders, setIconFolders] = useState<{ key: string; label: string }[]>(() =>
-    loadLS('giftcut.iconFolders', [])
-  )
-  const [iconOv, setIconOv] = useState<Record<string, string>>(() =>
-    loadLS('giftcut.iconOverrides', {})
-  )
-  const toggleSeFav = (p: string): void =>
-    setSeFavs((prev) => {
-      const n = prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
-      saveLS('giftcut.seFavorites', n)
-      return n
-    })
-  const toggleIconFav = (id: string): void =>
-    setIconFavs((prev) => {
-      const n = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-      saveLS('giftcut.iconFavorites', n)
-      return n
-    })
-  const setSeFolderOf = (p: string, key: string | null): void =>
-    setSeOv((prev) => {
-      const n = { ...prev }
-      if (key) n[p] = key
-      else delete n[p]
-      saveLS('giftcut.seOverrides', n)
-      return n
-    })
-  const setIconFolderOf = (id: string, key: string | null): void =>
-    setIconOv((prev) => {
-      const n = { ...prev }
-      if (key) n[id] = key
-      else delete n[id]
-      saveLS('giftcut.iconOverrides', n)
-      return n
-    })
-  const addSeFolder = (): void =>
-    askText('フォルダ名', '新しいフォルダ', (name) => {
-      const key = (name || '').trim()
-      if (!key || key === 'fav' || seFolders.some((f) => f.key === key)) return
-      const next = [...seFolders, { key, label: key }]
-      setSeFolders(next)
-      saveLS('giftcut.seFolders', next)
-      setOpenAccSec((p) => ({ ...p, se: [key] }))
-    })
-  const deleteSeFolder = (key: string): void => {
-    const next = seFolders.filter((f) => f.key !== key)
-    setSeFolders(next)
-    saveLS('giftcut.seFolders', next)
-    setSeOv((prev) => {
-      const n = Object.fromEntries(Object.entries(prev).filter(([, v]) => v !== key))
-      saveLS('giftcut.seOverrides', n)
-      return n
-    })
-    setOpenAccSec((p) => ({ ...p, se: (p.se ?? []).filter((x) => x !== key) }))
-  }
-  const addIconFolder = (): void =>
-    askText('フォルダ名', '新しいフォルダ', (name) => {
-      const key = (name || '').trim()
-      if (!key || key === 'fav' || key === 'lib' || iconFolders.some((f) => f.key === key)) return
-      const next = [...iconFolders, { key, label: key }]
-      setIconFolders(next)
-      saveLS('giftcut.iconFolders', next)
-      setOpenAccSec((p) => ({ ...p, icon: [key] }))
-    })
-  const deleteIconFolder = (key: string): void => {
-    const next = iconFolders.filter((f) => f.key !== key)
-    setIconFolders(next)
-    saveLS('giftcut.iconFolders', next)
-    setIconOv((prev) => {
-      const n = Object.fromEntries(Object.entries(prev).filter(([, v]) => v !== key))
-      saveLS('giftcut.iconOverrides', n)
-      return n
-    })
-    setOpenAccSec((p) => ({ ...p, icon: (p.icon ?? []).filter((x) => x !== key) }))
-  }
-  // SE/アイコン共用の右クリックメニュー（テロップの「フォルダへ移動」と同じ見た目・動作）
-  const [orgMenu, setOrgMenu] = useState<{
-    x: number
-    y: number
-    options: { label: string; checked?: boolean; act: () => void }[]
-  } | null>(null)
-  useEffect(() => {
-    if (!orgMenu) return
-    const close = (): void => setOrgMenu(null)
-    const onEsc = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOrgMenu(null)
-    }
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', onEsc)
-    return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', onEsc)
-    }
-  }, [orgMenu])
-  // ユーザー作成フォルダ（カテゴリ）。既定の色カテゴリ + これ。
-  const allCats = [...TELOP_CATS, ...customCats]
-  // 実効カテゴリ＝手動移動(上書き)優先→スタイルの見た目の色で自動判定。
-  // 上書き先が存在しないカテゴリ(削除フォルダ/旧・使い道カテゴリ)は無視して色判定へ＝自動移行。
-  const catKeySet = new Set(allCats.map((c) => c.key))
-  const catOf = (t: TelopTemplate): string => {
-    const ov = catOverrides[t.name]
-    if (ov && catKeySet.has(ov)) return ov
-    return colorCatOf(t.style)
-  }
-  const addCustomCat = (): void =>
-    askText('フォルダ名', '新しいフォルダ', (name) => {
-      const key = (name || '').trim()
-      if (!key || allCats.some((c) => c.key === key)) return
-      const next = [...customCats, { key, label: key }]
-      setCustomCats(next)
-      saveCustomCats(next)
-      setOpenTplSec(key)
-    })
-  const deleteCustomCat = (key: string): void => {
-    const next = customCats.filter((c) => c.key !== key)
-    setCustomCats(next)
-    saveCustomCats(next)
-    // このフォルダに入れていたテロップは上書きを外して元カテゴリへ戻す
-    setCatOverrides((prev) => {
-      const m = { ...prev }
-      for (const n of Object.keys(m)) if (m[n] === key) delete m[n]
-      saveCatOverrides(m)
-      return m
-    })
-    if (openTplSec === key) setOpenTplSec(null)
-  }
   // テロップカード右クリック→フォルダ移動メニュー
   const [tplMenu, setTplMenu] = useState<{ x: number; y: number; name: string; curCat: string } | null>(
     null
