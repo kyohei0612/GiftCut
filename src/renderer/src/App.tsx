@@ -192,6 +192,12 @@ import { useLaneGeometry } from './state/useLaneGeometry'
 import { useTimelineDrag } from './state/useTimelineDrag'
 import { useSegmentDrag } from './state/useSegmentDrag'
 import {
+  ProgressBadges,
+  ReframeBox,
+  ScreenEmpty,
+  TelopEditor
+} from './components/panels/PreviewOverlays'
+import {
   ACTION_LIST,
   DEFAULT_SHORTCUTS,
   SC_KEY,
@@ -8097,137 +8103,37 @@ function AppInner(): JSX.Element {
                     style={{ background: transOverlay.color, opacity: transOverlay.opacity }}
                   />
                 )}
-                {/* リフレーム枠（四隅ドラッグ=拡大縮小、本体ドラッグ=移動、ホイール=拡大縮小）。
-                    対象は動画切片 or 選択中の画像（reframeTarget） */}
+                {/* 映像に重ねて出る物は components/panels/PreviewOverlays.tsx */}
                 {(videoSelected ||
                   selectedVideoIds.length > 0 ||
                   selectedImgIds.length === 1 ||
                   selectedVClipIds.length === 1) &&
                   reframeTarget && (
-                  <div className="reframe-box">
-                    {[0, 1, 2, 3].map((i) => (
-                      <div
-                        key={i}
-                        className={`reframe-handle rh-${i}`}
-                        onPointerDown={(e) => onVideoReframeStart(e, i)}
-                      />
-                    ))}
-                    {/* 回転ハンドル: 四隅の少し外側。掴んで回すと現在クリップを回転（Shiftで15°スナップ） */}
-                    {[0, 1, 2, 3].map((i) => (
-                      <div
-                        key={`rot-${i}`}
-                        className={`reframe-rot rr-${i}`}
-                        title="ドラッグで回転（Shiftで15°）"
-                        onPointerDown={onVideoRotateStart}
-                      >
-                        ↻
-                      </div>
-                    ))}
-                    <div className="reframe-bar" onPointerDown={(e) => e.stopPropagation()}>
-                      {/* 何を操作中かを明示（動画 or 画像）＝誤って別の要素を拡大しないように */}
-                      <span className="reframe-target" title={reframeTarget.name}>
-                        {reframeTarget.kind === 'img' ? '🖼' : '🎬'} {reframeTarget.name}
-                        {reframeTarget.kind === 'vclip' ? `（${reframeTarget.track}）` : ''}
-                      </span>
-                      <span className="reframe-scale">
-                        {Math.round(reframeTarget.zoom.scale * 100)}%
-                      </span>
-                      {/* 何個に効くかを出す。選択中の全部に効くので、
-                          1個のつもりで押して他まで戻る、が起きないように */}
-                      <button
-                        className="reframe-btn"
-                        onClick={resetVideoZoom}
-                        title="等倍に戻し、打った動きも消します（選択中すべて）"
-                      >
-                        リセット
-                        {resetCount() > 1 ? `（${resetCount()}個）` : ''}
-                      </button>
-                      <button
-                        className="reframe-btn"
-                        onClick={() => {
-                          setVideoSelected(false)
-                          clearSegSel()
-                        }}
-                        title="リフレームを終了"
-                      >
-                        ✓ 完了
-                      </button>
-                    </div>
-                  </div>
+                  <ReframeBox
+                    target={reframeTarget}
+                    onReframeStart={onVideoReframeStart}
+                    onRotateStart={onVideoRotateStart}
+                    onReset={resetVideoZoom}
+                    resetCount={resetCount()}
+                    onDone={() => {
+                      setVideoSelected(false)
+                      clearSegSel()
+                    }}
+                  />
                 )}
-                {!videoSrc && !activeCues.length && (
-                  // 市松模様（＝透明）だけだと、初見では「壊れている？」に見える。
-                  // 次に何をすればいいかを書く。
-                  <div className="screen-empty">
-                    <div className="screen-empty-title">動画をここにドラッグ</div>
-                    <div className="screen-empty-sub">
-                      右の「＋ ファイル追加」からでも読み込めます
-                    </div>
-                  </div>
-                )}
-                {proxyPct != null && (
-                  <div className="proxy-badge" title="編集用プレビューを最適化中（書き出しは原本フル画質）">
-                    ⚙ プレビュー最適化中… {proxyPct}%
-                  </div>
-                )}
-                {packPct != null && (
-                  <div className="proxy-badge" title="素材ごとまとめています（大きい素材があると時間がかかります）">
-                    📦 素材ごとまとめ中… {packPct}%
-                  </div>
-                )}
+                {!videoSrc && !activeCues.length && <ScreenEmpty />}
+                <ProgressBadges proxyPct={proxyPct} packPct={packPct} />
                 {editingId != null &&
-                  activeCues.some((c) => c.id === editingId) &&
-                  (() => {
-                    const ec = cues.find((c) => c.id === editingId)!
-                    const trackSel = (el: HTMLTextAreaElement): void =>
-                      setEditorSel({ start: el.selectionStart, end: el.selectionEnd })
-                    return (
-                      <div className="telop-editor" onPointerDown={(e) => e.stopPropagation()}>
-                        <textarea
-                          className="telop-editor-text"
-                          ref={editorTextRef}
-                          autoFocus
-                          value={ec.text}
-                          rows={Math.max(1, ec.text.split('\n').length)}
-                          onChange={(e) => {
-                            updateCueText(ec.id, e.target.value)
-                            trackSel(e.currentTarget)
-                          }}
-                          onSelect={(e) => trackSel(e.currentTarget)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Escape') {
-                              setEditingId(null)
-                              return
-                            }
-                            // Enter で確定、Shift+Enter で改行。
-                            // 文字打ちは「打ち終わったら Enter」が体に入っているので、
-                            // ここで改行が入ると、確定のつもりが1行増える。
-                            // 改行のほうを修飾キー側へ寄せる（変換確定の Enter は拾わない）。
-                            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                              e.preventDefault()
-                              setEditingId(null)
-                            }
-                          }}
-                        />
-                        <div className="telop-editor-tools">
-                          <span className="te-label">
-                            文字を選択 → 左パネルの色/フォント/サイズで“その文字だけ”変更
-                          </span>
-                          <button
-                            className="te-btn"
-                            title="選択文字の部分装飾をクリア"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => clearRunsInSelection(ec.id)}
-                          >
-                            選択の装飾クリア
-                          </button>
-                          <button className="te-btn te-done" onClick={() => setEditingId(null)}>
-                            完了
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })()}
+                  activeCues.some((c) => c.id === editingId) && (
+                    <TelopEditor
+                      cue={cues.find((c) => c.id === editingId)!}
+                      textRef={editorTextRef}
+                      onChangeText={updateCueText}
+                      onSelChange={setEditorSel}
+                      onClearRuns={clearRunsInSelection}
+                      onClose={() => setEditingId(null)}
+                    />
+                  )}
               </div>
             </div>
 
