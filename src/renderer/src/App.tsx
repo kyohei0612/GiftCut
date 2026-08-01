@@ -171,6 +171,10 @@ import { useProjectIO } from './state/useProjectIO'
 import { AppMenus } from './components/AppMenus'
 import { usePlaybackEngine } from './state/usePlaybackEngine'
 import { usePreviewFrame } from './state/usePreviewFrame'
+import { useVideoSync } from './state/useVideoSync'
+import { useSessionMemory } from './state/useSessionMemory'
+import { useVisibleRange } from './state/useVisibleRange'
+import { useSelectionCleanup } from './state/useSelectionCleanup'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -1789,71 +1793,6 @@ function AppInner(): JSX.Element {
     refreshPresets()
   }, [])
 
-  // ===== セッション状態の保存/復元（再起動・リロードしても作業位置を維持）=====
-  // 選択テロップ・タイムラインのスクロール/ズーム・再生ヘッド・開いてる右タブを覚える。
-  // プロジェクト(cues)未読込のマウント/StrictMode二重マウント時は保存しない。
-  // ＝既定値(選択なし・tab=project・zoom既定)で保存済みセッションを上書きするのを防ぐ。
-  useEffect(() => {
-    // テロップが無いプロジェクト（カット編集だけ）でも記憶する
-    if (!cuesRef.current.length && !segsRef.current.length && !seClipsRef.current.length) return
-    try {
-      localStorage.setItem(
-        'giftcut.session',
-        JSON.stringify({
-          // タイムライン
-          zoom,
-          t: currentTimeRef.current,
-          sx: scrollRef.current?.scrollLeft ?? 0,
-          // 左プロパティ（選択テロップ・編集中テロップ）
-          sel: selectedIds,
-          edit: editingId,
-          // 右タブ＋そのスクロール位置
-          tab: rightTab,
-          rsx: rightBodyRef.current?.scrollTop ?? 0
-        })
-      )
-    } catch {
-      /* localStorage不可なら無視 */
-    }
-    // ※currentTime は依存に入れない（再生中に毎フレーム同期書き込みが走りジャンクの原因になる）。
-    //   再生位置 t は下の2秒間隔タイマーで保存する。
-  }, [zoom, selectedIds, rightTab, editingId])
-  // 再生位置 t は2秒ごとに保存（再生中の毎フレーム localStorage 書き込みを避ける）
-  useEffect(() => {
-    const iv = window.setInterval(() => {
-      if (!cuesRef.current.length && !segsRef.current.length) return
-      try {
-        const cur = JSON.parse(localStorage.getItem('giftcut.session') || '{}')
-        if (Math.abs((cur.t ?? -1) - currentTimeRef.current) < 0.5) return
-        cur.t = currentTimeRef.current
-        localStorage.setItem('giftcut.session', JSON.stringify(cur))
-      } catch {
-        /* 無視 */
-      }
-    }, 2000)
-    return () => window.clearInterval(iv)
-  }, [])
-  // スクロールだけの変化も sx を保存（他フィールドは維持）
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    let raf = 0
-    const onScroll = (): void => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = 0
-        try {
-          const cur = JSON.parse(localStorage.getItem('giftcut.session') || '{}')
-          cur.sx = el.scrollLeft
-          localStorage.setItem('giftcut.session', JSON.stringify(cur))
-        } catch {
-          /* 無視 */
-        }
-      })
-    }
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [])
   // 復元（マウント時1回）。選択テロップは自動保存復元(applyProjectData)が selectedIds を[]に
   // リセットするため、cues読込後に適用する（pendingSelRefに保留）。
   const pendingSelRef = useRef<number[] | null>(null)
@@ -1861,77 +1800,6 @@ function AppInner(): JSX.Element {
   const pendingEditRef = useRef<number | null>(null)
   const pendingRsxRef = useRef<number | null>(null)
   const rightBodyRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('giftcut.session')
-      if (!raw) return
-      const s = JSON.parse(raw)
-      // 保存してある拡大率は範囲へ収めてから使う（0 や NaN で中身が消えるのを防ぐ）
-      if (s.zoom != null) setZoom(clampZoom(s.zoom))
-      if (typeof s.t === 'number') pendingTimeRef.current = s.t
-      if (Array.isArray(s.sel)) pendingSelRef.current = s.sel
-      if (typeof s.edit === 'number') pendingEditRef.current = s.edit
-      if (typeof s.rsx === 'number') pendingRsxRef.current = s.rsx
-      if (typeof s.tab === 'string') setRightTab(s.tab)
-      if (typeof s.sx === 'number')
-        requestAnimationFrame(() => {
-          if (scrollRef.current) scrollRef.current.scrollLeft = s.sx
-        })
-    } catch {
-      /* 無視 */
-    }
-  }, [])
-  // cues が読み込まれたら保留していた 選択/編集中/再生位置 を適用（プロジェクト復元後に効かせる）
-  useEffect(() => {
-    if (!cues.length) return
-    if (pendingSelRef.current) {
-      const ids = pendingSelRef.current.filter((id) => cues.some((c) => c.id === id))
-      pendingSelRef.current = null
-      if (ids.length) setSelectedIds(ids)
-    }
-    if (pendingEditRef.current != null) {
-      const id = pendingEditRef.current
-      pendingEditRef.current = null
-      if (cues.some((c) => c.id === id)) setEditingId(id)
-    }
-    if (pendingTimeRef.current != null) {
-      const t = pendingTimeRef.current
-      pendingTimeRef.current = null
-      setTime(t)
-    }
-  }, [cues])
-  // 右パネル（テロップ一覧等）の縦スクロール位置を保存/復元。タブ切替やリスト読込で panel-body が
-  // 変わるので rightTab/一覧件数で張り直す。内容が伸びてスクロール可能になってから復元を適用。
-  useEffect(() => {
-    const el = rightBodyRef.current
-    if (!el) return
-    // 目標スクロール位置まで届く高さになってから適用（一覧が読込中だと届かないので pending を保持）。
-    const applyPending = (): void => {
-      if (pendingRsxRef.current == null) return
-      if (el.scrollHeight - el.clientHeight >= pendingRsxRef.current - 1) {
-        el.scrollTop = pendingRsxRef.current
-        pendingRsxRef.current = null
-      }
-    }
-    applyPending()
-    requestAnimationFrame(applyPending) // レイアウト確定後にもう一度
-    let raf = 0
-    const onScroll = (): void => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = 0
-        try {
-          const cur = JSON.parse(localStorage.getItem('giftcut.session') || '{}')
-          cur.rsx = el.scrollTop
-          localStorage.setItem('giftcut.session', JSON.stringify(cur))
-        } catch {
-          /* 無視 */
-        }
-      })
-    }
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [rightTab, localTemplates.length])
   const sePreviewRef = useRef<HTMLAudioElement | null>(null)
   // SEライブラリの試聴（クリック）。使い回しのAudioで前の音を止めてから再生。
   function previewSE(path: string): void {
@@ -2062,61 +1930,8 @@ function AppInner(): JSX.Element {
     syncTimelineVScroll() // scrollTop を書いても届かない場合に備えて自分でも配る
   }, [syncTimelineVScroll])
 
-  // 画面に出ている時間の範囲（秒）。ここから外れた切片は帯を描かない。
-  //
-  // 並んでいる数だけ帯を作っていたので、マウスを動かすたびに全部が作り直され、
-  // クリップ1000個で1操作68ms かかっていた。見えない帯を作らなければ、
-  // 何個並んでも「画面に映るぶん」しか作らずに済む。
-  // 前後1画面ぶん多めに作る（掴んで動かした先で消えないように）。
-  //
-  // ※幅がまだ測れない間（起動直後など）は全部描く。ここで絞ると
-  //   「t=0 付近の帯しか無い」状態になり、置く・掴むが全部おかしくなる。
-  const ALL_VIEW = { a: -1e9, b: 1e9 }
-  const [viewSec, setViewSec] = useState(ALL_VIEW)
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    let id = 0
-    const update = (): void => {
-      id = 0
-      const z = zoomRef.current || 1
-      const w = el.clientWidth
-      if (!w) {
-        setViewSec((p) => (p.a === ALL_VIEW.a ? p : ALL_VIEW))
-        return
-      }
-      const pad = w / z
-      setViewSec((prev) => {
-        const a = el.scrollLeft / z - pad
-        const b = (el.scrollLeft + w) / z + pad
-        // 少しの動きで作り直さない（半画面ぶん動いたら見直す）
-        if (Math.abs(a - prev.a) < pad * 0.5 && Math.abs(b - prev.b) < pad * 0.5) return prev
-        return { a, b }
-      })
-    }
-    const onScroll = (): void => {
-      if (!id) id = requestAnimationFrame(update)
-    }
-    update()
-    el.addEventListener('scroll', onScroll, { passive: true })
-    const ro = new ResizeObserver(onScroll)
-    ro.observe(el)
-    return () => {
-      if (id) cancelAnimationFrame(id)
-      el.removeEventListener('scroll', onScroll)
-      ro.disconnect()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  // 拡大率が変わると見えている範囲も変わる
-  useEffect(() => {
-    const el = scrollRef.current
-    const w = el?.clientWidth ?? 0
-    if (!el || !w) return
-    const z = zoom || 1
-    const pad = w / z
-    setViewSec({ a: el.scrollLeft / z - pad, b: (el.scrollLeft + w) / z + pad })
-  }, [zoom])
+  // 画面に出ている時間の範囲（見えない帯は作らない）は state/useVisibleRange
+  const viewSec = useVisibleRange(scrollRef)
   /** 帯を描く必要があるか（画面に出ているか） */
   const inView = (tStart: number, tEnd: number): boolean =>
     tEnd >= viewSec.a && tStart <= viewSec.b
@@ -2258,36 +2073,6 @@ function AppInner(): JSX.Element {
     ratio: ratioRef.current
   })
 
-  // cues / segments / seClips / markers / imgClips の変更を 450ms コアレスして1履歴にまとめる
-  useEffect(() => {
-    cuesRef.current = cues
-    segsRef.current = segments
-    seClipsRef.current = seClips
-    markersRef.current = markers
-    imgClipsRef.current = imgClips
-    vClipsRef.current = vClips
-    tracksRef.current = tracks
-    trackStatesRef.current = trackStates
-    ratioRef.current = ratio
-    if (suppressHistoryRef.current) {
-      suppressHistoryRef.current = false
-      baselineRef.current = snapNow()
-      return
-    }
-    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current)
-    pendingTimerRef.current = window.setTimeout(() => {
-      pendingTimerRef.current = null
-      if (isDirty()) {
-        pushUndo(baselineRef.current)
-        baselineRef.current = snapNow()
-        redoStackRef.current = []
-        setHistTick()
-      }
-    }, 450)
-    return () => {
-      if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current)
-    }
-  }, [cues, segments, seClips, markers, imgClips, vClips, tracks, trackStates, ratio])
 
   function pushUndo(state: Snap): void {
     undoStackRef.current.push(state)
@@ -2588,95 +2373,10 @@ function AppInner(): JSX.Element {
     fpsRef.current = fps
   }, [fps])
 
-  // 音声ミュート/音量を動画要素に反映（A1トラック＝メイン音声。切片ミュート・音量・フェードも合成）
-  useEffect(() => {
-    const v = videoRef.current
-    if (!v) return
-    // カットで音を重ねている最中は触らない（重ねを上書きすると継ぎ目が戻る）
-    if (performance.now() < xfadeUntilRef.current) return
-    const src = tToSource(segLayout, currentTime)
-    const L = src ? segLayout[src.index] : undefined
-    const seg = L?.seg
-    // **消音は muted ではなく音量0で行う。**
-    // 音のある動画では、メディア時計が音声側に従っている。muted を切り替えると
-    // 時計の張り替えが起きて、その間**絵まで止まる**（1080p の実測で約250ms）。
-    // カットのたびに引っかかっていたのはこれ。音量なら再生は途切れない。
-    const segMuted = seg ? !!seg.muted : false
-    // 切片の音量倍率×フェード（頭/尻の指定秒で 0→1 / 1→0）
-    let segGain = segMuted ? 0 : (seg?.vol ?? 1)
-    if (L && seg) {
-      const local = currentTime - L.tStart
-      if (seg.afadeIn && seg.afadeIn > 0) segGain *= clamp(local / seg.afadeIn, 0, 1)
-      if (seg.afadeOut && seg.afadeOut > 0)
-        segGain *= clamp((L.len - local) / seg.afadeOut, 0, 1)
-    }
-    const g = clamp(audioTrackGain('A1') * segGain, 0, 4)
-    if (Math.abs(v.volume - Math.min(g, 1)) > 1e-3) v.volume = Math.min(g, 1) // HTMLは0..1
-  }, [trackStates, masterVolume, videoSrc, currentTime, segments, segLayout])
 
-  // 選択が「もう存在しないもの」を指し続けないよう自動で掃除する。
-  // 放置すると右パネルが真っ白になり、Delete がそこに吸われて無反応に見える。
-  useEffect(() => {
-    if (selectedTrans && !segments.some((s) => s.id === selectedTrans.segId))
-      setSelectedTrans(null)
-    if (selectedTelopTrans && !cues.some((c) => c.id === selectedTelopTrans.cueId))
-      setSelectedTelopTrans(null)
-    setSelectedVideoIds((prev) =>
-      prev.length && prev.some((id) => !segments.some((s) => s.id === id))
-        ? prev.filter((id) => segments.some((s) => s.id === id))
-        : prev
-    )
-    setSelectedAudioIds((prev) =>
-      prev.length && prev.some((id) => !segments.some((s) => s.id === id))
-        ? prev.filter((id) => segments.some((s) => s.id === id))
-        : prev
-    )
-    setSelectedSeIds((prev) =>
-      prev.length && prev.some((id) => !seClips.some((c) => c.id === id))
-        ? prev.filter((id) => seClips.some((c) => c.id === id))
-        : prev
-    )
-    setSelectedImgIds((prev) =>
-      prev.length && prev.some((id) => !imgClips.some((c) => c.id === id))
-        ? prev.filter((id) => imgClips.some((c) => c.id === id))
-        : prev
-    )
-    setSelectedIds((prev) =>
-      prev.length && prev.some((id) => !cues.some((c) => c.id === id))
-        ? prev.filter((id) => cues.some((c) => c.id === id))
-        : prev
-    )
-    if (selectedMarkerId != null && !markers.some((m) => m.id === selectedMarkerId))
-      setSelectedMarkerId(null)
-    setSelectedVClipIds((prev) =>
-      prev.length && prev.some((id) => !vClips.some((c) => c.id === id))
-        ? prev.filter((id) => vClips.some((c) => c.id === id))
-        : prev
-    )
-    if (editingId != null && !cues.some((c) => c.id === editingId)) setEditingId(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segments, cues, seClips, imgClips, markers, vClips])
+  // 選んだ物が「もう無い物」を指し続けないよう掃除するのは state/useSelectionCleanup
+  useSelectionCleanup()
 
-  // どの切片からも参照されなくなった元動画を片付ける（主ソースは残す）。
-  // 残すと非表示の <video> がプロキシを読み続け、書き出しの入力にも無駄に載る。
-  useEffect(() => {
-    if (sources.length <= 1) return
-    const used = new Set<number>()
-    for (const g of segments) used.add(g.srcId ?? sources[0].id)
-    // Undo/Redo で戻ってくる切片が参照しているソースも「使用中」とみなす。
-    // これをしないと「動画を追加→Undo（GCがソースを削除）→Redo」で切片の srcId が
-    // 迷子になり、srcOfSeg のフォールバックで別の動画に無言ですり替わる。
-    for (const snap of [...undoStackRef.current, ...redoStackRef.current])
-      for (const g of snap.segments) used.add(g.srcId ?? sources[0].id)
-    const now = performance.now()
-    // 登録直後（3秒以内）は消さない。ソース登録→切片配置は2段階なので、
-    // 間で走ると置く前のソースを消してしまう。
-    const keep = (s: Source, i: number): boolean =>
-      i === 0 || used.has(s.id) || now - (srcAddedAtRef.current.get(s.id) ?? 0) < 3000
-    if (sources.every(keep)) return
-    setSources((prev) => prev.filter(keep))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segments, sources])
 
   // どこからも参照されなくなった素材メタ（尺・波形）を解放する。
   // 波形は長尺で数MB級になるので、素材を入れ替えながら作業すると単調増加してしまう。
@@ -2711,122 +2411,6 @@ function AppInner(): JSX.Element {
   const v1Hidden = trackStates['V1']?.hidden ?? false
 
 
-  // SE の再生: 順再生(等速)中、再生ヘッドが SE 区間に入ったら該当 audio を鳴らす
-  useEffect(() => {
-    seClips.forEach((clip) => {
-      const a = seAudioRefs.current.get(clip.id)
-      if (!a) return
-      const active =
-        playing &&
-        playRateRef.current === 1 &&
-        currentTime >= clip.tStart &&
-        currentTime < clip.tStart + clip.duration
-      if (active) {
-        const local = currentTime - clip.tStart
-        // 音源内の再生位置＝クリップ内ローカル秒＋トリム済みオフセット
-        const target = local + (clip.srcOffset ?? 0)
-        // シーク中は頼み直さない（着く前に書くと取り消されて、永久に追いつけない）
-        // **音の位置を直すと、そこで必ず途切れる**（プチッと鳴る）ので記録に残す
-        if (!a.seeking && Math.abs(a.currentTime - target) > 0.3) {
-          perf.mark(`音の位置を直した ${clip.name}`)
-          a.currentTime = target
-        }
-        // 載っているトラック音量×フェード（頭/尻の指定秒で 0→1 / 1→0）※クリップ内ローカル秒で判定
-        const fade = seFadeGain(clip, local)
-        // 声が入っている間は下げる（ダッキング）。書き出しと同じ折れ線を使う
-        const duck = duckGainAt(clip, currentTime)
-        // **同じ値を毎コマ書き直さない。**
-        // ここは毎レンダー（秒60〜240回）通る。音量を書くたびに音の作り直しが
-        // 走るので、変わっていないのに書くと、それだけで音が荒れる。
-        const want = clamp(clip.volume * fade * duck * audioTrackGain(clip.track), 0, 1)
-        if (Math.abs(a.volume - want) > 0.002) a.volume = want
-        if (a.paused) {
-          perf.mark(`音を鳴らし始めた ${clip.name}`)
-          void a.play().catch(() => {})
-        }
-      } else if (!a.paused) {
-        a.pause()
-      }
-    })
-  }, [currentTime, playing, seClips, trackStates, masterVolume])
-  // マルチソース: 再生ヘッドのセグメントの元動画へ<video>のsrcを切り替える。
-  // 単一ソース（sources.length<=1）なら何もしない＝従来動作を完全維持。
-  useEffect(() => {
-    if (!sources.length) return
-    const src = tToSource(segLayout, currentTime)
-    const seg = src ? segLayout[src.index]?.seg : undefined
-    const s = srcOfSeg(seg)
-    if (!s) return
-    const desired = previewUrl(s.path, s.origUrl)
-    // 表示対象を切替（要素はソースごとに常設済み＝src差し替えが起きないのでちらつかない）
-    if (s.id !== curSourceIdRef.current) {
-      curSourceIdRef.current = s.id
-      setActiveSrcId(s.id)
-      const el = elOf(s.id)
-      // 切り替える前の音量を控えておく（下で引き継ぐ。理由は入れ替えの所と同じ）
-      const prevVol = videoRef.current?.volume ?? 1
-      if (el) {
-        videoRef.current = el
-        // 切替先を今の位置へ即シーク（再生中は再生クロックが追従させるが、初手のズレを詰める）
-        if (src) {
-          const want = seg ? seg.srcStart + (currentTime - segLayout[src.index].tStart) * src.speed : 0
-          if (Math.abs(el.currentTime - want) > 0.15) el.currentTime = want
-        }
-      }
-      // 直前まで表示していた要素は止める（裏で音が鳴り続けるのを防ぐ）
-      // 直前まで表示していた物は止める。**映していない面も必ず黙らせる**
-      //（2枚組にしたので、放っておくと裏の面から音が出る）
-      videoElsRef.current.forEach((v, k) => {
-        if (k === elKey(s.id, halfOf(s.id))) return
-        if (!v.paused) v.pause()
-        v.volume = 0 // 消すのは音量で（muted を触ると時計が張り替わる／上の effect 参照）
-      })
-      // **音量を引き継いでから鳴らす。**
-      // 音量を書く effect はこれより前に並んでいるので、今の描画では
-      // まだ「切り替える前の要素」に書かれている。ここで黙らせたまま渡すと、
-      // 次の描画までの数十msだけ既定の 1.0（最大）で鳴ってしまう。
-      if (el) el.volume = prevVol
-      // duration 未取得(0)なら据え置き（0にすると再生開始条件が壊れる）。metadata到達時に更新される。
-      if (s.duration > 0) setVideoDuration(s.duration)
-      setFps(s.fps)
-    }
-    // 後追いのプロキシ/fps/尺が届いたら反映（届くまで原本再生・既定30のままになるのを防ぐ）
-    // プレビュー解像度を変えたときもここで src を差し替える（再生ヘッド位置は触らないので維持される）
-    //
-    // **ただし、流している最中に黙って差し替えない。**
-    // 差し替えは要素の読み込み直しになるので、そこで音が切れる。
-    // 実測（npm run stutter --fresh）: 焼き直しが終わった瞬間に
-    // 「音の抜け 64ms」。しかも出るのは毎回**測り終わり際＝変換の完了時**だった。
-    // 変換の重さのせいだと思って優先度を最低まで下げたが、それでは消えなかった。
-    //
-    // 焼き上がったぶんは、止めてから入れ替える（見えている絵は原本のままでも、
-    // 画質が少し眠いだけで、音が切れるより遥かにまし）。
-    // **画質を自分で変えたときは、その場で差し替える**——待たされると
-    // 「効いていない」と見えるため。
-    const resChanged = lastPreviewResRef.current !== previewRes
-    lastPreviewResRef.current = previewRes
-    if (!playing || resChanged) setVideoSrc((prev) => (prev === desired ? prev : desired))
-    setFps((prev) => (Math.abs(prev - s.fps) > 1e-3 ? s.fps : prev))
-    if (s.duration > 0)
-      setVideoDuration((prev) => (Math.abs(prev - s.duration) > 1e-3 ? s.duration : prev))
-    // playing を見るのは「止めた瞬間に、待たせていた差し替えを入れる」ため
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, segLayout, sources, previewRes, proxyMap, playing])
-  // 次に来る別ソースの映像を先回りシークして待機させる（切替の瞬間に正しいフレームが即出る）
-  useEffect(() => {
-    if (sources.length <= 1) return
-    const cur = segLayout.find((l) => currentTime >= l.tStart && currentTime < l.tEnd)
-    const nxt = cur ? segLayout[cur.index + 1] : segLayout[0]
-    if (!nxt || nxt.tStart - currentTime > 6) return // 6秒前から準備
-    const s = srcOfSeg(nxt.seg)
-    if (!s || s.id === curSourceIdRef.current) return
-    const el = elOf(s.id)
-    if (!el) return
-    // シーク中は頼み直さない（着く前に書くと取り消されて、永久に追いつけない）
-    if (!el.seeking && Math.abs(el.currentTime - nxt.seg.srcStart) > 0.3)
-      el.currentTime = nxt.seg.srcStart
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, segLayout, sources])
   // プレビューに置いておく映像レイヤークリップ（トラックの順＝下から重ねる）。
   // 区間内だけを描くと境界で <video> が破棄され、戻ったときに先頭フレームが一瞬出て
   // 読み込みもやり直しになるため、再生ヘッドの前後2秒ぶんは要素を残す（表示だけ切り替える）。
@@ -2869,35 +2453,6 @@ function AppInner(): JSX.Element {
     }
     return fn
   }
-  // 映像レイヤーの追従: 位置合わせ・再生/停止・音量（クリップ音量×トラック×フェード）
-  useEffect(() => {
-    const rate = playRateRef.current
-    vcElsRef.current.forEach((el, id) => {
-      const c = vClipsRef.current.find((x) => x.id === id)
-      if (!c || !el) return
-      const local = currentTime - c.tStart
-      const len = Math.max(0.05, c.srcEnd - c.srcStart)
-      const inRange = local >= 0 && local < len
-      if (!inRange) {
-        // 窓に入っているだけ（区間外）の要素は必ず止める。要素は残るのでここが効く
-        if (!el.paused) el.pause()
-        // 出番前なら頭に置いておく（境界で正しいフレームが即出る）
-        if (!el.seeking && local < 0 && Math.abs(el.currentTime - c.srcStart) > 0.3)
-          el.currentTime = c.srcStart
-        return
-      }
-      const want = c.srcStart + local
-      // シーク中は頼み直さない（着く前に書くと取り消されて、永久に追いつけない）
-      if (!el.seeking && Math.abs(el.currentTime - want) > 0.25) el.currentTime = want
-      const gain = c.muted ? 0 : (c.vol ?? 1) * vcFadeGain(c, local)
-      el.volume = clamp(gain * audioTrackGain('A' + trackNum(c.track)), 0, 1)
-      el.muted = !!c.muted
-      if (playing && rate === 1) {
-        if (el.paused && !el.ended) void el.play().catch(() => {})
-      } else if (!el.paused) el.pause()
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, playing, vClips, trackStates, masterVolume])
   // プレビューに常設する <video> の一覧。sources 未確定でも videoSrc があれば仮の1件で描く。
   const previewSources: Source[] = useMemo(() => {
     if (sources.length) return sources
@@ -3003,31 +2558,7 @@ function AppInner(): JSX.Element {
     curSegXform, videoZoomTransform, inOutPreview, transOverlay, videoMainStyle,
     xfPreview, xfNextBUrl, xfDipOverlay
   } = usePreviewFrame({ XF_GRACE, segLayout, srcOfSeg, curSegZoom, curCropInset, previewUrl })
-  // 2本目video(videoB)を xfPreview に追従させる（シーク/再生/レート）。ドリフトしたら再シーク。
-  useEffect(() => {
-    const vb = videoBRef.current
-    if (!vb) return
-    if (!xfPreview || xfPreview.blank) {
-      if (!vb.paused) vb.pause()
-      return
-    }
-    const rate = playRateRef.current
-    if (rate > 0) {
-      // シーク中は頼み直さない（着く前に書くと取り消されて、永久に追いつけない）
-      if (!vb.seeking && Math.abs(vb.currentTime - xfPreview.srcTime) > 0.25)
-        vb.currentTime = xfPreview.srcTime
-      const r = Math.min(rate * xfPreview.speed, 16)
-      if (Math.abs(vb.playbackRate - r) > 1e-3) vb.playbackRate = r
-      if (vb.paused && !vb.ended) void vb.play().catch(() => {})
-    } else {
-      // 停止中/逆再生はフレームシークのみ（スクラブでもディゾルブが見える）
-      if (!vb.paused) vb.pause()
-      if (Math.abs(vb.currentTime - xfPreview.srcTime) > 0.05) vb.currentTime = xfPreview.srcTime
-    }
-    // xfPreviewはcurrentTime由来のため毎フレーム評価される。srcTime/blankも依存に入れて、
-    // 停止中に間トランジション付与/トリム等で xfPreview が変化した場合も即シーク（古フレーム防止）。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, videoSrc, xfPreview?.srcTime, xfPreview?.blank])
+
 
 
 
@@ -3401,63 +2932,6 @@ function AppInner(): JSX.Element {
   const autosaveNgRef = useRef(false)
   const [autosaveNg, setAutosaveNg] = useState(false)
 
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      if (!hasContentRef.current()) return
-      if (projectRevRef.current === autosavedRevRef.current) return // 何も変わっていない
-      autosavedRevRef.current = projectRevRef.current
-      const json = currentJsonRef.current()
-      if (json === lastAutosaveRef.current) return
-      void writeAutosave(json)
-    }, AUTOSAVE_MS)
-    return () => window.clearInterval(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  // 終了/リロード直前に、その時点の内容を自動保存へ流し込む。
-  // （間隔タイマーだけだと、閉じた瞬間に最大その間隔ぶんの編集が無警告で消える）
-  // ※ここでは閉じるのをキャンセルしない（Electronでは無言で閉じられなくなるため）。
-  //   未保存の確認はメインプロセスのネイティブダイアログで行う（project:dirty を通知）。
-  useEffect(() => {
-    const onBeforeUnload = (): void => {
-      if (!hasContentRef.current()) return
-      const json = currentJsonRef.current()
-      if (json !== lastAutosaveRef.current) {
-        void writeAutosave(json) // 最後のフラッシュ
-      }
-    }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [])
-  // 起動時: 自動保存があれば復元プロンプトを出す
-  useEffect(() => {
-    void window.giftcut?.autosaveCheck?.()?.then(async (r) => {
-      if (r?.exists && r.data) {
-        // 更新のために自分で落としたのなら、「復元しますか？」とは聞かない。
-        // 勝手に閉じておいて開き直しを頼むのは筋が通らないので、黙って続きから開く。
-        if (localStorage.getItem('giftcut.resumeAfterUpdate')) {
-          localStorage.removeItem('giftcut.resumeAfterUpdate')
-          await applyProjectData(r.data, !!r.videoExists, null)
-          showToast('新しい GiftCut になりました。続きから開いています。')
-          return
-        }
-        const when = (ms?: number): string | undefined =>
-          ms ? new Date(ms).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' }) : undefined
-        setRestorePrompt({
-          data: r.data,
-          videoExists: !!r.videoExists,
-          savedAt: when(r.mtime),
-          onlyPrev: !!r.onlyPrev,
-          prev: r.prev
-            ? { data: r.prev.data, videoExists: !!r.prev.videoExists, savedAt: when(r.prev.mtime) }
-            : undefined
-        })
-        return
-      }
-      // 自動保存の復元が無い時だけ、テンプレート選択を出す（あれば）
-      const t = await window.giftcut?.listTemplates?.()
-      if (t?.ok && t.items.length) setTemplatePicker({ items: t.items, startup: true })
-    })
-  }, [])
 
 
   // テロップテンプレを適用（選択があればそれに、無ければ次に足すテロップの既定に）。
@@ -3702,6 +3176,14 @@ function AppInner(): JSX.Element {
     vcLen, setMediaMeta, setImgGhost, setSeGhost, setVideoGhost, setSnapLineX
   })
 
+  // 画面の <video> / <audio> を「いま」に追従させるのは state/useVideoSync
+  useVideoSync({
+    videoRef, videoBRef, videoElsRef, halfOf, elKey, elOf, seAudioRefs, vcElsRef,
+    xfadeUntilRef, xfPreview, segLayout, srcOfSeg, previewUrl, proxyMap, previewRes,
+    lastPreviewResRef, srcAddedAtRef, audioTrackGain, duckGainAt, seFadeGain, vcFadeGain,
+    trackNum, undoStackRef, redoStackRef
+  })
+
   // 見ている場所を動かす（寄る・引く・連れてくる）は state/useViewNav
   const { zoomAroundPlayhead, revealPlayhead, seekAndReveal, fitTimelineZoom, scrubFromClientX } =
     useViewNav({ scrollRef, trackInnerRef, contentEndRef, seekTo })
@@ -3753,12 +3235,6 @@ function AppInner(): JSX.Element {
     }
   }, [fileMenuOpen])
 
-  // アンマウント時にクロック停止
-  useEffect(() => {
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-    }
-  }, [])
 
   // 再生中は再生ヘッドを画面内に自動スクロール
   useEffect(() => {
@@ -3879,22 +3355,6 @@ function AppInner(): JSX.Element {
     }
   }, [])
 
-  // ✕ で閉じようとしたときの確認。メイン側は閉じるのを止めてここへ聞きに来るので、
-  // アプリ内のモーダルで答えて、了承なら confirmClose で閉じ直してもらう。
-  useEffect(() => {
-    if (!window.giftcut?.onCloseRequest) return
-    return window.giftcut.onCloseRequest(() => {
-      void askConfirm({
-        title: '保存していない変更があります',
-        body: '閉じると、最後の保存以降の変更は自動保存の下書きにだけ残ります。次回の起動時に復元できます。',
-        okLabel: '保存せずに閉じる',
-        cancelLabel: '閉じない',
-        danger: true
-      }).then((ok) => {
-        if (ok) window.giftcut.confirmClose()
-      })
-    })
-  }, [])
 
   // ホイール: 素=横スクロール / Shift=縦スクロール / Ctrl・Alt=カーソル位置を中心にズーム
   //
@@ -4135,6 +3595,16 @@ function AppInner(): JSX.Element {
     applyProjectData, askConfirm, loadVideo, registerSource, addMediaPaths, toGcUrl,
     mediaQueue, thumbDoneRef, packBusyRef, setPackPct, autosaveNgRef, autosavedRevRef,
     lastAutosaveRef, setAutosaveNg, hasProjectContent
+  })
+
+  // 作業位置と下書きを覚えておくのは state/useSessionMemory
+  useSessionMemory({
+    AUTOSAVE_MS, writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef,
+    lastAutosaveRef, hasContentRef, applyProjectData, askConfirm, setRestorePrompt,
+    setTemplatePicker, isDirty, snapNow, pushUndo, baselineRef, pendingTimerRef,
+    suppressHistoryRef, redoStackRef, setHistTick, pendingSelRef, pendingEditRef,
+    pendingTimeRef, setTime, scrollRef, rightBodyRef, rightTab, setRightTab, ratioRef,
+    pendingRsxRef, localTemplates
   })
   projectJsonRef.current = projectJson
 
