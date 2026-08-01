@@ -179,6 +179,8 @@ import { useDiagnostics } from './state/useDiagnostics'
 import { useAppLayout } from './state/useAppLayout'
 import { useLibraries } from './state/useLibraries'
 import { useSegmentPlace } from './state/useSegmentPlace'
+import { TimelineOpsProvider, type TimelineOps } from './state/timelineOpsContext'
+import { TimelineViewProvider, type TimelineView } from './state/timelineViewContext'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -3000,7 +3002,36 @@ function AppInner(): JSX.Element {
     setClipMenu({ x: e.clientX, y: e.clientY, kind, id: clip.id, name: clip.name })
   }
 
+  // タイムラインの区画を部品へ出すための2つの心臓。
+  // **操作の入口**と**見え方**を分けてあるのは、描き直しの理由を混ぜないため
+  //（1つにまとめると、掴んで影が動くたびに操作の入口も「変わった」ことになる）。
+  // 中身は state/timelineOpsContext.tsx / state/timelineViewContext.tsx
+  const timelineOps: TimelineOps = {
+    onClipPointerDown, onClipContextMenu, onTrimStart, onSegPointerDown, onSegTrimStart,
+    onSePointerDown, onImgPointerDown, onVClipPointerDown, onMarkerPointerDown,
+    onTrackAreaPointerDown, startScrub, startGroupResize, startTransResize, openClipMenu,
+    updateDropGhost, clearDropGhosts, dropLaneAt, videoDropLane, placeSE, placeImage,
+    placeVClip, placeVideoAtDrop, snapClipStart, draggingMediaRef, draggingTransRef,
+    draggingTelopAnimRef, dragSeDurRef,
+    resolveTransDrop, applyTransDrop, selectTransition, setVideoTransDur,
+    resolveTelopTransDrop, applyTelopTransDrop, selectTelopTrans, patchCueAnim,
+    undo, redo, undoStackRef, redoStackRef, isDirty, cutAtPlayhead, findSilences,
+    setSilenceOpen, toggleSnap,
+    selectTrack, toggleTrack, addVideoTrack, addAudioTrack, addBgm, setTracks, askText,
+    fallbackTrack, stopPlayback, seekTo
+  }
+  const timelineView: TimelineView = {
+    tool, setTool, snap,
+    hoverX, setHoverX, lastHoverPaintRef,
+    telopDrop, setTelopDrop, transDrop, setTransDrop,
+    segLayout, rulerTicks, padTop, padBottom, trackHOf, inView,
+    scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll,
+    zoomAroundPlayhead, fitTimelineZoom
+  }
+
   return (
+    <TimelineOpsProvider value={timelineOps}>
+    <TimelineViewProvider value={timelineView}>
     <div
       className="app"
       // 素材をドラッグしている間は、アプリのどこにいても受け付ける。
@@ -4661,6 +4692,8 @@ function AppInner(): JSX.Element {
         copiedAttrs={copiedAttrs} attrSummary={attrSummary} shortcuts={shortcuts}
       />
     </div>
+    </TimelineViewProvider>
+    </TimelineOpsProvider>
   )
 }
 
