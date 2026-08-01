@@ -14,7 +14,6 @@ import {
   telopStateAt,
   hasMotion,
   sanitizeMotion,
-  motionKeyTimes,
   defaultAnim,
   defaultTelopStyle,
   hasAnim,
@@ -103,7 +102,6 @@ import {
 import { TimelineToolbar } from './components/timeline/TimelineToolbar'
 import { TrackHeaders } from './components/timeline/TrackHeaders'
 import { ClipBand } from './components/timeline/ClipBand'
-import { TelopAnimBand } from './components/timeline/TelopAnimBand'
 import { KeyMarks } from './components/timeline/KeyMarks'
 import { TimeRuler, Marquee, MarkerFlags, Playhead } from './components/timeline/Ruler'
 import type { Adjust, Crop } from './components/panels/PropertyRows'
@@ -212,6 +210,7 @@ import {
   VideoLayerBand
 } from './components/timeline/OverlayClipBands'
 import type { OpenClipMenu } from './components/timeline/ClipBand'
+import { TelopBands, TelopDropGhost } from './components/timeline/TelopBands'
 import {
   ACTION_LIST,
   DEFAULT_SHORTCUTS,
@@ -8702,121 +8701,29 @@ function AppInner(): JSX.Element {
                               : 'default'
                     }}
                   >
-                    {tr.kind === 'video' &&
-                      tr.id !== 'V1' &&
-                      cues
-                        // 画面に出ていない帯は作らない（クリップと同じ。1000個で 68→33ms 効いた）
-                        .filter((cue) => cueTrack(cue) === tr.id && inView(cue.start, cue.end))
-                        .map((cue) => (
-                        <ClipBand
-                          key={cue.id}
-                          className="telop-clip"
-                          label={cue.label}
-                          left={cue.start * zoom}
-                          width={Math.max((cue.end - cue.start) * zoom, 12)}
-                          selected={isSelected(cue.id)}
-                          title={cue.text}
-                          onPointerDown={(e) => onClipPointerDown(cue, e)}
-                          onContextMenu={(e) => onClipContextMenu(cue, e)}
-                          onTrimLeft={(e) => onTrimStart(cue, 'l', e)}
-                          onTrimRight={(e) => onTrimStart(cue, 'r', e)}
-                          onDragOver={(e) => {
-                            if (!draggingTelopAnimRef.current) return
-                            e.preventDefault()
-                            e.dataTransfer.dropEffect = 'copy'
-                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                            const r = resolveTelopTransDrop(cue, e.clientX, rect)
-                            setTelopDrop({
-                              cueId: cue.id,
-                              left: r.left,
-                              width: r.width,
-                              label: r.label,
-                              kind: r.kind
-                            })
-                          }}
-                          onDragLeave={() => {
-                            // クリップ外へ出たらゴースト帯を消す（残り防止）
-                            if (draggingTelopAnimRef.current) setTelopDrop(null)
-                          }}
-                          onDrop={(e) => {
-                            if (!draggingTelopAnimRef.current) return
-                            e.preventDefault()
-                            e.stopPropagation()
-                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                            applyTelopTransDrop(cue, e.clientX, rect)
-                            setTelopDrop(null)
-                          }}
-                          onDoubleClick={() => {
-                            stopPlayback() // 再生中はシークが上書きされ編集が消えるため必ず停止
-                            setSelectedIds([cue.id])
-                            seekTo(clamp(currentTimeRef.current, cue.start, cue.end - 0.01))
-                            setEditingId(cue.id)
-                          }}
-                        >
-                          {/* 帯が細いときは文字を出さない。
-                              帯は最低12pxで描かれるので、引いた状態では
-                              「ろ」「ク」のような**読めない断片**が並び、
-                              意味が無いのに視線だけ取っていた。
-                              何があるかは色と位置で分かる（中身は重ねた説明で見る）。 */}
-                          {(cue.end - cue.start) * zoom >= 40 && (
-                            <span className="clip-text">{cue.text}</span>
-                          )}
-                          {/* 打った印（キーフレーム）。components/timeline/KeyMarks.tsx */}
-                          <KeyMarks
-                            times={motionKeyTimes(cue.motion)}
-                            zoom={zoom}
-                            clipStart={cue.start}
-                          />
-                          {/* 出入りの動きの帯（components/timeline/TelopAnimBand.tsx）。
-                              動画のトランジションと同じ流儀: 範囲表示＋クリック選択。 */}
-                          {cue.style.anim && cue.style.anim.in !== 'none' && (
-                            <TelopAnimBand
-                              side="in"
-                              label={motionLabel(cue.style.anim.in)}
-                              dur={cue.style.anim.inDur}
-                              clipWidth={(cue.end - cue.start) * zoom}
-                              zoom={zoom}
-                              selected={
-                                selectedTelopTrans?.cueId === cue.id &&
-                                selectedTelopTrans.kind === 'in'
-                              }
-                              onSelect={() => selectTelopTrans(cue.id, 'in')}
-                              onResizeStart={(e, dir) =>
-                                startTransResize(
-                                  e,
-                                  cue.style.anim!.inDur,
-                                  dir,
-                                  (nd) => patchCueAnim(cue.id, { inDur: nd }),
-                                  cue.end - cue.start
-                                )
-                              }
-                            />
-                          )}
-                          {cue.style.anim && cue.style.anim.out !== 'none' && (
-                            <TelopAnimBand
-                              side="out"
-                              label={motionLabel(cue.style.anim.out)}
-                              dur={cue.style.anim.outDur}
-                              clipWidth={(cue.end - cue.start) * zoom}
-                              zoom={zoom}
-                              selected={
-                                selectedTelopTrans?.cueId === cue.id &&
-                                selectedTelopTrans.kind === 'out'
-                              }
-                              onSelect={() => selectTelopTrans(cue.id, 'out')}
-                              onResizeStart={(e, dir) =>
-                                startTransResize(
-                                  e,
-                                  cue.style.anim!.outDur,
-                                  dir,
-                                  (nd) => patchCueAnim(cue.id, { outDur: nd }),
-                                  cue.end - cue.start
-                                )
-                              }
-                            />
-                          )}
-                        </ClipBand>
-                      ))}
+                    {/* テロップの帯は components/timeline/TelopBands.tsx。
+                        本体・打った印・出入りの動きの3つが1本に乗っている */}
+                    {tr.kind === 'video' && tr.id !== 'V1' && (
+                      <TelopBands
+                        trackId={tr.id}
+                        zoom={zoom}
+                        inView={inView}
+                        cueTrack={cueTrack}
+                        onPointerDown={onClipPointerDown}
+                        onContextMenu={onClipContextMenu}
+                        onTrimStart={onTrimStart}
+                        draggingTelopAnimRef={draggingTelopAnimRef}
+                        resolveTelopTransDrop={resolveTelopTransDrop}
+                        applyTelopTransDrop={applyTelopTransDrop}
+                        setTelopDrop={setTelopDrop}
+                        stopPlayback={stopPlayback}
+                        seekTo={seekTo}
+                        motionLabel={motionLabel}
+                        selectTelopTrans={selectTelopTrans}
+                        startTransResize={startTransResize}
+                        patchCueAnim={patchCueAnim}
+                      />
+                    )}
                     {/* 本編以外の段に並ぶ帯は components/timeline/OverlayClipBands.tsx。
                         重ねた動画は映像と音を別の段に描くが中身は1つ（どちらを掴んでも動く） */}
                     {tr.kind === 'video' && tr.id !== 'V1' && (
@@ -8854,22 +8761,11 @@ function AppInner(): JSX.Element {
                     {imgGhost && imgGhost.track === tr.id && (
                       <ImageGhost ghost={imgGhost} zoom={zoom} />
                     )}
-                    {/* テロップアニメD&Dの配置プレビュー帯（トラック行に描画＝間は2テロップに跨って表示） */}
-                    {tr.kind === 'video' &&
-                      tr.id !== 'V1' &&
-                      telopDrop &&
-                      (() => {
-                        const dc = cues.find((c) => c.id === telopDrop.cueId)
-                        if (!dc || cueTrack(dc) !== tr.id) return null
-                        return (
-                          <div
-                            className={`ttrans ttrans-ghost ttrans-ghost-telop ${telopDrop.kind === 'between' ? 'ttrans-ghost-between' : ''}`}
-                            style={{ left: telopDrop.left, width: telopDrop.width }}
-                          >
-                            <span className="ttrans-lb">{telopDrop.label}</span>
-                          </div>
-                        )
-                      })()}
+                    {/* 出入りの動きを落とす先の予告（components/timeline/TelopBands.tsx）。
+                        段に描く＝「間」は2テロップに跨って出せる */}
+                    {tr.kind === 'video' && tr.id !== 'V1' && telopDrop && (
+                      <TelopDropGhost trackId={tr.id} drop={telopDrop} cueTrack={cueTrack} />
+                    )}
                     {tr.id === 'V1' &&
                       videoSrc &&
                       segLayout.filter((L) => inView(L.tStart, L.tEnd)).map((L) =>
