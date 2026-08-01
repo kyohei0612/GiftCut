@@ -168,6 +168,7 @@ import { useMediaDrop } from './state/useMediaDrop'
 import { usePreviewManip } from './state/usePreviewManip'
 import { useIconLibrary } from './state/useIconLibrary'
 import { useProjectIO } from './state/useProjectIO'
+import { AppMenus } from './components/AppMenus'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -6366,350 +6367,31 @@ function AppInner(): JSX.Element {
       )}
       {confirmState && <ConfirmModal state={confirmState} onClose={closeConfirm} />}
 
-      {/* 右クリックメニューは components/ContextMenu.tsx に1つだけ置き、
-          ここでは「何を並べるか」だけを書く。 */}
-
-      {/* タブの右クリック: そのパネル（と他のパネル）の切り離し */}
-      {tabMenu &&
-        (() => {
-          const pane: PaneId = tabMenu.group === 'monitor' ? 'preview' : 'right'
-          const toggle = (id: PaneId): void => {
-            if (isPopped(id)) unpopPane(id)
-            else popPane(id)
-            setTabMenu(null)
-          }
-          return (
-            <ContextMenu
-              x={tabMenu.x}
-              y={tabMenu.y}
-              innerRef={clampMenu}
-              entries={[
-                { kind: 'title', label: PANE_LABEL[pane] },
-                // 切り離す＝窓にする。それだけ。「画面の中で浮かせる」と
-                // 「別ウィンドウで開く」を分けていたが、窓なら本体の上にも
-                // 別モニターにも置けるので、分ける意味が無かった。
-                {
-                  kind: 'item',
-                  label: isPopped(pane) ? '⇤ 元の場所に戻す' : '⇱ このパネルを切り離す',
-                  onClick: () => toggle(pane)
-                },
-                { kind: 'sep' },
-                // 他のパネルもここから。左パネルとタイムラインにはタブの
-                // 右クリックが無いので、ここが唯一の入口になる。
-                ...(['left', 'preview', 'right', 'timeline'] as PaneId[])
-                  .filter((id) => id !== pane)
-                  .map(
-                    (id) =>
-                      ({
-                        kind: 'item',
-                        label: isPopped(id)
-                          ? `⇤ ${PANE_LABEL[id]} を戻す`
-                          : `⇱ ${PANE_LABEL[id]} を切り離す`,
-                        onClick: () => toggle(id)
-                      }) as const
-                  )
-              ]}
-            />
-          )
-        })()}
-
-      {/* ≫: 見えていないタブと、並び替え */}
-      {tabOverflow && (
-        <ContextMenu
-          x={tabOverflow.x}
-          y={tabOverflow.y}
-          innerRef={clampMenu}
-          entries={[
-            { kind: 'title', label: tabOverflow.hidden.length ? '見えていないタブ' : 'タブを選ぶ' },
-            ...orderedTabs(tabOverflow.group, TAB_DEFS[tabOverflow.group] ?? [])
-              .filter((t) => !tabOverflow.hidden.length || tabOverflow.hidden.includes(t.id))
-              .map(
-                (t) =>
-                  ({
-                    kind: 'item',
-                    label: t.label,
-                    onClick: () => {
-                      pickTab(tabOverflow.group, t.id)
-                      setTabOverflow(null)
-                    }
-                  }) as const
-              ),
-            // もう1つのコーナー: 並び替え。帯の上で掴んで動かす方法は残してあるが、
-            // パネルが狭いと掴むタブ自体が見えない。ここなら幅に関係なく必ず変えられる。
-            { kind: 'sep' },
-            { kind: 'title', label: '並び替え' },
-            { kind: 'note', label: '長押ししてから上下に動かす' },
-            {
-              kind: 'node',
-              node: (
-                <TabSortList
-                  tabs={orderedTabs(tabOverflow.group, TAB_DEFS[tabOverflow.group] ?? [])}
-                  active={tabOverflow.group === 'monitor' ? monitorTab : rightTab}
-                  onReorder={(ids) => setTabOrder((p) => ({ ...p, [tabOverflow.group]: ids }))}
-                />
-              )
-            }
-          ]}
-        />
-      )}
-
-      {/* テロップの右クリック */}
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          innerRef={clampMenu}
-          entries={[
-            {
-              kind: 'title',
-              label: `ラベルカラー${
-                isSelected(menu.cueId) && selectedIds.length > 1 ? `（${selectedIds.length}個）` : ''
-              }`
-            },
-            {
-              kind: 'swatches',
-              colors: LABEL_COLORS,
-              onPick: (color) => {
-                setLabelFor(menu.cueId, color)
-                setMenu(null)
-              }
-            },
-            { kind: 'sep' },
-            {
-              kind: 'item',
-              label: '同じ色をまとめて選択',
-              onClick: () => {
-                const c = cues.find((x) => x.id === menu.cueId)
-                if (c) selectByLabel(c.label)
-                setMenu(null)
-              }
-            },
-            { kind: 'sep' },
-            {
-              kind: 'item',
-              label: `設定をコピー（位置・大きさ・見た目）（${formatCombo(shortcuts.attrCopy)}）`,
-              onClick: () => {
-                copyAttributes()
-                setMenu(null)
-              }
-            },
-            !!copiedAttrs && {
-              kind: 'item',
-              label: `設定を貼り付け: ${attrSummary(copiedAttrs)}（${formatCombo(shortcuts.attrPaste)}）`,
-              onClick: () => {
-                pasteAttributes()
-                setMenu(null)
-              }
-            },
-            { kind: 'sep' },
-            {
-              kind: 'item',
-              label: 'リップル削除（詰める）',
-              onClick: () => {
-                rippleDeleteSelected()
-                setMenu(null)
-              }
-            },
-            {
-              kind: 'item',
-              label: '選択を削除',
-              danger: true,
-              onClick: () => {
-                deleteSelected()
-                setMenu(null)
-              }
-            }
-          ]}
-        />
-      )}
-
-      {/* 動画切片 / SE・BGM / 画像 の右クリック（テロップ以外の共通操作） */}
-      {clipMenu && (
-        <ContextMenu
-          x={clipMenu.x}
-          y={clipMenu.y}
-          innerRef={clampMenu}
-          entries={[
-            {
-              kind: 'title',
-              label: `${clipMenu.kind === 'se' ? '🔊' : clipMenu.kind === 'img' ? '🖼' : '🎬'} ${clipMenu.name}`
-            },
-            // ラベルカラー: どのクリップにも付けられる
-            {
-              kind: 'swatches',
-              colors: LABEL_COLORS,
-              onPick: (color) => {
-                setClipLabel(clipMenu.kind, clipMenu.id, color)
-                setClipMenu(null)
-              },
-              onNone: () => {
-                setClipLabel(clipMenu.kind, clipMenu.id, undefined)
-                setClipMenu(null)
-              }
-            },
-            // BGM を敷くなら必須の機能なので、音のクリップの右クリックに直接置く
-            clipMenu.kind === 'se' && {
-              kind: 'item',
-              label: seClips.find((c) => c.id === clipMenu.id)?.duck
-                ? '🎚 声に合わせて下げるのをやめる'
-                : '🎚 声に合わせて下げる（ダッキング）',
-              onClick: () => {
-                const on = !seClips.find((c) => c.id === clipMenu.id)?.duck
-                setSeClips((prev) =>
-                  prev.map((c) => (c.id === clipMenu.id ? { ...c, duck: on } : c))
-                )
-                setClipMenu(null)
-                if (on) {
-                  setDuckOpen(true)
-                  // 声の位置が分からないと下げようがない。まだ調べていなければ調べる
-                  if (!silenceCut.found && !silenceCut.busy) void findSilences()
-                }
-              }
-            },
-            clipMenu.kind !== 'seg' && {
-              kind: 'item',
-              label: `コピー（${formatCombo(shortcuts.copy)}）`,
-              onClick: () => {
-                copySelected()
-                setClipMenu(null)
-              }
-            },
-            {
-              kind: 'item',
-              label: `複製（${formatCombo(shortcuts.duplicate)}）`,
-              onClick: () => {
-                duplicateClipsFromMenu(clipMenu.kind)
-                setClipMenu(null)
-              }
-            },
-            clipMenu.kind === 'seg' && {
-              kind: 'item',
-              label: `再生ヘッドで分割（${formatCombo(shortcuts.split)}）`,
-              onClick: () => {
-                splitVideoAtPlayhead()
-                setClipMenu(null)
-              }
-            },
-            clipMenu.kind === 'seg' && {
-              kind: 'item',
-              label: '映像だけ消す / 戻す（音と長さは残す）',
-              onClick: () => {
-                toggleBlankSelectedVideo()
-                setClipMenu(null)
-              }
-            },
-            { kind: 'sep' },
-            {
-              kind: 'item',
-              label: `設定をコピー（${formatCombo(shortcuts.attrCopy)}）`,
-              onClick: () => {
-                copyAttributes()
-                setClipMenu(null)
-              }
-            },
-            !!copiedAttrs && {
-              kind: 'item',
-              label: `設定を貼り付け: ${attrSummary(copiedAttrs)}（${formatCombo(shortcuts.attrPaste)}）`,
-              onClick: () => {
-                pasteAttributes()
-                setClipMenu(null)
-              }
-            },
-            { kind: 'sep' },
-            // 本編以外は「消して同じトラックの後続を詰める」も選べる
-            // （本編の削除は元から詰める動作なので出さない）
-            clipMenu.kind !== 'seg' && {
-              kind: 'item',
-              label: 'リップル削除（このトラックの後続を詰める）',
-              onClick: () => {
-                rippleDeleteSelected()
-                setClipMenu(null)
-              }
-            },
-            // 本編は「消すだけ（空きが残る）」と「消して詰める」の2つを出す。
-            // どちらになるか分からないまま押すと、後ろのタイミングが崩れて事故になる。
-            clipMenu.kind === 'seg' && {
-              kind: 'item',
-              label: `削除して詰める（${formatCombo(shortcuts.rippleDel)}）`,
-              onClick: () => {
-                rippleDeleteVideoSegments()
-                setClipMenu(null)
-              }
-            },
-            {
-              kind: 'item',
-              danger: true,
-              label: `${clipMenu.kind === 'seg' ? '削除（詰めない）' : '削除'}（${formatCombo(shortcuts.del)}）`,
-              onClick: () => {
-                if (clipMenu.kind === 'vclip') deleteSelectedVClip()
-                else if (clipMenu.kind === 'seg') deleteVideoSegmentsLeavingGap()
-                else if (clipMenu.kind === 'se') deleteSelectedSE()
-                else deleteSelectedImg()
-                setClipMenu(null)
-              }
-            }
-          ]}
-        />
-      )}
-
-      {/* テロップカード: フォルダ（カテゴリ）へ移動 */}
-      {tplMenu && (
-        <ContextMenu
-          x={tplMenu.x}
-          y={tplMenu.y}
-          innerRef={clampMenu}
-          entries={[
-            { kind: 'title', label: 'フォルダへ移動' },
-            ...allCats.map(
-              (c) =>
-                ({
-                  kind: 'item',
-                  on: tplMenu.curCat === c.key,
-                  label: `${tplMenu.curCat === c.key ? '✓ ' : ''}${
-                    customCats.some((cc) => cc.key === c.key) ? '📁 ' : ''
-                  }${c.label}`,
-                  onClick: () => {
-                    setTplCat(tplMenu.name, c.key)
-                    setTplMenu(null)
-                  }
-                }) as const
-            ),
-            { kind: 'sep' },
-            {
-              kind: 'item',
-              label: isFav(tplMenu.name) ? '★ お気に入り解除' : '☆ お気に入りに追加',
-              onClick: () => {
-                toggleFav(tplMenu.name)
-                setTplMenu(null)
-              }
-            }
-          ]}
-        />
-      )}
-
-      {/* SE/アイコン: フォルダ移動＋お気に入り（テロップと同じ見た目） */}
-      {orgMenu && (
-        <ContextMenu
-          x={orgMenu.x}
-          y={orgMenu.y}
-          innerRef={clampMenu}
-          entries={[
-            { kind: 'title', label: 'フォルダへ移動' },
-            ...orgMenu.options.map(
-              (o) =>
-                ({
-                  kind: 'item',
-                  on: o.checked,
-                  label: o.label,
-                  onClick: () => {
-                    o.act()
-                    setOrgMenu(null)
-                  }
-                }) as const
-            )
-          ]}
-        />
-      )}
+      {/* 右クリックで出る品書き（何を並べるか）は components/AppMenus.tsx。
+          出す入れ物そのものは components/ContextMenu.tsx に1つだけ置いてある。 */}
+      <AppMenus
+        menu={menu} setMenu={setMenu} clipMenu={clipMenu} setClipMenu={setClipMenu}
+        tabMenu={tabMenu} setTabMenu={setTabMenu} tabOverflow={tabOverflow}
+        setTabOverflow={setTabOverflow} tplMenu={tplMenu} setTplMenu={setTplMenu}
+        orgMenu={orgMenu} setOrgMenu={setOrgMenu} clampMenu={clampMenu}
+        PANE_LABEL={PANE_LABEL} TAB_DEFS={TAB_DEFS} orderedTabs={orderedTabs}
+        pickTab={pickTab} setTabOrder={setTabOrder} isPopped={isPopped} popPane={popPane}
+        unpopPane={unpopPane} monitorTab={monitorTab} rightTab={rightTab}
+        allCats={allCats} customCats={customCats} setTplCat={setTplCat}
+        isFav={isFav} toggleFav={toggleFav} setLabelFor={setLabelFor}
+        selectByLabel={selectByLabel} setClipLabel={setClipLabel}
+        deleteSelected={deleteSelected} rippleDeleteSelected={rippleDeleteSelected}
+        deleteSelectedSE={deleteSelectedSE} deleteSelectedImg={deleteSelectedImg}
+        deleteSelectedVClip={deleteSelectedVClip}
+        deleteVideoSegmentsLeavingGap={deleteVideoSegmentsLeavingGap}
+        rippleDeleteVideoSegments={rippleDeleteVideoSegments}
+        duplicateClipsFromMenu={duplicateClipsFromMenu}
+        splitVideoAtPlayhead={splitVideoAtPlayhead}
+        toggleBlankSelectedVideo={toggleBlankSelectedVideo} findSilences={findSilences}
+        silenceCut={silenceCut} setDuckOpen={setDuckOpen} copySelected={copySelected}
+        copyAttributes={copyAttributes} pasteAttributes={pasteAttributes}
+        copiedAttrs={copiedAttrs} attrSummary={attrSummary} shortcuts={shortcuts}
+      />
     </div>
   )
 }
