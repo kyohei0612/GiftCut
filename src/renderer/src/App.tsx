@@ -172,6 +172,9 @@ import { useTrackGeom } from './state/useTrackGeom'
 import { useMainEvents } from './state/useMainEvents'
 import { useTimelineSpan } from './state/useTimelineSpan'
 import { useBandDrag } from './state/useBandDrag'
+import { useAppChrome, type Tool } from './state/useAppChrome'
+import type { Ratio } from './state/useExportSettings'
+import { useSubtitlePrefs } from './state/useSubtitlePrefs'
 import { EMPTY_DRAG_IMG, setDragChip } from './lib/dragChip'
 import {
   AUTOSAVE_MS, FPS, RECENT_KEY, RECENT_MAX, RULER_H, TRACK_PAD_ROWS, XF_GRACE, gainToDb
@@ -328,29 +331,6 @@ import {
 import { mediaInUse, staleSourceIds } from '../../shared/mediaBin'
 import { envToFfmpegExpr } from '../../shared/ducking'
 
-type Tool = 'select' | 'razor' | 'trackFwd' | 'trackBack'
-type Ratio = '16:9' | '9:16' | '1:1'
-
-
-
-
-
-// タイムラインに載る物の形（VSeg / Source など）は lib/projectTypes、
-// プレビューの画質（PreviewRes）は components/panels/PreviewBars。
-interface ContextMenu {
-  x: number
-  y: number
-  cueId: number
-}
-// テロップ以外のクリップ（動画切片/SE/画像/マーカー）の右クリックメニュー
-interface ClipMenu {
-  x: number
-  y: number
-  kind: 'seg' | 'se' | 'img' | 'vclip'
-  id: number
-  name: string
-}
-
 // 初期トラック（映像は先頭に連続、音声はその後に連続）。+ボタンで増やせる。
 // 既定で用意する追加音声トラック（クイック追加ボタンの対象・旧プロジェクト補完先）
 
@@ -471,12 +451,20 @@ function AppInner(): JSX.Element {
   // プロジェクト(.gcproj)の保存先。srtPath とは必ず別に持つ
   // （兼用にすると「上書き保存」が読み込んだSRTファイルを壊す）。
   // 開いたプロジェクトで「見つからなかった素材」。保存時に書き戻して情報を失わないため。
-  const [menu, setMenu] = useState<ContextMenu | null>(null)
-  const [clipMenu, setClipMenu] = useState<ClipMenu | null>(null) // テロップ以外の右クリック
-  const idCounter = useRef(1)
+  // 画面の枠まわりの小さな状態（品書き・道具・マグネット・進み具合・版）は
+  // state/useAppChrome。**保存しない物**をまとめてある
+  const {
+    menu, setMenu, clipMenu, setClipMenu, idCounter, tool, setTool, snap, toggleSnap,
+    perfOpen, setPerfOpen, perfStopped, setPerfStopped, packPct, setPackPct, packBusyRef,
+    updateState, setUpdateState, proxyForPathRef, initializedForPathRef, appVersion
+  } = useAppChrome()
+  // 字幕づくりの設定と進み具合は state/useSubtitlePrefs
+  const {
+    subtitleOpen, setSubtitleOpen, subtitleState, setSubtitleState,
+    subMaxChars, setSubMaxChars, subReplace, setSubReplace, subModel
+  } = useSubtitlePrefs()
 
   // ---- 編集状態 ----
-  const [tool, setTool] = useState<Tool>('select')
   // 比率を変更する。テロップの箱(box)と文字サイズは「フレーム高さ1080基準の絶対値」なので、
   // 比率が変わると幅に対する見た目の比率が崩れる（16:9で幅83%の箱が9:16では画面外へ）。
   // 幅の変化率で box.w とフォントサイズを補正して、見た目の収まりを保つ。
@@ -498,10 +486,6 @@ function AppInner(): JSX.Element {
     }
     setRatio(next)
   }
-  // 動きの計測の小窓。既定は閉じたまま（開発中は閉じていても測り続ける）
-  const [perfOpen, setPerfOpen] = useState(false)
-  // 開発中の常時計測を、こちらから止めたか。止めたら右下のボタンが灰色になる
-  const [perfStopped, setPerfStopped] = useState(false)
   // **毎レンダーここを通る。** 画面を作り直した回数がそのまま数になる
   perf.countRender()
 
@@ -510,70 +494,11 @@ function AppInner(): JSX.Element {
 
 
 
-  // マグネットの切り替えはここを通す。以前はショートカット(S)だけが保存していて、
-  // ツールバーのボタンから切ると再起動で ON に戻っていた。
-  function toggleSnap(): void {
-    setSnap((v) => {
-      try {
-        localStorage.setItem('giftcut.snap', JSON.stringify(!v))
-      } catch {
-        /* 無視 */
-      }
-      return !v
-    })
-  }
-  // マグネットの ON/OFF は編集の癖なのでPCに覚えさせる（プレビュー解像度や
-  // パネル幅は保存しているのに、ここだけ毎回ONに戻っていた）。
-  // loadLS はこの行より後ろで定義されるので使えない（使うと起動時に
-  // 「Cannot access 'loadLS' before initialization」で真っ黒になる）。直接読む。
-  const [snap, setSnap] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('giftcut.snap') !== 'false'
-    } catch {
-      return true
-    }
-  })
 
   // ---- 動画 ----
   // videoSrc=プレビュー用（生成後は編集用プロキシ）、videoPath=書き出し用の原本パス
   // 素材の実フレームレート（読み込み時に ffprobe で取得。未取得は既定30）。
   // フレームステップ/タイムコード/カットのフレーム量子化に使う。
-  // 素材ごとまとめる／まとめを開く の進捗（null=実行していない）。
-  // 数GBになることがあり、無反応に見えると二度押しされるので必ず出す。
-  const [packPct, setPackPct] = useState<number | null>(null)
-  // アプリの更新（GitHub から自動で当てる）の状況。null=何も出さない
-  const [updateState, setUpdateState] = useState<UpdateState | null>(null)
-  // 実行中かどうか。進捗の知らせは終わったあとにも遅れて届くので、これで無視する。
-  // 見張っていないと最後の 100% が居座り、バッジが出たままになって
-  // 「実行中だから」と次の操作を弾き続ける（実際にそうなった）。
-  const packBusyRef = useRef(false)
-  const proxyForPathRef = useRef<string | null>(null) // 今プロキシ生成中の原本パス
-  // この動画について初期切片を作ったか。プロキシ完成でsrcが変わると loadedmetadata が再発火するため、
-  // 「segments が空」を初期化条件にすると、全消しした直後にカットが勝手に復活してしまう。
-  const initializedForPathRef = useRef<string | null>(null)
-  // 字幕づくりの窓。**押してすぐ走らせない**（何分もかかるので必ず確認を挟む）
-  const [subtitleOpen, setSubtitleOpen] = useState(false)
-  const [subtitleState, setSubtitleState] = useState<SubtitlePhase>({ phase: 'idle' })
-  // ここは描画中に走るので loadLS を使えない（定義がこれより下にある）
-  const [subMaxChars, setSubMaxChars] = useState<number>(() => {
-    const v = Number(localStorage.getItem('giftcut.subMaxChars'))
-    return v >= 10 && v <= 30 ? v : 17
-  })
-  const [subReplace, setSubReplace] = useState(true)
-  const [subModel, setSubModel] = useState<SubtitleModel>({
-    ready: false,
-    label: 'large-v3-turbo',
-    sizeMB: 1600
-  })
-  // いま動いている本体の版（枠の題名の横に出す）。本体に聞くので、
-  // 自動更新で入れ替わればそのまま新しい数字になる
-  const [appVersion, setAppVersion] = useState('')
-  useEffect(() => {
-    void window.giftcut
-      ?.getVersion?.()
-      .then((v) => setAppVersion(typeof v === 'string' ? v : ''))
-      .catch(() => setAppVersion(''))
-  }, [])
   const lastPaintRef = useRef(0) // 再生中の最後にsetTimeした時刻（再描画スロットル用）
   // 動画ズーム（リフレーム）は切片ごと（VSeg.zoom）。編集対象は再生ヘッド位置の切片。
 
@@ -972,14 +897,6 @@ function AppInner(): JSX.Element {
     setSubtitleState
   })
 
-  // 窓を開けたら、準備が手元にあるかを聞く（落とす大きさを先に見せるため）
-  useEffect(() => {
-    if (!subtitleOpen) return
-    void window.giftcut?.subtitleStatus?.().then((r) => {
-      if (!r?.ok) return
-      setSubModel({ ready: r.exe && r.model, label: r.label, sizeMB: r.sizeMB })
-    })
-  }, [subtitleOpen])
 
 
   // タイムラインの長さ（出す長さ／本当の終わり）と、ものさしの目盛りは
