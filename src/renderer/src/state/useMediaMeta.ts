@@ -9,13 +9,30 @@
 // 保存の対象ではない（プロジェクトを開き直せば作り直せる）ので、
 // プロジェクトの中身とは別に持つ。
 import { useEffect, useRef, useState } from 'react'
+import { useDoc } from './contentContext'
+import { useMediaCtx } from './mediaContext'
 
 export interface MediaMeta {
   dur?: number
   wave?: { min: number[]; max: number[]; dur: number }
 }
 
-export function useMediaMeta() {
+type Snap = { vClips?: { path: string }[]; seClips: { path: string }[]; imgClips?: { path: string }[] }
+
+export interface UseMediaMetaDeps {
+  /**
+   * やり直しで戻ってくる中身。**ここに居る物の控えは捨てない。**
+   *
+   * 関数で受けるのは、置き場（undo/redo の積み）が App のもっと下で
+   * 作られるため。値でもらおうとすると「まだ無い物」を読むことになる。
+   */
+  historySnaps: () => Snap[]
+}
+
+export function useMediaMeta(deps: UseMediaMetaDeps) {
+  const { historySnaps } = deps
+  const { vClips, seClips, imgClips, vClipsRef, seClipsRef, imgClipsRef } = useDoc()
+  const { mediaItems, sources, sourcesRef } = useMediaCtx()
   const [mediaMeta, setMediaMeta] = useState<Record<string, MediaMeta>>({})
 
   /**
@@ -36,6 +53,39 @@ export function useMediaMeta() {
 
   /** 見本の絵を作った（作りかけの）ファイル。同じ物を何度も作らないため */
   const thumbDoneRef = useRef<Set<string>>(new Set())
+
+  // どこからも使われなくなった控えを捨てる。
+  //
+  // **波形は長い素材だと数MB級**になるので、素材を入れ替えながら作業していると
+  // 増える一方になる。落ち着いてから1回だけ走らせる（掴んでいる最中に毎回
+  // 走らせると、その計算そのものが引っかかりの元になる）。
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const used = new Set<string>()
+      for (const m of mediaItems) used.add(m.path)
+      for (const c of vClipsRef.current) used.add(c.path)
+      for (const c of seClipsRef.current) used.add(c.path)
+      for (const c of imgClipsRef.current) used.add(c.path)
+      for (const s of sourcesRef.current) used.add(s.path)
+      // やり直しで戻ってくるクリップの波形も残す
+      // （戻した途端に「波形解析中…」になるのを防ぐ）
+      for (const snap of historySnaps()) {
+        for (const c of snap.vClips ?? []) used.add(c.path)
+        for (const c of snap.seClips) used.add(c.path)
+        for (const c of snap.imgClips ?? []) used.add(c.path)
+      }
+      metaInFlightRef.current.forEach((p) => used.add(p)) // 解析中の物は落とさない
+      const keys = Object.keys(mediaMetaRef.current)
+      if (keys.every((k) => used.has(k))) return
+      setMediaMeta((prev) => {
+        const next: Record<string, MediaMeta> = {}
+        for (const k of Object.keys(prev)) if (used.has(k)) next[k] = prev[k]
+        return next
+      })
+    }, 3000)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mediaItems, vClips, seClips, imgClips, sources])
 
   return { mediaMeta, setMediaMeta, mediaMetaRef, metaInFlightRef, thumbDoneRef }
 }

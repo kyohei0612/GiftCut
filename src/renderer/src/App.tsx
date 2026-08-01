@@ -169,6 +169,7 @@ import { useWindowDrop } from './state/useWindowDrop'
 import { useAutosaveMark } from './state/useAutosaveMark'
 import { TELOP_MOTIONS, motionLabel, useLabelsPresets } from './state/useLabelsPresets'
 import { useTrackGeom } from './state/useTrackGeom'
+import { useMainEvents } from './state/useMainEvents'
 import type { MediaItem } from './components/panels/ProjectBinTab'
 import { useViewNav } from './state/useViewNav'
 import { useTransitions } from './state/useTransitions'
@@ -642,7 +643,7 @@ function AppInner(): JSX.Element {
   }, [sources])
 
   // 素材の下ごしらえ（尺・波形の控え、二重解析よけ）は state/useMediaMeta
-  const { mediaMeta, setMediaMeta, mediaMetaRef, metaInFlightRef, thumbDoneRef } = useMediaMeta()
+  const { mediaMeta, setMediaMeta, mediaMetaRef, metaInFlightRef, thumbDoneRef } = useMediaMeta({ historySnaps: () => [...undoStackRef.current, ...redoStackRef.current] })
   const draggingMediaRef = useRef<MediaItem | null>(null)
   const dragSeDurRef = useRef(2) // ドラッグ中SEの尺（ゴースト幅用。dragStartでgetDurationして更新）
   // タイムラインへSE配置中の半透明ゴースト（プレミア風に配置位置を可視化）
@@ -1044,24 +1045,6 @@ function AppInner(): JSX.Element {
     setSubtitleState
   })
 
-  // プロキシ生成の進捗を購読（今読み込み中の原本パス分だけ反映）
-  useEffect(() => {
-    const off = window.giftcut?.onProxyProgress?.(({ path, percent }) => {
-      if (path === proxyForPathRef.current) setProxyPct(percent >= 100 ? null : percent)
-    })
-    return () => off?.()
-  }, [])
-
-  useEffect(() => {
-    const off = window.giftcut?.onExportProgress?.(({ percent }) => setExportPct(percent))
-    return () => off?.()
-  }, [])
-
-  // 字幕づくりの進み具合を受け取る
-  useEffect(() => {
-    const off = window.giftcut?.onSubtitleProgress?.((s) => setSubtitleState(s as SubtitlePhase))
-    return () => off?.()
-  }, [])
   // 窓を開けたら、準備が手元にあるかを聞く（落とす大きさを先に見せるため）
   useEffect(() => {
     if (!subtitleOpen) return
@@ -1071,51 +1054,6 @@ function AppInner(): JSX.Element {
     })
   }, [subtitleOpen])
 
-  // 関連付け（ダブルクリック）で開かれたプロジェクトを開く。
-  // **受け取る側が居ないと「メモ帳で開きますか？」のまま何も起きない。**
-  useEffect(() => {
-    const off = window.giftcut?.onOpenProjectPath?.((p) => {
-      void openProjectFn(p)
-    })
-    return () => off?.()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // 更新の再起動の直前。今の状態を下書きに書いてから「書けた」と返す。
-  // 更新は「未保存の変更が無いとき」しか当てないが、それでも
-  // 開いていたプロジェクト・再生位置・画面の形は消したくない。
-  // 次の起動でこれを黙って読み直すので、印（resumeAfterUpdate）も付ける。
-  useEffect(() => {
-    const off = window.giftcut?.onUpdateFlush?.(() => {
-      void (async () => {
-        try {
-          localStorage.setItem('giftcut.resumeAfterUpdate', '1')
-          await window.giftcut.autosaveProject(projectJson())
-        } catch (e) {
-          console.warn('[update] 再起動前の保存に失敗:', e)
-        } finally {
-          window.giftcut.updateFlushed()
-        }
-      })()
-    })
-    return () => off?.()
-  })
-
-  useEffect(() => {
-    const off = window.giftcut?.onUpdateState?.((s) => {
-      // 「新しいのは無い」「見に行っています」は黙っておく。
-      // 何も起きていないことをいちいち画面に出しても、邪魔なだけなので。
-      setUpdateState(s.phase === 'none' || s.phase === 'checking' ? null : s)
-    })
-    return () => off?.()
-  }, [])
-
-  useEffect(() => {
-    const off = window.giftcut?.onPackProgress?.(({ percent }) => {
-      if (packBusyRef.current) setPackPct(percent)
-    })
-    return () => off?.()
-  }, [])
 
   const seEnd = useMemo(
     () => (seClips.length ? Math.max(...seClips.map((s) => s.tStart + s.duration)) : 0),
@@ -1245,35 +1183,7 @@ function AppInner(): JSX.Element {
   useSelectionCleanup()
 
 
-  // どこからも参照されなくなった素材メタ（尺・波形）を解放する。
-  // 波形は長尺で数MB級になるので、素材を入れ替えながら作業すると単調増加してしまう。
-  // 変更が落ち着いてから1回だけ走らせる（ドラッグ中などに毎回走らせない）。
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const used = new Set<string>()
-      for (const m of mediaItems) used.add(m.path)
-      for (const c of vClipsRef.current) used.add(c.path)
-      for (const c of seClipsRef.current) used.add(c.path)
-      for (const c of imgClipsRef.current) used.add(c.path)
-      for (const s of sourcesRef.current) used.add(s.path)
-      // Undo/Redo で戻ってくるクリップの波形も残す（戻した途端に「波形解析中…」になるのを防ぐ）
-      for (const snap of [...undoStackRef.current, ...redoStackRef.current]) {
-        for (const c of snap.vClips ?? []) used.add(c.path)
-        for (const c of snap.seClips) used.add(c.path)
-        for (const c of snap.imgClips ?? []) used.add(c.path)
-      }
-      metaInFlightRef.current.forEach((p) => used.add(p)) // 解析中は落とさない
-      const keys = Object.keys(mediaMetaRef.current)
-      if (keys.every((k) => used.has(k))) return
-      setMediaMeta((prev) => {
-        const next: typeof prev = {}
-        for (const k of Object.keys(prev)) if (used.has(k)) next[k] = prev[k]
-        return next
-      })
-    }, 3000)
-    return () => window.clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mediaItems, vClips, seClips, imgClips, sources])
+  // 使わなくなった素材の控えを捨てるのも state/useMediaMeta の中
 
   const v1Hidden = trackStates['V1']?.hidden ?? false
 
@@ -1852,6 +1762,13 @@ function AppInner(): JSX.Element {
     scrollRef, rightBodyRef, rightTab, setRightTab, ratioRef, localTemplates
   })
   projectJsonRef.current = projectJson
+
+  // メインからの知らせ（進み具合・更新・関連付けで開く）は state/useMainEvents。
+  // **ここで呼ぶのは、下書きに書く projectJson が出来た後だから。**
+  useMainEvents({
+    proxyForPathRef, setProxyPct, setExportPct, setSubtitleState, setUpdateState,
+    packBusyRef, setPackPct, openProjectFn, projectJson
+  })
 
 
   // キーを押したときに何が起きるか（state/useKeyboard）。
