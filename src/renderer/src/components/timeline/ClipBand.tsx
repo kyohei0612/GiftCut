@@ -11,6 +11,21 @@
 
 import type { JSX, ReactNode } from 'react'
 
+/**
+ * 帯を右クリックしたときに、クリップ用の品書きを開く。
+ *
+ * **手順が3つある。**「押した1つだけを選び直す → 元の品書きを閉じる →
+ * クリップ用を開く」。選び直すのは、複数選んだまま右クリックしたときに
+ * **押した物ではない方**へ操作が飛ぶのを防ぐため。
+ * 同じ手順を帯の種類ごとに書くと片方だけ直す事故になるので、
+ * 呼ぶ側（App）で1つにまとめて渡してもらう。
+ */
+export type OpenClipMenu = (
+  e: React.MouseEvent,
+  kind: 'seg' | 'se' | 'img' | 'vclip',
+  clip: { id: number; name: string }
+) => void
+
 export function ClipBand({
   className,
   label,

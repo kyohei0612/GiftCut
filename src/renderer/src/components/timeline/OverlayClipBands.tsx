@@ -13,12 +13,10 @@
 // ## 右クリックの中身は3つとも同じ
 //
 // 「この1つだけを選び直す → 元の品書きを閉じる → クリップ用の品書きを開く」。
-// 選び直すのは、複数選んだまま右クリックしたときに**押した物ではない方**へ
-// 操作が飛ぶのを防ぐため。同じ手順を3か所に書くと片方だけ直す事故になるので、
-// 呼ぶ側で1つにまとめて渡してもらう。
+// 呼ぶ側で1つにまとめた `OpenClipMenu`（timeline/ClipBand.tsx）を渡してもらう。
 
 import type { JSX } from 'react'
-import { ClipBand } from './ClipBand'
+import { ClipBand, type OpenClipMenu } from './ClipBand'
 import { KeyMarks } from './KeyMarks'
 import WaveformCanvas from '../WaveformCanvas'
 import { clipMotionKeyTimes } from '../../../../shared/clipMotion'
@@ -31,12 +29,6 @@ import { useToastCtx } from '../../state/toastContext'
 
 /** 帯の幅。**最低でも12px は見せる**（短いと線になって掴めない） */
 const bandW = (dur: number, zoom: number): number => Math.max(dur * zoom - 1, 12)
-
-export type OpenClipMenu = (
-  e: React.MouseEvent,
-  kind: 'vclip' | 'img',
-  clip: { id: number; name: string }
-) => void
 
 /** V2以降に重ねた動画（映像側） */
 export function VideoLayerBand({

@@ -209,9 +209,9 @@ import {
 import {
   ImageBand,
   VideoLayerAudioBand,
-  VideoLayerBand,
-  type OpenClipMenu
+  VideoLayerBand
 } from './components/timeline/OverlayClipBands'
+import type { OpenClipMenu } from './components/timeline/ClipBand'
 import {
   ACTION_LIST,
   DEFAULT_SHORTCUTS,
@@ -7462,7 +7462,13 @@ function AppInner(): JSX.Element {
     e.preventDefault()
     e.stopPropagation()
     if (kind === 'vclip') setSelectedVClipIds([clip.id])
-    else setSelectedImgIds([clip.id])
+    else if (kind === 'se') setSelectedSeIds([clip.id])
+    else if (kind === 'seg') {
+      // 本編の切片は「映像だけ選ぶ」。画像の選択は必ず落とす
+      // （両方選んだまま品書きを出すと、削除が画像まで巻き込む）
+      setSelectedVideoIds([clip.id])
+      setSelectedImgIds([])
+    } else setSelectedImgIds([clip.id])
     setMenu(null)
     setClipMenu({ x: e.clientX, y: e.clientY, kind, id: clip.id, name: clip.name })
   }
@@ -8879,14 +8885,7 @@ function AppInner(): JSX.Element {
                             selected={isVideoSel(L.seg.id)}
                             title="空き（クリックして Delete で詰める）"
                             onPointerDown={(e) => onSegPointerDown(L, e, 'video')}
-                            onContextMenu={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              setSelectedVideoIds([L.seg.id])
-                              setSelectedImgIds([])
-                              setMenu(null)
-                              setClipMenu({ x: e.clientX, y: e.clientY, kind: 'seg', id: L.seg.id, name: '空き' })
-                            }}
+                            onContextMenu={(e) => openClipMenu(e, 'seg', { id: L.seg.id, name: '空き' })}
                           />
                         ) : (
                         // 映像を消した区間(videoBlank)は帯を残す（点線＋バッジ）。
@@ -8906,20 +8905,12 @@ function AppInner(): JSX.Element {
                           onPointerDown={(e) => onSegPointerDown(L, e, 'video')}
                           onTrimLeft={(e) => onSegTrimStart(L, 'l', e)}
                           onTrimRight={(e) => onSegTrimStart(L, 'r', e)}
-                          onContextMenu={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setSelectedVideoIds([L.seg.id])
-                            setSelectedImgIds([])
-                            setMenu(null) // テロップ用メニューが開いていたら閉じる
-                            setClipMenu({
-                              x: e.clientX,
-                              y: e.clientY,
-                              kind: 'seg',
+                          onContextMenu={(e) =>
+                            openClipMenu(e, 'seg', {
                               id: L.seg.id,
                               name: srcOfSeg(L.seg)?.name ?? '動画クリップ'
                             })
-                          }}
+                          }
                         >
                           {/* サムネはその切片の元動画のものを出す（先頭固定にすると別動画の絵が出る） */}
                           {(() => {
@@ -9041,19 +9032,7 @@ function AppInner(): JSX.Element {
                           // 端の当たり判定が左右7pxずつあるので、短い効果音は
                           // **帯の全部が「長さ変更」になって、選ぶ余地が無かった**。
                           // 短くしたいときは分割して消すほうが速く、そちらは既にできる。
-                          onContextMenu={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setSelectedSeIds([clip.id])
-                            setMenu(null)
-                            setClipMenu({
-                              x: e.clientX,
-                              y: e.clientY,
-                              kind: 'se',
-                              id: clip.id,
-                              name: clip.name
-                            })
-                          }}
+                          onContextMenu={(e) => openClipMenu(e, 'se', clip)}
                           deleteTitle="削除"
                           onDelete={(e) => {
                             e.stopPropagation()
