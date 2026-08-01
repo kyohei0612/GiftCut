@@ -332,15 +332,15 @@ describe('未保存の「＊」と自動保存', () => {
    * 画面の配置だけはフックが持っていて心臓に無いので、App から `layout: [...]`
    * として渡している。**どちらか片方しか見ないと、見張りに穴があく。**
    */
-  function dirtyDeps(mark: string, app: string): string[] {
+  function dirtyDeps(mark: string, wiring: string): string[] {
     const anchor = mark.indexOf('const projectRevRef = useRef(0)')
     expect(anchor, '未保存判定の useEffect が見つからない').toBeGreaterThan(-1)
     const open = mark.indexOf('}, [', anchor)
     const list = mark.slice(open + 4, mark.indexOf('])', open))
     const fromHook = [...list.matchAll(/\b([a-zA-Z_]\w*)\b/g)].map((m) => m[1])
-    const lay = app.indexOf('layout: [')
-    expect(lay, 'App から渡す layout の一覧が見つからない').toBeGreaterThan(-1)
-    const layList = app.slice(lay + 9, app.indexOf(']', lay))
+    const lay = wiring.indexOf('layout: [')
+    expect(lay, '配線から渡す layout の一覧が見つからない').toBeGreaterThan(-1)
+    const layList = wiring.slice(lay + 9, wiring.indexOf(']', lay))
     const fromApp = [...layList.matchAll(/\b([a-zA-Z_]\w*)\b/g)].map((m) => m[1])
     return [...fromHook, ...fromApp]
   }
@@ -349,18 +349,18 @@ describe('未保存の「＊」と自動保存', () => {
     // 「＊」は 0.8 秒ごとの総当たりをやめ、中身が変わったときだけ見直すように
     // した。依存配列は手で書くので、projectJson に項目を足して依存を足し忘れると
     // 「＊」が出なくなる。人が気づけないので、ここで機械に見張らせる。
-    // **見る先は4つ。** 保存する中身は state/useProjectFile へ、
+    // **見る先は4つ。** 配線は state/useAppWiring へ、保存する中身は state/useProjectFile へ、
     // 画面の配置（layoutNow）は state/useAppLayout へ、
     // 「＊」の見直しは state/useAutosaveMark へ移してある。1つでも読み落とすと、
     // 移した瞬間に「見つからない」で落ちる（実際そうなった）。
     // **切り出したら、ここへ読む先を足すこと。**
-    const app = await import('./App?raw').then((m) => m.default as string)
+    const wiring = await import('./state/useAppWiring?raw').then((m) => m.default as string)
     const proj = await import('./state/useProjectFile?raw').then((m) => m.default as string)
     const lay = await import('./state/useAppLayout?raw').then((m) => m.default as string)
     const mark = await import('./state/useAutosaveMark?raw').then((m) => m.default as string)
-    const src = [app, proj, lay, mark].join(String.fromCharCode(10))
+    const src = [wiring, proj, lay, mark].join(String.fromCharCode(10))
     const fields = savedFields(src)
-    const deps = dirtyDeps(mark, app)
+    const deps = dirtyDeps(mark, wiring)
 
     expect(fields.length, '保存項目を1つも読み取れていない（書式が変わった？）').toBeGreaterThan(20)
     expect(deps.length, '依存配列を読み取れていない（書式が変わった？）').toBeGreaterThan(20)
