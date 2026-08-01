@@ -457,11 +457,6 @@ function AppInner(): JSX.Element {
     customCats, setCustomCats, userTemplates, setUserTemplates, newTelopStyle, setNewTelopStyle,
     transDur, setTransDur, iconAssign, setIconAssignState, laneIconAssign, setLaneIconAssign
   } = useProjectStateCtx()
-  // 元に戻す・やり直すための控え（描くための物ではないので ref）
-  const {
-    undoStackRef, redoStackRef, baselineRef, suppressHistoryRef, pendingTimerRef,
-    bumpHist: setHistTick
-  } = useHistory()
   // 素材（取り込んだ物）と元動画（いま使っている物）。videoSrc は差し替わるが
   // videoPath は原本なので差し替えない（焼き直した粗い映像で書き出さないため）
   const {
@@ -1442,129 +1437,31 @@ function AppInner(): JSX.Element {
   // 履歴は cues / segments / seClips / markers / imgClips を1スナップショットで管理する（統合Undo）
   const ratioRef = useRef<Ratio>('16:9')
 
-  function setTime(t: number): void {
-    currentTimeRef.current = t
-    // 位置が飛んだら、温めてあった面は当てにできない
-    preparedRef.current = null
-    setCurrentTime(t)
-  }
+  // 元に戻す・やり直す（控えと、時刻の入れ替え）は state/useHistory
+  const {
+    undoStackRef, redoStackRef, baselineRef, suppressHistoryRef, pendingTimerRef,
+    bumpHist: setHistTick,
+    setTime, paintTime, isDirty, snapNow, pushUndo, commitPending, undo, redo, resetHistory
+  } = useHistory({
+    // 控えを画面へ戻すのは state/useProjectFile の物で、あちらはこちらの
+    // resetHistory を要る（相互に必要）。「呼ぶときに見に行く」形で解いてある
+    restore: (...a: Parameters<typeof restore>) => restore(...a),
+    preparedRef,
+    previewResRef,
+    lastPaintRef,
+    ratioRef
+  })
+
   // 再生中の再生ヘッド/テロップ再描画をスロットル。ref は常に更新して同期を保ち、
   // React state（＝再描画）だけ間引く。force で確実に反映。
   // 最軽量(360p)を選んだときだけ ~30fps に間引く。「解像度」と「再描画頻度」を別の
   // つまみにするとユーザーが2つ覚えることになるため、設定は解像度ひとつに束ねている。
-  /**
-   * 再生ヘッドの位置を進める。
-   *
-   * ## なぜ間引くのか（実測で分かったこと）
-   *
-   * setCurrentTime は **App 全体（13,000行）を作り直す**。素のままだと
-   * rAF が回るたびに作り直すので、240Hz のモニタでは毎秒240回になる。
-   *
-   * 実測（動きの記録）:
-   *
-   *     画質360  作り直し 144〜164回/秒 → 240fps 近辺を維持
-   *     画質orig 作り直し 200〜254回/秒 → 125fps まで落ちる
-   *
-   * 1回1回は 50ms に満たないので「長い仕事」としては現れないが、
-   * **細かい仕事で主スレッドが埋まりっぱなし**になる。音がぶちぶち切れるのは
-   * 1発の詰まりではなくこれ。デコードは無罪（落としたコマは0だった）。
-   *
-   * 前は 360 のときだけ間引いていた。画質を上げたときこそ重いのに、
-   * そこで間引きが外れる作りになっていた。**全部の画質で上限を掛ける。**
-   * 再生ヘッドは秒60回も動けば人の目には連続に見える。
-   */
-  function paintTime(t: number, force = false): void {
-    currentTimeRef.current = t
-    if (!force) {
-      const now = performance.now()
-      // 低画質は30回/秒で足りる。それ以外も60回/秒で頭打ちにする
-      const minMs = previewResRef.current === 360 ? 33 : 16
-      if (now - lastPaintRef.current < minMs) return
-      lastPaintRef.current = now
-    }
-    setCurrentTime(t)
-  }
 
   // 保存していない変更があるか（タイトルの「＊」用）。
   // 重いので毎レンダーではなく、下の一定間隔の判定でだけ更新する。
   const [unsaved, setUnsaved] = useState(false)
-  const isDirty = (): boolean =>
-    cuesRef.current !== baselineRef.current.cues ||
-    segsRef.current !== baselineRef.current.segments ||
-    seClipsRef.current !== baselineRef.current.seClips ||
-    markersRef.current !== (baselineRef.current.markers ?? markersRef.current) ||
-    imgClipsRef.current !== (baselineRef.current.imgClips ?? imgClipsRef.current) ||
-    vClipsRef.current !== (baselineRef.current.vClips ?? vClipsRef.current) ||
-    tracksRef.current !== (baselineRef.current.tracks ?? tracksRef.current) ||
-    trackStatesRef.current !== (baselineRef.current.trackStates ?? trackStatesRef.current) ||
-    ratioRef.current !== (baselineRef.current.ratio ?? ratioRef.current)
-  const snapNow = (): Snap => ({
-    cues: cuesRef.current,
-    segments: segsRef.current,
-    seClips: seClipsRef.current,
-    markers: markersRef.current,
-    imgClips: imgClipsRef.current,
-    vClips: vClipsRef.current,
-    tracks: tracksRef.current,
-    trackStates: trackStatesRef.current,
-    ratio: ratioRef.current
-  })
 
 
-  function pushUndo(state: Snap): void {
-    undoStackRef.current.push(state)
-    if (undoStackRef.current.length > 100) undoStackRef.current.shift()
-  }
-  // 保留中（デバウンス未確定）の変更を確定。分岐編集があれば redo を無効化する
-  function commitPending(): void {
-    if (pendingTimerRef.current) {
-      clearTimeout(pendingTimerRef.current)
-      pendingTimerRef.current = null
-    }
-    if (isDirty()) {
-      pushUndo(baselineRef.current)
-      baselineRef.current = snapNow()
-      redoStackRef.current = []
-    }
-  }
-  function undo(): void {
-    commitPending()
-    if (!undoStackRef.current.length) return
-    redoStackRef.current.push(snapNow())
-    restore(undoStackRef.current.pop() as Snap)
-  }
-  function redo(): void {
-    commitPending() // undo と対称に。分岐編集後は redoStack がクリアされ no-op になる
-    if (!redoStackRef.current.length) return
-    pushUndo(snapNow())
-    restore(redoStackRef.current.pop() as Snap)
-  }
-  // 履歴をリセット（プロジェクト読み込み時など）
-  function resetHistory(base: Snap): void {
-    if (pendingTimerRef.current) {
-      clearTimeout(pendingTimerRef.current)
-      pendingTimerRef.current = null
-    }
-    undoStackRef.current = []
-    redoStackRef.current = []
-    baselineRef.current = base
-    cuesRef.current = base.cues
-    segsRef.current = base.segments
-    seClipsRef.current = base.seClips
-    if (base.markers) markersRef.current = base.markers
-    if (base.imgClips) imgClipsRef.current = base.imgClips
-    if (base.vClips) vClipsRef.current = base.vClips
-    if (base.tracks) tracksRef.current = base.tracks
-    if (base.trackStates) trackStatesRef.current = base.trackStates
-    if (base.ratio) ratioRef.current = base.ratio
-    suppressHistoryRef.current = true
-    setHistTick()
-    // 保険: 続く setCues 等のエフェクトでフラグが消費されなかった場合、次tickで確実に解除
-    // （消費済みなら false のまま＝no-op。残留すると次の本物の編集がundoに積まれない不具合の対策）
-    setTimeout(() => {
-      suppressHistoryRef.current = false
-    }, 0)
-  }
 
 
   const primaryId = selectedIds[0] ?? null

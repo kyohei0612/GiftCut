@@ -15,6 +15,9 @@
 // 代わりに、押せるかどうかの表示を更新するためだけの目印（tick）を1つ持つ。
 
 import { useRef, useState } from 'react'
+import { useDoc } from './contentContext'
+import { useTracksCtx } from './tracksContext'
+import { usePlaybackCtx } from './playbackContext'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, Marker, SEClip, Track, TrackState, VClip, VSeg } from '../lib/projectTypes'
 import type { Ratio } from './useExportSettings'
@@ -37,6 +40,18 @@ export interface Snap {
   //   参照されなくなったソースは専用の GC effect で片付ける。
 }
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export interface UseHistoryDeps {
+  /** 控えを画面へ戻す（state/useProjectFile の物。相互に必要なので遅延参照で渡す） */
+  restore: any
+  /** 位置が飛んだら、温めてあった面は当てにできない */
+  preparedRef: any
+  previewResRef: any
+  lastPaintRef: any
+  ratioRef: any
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 export interface History {
   undoStackRef: React.MutableRefObject<Snap[]>
   redoStackRef: React.MutableRefObject<Snap[]>
@@ -48,21 +63,168 @@ export interface History {
   pendingTimerRef: React.MutableRefObject<number | null>
   /** 押せるかどうかの表示を更新するためだけの目印 */
   bumpHist: () => void
+  /** 再生位置を入れ替える（飛んだら、温めてあった面は捨てる） */
+  setTime: (t: number) => void
+  /** 再生位置を進める（描き直しは秒60回で頭打ち） */
+  paintTime: (t: number, force?: boolean) => void
+  /** 最後に確定した控えから変わっているか */
+  isDirty: () => boolean
+  /** いまの中身を控えの形にする */
+  snapNow: () => Snap
+  pushUndo: (state: Snap) => void
+  /** まだ確定していない変更を、その場で1つ積む */
+  commitPending: () => void
+  undo: () => void
+  redo: () => void
+  /** 履歴を捨てて、ここを起点にし直す（プロジェクトを開いたとき） */
+  resetHistory: (base: Snap) => void
 }
 
-export function useHistory(): History {
+export function useHistory(deps: UseHistoryDeps): History {
+  const { restore, preparedRef, previewResRef, lastPaintRef, ratioRef } = deps
+  const { cuesRef, segsRef, seClipsRef, markersRef, imgClipsRef, vClipsRef } = useDoc()
+  const { tracksRef, trackStatesRef } = useTracksCtx()
+  const { currentTimeRef, setCurrentTime } = usePlaybackCtx()
   const undoStackRef = useRef<Snap[]>([])
   const redoStackRef = useRef<Snap[]>([])
   const baselineRef = useRef<Snap>({ cues: [], segments: [], seClips: [] })
   const suppressHistoryRef = useRef(false)
   const pendingTimerRef = useRef<number | null>(null)
   const [, setTick] = useState(0)
+  const bumpHist = (): void => setTick((n) => n + 1)
+
+  function setTime(t: number): void {
+    currentTimeRef.current = t
+    // 位置が飛んだら、温めてあった面は当てにできない
+    preparedRef.current = null
+    setCurrentTime(t)
+  }
+
+  /**
+   * 再生ヘッドの位置を進める。
+   *
+   * ## なぜ間引くのか（実測で分かったこと）
+   *
+   * setCurrentTime は **App 全体（13,000行）を作り直す**。素のままだと
+   * rAF が回るたびに作り直すので、240Hz のモニタでは毎秒240回になる。
+   *
+   * 実測（動きの記録）:
+   *
+   *     画質360  作り直し 144〜164回/秒 → 240fps 近辺を維持
+   *     画質orig 作り直し 200〜254回/秒 → 125fps まで落ちる
+   *
+   * 1回1回は 50ms に満たないので「長い仕事」としては現れないが、
+   * **細かい仕事で主スレッドが埋まりっぱなし**になる。音がぶちぶち切れるのは
+   * 1発の詰まりではなくこれ。デコードは無罪（落としたコマは0だった）。
+   *
+   * 前は 360 のときだけ間引いていた。画質を上げたときこそ重いのに、
+   * そこで間引きが外れる作りになっていた。**全部の画質で上限を掛ける。**
+   * 再生ヘッドは秒60回も動けば人の目には連続に見える。
+   */
+  function paintTime(t: number, force = false): void {
+    currentTimeRef.current = t
+    if (!force) {
+      const now = performance.now()
+      // 低画質は30回/秒で足りる。それ以外も60回/秒で頭打ちにする
+      const minMs = previewResRef.current === 360 ? 33 : 16
+      if (now - lastPaintRef.current < minMs) return
+      lastPaintRef.current = now
+    }
+    setCurrentTime(t)
+  }
+
+  const isDirty = (): boolean =>
+    cuesRef.current !== baselineRef.current.cues ||
+    segsRef.current !== baselineRef.current.segments ||
+    seClipsRef.current !== baselineRef.current.seClips ||
+    markersRef.current !== (baselineRef.current.markers ?? markersRef.current) ||
+    imgClipsRef.current !== (baselineRef.current.imgClips ?? imgClipsRef.current) ||
+    vClipsRef.current !== (baselineRef.current.vClips ?? vClipsRef.current) ||
+    tracksRef.current !== (baselineRef.current.tracks ?? tracksRef.current) ||
+    trackStatesRef.current !== (baselineRef.current.trackStates ?? trackStatesRef.current) ||
+    ratioRef.current !== (baselineRef.current.ratio ?? ratioRef.current)
+  const snapNow = (): Snap => ({
+    cues: cuesRef.current,
+    segments: segsRef.current,
+    seClips: seClipsRef.current,
+    markers: markersRef.current,
+    imgClips: imgClipsRef.current,
+    vClips: vClipsRef.current,
+    tracks: tracksRef.current,
+    trackStates: trackStatesRef.current,
+    ratio: ratioRef.current
+  })
+
+  function pushUndo(state: Snap): void {
+    undoStackRef.current.push(state)
+    if (undoStackRef.current.length > 100) undoStackRef.current.shift()
+  }
+  // 保留中（デバウンス未確定）の変更を確定。分岐編集があれば redo を無効化する
+  function commitPending(): void {
+    if (pendingTimerRef.current) {
+      clearTimeout(pendingTimerRef.current)
+      pendingTimerRef.current = null
+    }
+    if (isDirty()) {
+      pushUndo(baselineRef.current)
+      baselineRef.current = snapNow()
+      redoStackRef.current = []
+    }
+  }
+  function undo(): void {
+    commitPending()
+    if (!undoStackRef.current.length) return
+    redoStackRef.current.push(snapNow())
+    restore(undoStackRef.current.pop() as Snap)
+  }
+  function redo(): void {
+    commitPending() // undo と対称に。分岐編集後は redoStack がクリアされ no-op になる
+    if (!redoStackRef.current.length) return
+    pushUndo(snapNow())
+    restore(redoStackRef.current.pop() as Snap)
+  }
+  // 履歴をリセット（プロジェクト読み込み時など）
+  function resetHistory(base: Snap): void {
+    if (pendingTimerRef.current) {
+      clearTimeout(pendingTimerRef.current)
+      pendingTimerRef.current = null
+    }
+    undoStackRef.current = []
+    redoStackRef.current = []
+    baselineRef.current = base
+    cuesRef.current = base.cues
+    segsRef.current = base.segments
+    seClipsRef.current = base.seClips
+    if (base.markers) markersRef.current = base.markers
+    if (base.imgClips) imgClipsRef.current = base.imgClips
+    if (base.vClips) vClipsRef.current = base.vClips
+    if (base.tracks) tracksRef.current = base.tracks
+    if (base.trackStates) trackStatesRef.current = base.trackStates
+    if (base.ratio) ratioRef.current = base.ratio
+    suppressHistoryRef.current = true
+    bumpHist()
+    // 保険: 続く setCues 等のエフェクトでフラグが消費されなかった場合、次tickで確実に解除
+    // （消費済みなら false のまま＝no-op。残留すると次の本物の編集がundoに積まれない不具合の対策）
+    setTimeout(() => {
+      suppressHistoryRef.current = false
+    }, 0)
+  }
+
   return {
     undoStackRef,
     redoStackRef,
     baselineRef,
     suppressHistoryRef,
     pendingTimerRef,
-    bumpHist: () => setTick((n) => n + 1)
+    bumpHist,
+    setTime,
+    paintTime,
+    isDirty,
+    snapNow,
+    pushUndo,
+    commitPending,
+    undo,
+    redo,
+    resetHistory
   }
 }
