@@ -198,6 +198,7 @@ import {
   TelopEditor
 } from './components/panels/PreviewOverlays'
 import { ImageLayers, TelopLayer, VideoLayers } from './components/panels/PreviewLayers'
+import { TransitionBands } from './components/timeline/TransitionBands'
 import {
   ACTION_LIST,
   DEFAULT_SHORTCUTS,
@@ -9104,127 +9105,18 @@ function AppInner(): JSX.Element {
                         )}
                       </div>
                     )}
-                    {/* トランジション枠（クリップより前面・クリックで選択可）。範囲が一目で分かる。 */}
-                    {tr.id === 'V1' &&
-                      videoSrc &&
-                      segLayout.flatMap((L) => {
-                        const boxes: React.ReactNode[] = []
-                        // 削除(映像なし)切片は V1 に何も描かないのでトランジション帯も出さない
-                        if (L.seg.videoBlank) return boxes
-                        // 頭ディップ（明転/白）: [tStart, tStart+dur]。
-                        // 直前の境界に有効な xfade があるときは頭ディップは出さない
-                        // （書き出し・プレビューが xfade 優先で頭ディップを抑制するのと表示を一致させる）。
-                        if (L.seg.transIn && (L.index === 0 || xfadeDurAt(segLayout, L.index - 1) <= 0)) {
-                          const d = Math.min(L.seg.transIn.dur, L.len)
-                          const sel =
-                            selectedTrans?.segId === L.seg.id && selectedTrans.kind === 'in'
-                          boxes.push(
-                            <div
-                              key={`in-${L.seg.id}`}
-                              className={`ttrans ${bandClass(L.seg.transIn.type)} ${sel ? 'ttrans-sel' : ''}`}
-                              style={{ left: L.tStart * zoom, width: Math.max(d * zoom, 8) }}
-                              title={`頭 ${transLabel(L.seg.transIn.type)} ${d.toFixed(2)}s（クリックで選択・Deleteで削除）`}
-                              onPointerDown={(e) => {
-                                e.stopPropagation()
-                                if (e.button === 0) selectTransition(L.seg.id, 'in')
-                              }}
-                            >
-                              <span className="ttrans-lb">
-                                {transIco(L.seg.transIn.type)} {d.toFixed(1)}s
-                              </span>
-                              <div
-                                className="ttrans-resize ttrans-resize-r"
-                                title="ドラッグで長さ変更"
-                                onPointerDown={(e) => {
-                                  selectTransition(L.seg.id, 'in')
-                                  startTransResize(e, L.seg.transIn!.dur, 1, (nd) =>
-                                    setVideoTransDur(L.seg.id, 'in', nd), L.len)
-                                }}
-                              />
-                            </div>
-                          )
-                        }
-                        // 尻ディップ（暗転/白）: [tEnd-dur, tEnd]。ただしその境界に xfade があるなら xfade を優先表示。
-                        if (L.seg.transOut && xfadeDurAt(segLayout, L.index) <= 0) {
-                          const d = Math.min(L.seg.transOut.dur, L.len)
-                          const sel =
-                            selectedTrans?.segId === L.seg.id && selectedTrans.kind === 'out'
-                          boxes.push(
-                            <div
-                              key={`out-${L.seg.id}`}
-                              className={`ttrans ${bandClass(L.seg.transOut.type)} ${sel ? 'ttrans-sel' : ''}`}
-                              style={{ left: (L.tEnd - d) * zoom, width: Math.max(d * zoom, 8) }}
-                              title={`尻 ${transLabel(L.seg.transOut.type)} ${d.toFixed(2)}s（クリックで選択・Deleteで削除）`}
-                              onPointerDown={(e) => {
-                                e.stopPropagation()
-                                if (e.button === 0) selectTransition(L.seg.id, 'out')
-                              }}
-                            >
-                              <span className="ttrans-lb">
-                                {transIco(L.seg.transOut.type)} {d.toFixed(1)}s
-                              </span>
-                              <div
-                                className="ttrans-resize ttrans-resize-l"
-                                title="ドラッグで長さ変更"
-                                onPointerDown={(e) => {
-                                  selectTransition(L.seg.id, 'out')
-                                  startTransResize(e, L.seg.transOut!.dur, -1, (nd) =>
-                                    setVideoTransDur(L.seg.id, 'out', nd), L.len)
-                                }}
-                              />
-                            </div>
-                          )
-                        }
-                        // カット間クロスディゾルブ。
-                        //
-                        // **帯は「実際に効いている区間」に描く＝[cut-d, cut)。**
-                        // 以前はカットを中心に [cut-d/2, cut+d/2] で描いていたが、
-                        // プレビューも書き出しも**カットの手前 d 秒**で掛かる作りなので、
-                        // 帯だけが半分ずれていた。
-                        // 「貼ってある所より早く動く」と言われたのはこれ
-                        // （効果が早いのではなく、帯が半分後ろに描かれていた）。
-                        //
-                        // ※ プレミアのように「カットをまたいで真ん中」に掛けるには、
-                        //   左のクリップが尻より先のコマを持っている必要がある（のりしろ）。
-                        //   そこまで変えるなら書き出し側の offset も一緒に直すこと。
-                        const xd = xfadeDurAt(segLayout, L.index)
-                        if (xd > 0) {
-                          const cut = L.tEnd
-                          const sel =
-                            selectedTrans?.segId === L.seg.id && selectedTrans.kind === 'xfade'
-                          boxes.push(
-                            <div
-                              key={`xf-${L.seg.id}`}
-                              className={`ttrans ${bandClass(L.seg.xfade?.type ?? 'fade')} ${sel ? 'ttrans-sel' : ''}`}
-                              style={{ left: (cut - xd) * zoom, width: Math.max(xd * zoom, 12) }}
-                              title={`${transLabel(L.seg.xfade?.type)} ${xd.toFixed(2)}s（カットの手前で掛かります・クリックで選択・Deleteで削除）`}
-                              onPointerDown={(e) => {
-                                e.stopPropagation()
-                                if (e.button === 0) selectTransition(L.seg.id, 'xfade')
-                              }}
-                            >
-                              <span className="ttrans-lb">
-                                {transIco(L.seg.xfade?.type)} {xd.toFixed(1)}s
-                              </span>
-                              <div
-                                className="ttrans-resize ttrans-resize-r"
-                                title="ドラッグで長さ変更"
-                                onPointerDown={(e) => {
-                                  selectTransition(L.seg.id, 'xfade')
-                                  startTransResize(
-                                    e,
-                                    xd,
-                                    2,
-                                    (nd) => setVideoTransDur(L.seg.id, 'xfade', nd),
-                                    Math.min(L.len, segLayout[L.index + 1]?.len ?? L.len)
-                                  )
-                                }}
-                              />
-                            </div>
-                          )
-                        }
-                        return boxes
-                      })}
+                    {/* トランジションの帯は components/timeline/TransitionBands.tsx。
+                        帯は「実際に効いている区間」に描く（カットの手前 d 秒） */}
+                    {tr.id === 'V1' && videoSrc && (
+                      <TransitionBands
+                        segLayout={segLayout}
+                        zoom={zoom}
+                        selectedTrans={selectedTrans}
+                        onSelect={selectTransition}
+                        onResizeStart={startTransResize}
+                        onSetDur={setVideoTransDur}
+                      />
+                    )}
                     {/* 動画トランジションD&Dの配置プレビュー帯（マグネットで前/間/後ろにスナップ） */}
                     {tr.id === 'V1' &&
                       transDrop &&
