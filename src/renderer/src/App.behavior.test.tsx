@@ -337,12 +337,15 @@ describe('未保存の「＊」と自動保存', () => {
     // 「＊」は 0.8 秒ごとの総当たりをやめ、中身が変わったときだけ見直すように
     // した。依存配列は手で書くので、projectJson に項目を足して依存を足し忘れると
     // 「＊」が出なくなる。人が気づけないので、ここで機械に見張らせる。
-    // **見る先は2つ。** 保存する中身は state/useProjectFile へ、
-    // 「＊」の見直しは App.tsx に残っている。片方だけ読むと、
+    // **見る先は3つ。** 保存する中身は state/useProjectFile へ、
+    // 画面の配置（layoutNow）は state/useAppLayout へ移してあり、
+    // 「＊」の見直しは App.tsx に残っている。1つでも読み落とすと、
     // 移した瞬間に「見つからない」で落ちる（実際そうなった）。
+    // **切り出したら、ここへ読む先を足すこと。**
     const app = await import('./App?raw').then((m) => m.default as string)
     const proj = await import('./state/useProjectFile?raw').then((m) => m.default as string)
-    const src = app + String.fromCharCode(10) + proj
+    const lay = await import('./state/useAppLayout?raw').then((m) => m.default as string)
+    const src = [app, proj, lay].join(String.fromCharCode(10))
     const fields = savedFields(src)
     const deps = dirtyDeps(app)
 
