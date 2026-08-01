@@ -165,6 +165,9 @@ import { useShortcutPrefs } from './state/useShortcutPrefs'
 import { useSeAudio } from './state/useSeAudio'
 import { useVideoEls } from './state/useVideoEls'
 import { useVClipEls } from './state/useVClipEls'
+import { useMediaMeta } from './state/useMediaMeta'
+import { useProxy } from './state/useProxy'
+import type { MediaItem } from './components/panels/ProjectBinTab'
 import { useViewNav } from './state/useViewNav'
 import { useTransitions } from './state/useTransitions'
 import { useMotion } from './state/useMotion'
@@ -643,29 +646,8 @@ function AppInner(): JSX.Element {
     sourcesRef.current = sources
   }, [sources])
 
-  // ---- メディアライブラリ（プロジェクトに追加した動画/SE/画像）----
-  interface MediaItem {
-    id: number
-    path: string
-    name: string
-    kind: 'video' | 'audio' | 'image'
-    folder?: string
-    thumb?: string // サムネイル(gcfile url)
-  }
-  // 取り込み済み素材の「尺」と「音声波形」をパスごとに先に用意しておく。
-  // ドラッグ中のゴーストに波形をそのまま出せるようにするため（保存対象ではないキャッシュ）。
-  const [mediaMeta, setMediaMeta] = useState<
-    Record<string, { dur?: number; wave?: { min: number[]; max: number[]; dur: number } }>
-  >({})
-  const mediaMetaRef = useRef<typeof mediaMeta>({})
-  useEffect(() => {
-    mediaMetaRef.current = mediaMeta
-  }, [mediaMeta])
-  // 解析中のパス（同じファイルの波形解析を二重・三重に走らせないため）。
-  // mediaMetaRef は effect 経由で遅れて更新されるので、同一tick内の重複はこれで防ぐ。
-  const metaInFlightRef = useRef<Set<string>>(new Set())
-  // サムネを作った（作りかけの）ファイル。同じものを何度も作らないため。
-  const thumbDoneRef = useRef<Set<string>>(new Set())
+  // 素材の下ごしらえ（尺・波形の控え、二重解析よけ）は state/useMediaMeta
+  const { mediaMeta, setMediaMeta, mediaMetaRef, metaInFlightRef, thumbDoneRef } = useMediaMeta()
   const draggingMediaRef = useRef<MediaItem | null>(null)
   const dragSeDurRef = useRef(2) // ドラッグ中SEの尺（ゴースト幅用。dragStartでgetDurationして更新）
   // タイムラインへSE配置中の半透明ゴースト（プレミア風に配置位置を可視化）
@@ -838,90 +820,9 @@ function AppInner(): JSX.Element {
     addSeFolder, deleteSeFolder, addIconFolder, deleteIconFolder,
     orgMenu, setOrgMenu, allCats, catOf, addCustomCat, deleteCustomCat
   } = useLibraries({ askText })
-  // ---- プレビュー解像度（アプリ設定。プロジェクトではなくPCごとの好みなので localStorage）----
-  // 1080 / 720 / 360 のどれかで、**どれも焼き直した映像**で再生する。
-  // 書き出しは常に原本のフル画質なので、ここを下げても完成品の画質は落ちない。
-  // ※useState の初期化関数は即時実行されるため、loadLS の定義より後に置く必要がある。
-  // 既定は 1080（見た目は原本とほぼ同じで、カットでも引っかからない）。
-  const [previewRes, setPreviewRes] = useState<PreviewRes>(() => {
-    const v = loadLS<unknown>('giftcut.previewRes', 1080)
-    // 前の版の 'orig'（原本）/'full'（原寸・軽い）は、どちらも 1080 にあたる。
-    // **黙って 360 に落とさない**（次に開いたら低画質だった、が一番困る）
-    if (v === 720 || v === '720') return 720
-    if (v === 360 || v === '360') return 360
-    return 1080
-  })
-  const previewResRef = useRef<PreviewRes>(previewRes)
-  /** 直前に反映した画質。**自分で変えたのか、焼き上がりが届いただけなのか**を分ける */
-  const lastPreviewResRef = useRef<PreviewRes>(previewRes)
-  useEffect(() => {
-    previewResRef.current = previewRes
-    saveLS('giftcut.previewRes', previewRes)
-  }, [previewRes])
-  // 作成済みプロキシ（原本パス → gcfile URL と解像度）。映像レイヤー(VClip)も同じ映像を使うため、
-  // ソース単位ではなくパス単位で持つ（1本の動画に対してプロキシは1つ）。
-  const [proxyMap, setProxyMap] = useState<Record<string, { url: string; res: number }>>({})
-  const proxyReqRef = useRef<Set<string>>(new Set()) // 変換中のもの。同じ変換を二重に走らせない
-  const proxyFailRef = useRef<Set<string>>(new Set()) // 変換に失敗したもの。無限に作り直さない
-  const [proxyTick, setProxyTick] = useState(0) // 1本終わるたびに次を取りに行くための合図
-  // プレビューに使う映像URL。焼き直した物ができていればそれ、まだなら原本。
-  // **作っている間も原本で見えている**（真っ暗になるより、重くても映るほうがよい）。
-  // 解像度切替の変換中も「前の解像度の物」を映したまま（原本へ戻すと二重リロードになる）。
-  /**
-   * いま <video> に入れる URL。焼き上がっていればそれ、無ければ原本。
-   *
-   * **流している最中は差し替えない。**
-   * src を書き換えると要素が読み込み直しになり、そこで**音が切れる**。
-   * 焼き直しは再生中にも終わるので、何もしないと「流していたら急にプツッと鳴る」。
-   * 実測（npm run stutter --fresh）で、抜けはいつも変換の完了時に出ていた。
-   *
-   * 止めた瞬間に入れ替わる。見ている間は原本のままだが、画質が少し眠いだけで、
-   * 音が切れるより遥かにまし。**自分で画質を変えたときは、その場で入れ替える**
-   * （待たされると「効いていない」と見えるため）。
-   */
-  const shownSrcRef = useRef<Map<string, string>>(new Map())
-  const srcResRef = useRef<PreviewRes>(previewRes)
-  const previewUrl = (path: string, orig: string): string => {
-    const want = proxyMap[path]?.url ?? orig
-    const shown = shownSrcRef.current.get(path)
-    // 画質を自分で変えた回は、流していても入れ替える
-    const byHand = srcResRef.current !== previewRes
-    if (playRateRef.current !== 0 && !byHand && shown && shown !== want) return shown
-    shownSrcRef.current.set(path, want)
-    srcResRef.current = previewRes
-    return want
-  }
-  // 焼き直した映像を用意する唯一の入口。ソース／映像レイヤーが増えたときや
-  // 解像度を変えたときに走り、足りないものだけ変換する。
-  // 同時変換は2本まで（映像レイヤーが多いプロジェクトで ffmpeg が一斉に立ち上がるのを防ぐ）。
-  useEffect(() => {
-    const res: number = previewRes
-    const paths = new Set<string>()
-    for (const s of sources) if (s.path) paths.add(s.path)
-    for (const c of vClips) if (c.path) paths.add(c.path)
-    paths.forEach((p) => {
-      if (proxyReqRef.current.size >= 2) return // 空きが出たら次の合図で続きを取る
-      if (proxyMap[p]?.res === res) return
-      const k = res + '|' + p
-      if (proxyReqRef.current.has(k) || proxyFailRef.current.has(k)) return
-      proxyReqRef.current.add(k)
-      // 「プレビュー最適化中」の表示は主素材ぶんだけ（進捗イベントも主素材で絞っている）
-      if (p === proxyForPathRef.current) setProxyPct(0)
-      void window.giftcut.generateProxy(p, res).then((r) => {
-        // 終わったら必ず外す。残したままだと解像度を素早く往復させたときに
-        // 「変換中だから作らない」と判定され、選んだ解像度に戻れなくなる。
-        proxyReqRef.current.delete(k)
-        const rp = r?.ok ? r.path : undefined
-        if (rp) setProxyMap((m) => ({ ...m, [p]: { url: toGcUrl(rp), res } }))
-        else {
-          proxyFailRef.current.add(k)
-          if (r?.error) console.warn('プロキシ生成失敗:', r.error) // 失敗時は原本のまま再生
-        }
-        if (p === proxyForPathRef.current) setProxyPct(null)
-        setProxyTick((t) => t + 1)
-      })
-    })
-  }, [previewRes, sources, vClips, proxyMap, proxyTick])
+  // プレビューの画質と、焼き直した映像（プロキシ）は state/useProxy
+  const { previewRes, setPreviewRes, previewResRef, lastPreviewResRef, proxyMap, previewUrl } =
+    useProxy({ loadLS, saveLS, playRateRef, sources, vClips, proxyForPathRef, setProxyPct })
   // テロップカード右クリック→フォルダ移動メニュー
   const [tplMenu, setTplMenu] = useState<{ x: number; y: number; name: string; curCat: string } | null>(
     null
