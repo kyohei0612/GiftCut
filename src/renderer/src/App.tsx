@@ -200,6 +200,13 @@ import {
 import { ImageLayers, TelopLayer, VideoLayers } from './components/panels/PreviewLayers'
 import { TransitionBands } from './components/timeline/TransitionBands'
 import {
+  ImageGhost,
+  SeGhost,
+  TransDropGhost,
+  VideoAudioGhost,
+  VideoGhost
+} from './components/timeline/DropGhosts'
+import {
   ACTION_LIST,
   DEFAULT_SHORTCUTS,
   SC_KEY,
@@ -8931,17 +8938,8 @@ function AppInner(): JSX.Element {
                             />
                           </ClipBand>
                         ))}
-                    {/* 画像配置ゴースト */}
                     {imgGhost && imgGhost.track === tr.id && (
-                      <div
-                        className="clip img-clip se-ghost"
-                        style={{
-                          left: imgGhost.t * zoom,
-                          width: Math.max(imgGhost.dur * zoom - 1, 12)
-                        }}
-                      >
-                        <span className="clip-text">🖼 {imgGhost.name}</span>
-                      </div>
+                      <ImageGhost ghost={imgGhost} zoom={zoom} />
                     )}
                     {/* テロップアニメD&Dの配置プレビュー帯（トラック行に描画＝間は2テロップに跨って表示） */}
                     {tr.kind === 'video' &&
@@ -9051,59 +9049,13 @@ function AppInner(): JSX.Element {
                         </ClipBand>
                         )
                       )}
-                    {/* 動画ドロップの配置ゴースト（V1）: 上書き=青 / Ctrl挿入=緑。
-                        音声(A1)にも同じ位置・同じ長さでゴーストを出して「映像と音はセット」を示す。 */}
+                    {/* 映像と音はセットなので、対の音声段にも同じ位置・長さで出す */}
                     {tr.id === videoGhost?.track && videoGhost && (
-                      <div
-                        className={`clip video-clip se-ghost ${videoGhost.track === 'V1' && videoGhost.insert ? 'ghost-insert' : ''}`}
-                        style={{
-                          left: videoGhost.t * zoom,
-                          width: Math.max(videoGhost.dur * zoom - 1, 12)
-                        }}
-                      >
-                        <span className="clip-text">
-                          🎬 {videoGhost.name}
-                          {videoGhost.moving
-                            ? videoGhost.mode === 'copy'
-                              ? '（複製）'
-                              : videoGhost.mode === 'insert'
-                                ? '（割り込み）'
-                                : '（移動）'
-                            : videoGhost.track !== 'V1'
-                              ? '（重ねる）'
-                              : videoGhost.insert
-                                ? '（挿入）'
-                                : '（上書き）'}
-                        </span>
-                      </div>
+                      <VideoGhost ghost={videoGhost} zoom={zoom} />
                     )}
                     {videoGhost && tr.id === 'A' + trackNum(videoGhost.track) && (
-                      <div
-                        className={`clip audio-clip se-ghost ${videoGhost.track === 'V1' && videoGhost.insert ? 'ghost-insert' : ''}`}
-                        style={{
-                          left: videoGhost.t * zoom,
-                          width: Math.max(videoGhost.dur * zoom - 1, 12)
-                        }}
-                      >
-                        {/* 取り込み時に用意した波形をそのまま出す（掴んでいる間から中身が見える） */}
-                        {mediaMeta[videoGhost.path]?.wave ? (
-                          <WaveformCanvas
-                            min={mediaMeta[videoGhost.path]!.wave!.min}
-                            max={mediaMeta[videoGhost.path]!.wave!.max}
-                            srcStart={0}
-                            srcEnd={videoGhost.dur}
-                            audioDuration={
-                              mediaMeta[videoGhost.path]!.wave!.dur ||
-                              mediaMeta[videoGhost.path]?.dur ||
-                              videoGhost.dur
-                            }
-                            width={Math.max(videoGhost.dur * zoom - 1, 12)}
-                            height={trackHOf('audio') - 6}
-                          />
-                        ) : (
-                          <span className="clip-text audio-loading">🔊 音声（解析中…）</span>
-                        )}
-                      </div>
+                      <VideoAudioGhost ghost={videoGhost} zoom={zoom}
+                        meta={mediaMeta[videoGhost.path]} trackH={trackHOf('audio')} />
                     )}
                     {/* トランジションの帯は components/timeline/TransitionBands.tsx。
                         帯は「実際に効いている区間」に描く（カットの手前 d 秒） */}
@@ -9117,21 +9069,9 @@ function AppInner(): JSX.Element {
                         onSetDur={setVideoTransDur}
                       />
                     )}
-                    {/* 動画トランジションD&Dの配置プレビュー帯（マグネットで前/間/後ろにスナップ） */}
-                    {tr.id === 'V1' &&
-                      transDrop &&
-                      (() => {
-                        const L = segLayout.find((l) => l.seg.id === transDrop.segId)
-                        if (!L) return null
-                        return (
-                          <div
-                            className={`ttrans ttrans-ghost ttrans-ghost-${transDrop.kind}`}
-                            style={{ left: L.tStart * zoom + transDrop.left, width: transDrop.width }}
-                          >
-                            <span className="ttrans-lb">{transDrop.label}</span>
-                          </div>
-                        )
-                      })()}
+                    {tr.id === 'V1' && transDrop && (
+                      <TransDropGhost drop={transDrop} segLayout={segLayout} zoom={zoom} />
+                    )}
                     {tr.id === 'A1' &&
                       videoSrc &&
                       segLayout.filter((L) => inView(L.tStart, L.tEnd)).map((L) => {
@@ -9223,33 +9163,11 @@ function AppInner(): JSX.Element {
                         </ClipBand>
                       )
                     )}
-                    {/* SE/BGM配置ゴースト（ドラッグ中の半透明プレビュー・対象トラックに表示）*/}
+                    {/* 掴んで運んでいる最中の置き場所プレビューは
+                        components/timeline/DropGhosts.tsx */}
                     {seGhost && seGhost.track === tr.id && (
-                      <div
-                        className="clip se-clip se-ghost"
-                        style={{
-                          left: seGhost.t * zoom,
-                          width: Math.max(seGhost.dur * zoom - 1, 12)
-                        }}
-                      >
-                        {mediaMeta[seGhost.path]?.wave ? (
-                          <WaveformCanvas
-                            min={mediaMeta[seGhost.path]!.wave!.min}
-                            max={mediaMeta[seGhost.path]!.wave!.max}
-                            srcStart={0}
-                            srcEnd={seGhost.dur}
-                            audioDuration={
-                              mediaMeta[seGhost.path]!.wave!.dur ||
-                              mediaMeta[seGhost.path]?.dur ||
-                              seGhost.dur
-                            }
-                            width={Math.max(seGhost.dur * zoom - 1, 12)}
-                            height={trackHOf('audio') - 6}
-                          />
-                        ) : (
-                          <span className="clip-text">🔊 {seGhost.name}</span>
-                        )}
-                      </div>
+                      <SeGhost ghost={seGhost} zoom={zoom} meta={mediaMeta[seGhost.path]}
+                        trackH={trackHOf('audio')} />
                     )}
                   </div>
                 ))}
