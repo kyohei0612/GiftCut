@@ -168,6 +168,7 @@ import { useProxy } from './state/useProxy'
 import { useSilenceDuck } from './state/useSilenceDuck'
 import { useCurrentLook } from './state/useCurrentLook'
 import { useWindowDrop } from './state/useWindowDrop'
+import { useAutosaveMark } from './state/useAutosaveMark'
 import type { MediaItem } from './components/panels/ProjectBinTab'
 import { useViewNav } from './state/useViewNav'
 import { useTransitions } from './state/useTransitions'
@@ -1439,133 +1440,18 @@ function AppInner(): JSX.Element {
   /* eslint-disable @typescript-eslint/no-explicit-any */
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  // ---- 自動保存 / クラッシュ復帰 ----
-  const lastAutosaveRef = useRef('') // 前回自動保存した内容（変化時だけ書き込む）
-  // 最後に「保存済み」となった内容。×ボタンの未保存確認はこれと現在の内容を比べる
-  // （isDirty() は履歴デバウンス基準で450ms後に false へ戻るため、閉じる判定には使えない）。
-  const savedJsonRef = useRef<string | null>(null)
-  // 形は components/dialogs/ProjectDialogs.tsx の RestoreState 側に置いてある
-  const [restorePrompt, setRestorePrompt] = useState<RestoreState | null>(null)
-  // ★依存配列を空にしてタイマーを一度だけ作る（毎レンダー再生成だと再生/編集中に一度も発火しないバグ）。
-  //   最新state参照は ref 経由（projectJson/hasProjectContent は毎レンダー再代入）。
-  // **中身を作る側（useProjectFile）より先に器を作る。**
-  // 器を後から作ると、器を欲しがる側と作る側が互いを待つ形になる
-  const projectJsonRef = useRef<(p?: string | null) => string>(() => '')
-  const hasContentRef = useRef(hasProjectContent)
-  hasContentRef.current = hasProjectContent
-
-  // プロジェクト全体を文字列にするのは重い（クリップ・テロップが増えるほど）。
-  // 「保存済みと同じか」と「自動保存に書くか」は同じ文字列を使うので、
-  // 1レンダーにつき1回だけ作って使い回す。
-  //
-  // 使い回してよい根拠: プロジェクトの中身はすべて React の state なので、
-  // 変われば必ず描き直され、projectJson の関数そのものが作り直される。
-  // ＝関数が同じなら中身も同じ。
-  const jsonCacheRef = useRef<{ fn: typeof projectJson; json: string } | null>(null)
-  const currentJson = (): string => {
-    const fn = projectJsonRef.current
-    const hit = jsonCacheRef.current
-    if (hit && hit.fn === fn) return hit.json
-    const json = fn()
-    jsonCacheRef.current = { fn, json }
-    return json
-  }
-  const currentJsonRef = useRef(currentJson)
-  currentJsonRef.current = currentJson
-
-  // 未保存かどうかをメインプロセスへ通知（×ボタンで閉じるときの確認ダイアログに使う）。
-  // ついでに画面のタイトルに出す「＊」もここで決める。
-  //
-  // 以前タイトルは isDirty()（Undo履歴の基準との比較）を見ていたが、あれは
-  // 編集の450ms後に false へ戻るので、未保存でも「＊」が消えていた。
-  // ＝「＊が無い＝保存済み」と思って閉じると編集が飛ぶ。保存済みの内容と
-  // 今の内容を直接比べたこの判定を、閉じる確認とタイトルで共通に使う。
-  //
-  // nowJson: 保存直後など「今の内容」が手元にあるときに渡す。渡さないと
-  // まだ描き直される前の古い内容と比べてしまい、「＊」が一瞬ちらつく。
-  const lastDirtySentRef = useRef<boolean | null>(null)
-  const markUnsaved = (nowJson?: string): void => {
-    try {
-      const cur = nowJson ?? currentJsonRef.current()
-      const dirty = hasContentRef.current() ? savedJsonRef.current !== cur : false
-      setUnsaved(dirty)
-      // 同じ値を送り続けない（以前は0.8秒ごとに毎回IPCを投げていた）
-      if (dirty !== lastDirtySentRef.current) {
-        lastDirtySentRef.current = dirty
-        window.giftcut?.setDirty?.(dirty)
-      }
-    } catch {
-      /* noop */
-    }
-  }
-  const markUnsavedRef = useRef(markUnsaved)
-  markUnsavedRef.current = markUnsaved
-
-  // 「＊」の付け外しは、以前は0.8秒ごとに総当たりで見ていた。
-  // それだと何も編集していない間も、再生しているだけの間も、ずっと
-  // プロジェクト全体を文字列にし続けることになる（長い素材ほど効く）。
-  //
-  // なので中身が変わったときだけ見直す。編集が止まってから 300ms 後に1回。
-  // 依存配列は projectJson が読んでいる値ぜんぶ。片方だけ足すと「＊」が
-  // 出ないので、projectJson を触ったらここも触ること。
-  //
-  // 万一ここに書き漏らしても、閉じるときの確認は hasUnsavedChanges() が
-  // その場で比べ直すので、編集が黙って消えることはない（「＊」が遅れるだけ）。
-  const projectRevRef = useRef(0)
-  useEffect(() => {
-    projectRevRef.current += 1
-    const id = window.setTimeout(() => markUnsavedRef.current(), 300)
-    return () => window.clearTimeout(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    videoPath,
-    missingMedia,
-    srtPath,
-    sources,
-    ratio,
-    tracks,
-    cues,
-    segments,
-    seClips,
-    markers,
-    imgClips,
-    vClips,
-    trackStates,
-    mediaItems,
-    iconSide,
-    iconOffset,
-    iconScale,
-    iconAuto,
-    iconAnchorPos,
-    iconAssign,
-    laneIconAssign,
-    exportOpts,
-    loudnormLUFS,
-    masterVolume,
-    transDur,
-    newTelopStyle,
-    // 画面の配置も保存の中身なので、変わったら「＊」が出る
-    popped,
-    paneGeom,
-    leftW,
-    rightW,
-    timelineH,
-    videoTrackH,
-    audioTrackH,
-    tabOrder,
-    rightTab,
-    monitorTab,
-    projectPath
-  ])
-
-  // 自動保存（クラッシュしたときの下書き）。2分ごと。
-  // 中身が変わっていなければ文字列にすらしない＝待機中・再生中はゼロ。
-  // 間隔を縮めたければ AUTOSAVE_MS だけ変えればよい。落ちたときに失うのは
-  // 最大でこの間隔ぶん（普通に閉じた場合は下の beforeunload で取りこぼさない）。
-  const autosavedRevRef = useRef(-1)
-  // 実際に書くのは state/useProjectIO の writeAutosave（書けなかったときの扱いも中にある）
-  const autosaveNgRef = useRef(false)
-  const [autosaveNg, setAutosaveNg] = useState(false)
+  // 未保存の「＊」と、下書きの土台は state/useAutosaveMark
+  // （何と比べて決めるか・なぜ変わったときだけ見直すかも中にある）
+  const {
+    lastAutosaveRef, hasContentRef, savedJsonRef, restorePrompt, setRestorePrompt, projectJsonRef,
+    currentJson, currentJsonRef, markUnsaved, markUnsavedRef, projectRevRef,
+    autosavedRevRef, autosaveNgRef, autosaveNg, setAutosaveNg
+  } = useAutosaveMark({
+    hasProjectContent,
+    setUnsaved,
+    // 画面の配置は心臓ではなくフックが持っているので、ここから渡す
+    layout: [popped, paneGeom, leftW, rightW, timelineH, videoTrackH, audioTrackH, tabOrder, rightTab, monitorTab]
+  })
 
 
 

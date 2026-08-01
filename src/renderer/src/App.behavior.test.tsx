@@ -324,30 +324,43 @@ describe('未保存の「＊」と自動保存', () => {
     return [...body.matchAll(/^ {8}(\w+)\s*[:,]/gm)].map((m) => m[1])
   }
 
-  /** 「＊」を見直す useEffect の依存配列を取り出す */
-  function dirtyDeps(src: string): string[] {
-    const anchor = src.indexOf('const projectRevRef = useRef(0)')
+  /**
+   * 「＊」を見直す対象の一覧。
+   *
+   * **2か所の合わせ技になっている。** 中身（テロップ・クリップ等）は心臓から
+   * 直に読めるので state/useAutosaveMark の依存配列にそのまま並ぶ。
+   * 画面の配置だけはフックが持っていて心臓に無いので、App から `layout: [...]`
+   * として渡している。**どちらか片方しか見ないと、見張りに穴があく。**
+   */
+  function dirtyDeps(mark: string, app: string): string[] {
+    const anchor = mark.indexOf('const projectRevRef = useRef(0)')
     expect(anchor, '未保存判定の useEffect が見つからない').toBeGreaterThan(-1)
-    const open = src.indexOf('}, [', anchor)
-    const list = src.slice(open + 4, src.indexOf('])', open))
-    return [...list.matchAll(/\b([a-zA-Z_]\w*)\b/g)].map((m) => m[1])
+    const open = mark.indexOf('}, [', anchor)
+    const list = mark.slice(open + 4, mark.indexOf('])', open))
+    const fromHook = [...list.matchAll(/\b([a-zA-Z_]\w*)\b/g)].map((m) => m[1])
+    const lay = app.indexOf('layout: [')
+    expect(lay, 'App から渡す layout の一覧が見つからない').toBeGreaterThan(-1)
+    const layList = app.slice(lay + 9, app.indexOf(']', lay))
+    const fromApp = [...layList.matchAll(/\b([a-zA-Z_]\w*)\b/g)].map((m) => m[1])
+    return [...fromHook, ...fromApp]
   }
 
   it('保存する項目はすべて「＊」の見直し対象に入っている', async () => {
     // 「＊」は 0.8 秒ごとの総当たりをやめ、中身が変わったときだけ見直すように
     // した。依存配列は手で書くので、projectJson に項目を足して依存を足し忘れると
     // 「＊」が出なくなる。人が気づけないので、ここで機械に見張らせる。
-    // **見る先は3つ。** 保存する中身は state/useProjectFile へ、
-    // 画面の配置（layoutNow）は state/useAppLayout へ移してあり、
-    // 「＊」の見直しは App.tsx に残っている。1つでも読み落とすと、
+    // **見る先は4つ。** 保存する中身は state/useProjectFile へ、
+    // 画面の配置（layoutNow）は state/useAppLayout へ、
+    // 「＊」の見直しは state/useAutosaveMark へ移してある。1つでも読み落とすと、
     // 移した瞬間に「見つからない」で落ちる（実際そうなった）。
     // **切り出したら、ここへ読む先を足すこと。**
     const app = await import('./App?raw').then((m) => m.default as string)
     const proj = await import('./state/useProjectFile?raw').then((m) => m.default as string)
     const lay = await import('./state/useAppLayout?raw').then((m) => m.default as string)
-    const src = [app, proj, lay].join(String.fromCharCode(10))
+    const mark = await import('./state/useAutosaveMark?raw').then((m) => m.default as string)
+    const src = [app, proj, lay, mark].join(String.fromCharCode(10))
     const fields = savedFields(src)
-    const deps = dirtyDeps(app)
+    const deps = dirtyDeps(mark, app)
 
     expect(fields.length, '保存項目を1つも読み取れていない（書式が変わった？）').toBeGreaterThan(20)
     expect(deps.length, '依存配列を読み取れていない（書式が変わった？）').toBeGreaterThan(20)
