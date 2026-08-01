@@ -197,6 +197,7 @@ import {
   ScreenEmpty,
   TelopEditor
 } from './components/panels/PreviewOverlays'
+import { ImageLayers, TelopLayer, VideoLayers } from './components/panels/PreviewLayers'
 import {
   ACTION_LIST,
   DEFAULT_SHORTCUTS,
@@ -7984,119 +7985,39 @@ function AppInner(): JSX.Element {
                     style={{ background: xfDipOverlay.color, opacity: xfDipOverlay.opacity }}
                   />
                 )}
-                {/* 映像レイヤー（V2以降の動画）。本編映像の上・テロップの下に重ねる。
-                    変形/不透明度/色調整/クロップは動画切片と同じモデル。音声もこの要素から鳴る。 */}
-                {windowVClips.map((c) => {
-                  // 窓には入っているが区間外のクリップは、要素を残したまま非表示にする
-                  const local = currentTime - c.tStart
-                  const inRange = local >= 0 && local < vcLen(c)
-                  return (
-                    <video
-                      key={`vcv-${c.id}`}
-                      ref={vcRefCb(c.id)}
-                      className="screen-vclip"
-                      // 本編映像と同じプレビュー解像度方針に従う（原本指定なら原本）
-                      src={previewUrl(c.path, toGcUrl(c.path))}
-                      preload="auto"
-                      playsInline
-                      style={{
-                        transform: vcXform(c, local),
-                        filter: adjustCss(c.adjust),
-                        clipPath: cropInset(c.crop),
-                        // 👁非表示は「映像だけ消す」（音は鳴り続ける＝V1のvideoBlankと同じ扱い）
-                        opacity: !inRange || trackStates[c.track]?.hidden ? 0 : (c.opacity ?? 1),
-                        // 区間外・非表示のものはクリックを拾わない（見えていないものを掴まない）
-                        pointerEvents:
-                          inRange && !trackStates[c.track]?.hidden ? undefined : 'none'
-                      }}
-                      title={`${c.name}（ドラッグで移動・四隅で拡大）`}
-                      onPointerDown={(e) => selectPreviewOverlay(e, { kind: 'vclip', clip: c })}
-                    />
-                  )
-                })}
-                {/* 画像クリップ（テロップより下・映像より上）。トラックの👁非表示を尊重。
-                    変形（ズーム/回転/反転）・色調整・クロップ・不透明度は動画切片と同じモデル。 */}
-                {imgClips
-                  .filter(
-                    (c) =>
-                      currentTime >= c.tStart &&
-                      currentTime < c.tStart + c.duration &&
-                      !trackStates[c.track]?.hidden
-                  )
-                  // 上のトラック(V3)が前面に来るよう、トラック順（配列の後ろほど下段）で並べ替える
-                  .slice()
-                  .sort(
-                    (a, b) =>
-                      tracks.findIndex((t) => t.id === b.track) -
-                      tracks.findIndex((t) => t.id === a.track)
-                  )
-                  .map((c) => (
-                    <img
-                      key={`simg-${c.id}`}
-                      className="screen-img"
-                      src={toGcUrl(c.path)}
-                      alt=""
-                      title={`${c.name}（ドラッグで移動・四隅で拡大）`}
-                      style={{
-                        transform: imgXform(c, currentTime - c.tStart),
-                        filter: adjustCss(c.adjust),
-                        clipPath: cropInset(c.crop),
-                        opacity: c.opacity ?? 1
-                      }}
-                      // プレビュー上で画像を直接掴めるようにする。以前はここが
-                      // pointer-events: none だったため、画面に出ている画像を押しても
-                      // クリックが下の動画へ抜けて「動画のパンが始まる」だけだった。
-                      onPointerDown={(e) => selectPreviewOverlay(e, { kind: 'img', clip: c })}
-                    />
-                  ))}
-                <div className="telop-overlay">
-                  {activeCues
-                    .filter((c) => !trackStates[cueTrack(c)]?.hidden) // 行の👁非表示を尊重
-                    .map((c) => (
-                      <TelopText
-                        key={c.id}
-                        text={c.text}
-                        style={c.style}
-                        runs={c.runs}
-                        iconImage={iconForCue(c)}
-                        ringColor={c.label}
-                        iconScale={iconScale}
-                        iconAuto={iconAuto}
-                        iconSide={iconSide}
-                        iconOffsetX={iconOffset.x}
-                        iconOffsetY={iconOffset.y}
-                        pos={c.pos}
-                        scale={c.scale}
-                        // 取り込んだ切り抜きは**フレームの何％**で入っているので、
-                        // フレームの幅（1080基準px）が要る。比率で変わる
-                        frameW={ratio === '16:9' ? 1920 : ratio === '9:16' ? 607.5 : 1080}
-                        animT={currentTime - c.start}
-                        clipDur={c.end - c.start}
-                        motion={c.motion}
-                        selected={isSelected(c.id)}
-                        playing={playing}
-                        onResizeStart={(e, corner) => onTelopResizeStart(c, e, corner)}
-                        onDragOver={(e) => {
-                          if (draggingTemplateRef.current || draggingIconRef.current) e.preventDefault()
-                        }}
-                        onDrop={(e) => {
-                          const tpl = draggingTemplateRef.current
-                          const iconColor = draggingIconRef.current
-                          if (!tpl && !iconColor) return
-                          e.preventDefault()
-                          e.stopPropagation()
-                          if (tpl) applyTemplateToCue(c.id, tpl)
-                          else if (iconColor) applyIconToCue(c.id, iconColor)
-                        }}
-                        onPointerDown={(e) => onTelopPointerDown(c, e)}
-                        onDoubleClick={() => {
-                          stopPlayback()
-                          setSelectedIds([c.id])
-                          setEditingId(c.id)
-                        }}
-                      />
-                    ))}
-                </div>
+                {/* 重なる中身（重ねた動画→画像→テロップ）は
+                    components/panels/PreviewLayers.tsx。並び順が重なり順になる */}
+                <VideoLayers
+                  clips={windowVClips}
+                  vcLen={vcLen}
+                  vcRefCb={vcRefCb}
+                  vcXform={vcXform}
+                  previewUrl={previewUrl}
+                  toGcUrl={toGcUrl}
+                  onSelect={selectPreviewOverlay}
+                />
+                <ImageLayers imgXform={imgXform} toGcUrl={toGcUrl} onSelect={selectPreviewOverlay} />
+                <TelopLayer
+                  activeCues={activeCues}
+                  cueTrack={cueTrack}
+                  iconForCue={iconForCue}
+                  iconScale={iconScale}
+                  iconAuto={iconAuto}
+                  iconSide={iconSide}
+                  iconOffset={iconOffset}
+                  ratio={ratio}
+                  draggingTemplateRef={draggingTemplateRef}
+                  draggingIconRef={draggingIconRef}
+                  applyTemplateToCue={applyTemplateToCue}
+                  applyIconToCue={applyIconToCue}
+                  onResizeStart={onTelopResizeStart}
+                  onPointerDown={onTelopPointerDown}
+                  onEdit={(c) => {
+                    stopPlayback()
+                    setSelectedIds([c.id])
+                    setEditingId(c.id)
+                  }}
+                />
                 {transOverlay && (
                   <div
                     className="trans-overlay"
