@@ -23,6 +23,9 @@ export const TRACK_H_MAX = 160
 /** 本編の音だけ、波形が読める高さから始める */
 export const DEFAULT_LANE_H: Record<string, number> = { A1: 44 }
 
+// **ここは描き直しの最中に走るので、共通の loadLS を使えない。**
+// あちらは画面側の定義で、読み込み順によっては「初期化前」になる
+// （実際に起動テストがそれを捕まえた）。localStorage を直に読む。
 function loadNum(key: string, def: number): number {
   try {
     const v = Number(localStorage.getItem(key))

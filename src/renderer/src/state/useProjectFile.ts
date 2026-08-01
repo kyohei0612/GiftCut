@@ -280,6 +280,7 @@ export function useProjectFile(deps: UseProjectFileDeps) {
     )
   }
 
+  /** テンプレを適用（メディアビン＋テロップ設定＋設定。タイムラインは触らない） */
   function applyProjectTemplate(data: any): void {
     const d = data as any
     // テンプレは「新規プロジェクトの開始状態」なので、保存先は引き継がない。
@@ -685,6 +686,10 @@ export function useProjectFile(deps: UseProjectFileDeps) {
     }
   }
 
+  /**
+   * テロップテンプレを適用（選択があればそれに、無ければ次に足すテロップの既定に）。
+   * レイアウト(anchor/box)とアニメは維持し、見た目だけ差し替える。
+   */
   function applyTemplate(tpl: TelopStyle): void {
     setNewTelopStyle(tpl)
     // 編集中＋文字選択ありなら、プリセットの色/フォント/サイズを「選択文字だけ」に(runs)適用
