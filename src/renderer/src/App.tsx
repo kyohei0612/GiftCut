@@ -162,6 +162,9 @@ import { useAsk } from './state/useAsk'
 import { useMarkers } from './state/useMarkers'
 import { useSnap } from './state/useSnap'
 import { useShortcutPrefs } from './state/useShortcutPrefs'
+import { useSeAudio } from './state/useSeAudio'
+import { useVideoEls } from './state/useVideoEls'
+import { useVClipEls } from './state/useVClipEls'
 import { useViewNav } from './state/useViewNav'
 import { useTransitions } from './state/useTransitions'
 import { useMotion } from './state/useMotion'
@@ -674,28 +677,8 @@ function AppInner(): JSX.Element {
   // 本編クリップをドラッグ中の移動先（タイムライン秒）。指を離した時に確定する。
   // state だと onUp のクロージャが古い値を見るので ref で持つ。
 
-  // ---- SE クリップ（A2 トラックに配置した効果音）----
-  const seAudioRefs = useRef<Map<number, HTMLAudioElement>>(new Map())
-  // ref コールバックはクリップIDごとに固定する。毎レンダー新規の無名関数だと
-  // detach→attach が毎回起きて、detach時のpauseで鳴っている音が切れてしまう。
-  const seRefCbsRef = useRef<Map<number, (el: HTMLAudioElement | null) => void>>(new Map())
-  const seRefCb = (id: number): ((el: HTMLAudioElement | null) => void) => {
-    let fn = seRefCbsRef.current.get(id)
-    if (!fn) {
-      fn = (el: HTMLAudioElement | null): void => {
-        if (el) seAudioRefs.current.set(id, el)
-        else {
-          // 外される瞬間に音が残らないよう、delete の前に止める
-          const prev = seAudioRefs.current.get(id)
-          if (prev && !prev.paused) prev.pause()
-          seAudioRefs.current.delete(id)
-          seRefCbsRef.current.delete(id)
-        }
-      }
-      seRefCbsRef.current.set(id, fn)
-    }
-    return fn
-  }
+  // 効果音を鳴らす物（置いた物・試聴の物）は state/useSeAudio
+  const { seAudioRefs, seRefCb, sePreviewRef, previewSE } = useSeAudio()
 
 
   // ---- 映像レイヤークリップ（V2以降に置く動画。ピクチャーインピクチャー／差し込み用）----
@@ -716,31 +699,9 @@ function AppInner(): JSX.Element {
   // 素材の置き先を決める話（落とした所・外れた所・再生ヘッド）は
   // state/useMediaDrop と state/useMediaOps
 
-  // 再生中のソースの <video>（マルチソースでは切替時に付け替える。要素自体は破棄しない）
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  // ソースID → <video> 要素。ソースごとに要素を常設し、src差し替えによる再ロード＝黒ちらつきを防ぐ
-  /**
-   * 元動画ごとの <video>。**1本につき2つ持つ（A面/B面）。**
-   *
-   * カットは「同じファイルの別の場所へ飛ぶ」ことなので、1つの要素でやると
-   * 飛ぶたびに復号し直しの待ちが出る（実測 145〜235ms、コマ飛びの正体）。
-   * 片方を映している間にもう片方を次のカットの頭へ送っておき、カットで
-   * 表示を入れ替える＝待ちが再生の裏に隠れる。プレミアのプリロールと同じ考え方で、
-   * **プロキシでも原本でも効く**（復号の速さに頼らないため）。
-   *
-   * 鍵は `${ソースID}:${面}`。
-   */
-  const videoElsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
-  const elKey = (srcId: number, half: 0 | 1): string => `${srcId}:${half}`
-  /** いまどちらの面を映しているか（ソースごと）。カットのたびに入れ替わる */
-  const [activeHalf, setActiveHalf] = useState<Record<number, 0 | 1>>({})
-  const activeHalfRef = useRef<Record<number, 0 | 1>>({})
-  activeHalfRef.current = activeHalf
-  const halfOf = (srcId: number): 0 | 1 => activeHalfRef.current[srcId] ?? 0
-  /** いま映している方の要素 */
-  const elOf = (srcId: number): HTMLVideoElement | undefined =>
-    videoElsRef.current.get(elKey(srcId, halfOf(srcId)))
-  const videoBRef = useRef<HTMLVideoElement>(null) // クロスディゾルブ用の2本目video（同じproxy srcをオーバーレイ）
+  // 映像を映す <video> の台帳（1本につきA面/B面を持つ理由も中に）は state/useVideoEls
+  const { videoRef, videoBRef, videoElsRef, elKey, activeHalf, setActiveHalf, halfOf, elOf } =
+    useVideoEls()
 
 
   // 「いま何を選んでいるか」と、その解除は state/useSelection
@@ -991,20 +952,6 @@ function AppInner(): JSX.Element {
   }, [])
 
   const rightBodyRef = useRef<HTMLDivElement>(null)
-  const sePreviewRef = useRef<HTMLAudioElement | null>(null)
-  // SEライブラリの試聴（クリック）。使い回しのAudioで前の音を止めてから再生。
-  function previewSE(path: string): void {
-    try {
-      if (!sePreviewRef.current) sePreviewRef.current = new Audio()
-      const a = sePreviewRef.current
-      a.pause()
-      a.src = toGcUrl(path)
-      a.currentTime = 0
-      void a.play().catch(() => {})
-    } catch {
-      /* noop */
-    }
-  }
   const draggingIconRef = useRef<string | null>(null) // コラボアイコン(ラベル色)をテロップへD&D中
   // トランジションをタイムラインへD&D中の種類。置き場所(頭/間/尻)はドロップ位置で自動判別する。
   const draggingTransRef = useRef<{ type: TransType } | null>(null)
@@ -1473,48 +1420,8 @@ function AppInner(): JSX.Element {
   const v1Hidden = trackStates['V1']?.hidden ?? false
 
 
-  // プレビューに置いておく映像レイヤークリップ（トラックの順＝下から重ねる）。
-  // 区間内だけを描くと境界で <video> が破棄され、戻ったときに先頭フレームが一瞬出て
-  // 読み込みもやり直しになるため、再生ヘッドの前後2秒ぶんは要素を残す（表示だけ切り替える）。
-  // 全クリップ常設はメディア要素が増えすぎるので窓で区切る。
-  const VC_WINDOW = 2
-  const windowVClips = useMemo(
-    () =>
-      vClips
-        .filter(
-          (c) =>
-            currentTime >= c.tStart - VC_WINDOW &&
-            currentTime < c.tStart + Math.max(0.05, c.srcEnd - c.srcStart) + VC_WINDOW
-        )
-        .slice()
-        .sort(
-          (a, b) =>
-            tracks.findIndex((t) => t.id === b.track) - tracks.findIndex((t) => t.id === a.track)
-        ),
-    [vClips, currentTime, tracks, VC_WINDOW]
-  )
-  // 映像レイヤーの <video> 要素（クリップIDごと）。音声もこの要素から鳴らす。
-  const vcElsRef = useRef<Map<number, HTMLVideoElement>>(new Map())
-  // ref コールバックはクリップIDごとに固定する。毎レンダー新規の無名関数だと React が
-  // detach→attach を繰り返し、要素の作り直し（＝先頭フレームのちらつき）を招く。
-  const vcRefCbsRef = useRef<Map<number, (el: HTMLVideoElement | null) => void>>(new Map())
-  const vcRefCb = (id: number): ((el: HTMLVideoElement | null) => void) => {
-    let fn = vcRefCbsRef.current.get(id)
-    if (!fn) {
-      fn = (el: HTMLVideoElement | null): void => {
-        if (el) vcElsRef.current.set(id, el)
-        else {
-          // 窓から外れて外される瞬間に音が残らないよう、delete の前に止める
-          const prev = vcElsRef.current.get(id)
-          if (prev && !prev.paused) prev.pause()
-          vcElsRef.current.delete(id)
-          vcRefCbsRef.current.delete(id)
-        }
-      }
-      vcRefCbsRef.current.set(id, fn)
-    }
-    return fn
-  }
+  // 重ねる動画の <video>（窓で区切って残す理由も中に）は state/useVClipEls
+  const { windowVClips, vcElsRef, vcRefCb } = useVClipEls(vClips, currentTime, tracks)
   // プレビューに常設する <video> の一覧。sources 未確定でも videoSrc があれば仮の1件で描く。
   const previewSources: Source[] = useMemo(() => {
     if (sources.length) return sources
