@@ -175,6 +175,9 @@ import { useBandDrag } from './state/useBandDrag'
 import { useAppChrome, type Tool } from './state/useAppChrome'
 import type { Ratio } from './state/useExportSettings'
 import { useSubtitlePrefs } from './state/useSubtitlePrefs'
+import { useTimelineBox } from './state/useTimelineBox'
+import { useTemplateShelf } from './state/useTemplateShelf'
+import { useSegLayout } from './state/useSegLayout'
 import { EMPTY_DRAG_IMG, setDragChip } from './lib/dragChip'
 import {
   AUTOSAVE_MS, FPS, RECENT_KEY, RECENT_MAX, RULER_H, TRACK_PAD_ROWS, XF_GRACE, gainToDb
@@ -654,36 +657,11 @@ function AppInner(): JSX.Element {
   // プレビューの画質と、焼き直した映像（プロキシ）は state/useProxy
   const { previewRes, setPreviewRes, previewResRef, lastPreviewResRef, proxyMap, previewUrl } =
     useProxy({ loadLS, saveLS, playRateRef, sources, vClips, proxyForPathRef, setProxyPct })
-  // テロップカード右クリック→フォルダ移動メニュー
-  const [tplMenu, setTplMenu] = useState<{ x: number; y: number; name: string; curCat: string } | null>(
-    null
-  )
-  useEffect(() => {
-    if (!tplMenu) return
-    const close = (): void => setTplMenu(null)
-    const onEsc = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setTplMenu(null)
-    }
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', onEsc)
-    return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', onEsc)
-    }
-  }, [tplMenu])
-  // 各セクション見出しのDOM参照（展開時に先頭へスクロールするため）
-  const tplSecRefs = useRef<Record<string, HTMLDivElement | null>>({})
-  // 展開したら、そのカテゴリの1つ目が見えるよう見出しをパネル先頭へスクロール
-  useEffect(() => {
-    if (!openTplSec) return
-    const el = tplSecRefs.current[openTplSec]
-    if (el) requestAnimationFrame(() => el.scrollIntoView({ block: 'start', behavior: 'smooth' }))
-  }, [openTplSec])
-  useEffect(() => {
-    refreshPresets()
-  }, [])
-
-  const rightBodyRef = useRef<HTMLDivElement>(null)
+  // 見本帳の棚まわり（右クリックの品書き・開いたら先頭へ送る）は state/useTemplateShelf
+  const { tplMenu, setTplMenu, tplSecRefs, rightBodyRef } = useTemplateShelf({
+    openTplSec,
+    refreshPresets
+  })
   // 帯になる物（つなぎ目の演出・テロップの出入り・見本・色）を運んでいる最中の
   // 持ち物は state/useBandDrag（ref と state に分ける理由も中にある）
   const {
@@ -720,59 +698,12 @@ function AppInner(): JSX.Element {
     setCapturingId
   } = useShortcutPrefs()
 
-  // ---- プレビュー内インライン編集 ---- （宣言はセッション保存/復元より前に移動済み）
-  const screenRef = useRef<HTMLDivElement>(null)
-  // プレビュー上テロップの手動ダブルタップ検出（ネイティブdblclickが状態依存で不発なため）
-  const trackInnerRef = useRef<HTMLDivElement>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  // 縦スクロールに追従させる相手＝左の段見出しの並び。
-  // スクロールの外にいるので、送った量だけ自分で上へずらす。
-  const thBodyRef = useRef<HTMLDivElement>(null)
-  /**
-   * タイムラインを縦に送ったときの追従。中身は lib/timelineVScroll.ts。
-   *
-   * React の状態にはしない。スクロールは毎秒何十回も飛んでくるので、
-   * ここで作り直すと前回せっかく 250回/秒 → 60回/秒 にした所へ逆戻りする。
-   */
-  const syncTimelineVScroll = useCallback((): void => {
-    applyTimelineVScroll(scrollRef.current?.scrollTop ?? 0, {
-      headers: thBodyRef.current,
-      inner: trackInnerRef.current
-    })
-  }, [])
-
-  /**
-   * プレビューとの境目を動かして高さが変わったときの、タイムラインの伸び縮み。
-   *
-   * **上と下が一緒に小さくなる**（プレミアと同じ感じ）ようにする。
-   * 素のままだと枠は下端だけが動くので、縮めると音声側から順に消えていき、
-   * 映像側はいつまでも全部見えたまま——片側だけが減る動きになる。
-   *
-   * 残すのは映像と音声の境目。段の高さは変えない（触った覚えのない所が
-   * 太ったり痩せたりするほうが分かりにくい）。
-   *
-   * 境目の位置は状態から計算せず、**実際に置かれている最初の音声段**から測る。
-   * 計算で出すと、余白や目盛りの高さを直したときにここだけ古い式が残る。
-   */
-  const fitTimelineAroundVA = useCallback((): void => {
-    const el = scrollRef.current
-    const inner = trackInnerRef.current
-    if (!el || !inner) return
-    const firstAudio = inner.querySelector<HTMLElement>('.track-audio')
-    if (!firstAudio) return
-    el.scrollTop = centeredScrollTop(
-      firstAudio.offsetTop,
-      el.clientHeight,
-      el.scrollHeight - el.clientHeight
-    )
-    syncTimelineVScroll() // scrollTop を書いても届かない場合に備えて自分でも配る
-  }, [syncTimelineVScroll])
-
-  // 画面に出ている時間の範囲（見えない帯は作らない）は state/useVisibleRange
-  const viewSec = useVisibleRange(scrollRef)
-  /** 帯を描く必要があるか（画面に出ているか） */
-  const inView = (tStart: number, tEnd: number): boolean =>
-    tEnd >= viewSec.a && tStart <= viewSec.b
+  // タイムラインの箱への参照と、縦に送ったときの追従（ついていく側3つ）は
+  // state/useTimelineBox
+  const {
+    screenRef, trackInnerRef, scrollRef, thBodyRef,
+    syncTimelineVScroll, fitTimelineAroundVA, viewSec, inView
+  } = useTimelineBox()
 
   // ---- パネルサイズ ----
   // パネルのレイアウトは記憶する（毎起動で同じドラッグをやり直さないように）
@@ -863,21 +794,13 @@ function AppInner(): JSX.Element {
   const selected = cues.find((c) => c.id === primaryId) ?? null
 
   // 動画のタイムライン長（＝切片の合計。カットするほど短くなる）とレイアウト
-  const segLayout = useMemo(() => layoutSegs(segments), [segments])
-  const videoTLen = useMemo(() => totalSegLen(segments), [segments])
-  const segLayoutRef = useRef<SegLayout[]>([])
+  // 本編の切片の並びと、その「いまこの瞬間」用の写しは state/useSegLayout
+  const { segLayout, videoTLen, segLayoutRef, videoTLenRef } = useSegLayout(segments)
 
   // 動きの計測と不具合の記録は state/useDiagnostics
   useDiagnostics({
     setPerfOpen, dragTip, marquee, segLayoutRef, previewResRef, videoRef
   })
-  const videoTLenRef = useRef(0)
-  useEffect(() => {
-    segLayoutRef.current = segLayout
-  }, [segLayout])
-  useEffect(() => {
-    videoTLenRef.current = videoTLen
-  }, [videoTLen])
 
   // 字幕づくりは state/useSubtitles（聞き取り→割る→音に合わせる）
   const { runSubtitles, handleImportSrt } = useSubtitles({
