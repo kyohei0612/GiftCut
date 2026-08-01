@@ -175,7 +175,10 @@ export function useExport(deps: UseExportDeps) {
           // 書き出しても動きは秒15コマのままだった＝カクついて見える。
           // 出力の1フレームに1枚ずつ当たるようにすれば、プレビューと同じ滑らかさで焼ける。
           // そのぶん画像は増える（60fps なら 15fps の4倍）ので、書き出しは長くなる。
-          const bps = animBreakpoints(c.style.anim, c.motion, dur, expFps)
+          //
+          // 渡すのは expFps ではなく **stepFps**（上で枚数の上限に収めた刻み）。
+          // ここを間違えると上限が一度も効かない＝安全網が死んだまま気づけない。
+          const bps = animBreakpoints(c.style.anim, c.motion, dur, stepFps)
           for (let k = 0; k < bps.length; k++) {
             const t0 = bps[k]
             const t1 = k + 1 < bps.length ? bps[k + 1] : dur

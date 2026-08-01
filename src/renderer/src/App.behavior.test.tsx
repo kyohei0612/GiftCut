@@ -424,3 +424,17 @@ describe('未保存の「＊」と自動保存', () => {
     expect(during, `待機中なのに ${during} 回も文字列化している`).toBe(0)
   })
 })
+
+describe('書き出しの安全網', () => {
+  // テロップ画像は1枚が ffmpeg の入力1つになり、コマンドライン長の崖がある。
+  // そこで枚数から刻み（stepFps）を計算して落としているが、**計算しただけで
+  // 使い忘れても、何も起きないので気づけない**（実際に一度そうなった。上限を
+  // 入れたつもりで、動きを刻む所へは元の fps を渡したままだった）。
+  // 書き出しは失敗して初めて分かる種類の物なので、ここで機械に見張らせる。
+  it('刻みは、枚数の上限に収めた値を使う（計算して使い忘れない）', async () => {
+    const src = await import('./state/useExport?raw').then((m) => m.default as string)
+    const call = /animBreakpoints\([^)]*\)/.exec(src)
+    expect(call, 'animBreakpoints の呼び出しが見つからない').not.toBeNull()
+    expect(call![0], `上限に収めた刻みを渡していない: ${call![0]}`).toContain('stepFps')
+  })
+})
