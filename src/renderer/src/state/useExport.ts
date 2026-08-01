@@ -114,28 +114,30 @@ export function useExport(deps: UseExportDeps) {
       // 非表示（👁OFF）トラックのテロップは書き出しに含めない（プレビューと一致させる）
       const exportCues = cues.filter((c) => !trackStates[cueTrack(c)]?.hidden)
       // 動きの刻みは書き出しの fps に合わせる（出力の1フレームに1枚ずつ当てる）。
-      // ただし**枚数には上限が要る**。
+      // ただし**枚数の上限だけは要る**。
       //
-      // テロップの1枚は ffmpeg の入力1つになる。入力が増えるほど、コマンドライン長
-      // （Windows は 32767字）にも、同時に抱える絵の枚数にも効く。以前は刻みが
-      // 15 固定だったので表に出なかったが、fps に合わせた途端 30fps で2倍・
-      // 60fps で4倍になり、**エフェクトを多めに付けた素材で実際に書き出しが落ちた**
-      // （実測: 43本のテロップで 15fps=585枚 → 60fps=2253枚）。
+      // テロップ1枚が ffmpeg の入力1つになり、その入力はコマンドラインに並ぶ。
+      // Windows のコマンドライン長は 32767字。実測すると 2500枚で 31479字なので、
+      // **その少し先に、絶対に越えられない崖がある**（越えると起動すらできない）。
+      // 刻みを fps に合わせた結果、枚数は fps に比例して増えるようになった
+      // （実測: 43本のテロップで 15fps=585枚 → 60fps=2253枚）ので、
+      // 素材が長ければ誰でも崖に届く。
       //
-      // なので「全部で何枚になるか」を先に見て、収まる刻みまで落とす。
-      // 上限は、落ちなかった実績（585枚）に少し余裕を見た数。
-      // 落ちるのは動きの滑らかさだけで、書き出しそのものは必ず通る。
+      // ※ 2026-08-01 の「書き出しが失敗する」は**これが原因ではなかった**
+      //   （2253枚のままでも通ることを再現で確かめた。原因は素通しの pad）。
+      //   ここは崖への安全網であって、あの不具合の直しではない。混同しないこと。
       const expFps = resolveExportFps()
-      const MAX_TELOP_PNGS = 900
+      const MAX_TELOP_PNGS = 2000
       const animSec = exportCues
         .filter((c) => hasAnim(c.style.anim) || hasMotion(c.motion))
         .reduce((a, c) => a + (c.end - c.start), 0)
       const stepFps =
         animSec > 0 ? Math.max(1, Math.min(expFps, Math.floor(MAX_TELOP_PNGS / animSec))) : expFps
-      if (stepFps < expFps) {
+      // 数コマぶんの差は見て分からないので黙って落とす。目に見えて変わるときだけ言う
+      if (stepFps < expFps * 0.8) {
         showToast(
           `動きの付いたテロップが多いため、書き出しの動きを ${stepFps}fps 相当に落としました` +
-            `（${expFps}fps のままだと書き出せる枚数を超えます）`
+            `（${expFps}fps のままだと ffmpeg に渡せる枚数を超えます）`
         )
       }
       setExportStatus(`テロップを画像化中… (0/${exportCues.length})`)
