@@ -159,6 +159,7 @@ import { ViewProvider, useViewCtx } from './state/viewContext'
 import { useTelopLook } from './state/useTelopLook'
 import { useMarkers } from './state/useMarkers'
 import { useSnap } from './state/useSnap'
+import { useViewNav } from './state/useViewNav'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -6608,6 +6609,10 @@ function AppInner(): JSX.Element {
   // マグネット（吸着）は state/useSnap
   const { snapTargets, snapTime, snapClipStart } = useSnap({ snap, segLayoutRef, setSnapLineX })
 
+  // 見ている場所を動かす（寄る・引く・連れてくる）は state/useViewNav
+  const { zoomAroundPlayhead, revealPlayhead, seekAndReveal, fitTimelineZoom, scrubFromClientX } =
+    useViewNav({ scrollRef, trackInnerRef, contentEndRef, seekTo })
+
   // タイムライン上の目印（頭出し・メモ）は state/useMarkers
   const { addMarkerAtPlayhead, deleteMarker, jumpMarker, onMarkerPointerDown } = useMarkers({
     stopPlayback, seekTo, seekAndReveal, snapTime, setDragTip
@@ -6704,70 +6709,6 @@ function AppInner(): JSX.Element {
     }
   }, [menu])
 
-  /**
-   * 拡大率を変える。**再生ヘッドが画面から逃げないように**、
-   * 再生ヘッドのある所を軸にして寄る／引く。
-   *
-   * 素で拡大率だけ変えると、左端(0秒)を軸に伸び縮みするので、
-   * 拡大するほど再生ヘッドが右へ吹き飛んでいく。**いま見ている場所を見失う**ので、
-   * 拡大のたびに横スクロールで探し直すことになっていた。
-   *
-   * 再生ヘッドが枠の外にいるときは真ん中へ連れてくる
-   * （見えていない物を軸にしても、結局どこへ飛ぶか分からない）。
-   */
-  function zoomAroundPlayhead(nz: number): void {
-    const el = scrollRef.current
-    const z0 = zoomRef.current
-    const t = currentTimeRef.current
-    if (!el || !(z0 > 0)) {
-      setZoom(nz)
-      return
-    }
-    const w = el.clientWidth
-    let px = t * z0 - el.scrollLeft // 枠の左端から再生ヘッドまで(px)
-    if (px < 0 || px > w) px = w / 2
-    setZoom(nz)
-    // 幅が新しい拡大率で決まってから寄せる（先に動かすと切り詰められる）
-    requestAnimationFrame(() => {
-      el.scrollLeft = Math.max(0, t * nz - px)
-    })
-  }
-
-  /**
-   * 再生ヘッドをタイムラインの見えている範囲へ連れてくる。
-   *
-   * プレビューのバーで飛ばしても、タイムラインは動かないままだった
-   * （再生ヘッド自体は動いているが、**枠の外なので見えない**）。
-   * 再生し始めてようやく画面が追いつくので、「飛んだ先がどこか分からない」
-   * 状態がしばらく続く。飛ばした時点で見える所へ持ってくる。
-   *
-   * すでに見えているなら**何もしない**（見えている物を動かすと、
-   * 押すたびに画面が揺れて逆に読みにくい）。
-   */
-  function revealPlayhead(): void {
-    const el = scrollRef.current
-    if (!el) return
-    const x = currentTimeRef.current * zoomRef.current
-    const w = el.clientWidth
-    const margin = Math.min(80, w * 0.15) // 端ぎりぎりだと次の操作でまた外れる
-    if (x >= el.scrollLeft + margin && x <= el.scrollLeft + w - margin) return
-    el.scrollLeft = Math.max(0, x - w / 2)
-  }
-  /** 飛ばして、そこを見せる（プレビュー側の操作はすべてこれを通す） */
-  function seekAndReveal(t: number): void {
-    seekTo(t)
-    requestAnimationFrame(revealPlayhead)
-  }
-
-  // タイムラインの拡大率を「中身がちょうど収まる」ところに合わせる。
-  function fitTimelineZoom(): void {
-    const vw = scrollRef.current?.clientWidth ?? 800
-    const end = Math.max(contentEndRef.current, 10)
-    setZoom(clamp((vw - 40) / end, ZOOM_MIN, ZOOM_MAX))
-    requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollLeft = 0
-    })
-  }
   // 素材を読み込んだ直後に一度だけ全体表示にする。
   // 既定の拡大率のままだと、15秒の素材に対して目盛りが50秒まで伸びていて、
   // クリップが左端の小さな塊に見える。開いた瞬間から作業できる状態にする。
@@ -6931,13 +6872,6 @@ function AppInner(): JSX.Element {
 
 
   // ================= タイムライン操作 =================
-  // スクラブ（ルーラー・再生ヘッドのみ。プレミア準拠でスクラブ開始時に再生停止）
-  function scrubFromClientX(cx: number): void {
-    const el = trackInnerRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    seekTo((cx - rect.left) / zoomRef.current)
-  }
   // スライダーや数値欄にフォーカスが残っていると、矢印キーが再生ヘッドではなく
   // その入力欄を動かし、Space も効かなくなる。しかも pointerdown で
   // preventDefault しているためクリックしてもフォーカスが戻らなかった。
