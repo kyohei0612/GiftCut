@@ -175,6 +175,7 @@ import { useVideoSync } from './state/useVideoSync'
 import { useSessionMemory } from './state/useSessionMemory'
 import { useVisibleRange } from './state/useVisibleRange'
 import { useSelectionCleanup } from './state/useSelectionCleanup'
+import { useDiagnostics } from './state/useDiagnostics'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -571,161 +572,11 @@ function AppInner(): JSX.Element {
   // **毎レンダーここを通る。** 画面を作り直した回数がそのまま数になる
   perf.countRender()
 
-  // 計測に「いま何をしているか」を教える。数字だけ見ても、
-  // どの操作のときに詰まったのかが分からないと原因に辿り着けない。
-  useEffect(() => {
-    perf.noteOf = (): string =>
-      [
-        playRateRef.current !== 0 ? '再生中' : '停止',
-        // **設定の数字だけでは足りない。** 焼き直しがまだなら原本を再生しており、
-        // 原本はシークが重いのでカクつく。実際に何を再生しているかを必ず出す
-        // （「画質1080 なのにカクつく」の正体がこれだった）
-        `画質${previewResRef.current}${
-          (videoRef.current?.currentSrc ?? '').includes('giftcut-proxies') ? '(焼直)' : '(原本)'
-        }`,
-        `切片${segsRef.current.length}`,
-        `テロップ${cuesRef.current.length}`
-      ].join(' / ')
-    perf.videoOf = (): HTMLVideoElement | null => videoRef.current
-  })
 
-  /**
-   * 掴んでいる間、カーソルを**掴んだ瞬間の形のまま**にする。
-   *
-   * ドラッグ中はマウスが色々な物の上を通る。素のままだと通った先の形に
-   * 次々と変わり、**掴んでいるのに形だけ別物**という状態でちらつく。
-   *
-   * 掴む所は10か所以上あるので、1つずつ直すと必ず漏れる。押した瞬間に
-   * 「その要素の形」を読み取って全体に固定し、離したら外す——ここ1か所で済ませる。
-   * 何を掴んだかを覚える必要も無い（掴んだ物の形がそのまま答えになっている）。
-   */
-  useEffect(() => {
-    let locked = false
-    const root = document.documentElement
-    const onDown = (e: PointerEvent): void => {
-      if (e.button !== 0) return
-      const el = e.target as HTMLElement | null
-      if (!el) return
-      const cur = getComputedStyle(el).cursor
-      if (!cur || cur === 'auto') return
-      root.style.setProperty('--drag-cursor', cur)
-      root.classList.add('dragging-cursor')
-      locked = true
-    }
-    const onUp = (): void => {
-      // 磁石の点線は「掴んでいる間だけ」。離したら必ず消す
-      // （消し忘れると、置いたあとも線が残って何の線か分からなくなる）
-      setSnapLineX(null)
-      if (!locked) return
-      locked = false
-      root.classList.remove('dragging-cursor')
-    }
-    window.addEventListener('pointerdown', onDown, true)
-    window.addEventListener('pointerup', onUp, true)
-    window.addEventListener('pointercancel', onUp, true)
-    return () => {
-      window.removeEventListener('pointerdown', onDown, true)
-      window.removeEventListener('pointerup', onUp, true)
-      window.removeEventListener('pointercancel', onUp, true)
-      root.classList.remove('dragging-cursor')
-    }
-  }, [])
 
-  /**
-   * 別のアプリへ行って戻ってきたときの手当て。
-   *
-   * 裏に回ると Chromium は rAF を止める。一方こちらの再生位置は**壁時計**で
-   * 出しているので、戻った瞬間に「止まっていた秒数ぶん」を一気に進めようとして、
-   * 巨大なシークが走る。実測で **戻った直後の1コマに 1820ms** かかっていた
-   * （36.9秒 裏へ → 38.7秒 戻る、で最悪コマがそこに立っていた）。
-   *
-   * 戻ったら壁時計を**いまの位置に貼り直す**。止まっていた間は進めない
-   * ＝裏で勝手に再生が進んでいた事にしない、が正しい振る舞いでもある。
-   */
-  useEffect(() => {
-    const onVis = (): void => {
-      if (document.hidden) return
-      if (playRateRef.current === 0) return
-      clockStartPosRef.current = currentTimeRef.current
-      clockStartWallRef.current = performance.now() / 1000
-      lastTsRef.current = performance.now()
-      // 動画側も現在位置へ合わせ直す（放っておくと次のコマで大きなシークが走る）
-      const src = tToSource(segLayoutRef.current, currentTimeRef.current)
-      const v = videoRef.current
-      if (v && src && Math.abs(v.currentTime - src.srcTime) > 0.25) v.currentTime = src.srcTime
-    }
-    document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
-  }, [])
 
-  /**
-   * 画面で起きた例外を**必ず表に出す**。
-   *
-   * React は描画の途中で例外が出ると、その枝ごと黙って消す。すると
-   * 「V1 が効かない」「ショートカットが効かない」のように、**別々の不具合に見えて
-   * 実は1つの例外**という形になり、探しても見つからない。
-   *
-   * 出たら画面に出し、動きの記録にも残す（あとから何時何分に何が出たか辿れる）。
-   */
-  useEffect(() => {
-    const onErr = (e: ErrorEvent): void => {
-      const msg = `${e.message}（${(e.filename ?? '').split('/').pop()}:${e.lineno}）`
-      perf.mark(`画面の例外: ${msg}`)
-      showToast(`不具合が起きました: ${msg}`, 'error')
-    }
-    const onRej = (e: PromiseRejectionEvent): void => {
-      const msg = String(e.reason).slice(0, 200)
-      perf.mark(`受け止め損ねた失敗: ${msg}`)
-      showToast(`不具合が起きました: ${msg}`, 'error')
-    }
-    window.addEventListener('error', onErr)
-    window.addEventListener('unhandledrejection', onRej)
-    return () => {
-      window.removeEventListener('error', onErr)
-      window.removeEventListener('unhandledrejection', onRej)
-    }
-  }, [])
 
-  // Ctrl+Shift+P で計測の小窓。**配布ビルドでも開ける**
-  useEffect(() => {
-    const h = (e: KeyboardEvent): void => {
-      if (e.ctrlKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
-        e.preventDefault()
-        // 小窓は「見せる／隠す」だけ。**閉じても測り続ける**（配布ビルドも同じ）。
-        // 止めてしまうと、不具合に気づいて書き出した時に肝心の前後が残らない。
-        setPerfOpen((v) => !v)
-      }
-    }
-    window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
-  }, [])
 
-  /**
-   * 開発中は、起動した瞬間から**ずっと測り続ける**。
-   *
-   * カクついた瞬間に「いま測り始めます」では遅い。**気づいたときには終わっている**
-   * ので、あとから「さっきの所」を見られないと原因に辿り着けない。
-   * 走らせっぱなしにして、一定間隔で userData/perf へ書く。
-   * 「止めて」と言われたら、そこまでに書かれた物を読めばよい。
-   *
-   * **配布ビルドでも走らせる。**
-   * 不具合に気づくのは使っている人で、その場で測り始めてもらうのは無理がある。
-   * 「おかしいな」と思った時に書き出しボタンを押せば、その前の分がそのまま残っている、
-   * という形にする。書き出す間隔は5分（毎回書くとディスクを触りすぎる）。
-   */
-  useEffect(() => {
-    perf.start()
-    const id = window.setInterval(
-      () => {
-        void window.giftcut?.savePerfReport?.(perf.report())
-      },
-      import.meta.env.DEV ? 30_000 : 300_000
-    )
-    return () => {
-      window.clearInterval(id)
-      perf.stop()
-    }
-  }, [])
   // マグネットの切り替えはここを通す。以前はショートカット(S)だけが保存していて、
   // ツールバーのボタンから切ると再起動で ON に戻っていた。
   function toggleSnap(): void {
@@ -2137,6 +1988,12 @@ function AppInner(): JSX.Element {
   const segLayout = useMemo(() => layoutSegs(segments), [segments])
   const videoTLen = useMemo(() => totalSegLen(segments), [segments])
   const segLayoutRef = useRef<SegLayout[]>([])
+
+  // 動きの計測と不具合の記録は state/useDiagnostics
+  useDiagnostics({
+    setPerfOpen, dragTip, marquee, clockStartPosRef, clockStartWallRef, lastTsRef,
+    segLayoutRef, previewResRef, videoRef
+  })
   const videoTLenRef = useRef(0)
   useEffect(() => {
     segLayoutRef.current = segLayout
