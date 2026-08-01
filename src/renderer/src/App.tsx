@@ -188,6 +188,7 @@ import { nearestSnap } from '../../shared/snap'
 import { collapseAt, shiftRange, shiftStart } from '../../shared/ripple'
 import { useKeyboard } from './state/useKeyboard'
 import { useTelopBox } from './state/useTelopBox'
+import { useLaneGeometry } from './state/useLaneGeometry'
 import {
   ACTION_LIST,
   DEFAULT_SHORTCUTS,
@@ -1689,6 +1690,12 @@ function AppInner(): JSX.Element {
   // はみ出して「下がかつかつ」になる（実際にそうなった）。
   const padTop = TRACK_PAD_ROWS * videoTrackH
   const padBottom = videoTrackH
+  // 段の縦位置と落とし先の判定は state/useLaneGeometry（決まりは shared/lanes）
+  const { trackRows, laneAtY, dropLaneAt } = useLaneGeometry({
+    videoTrackHRef,
+    audioTrackHRef,
+    topOffset: RULER_H + padTop
+  })
 
   // ---- タイムラインのガイド・ツールチップ ----
   const [hoverX, setHoverX] = useState<number | null>(null)
@@ -7547,15 +7554,6 @@ function AppInner(): JSX.Element {
   /** 各トラック行の縦位置（trackInner の上端からの相対 px） */
   // 段の縦位置と落とし先の判定は shared/lanes（画面を起動せずに確かめられる）。
   // **外したときに本編へ落とさない**決まりもそこに書いてある
-  function trackRows(): LaneRow[] {
-    return laneRows(tracks, videoTrackHRef.current, audioTrackHRef.current, RULER_H + padTop)
-  }
-  function laneAtY(yRel: number): string | null {
-    return laneAtYIn(trackRows(), yRel)
-  }
-  function dropLaneAt(yRel: number, kind: 'video' | 'audio', forVideoLayer = false): string | null {
-    return dropLaneIn(trackRows(), yRel, kind, forVideoLayer)
-  }
 
   function trackSelect(e: React.PointerEvent, dir: number): void {
     const inner = trackInnerRef.current
