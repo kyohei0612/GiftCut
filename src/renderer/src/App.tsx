@@ -158,6 +158,7 @@ import { TracksProvider, useTracksCtx } from './state/tracksContext'
 import { ViewProvider, useViewCtx } from './state/viewContext'
 import { useTelopLook } from './state/useTelopLook'
 import { useMarkers } from './state/useMarkers'
+import { useSnap } from './state/useSnap'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -1256,10 +1257,6 @@ function AppInner(): JSX.Element {
     return fadeGain(t, vcLen(c), c.afadeIn, c.afadeOut)
   }
 
-  // タイムライン上の目印（頭出し・メモ）は state/useMarkers
-  const { addMarkerAtPlayhead, deleteMarker, jumpMarker, onMarkerPointerDown } = useMarkers({
-    stopPlayback, seekTo, seekAndReveal, snapTime, setDragTip
-  })
 
   async function placeSE(m: MediaItem, t: number, track = 'A2'): Promise<void> {
     if (trackStates[track]?.locked) {
@@ -6608,75 +6605,13 @@ function AppInner(): JSX.Element {
     saveUserTemplates(next)
   }
 
-  // ================= スナップ =================
-  // マグネット吸着先＝再生ヘッド / 0 / テロップ端 / カット位置 / SE端。
-  // excludeCueIds/excludeSeIds は自分自身の端に吸い付かないよう除外するID。
-  function snapTargets(
-    excludeCueIds: number[] = [],
-    excludeSeIds: number[] = [],
-    excludeImgIds: number[] = [],
-    excludeVcIds: number[] = []
-  ): number[] {
-    const targets = [currentTimeRef.current, 0] // 再生ヘッド・原点
-    for (const c of cues) if (!excludeCueIds.includes(c.id)) targets.push(c.start, c.end) // テロップ端
-    for (const L of segLayoutRef.current) targets.push(L.tStart, L.tEnd) // 動画カット位置
-    for (const s of seClipsRef.current)
-      if (!excludeSeIds.includes(s.id)) targets.push(s.tStart, s.tStart + s.duration) // SE端
-    for (const c of imgClipsRef.current)
-      if (!excludeImgIds.includes(c.id)) targets.push(c.tStart, c.tStart + c.duration) // 画像端
-    for (const c of vClipsRef.current)
-      if (!excludeVcIds.includes(c.id))
-        targets.push(c.tStart, c.tStart + Math.max(0.05, c.srcEnd - c.srcStart)) // 映像レイヤー端
-    for (const m of markersRef.current) targets.push(m.t) // マーカー位置
-    return targets
-  }
-  // 単一の時刻を吸着（テロップ移動・トリム・スクラブ用）
-  function snapTime(
-    t: number,
-    excludeCueIds: number[] = [],
-    excludeSeIds: number[] = [],
-    excludeImgIds: number[] = [],
-    excludeVcIds: number[] = []
-  ): number {
-    if (!snap) {
-      setSnapLineX(null)
-      return Math.max(0, t)
-    }
-    const targets = snapTargets(excludeCueIds, excludeSeIds, excludeImgIds, excludeVcIds)
-    const thr = 8 / zoomRef.current // ドラッグ中のズーム変更にも追従するよう ref を参照
-    let best = t
-    let bestD = thr
-    let snapped = false
-    for (const tg of targets) {
-      const d = Math.abs(tg - t)
-      if (d < bestD) {
-        bestD = d
-        best = tg
-        snapped = true
-      }
-    }
-    setSnapLineX(snapped ? Math.max(0, best) * zoomRef.current : null)
-    return Math.max(0, best)
-  }
-  // クリップ（SE等）の左右どちらの端が近くても吸着し、補正後の開始時刻を返す
-  function snapClipStart(
-    tStart: number,
-    dur: number,
-    excludeSeIds: number[] = [],
-    excludeImgIds: number[] = [],
-    excludeVcIds: number[] = []
-  ): number {
-    if (!snap) {
-      setSnapLineX(null)
-      return Math.max(0, tStart)
-    }
-    // どこへ寄せるかの判定は shared/snap（画面を起動せずに確かめられる）。
-    // 画面側の仕事は「当て先を集めて、縦線を出す」ところまで。
-    const targets = snapTargets([], excludeSeIds, excludeImgIds, excludeVcIds)
-    const r = nearestSnap(tStart, dur, targets, 8 / zoomRef.current)
-    setSnapLineX(r.line != null ? r.line * zoomRef.current : null)
-    return r.start
-  }
+  // マグネット（吸着）は state/useSnap
+  const { snapTargets, snapTime, snapClipStart } = useSnap({ snap, segLayoutRef, setSnapLineX })
+
+  // タイムライン上の目印（頭出し・メモ）は state/useMarkers
+  const { addMarkerAtPlayhead, deleteMarker, jumpMarker, onMarkerPointerDown } = useMarkers({
+    stopPlayback, seekTo, seekAndReveal, snapTime, setDragTip
+  })
 
   // キーを押したときに何が起きるかは state/useKeyboard（呼ぶのは下の方）
 
