@@ -102,7 +102,6 @@ import {
 import { TimelineToolbar } from './components/timeline/TimelineToolbar'
 import { TrackHeaders } from './components/timeline/TrackHeaders'
 import { ClipBand } from './components/timeline/ClipBand'
-import { KeyMarks } from './components/timeline/KeyMarks'
 import { TimeRuler, Marquee, MarkerFlags, Playhead } from './components/timeline/Ruler'
 import type { Adjust, Crop } from './components/panels/PropertyRows'
 import { SeLibraryTab, seMoveTarget } from './components/panels/SeLibraryTab'
@@ -110,7 +109,6 @@ import { IconLibraryTab, ICON_LIB } from './components/panels/IconLibraryTab'
 import CropModal from './components/CropModal'
 import StylePanel from './components/StylePanel'
 import TelopText from './components/TelopText'
-import WaveformCanvas from './components/WaveformCanvas'
 // ※ここに「検査票（手で確認するチェックリスト）」を読み込んでいたが、
 // 確認は e2e（npm run e2e / presets）で機械が回すようになったので丸ごと外した。
 // 手で潰す表と機械で回す表が2つあると、必ず片方が古くなる。
@@ -211,6 +209,7 @@ import {
 } from './components/timeline/OverlayClipBands'
 import type { OpenClipMenu } from './components/timeline/ClipBand'
 import { TelopBands, TelopDropGhost } from './components/timeline/TelopBands'
+import { MainAudioBands, MainVideoBands } from './components/timeline/MainClipBands'
 import {
   ACTION_LIST,
   DEFAULT_SHORTCUTS,
@@ -273,7 +272,6 @@ import {
   zoomAt,
   hasClipMotion,
   sanitizeClipMotion,
-  clipMotionKeyTimes,
   MIN_MOTION_SCALE,
   type ClipMotion
 } from '../../shared/clipMotion'
@@ -8766,83 +8764,19 @@ function AppInner(): JSX.Element {
                     {tr.kind === 'video' && tr.id !== 'V1' && telopDrop && (
                       <TelopDropGhost trackId={tr.id} drop={telopDrop} cueTrack={cueTrack} />
                     )}
-                    {tr.id === 'V1' &&
-                      videoSrc &&
-                      segLayout.filter((L) => inView(L.tStart, L.tEnd)).map((L) =>
-                        // クリップを動かしてできた空きは「帯」を描かない（動かした跡が
-                        // 残って見えるため）。ただし当たり判定は残して、クリックで選べて
-                        // Delete で詰められるようにする＝見た目は空き、操作は普通のクリップ。
-                        L.seg.gap ? (
-                          <ClipBand
-                            key={L.seg.id}
-                            className="gap-clip"
-                            left={L.tStart * zoom}
-                            width={Math.max(L.len * zoom - 1, 6)}
-                            selected={isVideoSel(L.seg.id)}
-                            title="空き（クリックして Delete で詰める）"
-                            onPointerDown={(e) => onSegPointerDown(L, e, 'video')}
-                            onContextMenu={(e) => openClipMenu(e, 'seg', { id: L.seg.id, name: '空き' })}
-                          />
-                        ) : (
-                        // 映像を消した区間(videoBlank)は帯を残す（点線＋バッジ）。
-                        // 帯を消すと選択できず「戻す」導線に到達できないため、消音と同じ扱いにする。
-                        <ClipBand
-                          key={L.seg.id}
-                          className={`video-clip ${L.seg.videoBlank ? 'clip-blank' : ''} ${overwriteIds.includes(L.seg.id) ? 'clip-overwrite' : ''}`}
-                          label={L.seg.label}
-                          left={L.tStart * zoom}
-                          width={Math.max(L.len * zoom - 1, 10)}
-                          selected={isVideoSel(L.seg.id)}
-                          title={
-                            L.seg.gap
-                              ? '空白（映像なし・無音）'
-                              : (srcOfSeg(L.seg)?.name ?? videoName ?? '')
-                          }
-                          onPointerDown={(e) => onSegPointerDown(L, e, 'video')}
-                          onTrimLeft={(e) => onSegTrimStart(L, 'l', e)}
-                          onTrimRight={(e) => onSegTrimStart(L, 'r', e)}
-                          onContextMenu={(e) =>
-                            openClipMenu(e, 'seg', {
-                              id: L.seg.id,
-                              name: srcOfSeg(L.seg)?.name ?? '動画クリップ'
-                            })
-                          }
-                        >
-                          {/* サムネはその切片の元動画のものを出す（先頭固定にすると別動画の絵が出る） */}
-                          {(() => {
-                            const sp = srcOfSeg(L.seg)?.path
-                            const th =
-                              (sp && mediaItems.find((m) => m.path === sp)?.thumb) ||
-                              (L.index === 0 ? thumbnailSrc : undefined)
-                            return th && !L.seg.videoBlank ? (
-                              <img className="clip-thumb" src={th} alt="" />
-                            ) : null
-                          })()}
-                          <span className="clip-text">
-                            {/* 空白（移動や位置指定配置でできた隙間）と、
-                                「映像だけ消した」区間は別物なので言葉を分ける */}
-                            {L.seg.gap
-                              ? '⬛ 空白'
-                              : L.seg.videoBlank
-                                ? '🚫 映像なし'
-                                : `🎬 ${srcOfSeg(L.seg)?.name ?? videoName ?? '動画'}`}
-                            {/* 同じ素材を切った断片は名前が全部同じで見分けがつかない。
-                                元動画のどこを使っているか（イン点）を出して区別する。 */}
-                            {segLayout.length > 1 && !L.seg.gap && !L.seg.videoBlank && (
-                              <span className="clip-in">{formatTime(L.seg.srcStart)}〜</span>
-                            )}
-                            {segSpeed(L.seg) !== 1 && (
-                              <span className="clip-speed">{segSpeed(L.seg)}x</span>
-                            )}
-                          </span>
-                          <KeyMarks
-                            times={clipMotionKeyTimes(L.seg.motion)}
-                            zoom={zoom}
-                            clipStart={L.tStart}
-                          />
-                        </ClipBand>
-                        )
-                      )}
+                    {/* 本編の映像の帯は components/timeline/MainClipBands.tsx */}
+                    {tr.id === 'V1' && videoSrc && (
+                      <MainVideoBands
+                        segLayout={segLayout}
+                        zoom={zoom}
+                        inView={inView}
+                        srcOfSeg={srcOfSeg}
+                        overwriteIds={overwriteIds}
+                        onPointerDown={onSegPointerDown}
+                        onTrimStart={onSegTrimStart}
+                        openClipMenu={openClipMenu}
+                      />
+                    )}
                     {/* 映像と音はセットなので、対の音声段にも同じ位置・長さで出す */}
                     {tr.id === videoGhost?.track && videoGhost && (
                       <VideoGhost ghost={videoGhost} zoom={zoom} />
@@ -8866,46 +8800,17 @@ function AppInner(): JSX.Element {
                     {tr.id === 'V1' && transDrop && (
                       <TransDropGhost drop={transDrop} segLayout={segLayout} zoom={zoom} />
                     )}
-                    {tr.id === 'A1' &&
-                      videoSrc &&
-                      segLayout.filter((L) => inView(L.tStart, L.tEnd)).map((L) => {
-                        if (L.seg.gap) return null // 空白（ギャップ）切片は音声レーンにも描かない
-                        // マルチソース: 各切片は自分の元動画の波形/尺で描画
-                        const ssrc = srcOfSeg(L.seg)
-                        // 自分のソースの波形を使う。未取得なら「解析中」表示。
-                        // ただし主ソース（=グローバルの waveform と同じ動画）は
-                        // そちらにフォールバックしてよい（別動画の波形は絶対に使わない）。
-                        const isPrimary = !!ssrc && !!sources[0] && ssrc.id === sources[0].id
-                        const wf = ssrc?.waveform ?? (isPrimary || !ssrc ? waveform : null)
-                        const sdur = ssrc?.duration || videoDuration
-                        return (
-                          <ClipBand
-                            key={L.seg.id}
-                            className={`audio-clip ${L.seg.muted ? 'clip-muted' : ''}`}
-                            label={L.seg.label}
-                            left={L.tStart * zoom}
-                            width={Math.max(L.len * zoom - 1, 10)}
-                            selected={isAudioSel(L.seg.id)}
-                            title={ssrc?.name ?? videoName ?? ''}
-                            onPointerDown={(e) => onSegPointerDown(L, e, 'audio')}
-                          >
-                            {wf ? (
-                              <WaveformCanvas
-                                min={wf.min}
-                                max={wf.max}
-                                srcStart={L.seg.srcStart}
-                                srcEnd={L.seg.srcEnd}
-                                audioDuration={wf.dur || sdur}
-                                width={Math.max(L.len * zoom - 1, 10)}
-                                height={trackHOf('audio') - 6}
-                              />
-                            ) : (
-                              <span className="clip-text audio-loading">波形解析中…</span>
-                            )}
-                            {L.seg.muted && <span className="clip-mute-badge">🔇 消音</span>}
-                          </ClipBand>
-                        )
-                      })}
+                    {/* 本編の音の帯（同上）。V1 と同じ切片を波形で描く */}
+                    {tr.id === 'A1' && videoSrc && (
+                      <MainAudioBands
+                        segLayout={segLayout}
+                        zoom={zoom}
+                        inView={inView}
+                        srcOfSeg={srcOfSeg}
+                        trackH={trackHOf('audio')}
+                        onPointerDown={onSegPointerDown}
+                      />
+                    )}
                     {(tr.kind === 'audio'
                       ? seClips.filter(
                           (c) => c.track === tr.id && inView(c.tStart, c.tStart + c.duration)
