@@ -62,10 +62,8 @@ import {
   type PromptState,
   type ConfirmState
 } from './components/Overlays'
-import {
-  SilenceCutDialog,
-  DuckingDialog,
-  type SilenceCutState
+import {  SilenceCutDialog,
+  DuckingDialog
 } from './components/dialogs/AudioDialogs'
 import {
   ExportSettingsDialog,
@@ -141,7 +139,7 @@ import {
   type SegOps,
   type SplitSeg
 } from '../../shared/timeline'
-import { cutsFromSilences, totalCutLen } from '../../shared/silenceCut'
+import { totalCutLen } from '../../shared/silenceCut'
 // キーフレーム（時間で変わる値）。プレビューも書き出しも同じ計算を使う
 import { valueAt, putKey, removeKey, hasKeys, type Keys } from '../../shared/keyframes'
 import { nextOpenSecs } from '../../shared/accordion'
@@ -167,6 +165,7 @@ import { useVideoEls } from './state/useVideoEls'
 import { useVClipEls } from './state/useVClipEls'
 import { useMediaMeta } from './state/useMediaMeta'
 import { useProxy } from './state/useProxy'
+import { useSilenceDuck } from './state/useSilenceDuck'
 import type { MediaItem } from './components/panels/ProjectBinTab'
 import { useViewNav } from './state/useViewNav'
 import { useTransitions } from './state/useTransitions'
@@ -316,14 +315,7 @@ import {
 } from '../../shared/templateMerge'
 // ビンの素材が使用中か（＝クリップが残っているか）の判定
 import { mediaInUse, staleSourceIds } from '../../shared/mediaBin'
-import {
-  voiceRegions,
-  duckEnvelope,
-  gainAt,
-  envToFfmpegExpr,
-  DEFAULT_DUCK,
-  type DuckOpts
-} from '../../shared/ducking'
+import { envToFfmpegExpr } from '../../shared/ducking'
 
 type Tool = 'select' | 'razor' | 'trackFwd' | 'trackBack'
 type Ratio = '16:9' | '9:16' | '1:1'
@@ -1688,33 +1680,11 @@ function AppInner(): JSX.Element {
   // 判定は音の大きさだけ（文字起こしは使わない）。
   // どこまでを無音とするか・前後にどれだけ余白を残すかは人によって違うので、
   // 「バツっと切りたい人」「少し余白がほしい人」の両方を設定で受ける。
-  // 形と説明は components/dialogs/AudioDialogs.tsx の SilenceCutState 側に置いてある
-  const [silenceCut, setSilenceCut] = useState<SilenceCutState>({
-    busy: false,
-    found: null,
-    noiseDb: -35,
-    minSec: 0.35,
-    pad: 0.15,
-    minLen: 0.4
-  })
-  const [silenceOpen, setSilenceOpen] = useState(false)
-  // ---- ダッキング（声が入っている間だけ BGM を下げる）----
-  //
-  // 無音を探す仕組みをそのまま使う。「静かな所」の裏返しが「声のある所」。
-  // 下げ方（何dB・どれくらいの速さ）は好みが分かれるので設定にする。
-  const [duckOpts, setDuckOpts] = useState<DuckOpts>(DEFAULT_DUCK)
-  const [duckOpen, setDuckOpen] = useState(false)
-  /**
-   * 声に合わせた音量の折れ線。
-   * **プレビューと書き出しで同じものを使う**（別々に作ると、聴いた音と
-   * 書き出した音が違うという一番たちの悪いズレになる）。
-   */
-  const duckEnv = useMemo(() => {
-    if (!silenceCut.found?.length) return []
-    const dur = totalSegLen(segments) || 0
-    if (dur <= 0) return []
-    return duckEnvelope(voiceRegions(silenceCut.found, dur), duckOpts)
-  }, [silenceCut.found, segments, duckOpts])
+  // 静かな所を切る・声の間だけ BGM を下げる（同じ解析結果を使う）は state/useSilenceDuck
+  const {
+    silenceCut, setSilenceCut, silenceOpen, setSilenceOpen,
+    duckOpts, setDuckOpts, duckOpen, setDuckOpen, duckEnv, duckGainAt, silenceCuts
+  } = useSilenceDuck(segments)
 
   // 動き（キーフレーム）を付ける・消す・配るのは state/useMotion
   const {
@@ -1737,18 +1707,6 @@ function AppInner(): JSX.Element {
     seEnd,
     v1Hidden
   })
-  /** この効果音/BGMクリップに、いまダッキングが効いているか */
-  const duckGainAt = (clip: SEClip, t: number): number =>
-    clip.duck && duckEnv.length ? gainAt(duckEnv, t) : 1
-  /** いまの設定で「どこを切るか」。設定を動かすたびに出し直す（実行前に見せる） */
-  const silenceCuts = useMemo(() => {
-    if (!silenceCut.found) return []
-    return cutsFromSilences(segments, silenceCut.found, {
-      pad: silenceCut.pad,
-      minLen: silenceCut.minLen
-    })
-  }, [segments, silenceCut.found, silenceCut.pad, silenceCut.minLen])
-
   // タイムライン長が変わる操作（トリム/複製/速度変更）で、境界 boundaryT より後ろにある
   // テロップ/SE/画像/マーカーを delta だけ動かして映像との同期を保つ。
   // これが無いと「動画を短くしたら字幕が全部ズレた」になる。
