@@ -166,6 +166,8 @@ import { useVClipEls } from './state/useVClipEls'
 import { useMediaMeta } from './state/useMediaMeta'
 import { useProxy } from './state/useProxy'
 import { useSilenceDuck } from './state/useSilenceDuck'
+import { useCurrentLook } from './state/useCurrentLook'
+import { useWindowDrop } from './state/useWindowDrop'
 import type { MediaItem } from './components/panels/ProjectBinTab'
 import { useViewNav } from './state/useViewNav'
 import { useTransitions } from './state/useTransitions'
@@ -1324,96 +1326,15 @@ function AppInner(): JSX.Element {
       ]
     return []
   }, [sources, videoSrc, videoDuration, fps])
-  // 実際に表示するソースID（activeSrcId が一覧に無ければ先頭＝主ソース）
-  const effActiveSrcId = previewSources.some((s) => s.id === activeSrcId)
-    ? activeSrcId
-    : (previewSources[0]?.id ?? null)
-  // 再生ヘッド位置の切片が黒ブランクなら映像を黒表示
-  const curBlank = (() => {
-    const src = tToSource(segLayout, currentTime)
-    return src ? !!segments[src.index]?.videoBlank : false
-  })()
-  // 再生ヘッド位置の切片の色調整（CSS filter）。切片が変わると自動で切り替わる。
-  const curAdjustCss = (() => {
-    const src = tToSource(segLayout, currentTime)
-    return src ? adjustCss(segments[src.index]?.adjust) : undefined
-  })()
-  // 再生ヘッド位置の切片のズーム（リフレーム）。編集/プレビュー対象。
-  // **動きが付いていれば、その瞬間の値**（印が無ければ今までどおり固定値がそのまま返る）。
-  const curSegZoom = (() => {
-    const src = tToSource(segLayout, currentTime)
-    const seg = src ? segments[src.index] : undefined
-    if (!seg) return DEFAULT_ZOOM
-    const L = segLayout[src!.index]
-    return zoomAt(seg.zoom ?? DEFAULT_ZOOM, seg.motion, currentTime - (L?.tStart ?? 0))
-  })()
-  // 再生ヘッド位置の切片のクロップ。編集/プレビュー対象。
-  const curSegCrop = (() => {
-    const src = tToSource(segLayout, currentTime)
-    return (src ? segments[src.index]?.crop : undefined) ?? DEFAULT_CROP
-  })()
-  const curCropInset = cropInset(curSegCrop)
-  // リフレーム枠（プレビューの拡大/移動/回転）の操作対象。
-  // 画像を1つ選択中なら画像、そうでなければ再生ヘッド位置の動画切片を対象にする。
-  // ＝「画像を選んだのに動画が拡大される」を防ぐ。
-  // リフレーム（拡大/パン/回転）の操作対象。動画切片・画像・映像レイヤーのどれか1つ。
-  const reframeTarget: ReframeTarget | null = (() => {
-    // 映像レイヤーを1つ選択中ならそれを最優先（画像より手前の操作対象）
-    const vc =
-      selectedVClipIds.length === 1
-        ? vClips.find((c) => c.id === selectedVClipIds[0])
-        : undefined
-    if (vc)
-      return {
-        kind: 'vclip' as const,
-        id: vc.id,
-        zoom: vc.zoom ?? DEFAULT_ZOOM,
-        rotate: vc.rotate ?? 0,
-        track: vc.track,
-        name: vc.name,
-        motion: vc.motion,
-        tStart: vc.tStart,
-        len: vcLen(vc)
-      }
-    const img =
-      selectedImgIds.length === 1 ? imgClips.find((c) => c.id === selectedImgIds[0]) : undefined
-    if (img)
-      return {
-        kind: 'img' as const,
-        id: img.id,
-        zoom: img.zoom ?? DEFAULT_ZOOM,
-        rotate: img.rotate ?? 0,
-        track: img.track,
-        name: img.name,
-        motion: img.motion,
-        tStart: img.tStart,
-        len: img.duration
-      }
-    // 選択している切片を優先する（画像・映像レイヤーは選択から取っているのに、
-    // 動画切片だけ再生ヘッド位置から取っていたため、3番目の切片を選んで枠を
-    // ドラッグすると再生ヘッドのある1番目が拡大されていた）。
-    // 選択が無いときだけ従来どおり再生ヘッド位置の切片を対象にする。
-    const selL = selectedVideoIds.length
-      ? segLayout.find((l) => selectedVideoIds.includes(l.seg.id))
-      : undefined
-    const src = tToSource(segLayout, currentTime)
-    const L = selL ?? (src ? segLayout[src.index] : undefined)
-    const seg = L?.seg
-    if (!seg) return null
-    return {
-      kind: 'video' as const,
-      id: seg.id,
-      zoom: seg.zoom ?? DEFAULT_ZOOM,
-      rotate: seg.rotate ?? 0,
-      track: 'V1',
-      name: srcOfSeg(seg)?.name ?? videoName ?? '動画',
-      motion: seg.motion,
-      tStart: L!.tStart,
-      len: L!.len
-    }
-  })()
-  const reframeTargetRef = useRef(reframeTarget)
-  reframeTargetRef.current = reframeTarget
+  // 再生ヘッドの位置の見た目と、リフレーム枠の相手は state/useCurrentLook
+  const {
+    effActiveSrcId, curBlank, curAdjustCss, curSegZoom, curSegCrop, curCropInset,
+    reframeTarget, reframeTargetRef
+  } = useCurrentLook({
+    segLayout, segments, currentTime, previewSources, activeSrcId,
+    selectedVideoIds, selectedImgIds, selectedVClipIds,
+    imgClips, vClips, vcLen, srcOfSeg, videoName
+  })
   // プレビューに出す「いまの絵」の組み立て（回転・拡大・つなぎ目の演出）は
   // state/usePreviewFrame
   const {
@@ -1874,69 +1795,9 @@ function AppInner(): JSX.Element {
     return () => window.clearTimeout(t)
   }, [videoPath, videoDuration])
 
-  // 素材のドラッグはウィンドウ全体で受け取る。
-  //
-  // 以前はアプリのルート div にだけ付けていたが、ウィンドウの最下部に div の外側の
-  // 帯が数px あり、そこだけ受け皿が無くて 🚫（駐禁）が出ていた。1pxでも取りこぼすと
-  // 「置けない場所」に見えるので、window で受けきる。
-  // 最新の state を見る必要があるので、実体は毎レンダー ref に入れ替える。
-  const winDragRef = useRef({
-    enter: (_e: DragEvent): void => {},
-    over: (_e: DragEvent): void => {},
-    drop: (_e: DragEvent): void => {},
-    end: (): void => {}
-  })
-  winDragRef.current = {
-    // 要素をまたぐ瞬間に飛ぶ。dragover だけ受けて dragenter を受けないと、
-    // またいだ一瞬だけ 🚫 が出る（段から段へ動かすとチラチラする原因）。
-    // HTML5 のドラッグは両方で受け入れを宣言して初めて「置ける」扱いになる。
-    enter: (e) => {
-      if (!draggingMediaRef.current) return
-      e.preventDefault()
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
-    },
-    over: (e) => {
-      const m = draggingMediaRef.current
-      if (!m) return
-      e.preventDefault()
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
-      // タイムラインの外にいても、置き先の影を出し続ける
-      updateDropGhost(m, e.clientX, e.clientY, e.ctrlKey, e.target)
-    },
-    drop: (e) => {
-      const m = draggingMediaRef.current
-      if (!m) return
-      // タイムライン・プレビュー・ビンなど、ちゃんとした受け皿が処理した場合は
-      // そちらが preventDefault 済み。二重に置かないよう、ここでは影を消すだけ。
-      if (e.defaultPrevented) {
-        clearDropGhosts()
-        return
-      }
-      e.preventDefault()
-      clearDropGhosts()
-      // 左右のパネル（素材ビン・テロップ一覧など）の中で離したのは「やめた」扱い。
-      // ビンから掴んで同じビンへ戻しただけでタイムラインに置かれると事故になる。
-      if ((e.target as HTMLElement | null)?.closest?.('.panel:not(.monitor)')) return
-      dropMediaNearest(m, e.clientX, e.clientY)
-    },
-    end: () => clearDropGhosts()
-  }
-  useEffect(() => {
-    const enter = (e: DragEvent): void => winDragRef.current.enter(e)
-    const over = (e: DragEvent): void => winDragRef.current.over(e)
-    const drop = (e: DragEvent): void => winDragRef.current.drop(e)
-    const end = (): void => winDragRef.current.end()
-    window.addEventListener('dragenter', enter)
-    window.addEventListener('dragover', over)
-    window.addEventListener('drop', drop)
-    window.addEventListener('dragend', end)
-    return () => {
-      window.removeEventListener('dragenter', enter)
-      window.removeEventListener('dragover', over)
-      window.removeEventListener('drop', drop)
-      window.removeEventListener('dragend', end)
-    }
-  }, [])
+  // 素材のドラッグはウィンドウ全体で受け取る（1pxでも取りこぼすと駐禁が出る）。
+  // 実体と理由は state/useWindowDrop
+  useWindowDrop({ draggingMediaRef, updateDropGhost, clearDropGhosts, dropMediaNearest })
 
 
   // ホイール: 素=横スクロール / Shift=縦スクロール / Ctrl・Alt=カーソル位置を中心にズーム
