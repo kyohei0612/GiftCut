@@ -164,6 +164,7 @@ import { useTransitions } from './state/useTransitions'
 import { useMotion } from './state/useMotion'
 import { useTimelineEdit } from './state/useTimelineEdit'
 import { useTracksAdmin } from './state/useTracksAdmin'
+import { useMediaDrop } from './state/useMediaDrop'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -810,36 +811,6 @@ function AppInner(): JSX.Element {
   const metaInFlightRef = useRef<Set<string>>(new Set())
   // サムネを作った（作りかけの）ファイル。同じものを何度も作らないため。
   const thumbDoneRef = useRef<Set<string>>(new Set())
-  // 素材の尺と波形を用意する（動画・音声のみ。取り込み時に呼ぶ）
-  function prepareMediaMeta(path: string, kind: 'video' | 'audio' | 'image'): void {
-    if (kind === 'image') return
-    if (mediaMetaRef.current[path]?.wave) return // 既に解析済み
-    if (metaInFlightRef.current.has(path)) return // 解析中（波形解析は全長デコードで重い）
-    metaInFlightRef.current.add(path)
-    // 波形は全長デコードで重い。同時に走る数を絞らないと、素材が多いほど
-    // 開いた直後にアプリ全体が止まる（2000件で69秒かかっていた）。
-    mediaQueue(() =>
-      window.giftcut.getDuration(path).then((r) => {
-        if (r?.ok && r.duration)
-          setMediaMeta((prev) => ({ ...prev, [path]: { ...prev[path], dur: r.duration } }))
-      })
-    )
-    mediaQueue(() =>
-      window.giftcut
-      .generateWaveform(path)
-      .then((r) => {
-        if (r?.ok && r.min && r.max)
-          setMediaMeta((prev) => ({
-            ...prev,
-            [path]: {
-              ...prev[path],
-              wave: { min: r.min as number[], max: r.max as number[], dur: r.duration ?? 0 }
-            }
-          }))
-      })
-        .finally(() => metaInFlightRef.current.delete(path))
-    )
-  }
   const draggingMediaRef = useRef<MediaItem | null>(null)
   const dragSeDurRef = useRef(2) // ドラッグ中SEの尺（ゴースト幅用。dragStartでgetDurationして更新）
   // タイムラインへSE配置中の半透明ゴースト（プレミア風に配置位置を可視化）
@@ -852,25 +823,6 @@ function AppInner(): JSX.Element {
   // state だと onUp のクロージャが古い値を見るので ref で持つ。
   const segMoveToRef = useRef<number | null>(null)
   const segDropModeRef = useRef<SegDropMode>('move')
-  // メディアのドラッグ開始時に尺を取得しておく（ゴーストの幅＆配置時の再利用）
-  function beginMediaDrag(m: MediaItem, e: React.DragEvent): void {
-    // カーソルに付く既定のドラッグ画像を透明化（位置はタイムラインのゴーストで示す）
-    if (EMPTY_DRAG_IMG) e.dataTransfer.setDragImage(EMPTY_DRAG_IMG, 0, 0)
-    // 許可する操作を宣言しておく。これが無いと、受け取る側で「コピー」と言っても
-    // ブラウザ側が弾いて 🚫（駐禁）カーソルに戻ってしまう。
-    e.dataTransfer.effectAllowed = 'copy'
-    draggingMediaRef.current = m
-    // 取り込み時に用意した尺があれば即使う（無ければ既定値→getDurationで後追い）
-    const known = mediaMetaRef.current[m.path]?.dur
-    dragSeDurRef.current = m.kind === 'image' ? 5 : known && known > 0 ? known : 2
-    if (m.kind === 'audio' || m.kind === 'video') {
-      void window.giftcut.getDuration(m.path).then((d) => {
-        if (d?.ok && d.duration && draggingMediaRef.current?.path === m.path) {
-          dragSeDurRef.current = d.duration
-        }
-      })
-    }
-  }
 
   // ---- SE クリップ（A2 トラックに配置した効果音）----
   const seAudioRefs = useRef<Map<number, HTMLAudioElement>>(new Map())
@@ -895,64 +847,6 @@ function AppInner(): JSX.Element {
     return fn
   }
 
-  // ---- 画像クリップ（V2/V3等の映像トラックに置く静止画。プレミアの画像配置に相当）----
-  function placeImage(m: MediaItem, t: number, track: string): void {
-    if (trackStates[track]?.locked) {
-      showToast('このトラックはロックされています。')
-      return
-    }
-    const id = imgIdCounter.current++
-    setImgClips((prev) => [
-      ...prev,
-      { id, path: m.path, name: m.name, tStart: Math.max(0, t), duration: 5, track }
-    ])
-    setSelectedImgIds([id])
-  }
-  function deleteSelectedImg(): void {
-    if (!selectedImgIds.length) return
-    // ロック中トラックの画像は残す
-    setImgClips((prev) =>
-      prev.filter((c) => !selectedImgIds.includes(c.id) || trackStates[c.track]?.locked)
-    )
-    setSelectedImgIds([])
-  }
-  // 映像レイヤーのCSS transform（回転/反転＋ズーム）。
-  // localT はクリップの先頭からの秒。動きが付いていればその瞬間のズームになる
-  // （印が無ければ zoomAt は固定値をそのまま返すので、今までと同じ絵）。
-  function vcXform(
-    c: {
-      rotate?: number
-      flipH?: boolean
-      flipV?: boolean
-      zoom?: { scale: number; x: number; y: number }
-      motion?: ClipMotion
-    },
-    localT = 0
-  ): string | undefined {
-    const parts: string[] = []
-    if (c.rotate) parts.push(`rotate(${c.rotate}deg)`)
-    if (c.flipH) parts.push('scaleX(-1)')
-    if (c.flipV) parts.push('scaleY(-1)')
-    const z = zoomAt(c.zoom, c.motion, localT)
-    if (!isNeutralZoom(z))
-      parts.push(
-        `translate(${(z.x * 100).toFixed(3)}%, ${(z.y * 100).toFixed(3)}%) scale(${z.scale.toFixed(4)})`
-      )
-    return parts.length ? parts.join(' ') : undefined
-  }
-  // 画像のCSS transform（回転/反転＋ズーム）。動画切片と同じ合成順。
-  function imgXform(c: ImgClip, localT = 0): string | undefined {
-    const parts: string[] = []
-    if (c.rotate) parts.push(`rotate(${c.rotate}deg)`)
-    if (c.flipH) parts.push('scaleX(-1)')
-    if (c.flipV) parts.push('scaleY(-1)')
-    const z = zoomAt(c.zoom, c.motion, localT)
-    if (!isNeutralZoom(z))
-      parts.push(
-        `translate(${(z.x * 100).toFixed(3)}%, ${(z.y * 100).toFixed(3)}%) scale(${z.scale.toFixed(4)})`
-      )
-    return parts.length ? parts.join(' ') : undefined
-  }
 
   // ---- 映像レイヤークリップ（V2以降に置く動画。ピクチャーインピクチャー／差し込み用）----
   // V1 の「切片(VSeg)」は隙間なく連結するリップル方式だが、こちらは絶対位置に置く独立クリップ。
@@ -983,50 +877,6 @@ function AppInner(): JSX.Element {
    * 一番近い位置に置く。どこも受け取らずに掴んだものが消えるのを防ぐための最終受け皿。
    */
   /**
-   * ドラッグ中の「ここに置きます」の影を更新する。
-   *
-   * タイムラインの外へカーソルが出ても出し続ける。消してしまうと、少し外れた
-   * だけで行き先が分からなくなり、置けないのか場所が悪いのか判断できない。
-   * 位置はタイムラインの表示範囲へ丸めるので、外にいても一番近い場所を指す。
-   */
-  function updateDropGhost(
-    m: MediaItem,
-    clientX: number,
-    clientY: number,
-    insert: boolean,
-    target?: EventTarget | null
-  ): void {
-    const inner = trackInnerRef.current
-    const scroll = scrollRef.current
-    if (!inner || !scroll) return
-    const rect = inner.getBoundingClientRect()
-    const view = scroll.getBoundingClientRect()
-    const raw = Math.max(0, (clamp(clientX, view.left, view.right) - rect.left) / zoomRef.current)
-    const t = snapClipStart(raw, dragSeDurRef.current)
-    const yRel = clamp(clientY, view.top, view.bottom) - rect.top
-    const dur = dragSeDurRef.current
-    if (m.kind === 'audio') {
-      setSeGhost({ t, name: m.name, dur, track: dropLaneAt(yRel, 'audio', true) ?? 'A2', path: m.path })
-      setVideoGhost(null)
-      setImgGhost(null)
-    } else if (m.kind === 'video') {
-      setVideoGhost({ t, name: m.name, dur, insert, path: m.path, track: videoDropLane({ target: target ?? null }, yRel) })
-      setSeGhost(null)
-      setImgGhost(null)
-    } else {
-      setImgGhost({ t, name: m.name, dur, track: fallbackTrack(dropLaneAt(yRel, 'video', true) ?? 'V3', 'video') })
-      setSeGhost(null)
-      setVideoGhost(null)
-    }
-  }
-  /** ドラッグが終わったら影を全部消す */
-  function clearDropGhosts(): void {
-    setSeGhost(null)
-    setVideoGhost(null)
-    setImgGhost(null)
-    setSnapLineX(null)
-  }
-  /**
    * 素材を**再生ヘッドの位置へ置く**（ダブルクリック用）。
    *
    * 置く場所をマウスで指す必要があるのはドラッグだけで、
@@ -1035,197 +885,8 @@ function AppInner(): JSX.Element {
    * どのレーンに載せるかは、ドラッグで何も指さなかったときと同じ既定に合わせる。
    */
 
-  function dropMediaNearest(m: MediaItem, clientX: number, clientY: number): void {
-    const inner = trackInnerRef.current
-    const scroll = scrollRef.current
-    if (!inner || !scroll) return
-    const rect = inner.getBoundingClientRect()
-    const view = scroll.getBoundingClientRect()
-    // タイムラインの表示範囲へ丸めてから秒とレーンに直す（外に出ていても端に寄る）
-    const raw = Math.max(0, (clamp(clientX, view.left, view.right) - rect.left) / zoomRef.current)
-    const t = snapClipStart(raw, dragSeDurRef.current)
-    const yRel = clamp(clientY, view.top, view.bottom) - rect.top
-    if (m.kind === 'video') {
-      const vt = dropLaneAt(yRel, 'video') ?? 'V1'
-      if (vt !== 'V1') void placeVClip(m, t, vt)
-      else void placeVideoAtDrop(m.path, t, false)
-    } else if (m.kind === 'audio') {
-      void placeSE(m, t, dropLaneAt(yRel, 'audio', true) ?? 'A2')
-    } else {
-      placeImage(m, t, fallbackTrack(dropLaneAt(yRel, 'video', true) ?? 'V3', 'video'))
-    }
-  }
-  function videoDropLane(e: { target: EventTarget | null }, yRel?: number): string {
-    const tid = trackFromEvent(e, 'video')
-    if (tid) return tid
-    if (yRel !== undefined) {
-      const near = dropLaneAt(yRel, 'video')
-      if (near) return near
-    }
-    const vMax = Math.max(1, ...tracks.filter((t) => t.kind === 'video').map((t) => trackNum(t.id)))
-    return 'V' + (vMax + 1)
-  }
-  // 映像レイヤーに動画クリップを置く
-  async function placeVClip(m: MediaItem, t: number, track: string): Promise<void> {
-    if (trackStates[track]?.locked) {
-      showToast('このトラックはロックされています。')
-      return
-    }
-    const known = mediaMetaRef.current[m.path]?.dur
-    let dur = known && known > 0 ? known : 0
-    if (!dur) {
-      const d = await window.giftcut.getDuration(m.path)
-      dur = d?.ok && d.duration ? d.duration : 0
-    }
-    if (dur <= 0) {
-      showToast('動画の長さを取得できませんでした。', 'error')
-      return
-    }
-    const vTrack = reserveTrackPairForVideo(track)
-    const id = vClipIdCounter.current++
-    setVClips((prev) => [
-      ...prev,
-      {
-        id,
-        path: m.path,
-        name: m.name,
-        track: vTrack,
-        tStart: Math.max(0, t),
-        srcStart: 0,
-        srcEnd: dur,
-        srcDur: dur
-      }
-    ])
-    setSelectedVClipIds([id])
-    prepareMediaMeta(m.path, 'video')
-    showToast(vTrack + ' に配置しました（音声は ' + pairedAudioOf(vTrack) + ' に連動）。', 'success')
-  }
-  function deleteSelectedVClip(): void {
-    if (!selectedVClipIds.length) return
-    setVClips((prev) =>
-      prev.filter((c) => !selectedVClipIds.includes(c.id) || trackStates[c.track]?.locked)
-    )
-    setSelectedVClipIds([])
-  }
-  // クリップ内ローカル秒 t における音声フェード係数
-  // フェード計算は shared/timeline の fadeGain に集約（音声フェードの実装を1つに保つ）
-  function vcFadeGain(c: VClip, t: number): number {
-    return fadeGain(t, vcLen(c), c.afadeIn, c.afadeOut)
-  }
 
 
-  async function placeSE(m: MediaItem, t: number, track = 'A2'): Promise<void> {
-    if (trackStates[track]?.locked) {
-      showToast('このトラックはロックされています。')
-      return
-    }
-    const d = await window.giftcut.getDuration(m.path)
-    const dur = d?.ok && d.duration ? d.duration : 3
-    const id = seIdCounter.current++
-    setSeClips((prev) => [
-      ...prev,
-      {
-        id,
-        path: m.path,
-        name: m.name,
-        tStart: Math.max(0, t),
-        duration: dur,
-        volume: 1,
-        fadeIn: 0,
-        fadeOut: 0,
-        track,
-        srcOffset: 0,
-        srcDur: dur
-      }
-    ])
-    setSelectedSeIds([id])
-  }
-  // 音声ファイルを追加：ファイル選択→A3トラックの再生ヘッド位置に配置（BGM等）。
-  // BGM を置く音声トラックを決める。テロップと同じ考え方で、再生ヘッド位置が
-  // 空いている一番上（A2 に近い側）から順に探し、無ければ1段下に作る。
-  // 以前は A3 決め打ちだったため、V3 に映像レイヤーを置いて A3 がその音声で
-  // 埋まっていても、♪＋ ボタンが A3 に BGM を重ねていた。
-  function trackForNewBgm(t: number): string {
-    // 映像レイヤーの音声で予約済みのトラックは避ける（V{n} と対になっている）
-    const reservedByVideo = new Set(vClips.map((c) => 'A' + trackNum(c.track)))
-    const cands = tracks
-      .filter(
-        (tr) =>
-          tr.kind === 'audio' &&
-          tr.id !== 'A1' &&
-          !trackStates[tr.id]?.locked &&
-          !reservedByVideo.has(tr.id)
-      )
-      .sort((a, b) => trackNum(a.id) - trackNum(b.id))
-    const busy = (id: string): boolean =>
-      seClips.some((c) => c.track === id && c.tStart < t + 1 && c.tStart + c.duration > t)
-    const free = cands.find((tr) => !busy(tr.id))
-    if (free) return free.id
-    const maxNum = Math.max(
-      1,
-      ...tracks.filter((x) => x.kind === 'audio').map((x) => trackNum(x.id))
-    )
-    const id = 'A' + (maxNum + 1)
-    setTracks((prev) =>
-      prev.some((x) => x.id === id)
-        ? prev
-        : insertTrackOrdered(prev, { id, name: id, kind: 'audio' })
-    )
-    setTrackStates((prev) => (prev[id] ? prev : { ...prev, [id]: newTrackState(id) }))
-    return id
-  }
-  async function addBgm(): Promise<void> {
-    const res = await window.giftcut.addMedia()
-    if (!res?.paths?.length) return
-    const track = trackForNewBgm(currentTimeRef.current)
-    for (const p of res.paths) {
-      const name = p.split(/[\\/]/).pop() ?? '音声'
-      await placeSE({ id: -1, path: p, name, kind: 'audio' }, currentTimeRef.current, track)
-    }
-    if (track !== EXTRA_AUDIO_TRACK) showToast(track + ' に追加しました。')
-  }
-  // SEクリップ内ローカル秒 t におけるフェード係数(0-1)。頭 fadeIn / 尻 fadeOut を線形。
-  function seFadeGain(clip: SEClip, t: number): number {
-    let g = 1
-    if (clip.fadeIn > 0 && t < clip.fadeIn) g = Math.min(g, t / clip.fadeIn)
-    const outStart = clip.duration - clip.fadeOut
-    if (clip.fadeOut > 0 && t > outStart) g = Math.min(g, (clip.duration - t) / clip.fadeOut)
-    return clamp(g, 0, 1)
-  }
-  function removeMedia(id: number): void {
-    const m = mediaItems.find((x) => x.id === id)
-    // タイムラインで使っている素材は消せない（消すとビンから見えないのに再生され続けて混乱する）。
-    // 「使用中」の基準はクリップが残っているかどうか。元動画としての登録は、切片を
-    // 全部消したあとも主ソースとして残るので、それを見ていると
-    // 「タイムラインは空なのにビンから消せない」という手詰まりになる。
-    if (m) {
-      const refs = {
-        sources: sourcesRef.current,
-        segments: segsRef.current,
-        seClips: seClipsRef.current,
-        imgClips: imgClipsRef.current,
-        vClips: vClipsRef.current
-      }
-      if (mediaInUse(m.path, refs)) {
-        showToast('この素材はタイムラインで使用中です。先にクリップを削除してください。')
-        return
-      }
-      // 誰も使っていない元動画の登録も一緒に片付ける。残すと、見えない <video> が
-      // プロキシを読み続け、書き出しの入力にも無駄に載る。
-      const stale = staleSourceIds(m.path, refs)
-      if (stale.length) setSources((prev) => prev.filter((s) => !stale.includes(s.id)))
-      // 消した素材をプレビューが映したままにしない（ビンに無い動画が出続ける）
-      if (videoPath === m.path) {
-        setVideoPath(null)
-        setVideoSrc(null)
-        setVideoName(null)
-        setVideoDuration(0)
-        setThumbnailSrc(null)
-      }
-    }
-    setMediaItems((prev) => prev.filter((x) => x.id !== id))
-    if (selectedMediaId === id) setSelectedMediaId(null)
-  }
   // 再生中のソースの <video>（マルチソースでは切替時に付け替える。要素自体は破棄しない）
   const videoRef = useRef<HTMLVideoElement | null>(null)
   // ソースID → <video> 要素。ソースごとに要素を常設し、src差し替えによる再ロード＝黒ちらつきを防ぐ
@@ -5204,6 +4865,19 @@ function AppInner(): JSX.Element {
 
   // マグネット（吸着）は state/useSnap
   const { snapTargets, snapTime, snapClipStart } = useSnap({ snap, segLayoutRef, setSnapLineX })
+
+  // 素材を掴んで落とす（どの段の、どこへ置くか）は state/useMediaDrop
+  const {
+    prepareMediaMeta, beginMediaDrag, placeImage, deleteSelectedImg, vcXform, imgXform,
+    updateDropGhost, clearDropGhosts, dropMediaNearest, videoDropLane, placeVClip,
+    deleteSelectedVClip, vcFadeGain, placeSE, trackForNewBgm, addBgm, seFadeGain, removeMedia
+  } = useMediaDrop({
+    EMPTY_DRAG_IMG, EXTRA_AUDIO_TRACK, dragSeDurRef, draggingMediaRef, dropLaneAt,
+    fallbackTrack, insertTrackOrdered, mediaInUse, mediaMetaRef, mediaQueue,
+    metaInFlightRef, pairedAudioOf, placeVideoAtDrop, reserveTrackPairForVideo,
+    scrollRef, trackInnerRef, snapClipStart, staleSourceIds, trackFromEvent, trackNum,
+    vcLen, setMediaMeta, setImgGhost, setSeGhost, setVideoGhost, setSnapLineX
+  })
 
   // 見ている場所を動かす（寄る・引く・連れてくる）は state/useViewNav
   const { zoomAroundPlayhead, revealPlayhead, seekAndReveal, fitTimelineZoom, scrubFromClientX } =
