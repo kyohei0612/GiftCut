@@ -15,6 +15,7 @@
 // 閉じ忘れると、次にどこかを押したとき「まだ開いている品書き」に取られる。
 // 各項目の最後で必ず閉じること。
 
+import { useMenus } from '../state/menusContext'
 import type { JSX } from 'react'
 import { ContextMenu } from './ContextMenu'
 import { TabSortList } from './PanelChrome'
@@ -87,7 +88,8 @@ export interface AppMenusProps {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export function AppMenus(p: AppMenusProps): JSX.Element {
+export function AppMenus(): JSX.Element {
+  // **受け取らず、心臓から自分で見に行く**（区画と同じ流儀）
   const {
     menu, setMenu, clipMenu, setClipMenu, tabMenu, setTabMenu, tabOverflow, setTabOverflow,
     tplMenu, setTplMenu, orgMenu, setOrgMenu, clampMenu, PANE_LABEL, TAB_DEFS, orderedTabs,
@@ -98,7 +100,7 @@ export function AppMenus(p: AppMenusProps): JSX.Element {
     duplicateClipsFromMenu, splitVideoAtPlayhead, toggleBlankSelectedVideo, findSilences,
     silenceCut, setDuckOpen, copySelected, copyAttributes, pasteAttributes, copiedAttrs,
     attrSummary, shortcuts
-  } = p
+  } = useMenus()
   const { cues, seClips, setSeClips } = useDoc()
   const { isSelected, selectedIds } = useSel()
   return (

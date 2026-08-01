@@ -15,6 +15,7 @@
 //
 // どちらも「書き出しの結果が変わる」設定なので、作業中に触る物とは離してある。
 
+import { useHeader } from '../../state/headerContext'
 import type { JSX } from 'react'
 import { MenuBar } from '../MenuBar'
 import { formatCombo } from '../../../../shared/shortcuts'
@@ -28,14 +29,15 @@ export interface AppHeaderProps {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export function AppHeader(p: AppHeaderProps): JSX.Element {
+export function AppHeader(): JSX.Element {
+  // **受け取らず、心臓から自分で見に行く**（区画・品書きと同じ流儀）
   const {
     updateState, setUpdateState, fileMenuOpen, setFileMenuOpen, shortcuts, appVersion,
     unsaved, saveProjectFn, openProjectFn, packProjectFn, openPackFn, saveAsTemplateFn,
     openTemplateFn, handleAppendVideo, handleReplaceVideo, handleImportSrt, exportSrtFn,
     importMotionPresets, refreshSE, refreshPresets, refreshMotionPresets, setPrefsOpen,
     setSubtitleOpen, openExportDialog, addTelop, changeRatio, projectPath
-  } = p
+  } = useHeader()
   const { showToast } = useToastCtx()
   const { ratio, loudnormLUFS, setLoudnormLUFS } = useExportCtx()
   const { recentProjects } = useProjectStateCtx()

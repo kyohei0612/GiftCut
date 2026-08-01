@@ -132,6 +132,8 @@ import { kindOf, useSegOps } from './state/useSegOps'
 import { useNowShowing } from './state/useNowShowing'
 import { LeftPanelProvider, type LeftPanelValue } from './state/leftPanelContext'
 import { Workspace } from './components/panels/Workspace'
+import { MenusProvider, type MenusValue } from './state/menusContext'
+import { HeaderProvider, type HeaderValue } from './state/headerContext'
 import { useTimelineWheel } from './state/useTimelineWheel'
 import { useDismissOnOutside } from './state/useDismissOnOutside'
 
@@ -1439,6 +1441,27 @@ function AppInner(): JSX.Element {
   }
 
   // 覆い（ダイアログ）まわり。中身は state/dialogsContext.tsx
+  // 右クリックの品書きが要る物（区画と同じ流儀で心臓へ）
+  // 画面のいちばん上が要る物（区画・品書きと同じ流儀で心臓へ）
+  const header: HeaderValue = {
+    updateState, setUpdateState, fileMenuOpen, setFileMenuOpen, shortcuts, appVersion, unsaved,
+    saveProjectFn, openProjectFn, packProjectFn, openPackFn, saveAsTemplateFn, openTemplateFn,
+    handleAppendVideo, handleReplaceVideo, handleImportSrt, exportSrtFn, importMotionPresets,
+    refreshSE, refreshPresets, refreshMotionPresets, setPrefsOpen, setSubtitleOpen,
+    openExportDialog, addTelop, changeRatio, projectPath
+  }
+
+  const menus: MenusValue = {
+    menu, setMenu, clipMenu, setClipMenu, tabMenu, setTabMenu, tabOverflow, setTabOverflow,
+    tplMenu, setTplMenu, orgMenu, setOrgMenu, clampMenu, PANE_LABEL, TAB_DEFS, orderedTabs,
+    pickTab, setTabOrder, isPopped, popPane, unpopPane, monitorTab, rightTab, allCats, customCats,
+    setTplCat, isFav, toggleFav, setLabelFor, selectByLabel, setClipLabel, deleteSelected,
+    rippleDeleteSelected, deleteSelectedSE, deleteSelectedImg, deleteSelectedVClip,
+    deleteVideoSegmentsLeavingGap, rippleDeleteVideoSegments, duplicateClipsFromMenu,
+    splitVideoAtPlayhead, toggleBlankSelectedVideo, findSilences, silenceCut, setDuckOpen,
+    copySelected, copyAttributes, pasteAttributes, copiedAttrs, attrSummary, shortcuts
+  }
+
 const dialogs: DialogsValue = {
     silenceCut, perfStopped, templatePicker, setTemplatePicker, cropSrc, setShowExportDialog,
     exportStatus, restorePrompt, setRestorePrompt, silenceCuts, findSilences, shortcuts,
@@ -1458,6 +1481,8 @@ const dialogs: DialogsValue = {
     <PreviewProvider value={previewCtx}>
     <LeftPanelProvider value={leftPanel}>
     <RightPanelProvider value={rightPanel}>
+    <HeaderProvider value={header}>
+    <MenusProvider value={menus}>
     <DialogsProvider value={dialogs}>
     <div
       className="app"
@@ -1465,21 +1490,7 @@ const dialogs: DialogsValue = {
       // 受け付けない場所があると、そこだけ 🚫（駐禁）が出て「置けない場所」に見える。
     >
       {/* 画面のいちばん上（更新の帯とメニューバー）は components/panels/AppHeader.tsx */}
-      <AppHeader
-        updateState={updateState} setUpdateState={setUpdateState}
-        fileMenuOpen={fileMenuOpen} setFileMenuOpen={setFileMenuOpen}
-        shortcuts={shortcuts} appVersion={appVersion} unsaved={unsaved}
-        saveProjectFn={saveProjectFn} openProjectFn={openProjectFn}
-        packProjectFn={packProjectFn} openPackFn={openPackFn}
-        saveAsTemplateFn={saveAsTemplateFn} openTemplateFn={openTemplateFn}
-        handleAppendVideo={handleAppendVideo} handleReplaceVideo={handleReplaceVideo}
-        handleImportSrt={handleImportSrt} exportSrtFn={exportSrtFn}
-        importMotionPresets={importMotionPresets} refreshSE={refreshSE}
-        refreshPresets={refreshPresets} refreshMotionPresets={refreshMotionPresets}
-        setPrefsOpen={setPrefsOpen} setSubtitleOpen={setSubtitleOpen}
-        openExportDialog={openExportDialog} addTelop={addTelop}
-        changeRatio={changeRatio} projectPath={projectPath}
-      />
+      <AppHeader />
 
       {/* 作業する所（左・プレビュー・右・タイムライン）の並べ方は
           components/panels/Workspace.tsx。中身は各区画が心臓から自分で見に行く */}
@@ -1527,31 +1538,11 @@ const dialogs: DialogsValue = {
 
       {/* 右クリックで出る品書き（何を並べるか）は components/AppMenus.tsx。
           出す入れ物そのものは components/ContextMenu.tsx に1つだけ置いてある。 */}
-      <AppMenus
-        menu={menu} setMenu={setMenu} clipMenu={clipMenu} setClipMenu={setClipMenu}
-        tabMenu={tabMenu} setTabMenu={setTabMenu} tabOverflow={tabOverflow}
-        setTabOverflow={setTabOverflow} tplMenu={tplMenu} setTplMenu={setTplMenu}
-        orgMenu={orgMenu} setOrgMenu={setOrgMenu} clampMenu={clampMenu}
-        PANE_LABEL={PANE_LABEL} TAB_DEFS={TAB_DEFS} orderedTabs={orderedTabs}
-        pickTab={pickTab} setTabOrder={setTabOrder} isPopped={isPopped} popPane={popPane}
-        unpopPane={unpopPane} monitorTab={monitorTab} rightTab={rightTab}
-        allCats={allCats} customCats={customCats} setTplCat={setTplCat}
-        isFav={isFav} toggleFav={toggleFav} setLabelFor={setLabelFor}
-        selectByLabel={selectByLabel} setClipLabel={setClipLabel}
-        deleteSelected={deleteSelected} rippleDeleteSelected={rippleDeleteSelected}
-        deleteSelectedSE={deleteSelectedSE} deleteSelectedImg={deleteSelectedImg}
-        deleteSelectedVClip={deleteSelectedVClip}
-        deleteVideoSegmentsLeavingGap={deleteVideoSegmentsLeavingGap}
-        rippleDeleteVideoSegments={rippleDeleteVideoSegments}
-        duplicateClipsFromMenu={duplicateClipsFromMenu}
-        splitVideoAtPlayhead={splitVideoAtPlayhead}
-        toggleBlankSelectedVideo={toggleBlankSelectedVideo} findSilences={findSilences}
-        silenceCut={silenceCut} setDuckOpen={setDuckOpen} copySelected={copySelected}
-        copyAttributes={copyAttributes} pasteAttributes={pasteAttributes}
-        copiedAttrs={copiedAttrs} attrSummary={attrSummary} shortcuts={shortcuts}
-      />
+      <AppMenus />
     </div>
     </DialogsProvider>
+    </MenusProvider>
+    </HeaderProvider>
     </RightPanelProvider>
     </LeftPanelProvider>
     </PreviewProvider>
