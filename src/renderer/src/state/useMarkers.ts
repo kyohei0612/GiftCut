@@ -22,6 +22,7 @@ import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { usePlaybackCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
+import { useDragPreviewCtx } from './dragPreviewContext'
 
 export interface UseMarkersDeps {
   stopPlayback: () => void
@@ -30,7 +31,6 @@ export interface UseMarkersDeps {
   seekAndReveal: (t: number) => void
   /** カット点・クリップ端への吸着 */
   snapTime: (t: number) => number
-  setDragTip: (v: { x: number; y: number; text: string } | null) => void
 }
 
 export interface Markers {
@@ -41,7 +41,7 @@ export interface Markers {
 }
 
 export function useMarkers(deps: UseMarkersDeps): Markers {
-  const { stopPlayback, seekTo, seekAndReveal, snapTime, setDragTip } = deps
+  const { stopPlayback, seekTo, seekAndReveal, snapTime } = deps
   const { markers, setMarkers, markerIdCounter } = useDoc()
   const {
     selectedMarkerId, setSelectedMarkerId, editingMarkerId, setEditingMarkerId,
@@ -49,6 +49,7 @@ export function useMarkers(deps: UseMarkersDeps): Markers {
   } = useSel()
   const { currentTimeRef, fpsRef } = usePlaybackCtx()
   const { zoomRef } = useViewCtx()
+  const { setDragTip } = useDragPreviewCtx()
 
   function addMarkerAtPlayhead(): void {
     const t = currentTimeRef.current

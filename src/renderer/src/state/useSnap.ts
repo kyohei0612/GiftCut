@@ -25,12 +25,11 @@ import type { SegLayout } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
 import { usePlaybackCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
+import { useDragPreviewCtx } from './dragPreviewContext'
 
 export interface UseSnapDeps {
   /** マグネットが入っているか */
   snap: boolean
-  /** 吸い付いた所に出す縦線。useDragPreview は心臓（context）ではないので受け取る */
-  setSnapLineX: (x: number | null) => void
   /** 切片の位置。掴んでいる最中に読むので ref */
   segLayoutRef: React.MutableRefObject<SegLayout[]>
 }
@@ -62,10 +61,11 @@ export interface Snap {
 }
 
 export function useSnap(deps: UseSnapDeps): Snap {
-  const { snap, segLayoutRef, setSnapLineX } = deps
+  const { snap, segLayoutRef } = deps
   const { cues, seClipsRef, imgClipsRef, vClipsRef, markersRef } = useDoc()
   const { currentTimeRef } = usePlaybackCtx()
   const { zoomRef } = useViewCtx()
+  const { setSnapLineX } = useDragPreviewCtx()
 
   function snapTargets(
     excludeCueIds: number[] = [],

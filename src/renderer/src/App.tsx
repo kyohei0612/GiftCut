@@ -187,6 +187,7 @@ import { ProjectStateProvider, useProjectStateCtx } from './state/projectStateCo
 import { DEFAULT_TRACKS, EXTRA_AUDIO_TRACK, initTrackStates, newTrackState } from './lib/trackState'
 import { useProjectFile } from './state/useProjectFile'
 import { useDragPreview } from './state/useDragPreview'
+import { DragPreviewProvider, useDragPreviewCtx } from './state/dragPreviewContext'
 import { useCopyPaste } from './state/useCopyPaste'
 import { useTelopEdit } from './state/useTelopEdit'
 import { ClipboardProvider, useClipboardCtx, type CopiedAttrs } from './state/clipboardContext'
@@ -426,7 +427,7 @@ function AppInner(): JSX.Element {
     seGhost, setSeGhost, videoGhost, setVideoGhost, imgGhost, setImgGhost,
     snapLineX, setSnapLineX, dragTip, setDragTip, marquee, setMarquee,
     overwriteIds, setOverwriteIds
-  } = useDragPreview()
+  } = useDragPreviewCtx()
   const {
     clipboardRef, clipboardSeRef, clipboardImgRef, clipboardVcRef, lastCopyRef,
     copiedAttrs, setCopiedAttrs
@@ -3686,7 +3687,7 @@ function AppInner(): JSX.Element {
   }
 
   // マグネット（吸着）は state/useSnap
-  const { snapTargets, snapTime, snapClipStart } = useSnap({ snap, segLayoutRef, setSnapLineX })
+  const { snapTargets, snapTime, snapClipStart } = useSnap({ snap, segLayoutRef })
 
   // 素材を掴んで落とす（どの段の、どこへ置くか）は state/useMediaDrop
   const {
@@ -3707,7 +3708,7 @@ function AppInner(): JSX.Element {
 
   // タイムライン上の目印（頭出し・メモ）は state/useMarkers
   const { addMarkerAtPlayhead, deleteMarker, jumpMarker, onMarkerPointerDown } = useMarkers({
-    stopPlayback, seekTo, seekAndReveal, snapTime, setDragTip
+    stopPlayback, seekTo, seekAndReveal, snapTime
   })
 
   // キーを押したときに何が起きるかは state/useKeyboard（呼ぶのは下の方）
@@ -5885,6 +5886,7 @@ export default function App(): React.JSX.Element {
   const view = useView()
   const toast = useToast()
   const playback = usePlayback(FPS)
+  const dragPreview = useDragPreview()
   const projectState = useProjectState({
     favorites: loadFavorites(),
     catOverrides: loadCatOverrides(),
@@ -5908,7 +5910,9 @@ export default function App(): React.JSX.Element {
                       <MediaProvider>
                         <ProjectStateProvider value={projectState}>
                           <ClipboardProvider>
-                            <AppInner />
+                            <DragPreviewProvider value={dragPreview}>
+                              <AppInner />
+                            </DragPreviewProvider>
                           </ClipboardProvider>
                         </ProjectStateProvider>
                       </MediaProvider>
