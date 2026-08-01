@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 // パネルの外枠まわり（タブ帯・並び替え・別ウィンドウ）。
@@ -27,7 +27,8 @@ export function PanelTabs({
   onPick,
   onTabMenu,
   onOverflow,
-  onReorder
+  onReorder,
+  right
 }: {
   group: string
   tabs: { id: string; label: string }[]
@@ -36,6 +37,15 @@ export function PanelTabs({
   onTabMenu: (e: React.MouseEvent, group: string, id: string, label: string) => void
   onOverflow: (e: React.MouseEvent, group: string, hidden: string[]) => void
   onReorder: (ids: string[]) => void
+  /**
+   * 見出しの右端に置く物。
+   *
+   * **押す物ではなく「いまどうなっているか」を置く場所。**
+   * プレビューの画質・fps・尺がここにある。操作バーへ混ぜると、
+   * 一番よく押す再生ボタンが端へ押しやられて毎回探すことになる
+   * （components/panels/PreviewBars.tsx に経緯）。
+   */
+  right?: ReactNode
 }): JSX.Element {
   const stripRef = useRef<HTMLDivElement | null>(null)
   const [over, setOver] = useState(false) // 端が切れているか
@@ -202,6 +212,7 @@ export function PanelTabs({
       >
         ≫
       </button>
+      {right && <div className="panel-tabs-right">{right}</div>}
     </div>
   )
 }

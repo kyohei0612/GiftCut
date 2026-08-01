@@ -76,17 +76,19 @@ export default async function (C) {
     await page.waitForTimeout(500)
     await openMotion()
     // **文字のいる所だけを撮る。** 画面全体で平均を取ると、文字は面積が小さいので
-    // 動いても数字がほとんど変わらない（実際それで見逃しかけた）
-    // 文字の**真ん中の小さな範囲**を見る。広く撮ると、文字は面積が小さいので
-    // 平均がほとんど動かない（プレビューは縮小表示なので、1080基準で40px 動いても
-    // 画面上は十数pxしかない）。退いたかどうかは、狭く撮るほどはっきり出る
+    // 動いても数字がほとんど変わらない（実際それで見逃しかけた）。
+    //
+    // 撮る範囲は**文字の箱そのもの**にする。以前は真ん中の 28×20 と決め打ちだったが、
+    // プレビューの大きさが変わると当たり所がずれ、**同じだけ動いても平均が動かない**
+    // ことがあった（操作バーを1段にして映像が30px 広がったときに実際に起きた）。
+    // 箱に合わせておけば、文字が退いた分がそのまま平均に出る。
     const b0 = await page.locator('.telop-box').first().boundingBox()
     assert(b0, 'プレビューに文字が無い')
     const clip = {
-      x: Math.round(b0.x + b0.width / 2 - 14),
-      y: Math.round(b0.y + b0.height / 2 - 10),
-      width: 28,
-      height: 20
+      x: Math.round(b0.x),
+      y: Math.round(b0.y),
+      width: Math.max(8, Math.round(b0.width)),
+      height: Math.max(8, Math.round(b0.height))
     }
     const before = join(shotDir, 'scrub-before.png')
     const after = join(shotDir, 'scrub-after.png')
@@ -104,9 +106,18 @@ export default async function (C) {
     await page.screenshot({ path: after, clip })
     const a = await avgColor(before)
     const b = await avgColor(after)
+    // 明るさだけでなく色味も見る。白い文字が退いた跡が下地と同じ明るさだと、
+    // 明るさの平均は動かないのに色は大きく変わる（実際にそうなった）
     const moved =
-      Math.abs((a.y ?? 0) - (b.y ?? 0)) > 3 || Math.abs((a.range ?? 0) - (b.range ?? 0)) > 10
-    assert(moved, `値は変わったのに、プレビューの絵が変わっていない（${v0} → ${v1}）`)
+      Math.abs((a.y ?? 0) - (b.y ?? 0)) > 3 ||
+      Math.abs((a.range ?? 0) - (b.range ?? 0)) > 10 ||
+      Math.abs((a.u ?? 0) - (b.u ?? 0)) > 3 ||
+      Math.abs((a.v ?? 0) - (b.v ?? 0)) > 3
+    assert(
+      moved,
+      `値は変わったのに、プレビューの絵が変わっていない（${v0} → ${v1} / ` +
+        `明るさ ${a.y}→${b.y} 色 ${a.u},${a.v}→${b.u},${b.v}）`
+    )
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(400)
   })

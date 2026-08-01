@@ -488,6 +488,10 @@ body {
   padding: 0 4px;
   flex: 0 0 auto;
   min-width: 0;
+  /* 右端の状態表示（.panel-tabs-right）が入らないときは、**折り返して2段にする**。
+     詰めるとタブが押し出されて見えなくなる（左右のパネルを限界まで広げると
+     実際に「オーディオミキサー」が隠れた）。折り返しなら何も失わない。 */
+  flex-wrap: wrap;
 }
 /* タブ本体。パネルを狭めても端が切れて行き止まりにならないよう、
    ここだけ横に流れるようにして、送りボタンと一覧（≫）で必ず届くようにする。 */
@@ -495,7 +499,9 @@ body {
   display: flex;
   gap: 2px;
   flex: 1 1 auto;
-  min-width: 0;
+  /* ここまでは譲らない。これ以上詰めると、右端の状態表示にタブが
+     押し出されて消える。足りなくなったら向こう（右端）が折り返す */
+  min-width: 180px;
   overflow-x: auto;
   scrollbar-width: none;
   scroll-behavior: auto;
@@ -507,6 +513,19 @@ body {
   flex: 0 0 auto;
   white-space: nowrap;
   user-select: none;
+}
+/* 見出し行の右端に置く「いまどうなっているか」（プレビューの画質・fps・尺）。
+   押す物ではないので、操作バーではなくここに置く。
+   タブ側が縮んでも消えないよう、こちらは縮まない（タブには送りと ≫ がある）。 */
+.panel-tabs-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 縮めない（画質の名前を切ると、書き出し設定との区別が付かなくなる）。
+     入らないときは丸ごと次の行へ回る＝何も削らない */
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 3px 0;
 }
 /* 端の送りと一覧。狭いときだけ出る */
 .tab-nav {
@@ -1499,29 +1518,16 @@ body {
   box-shadow: 0 0 0 1px #0008;
   pointer-events: none;
 }
-/* プレビュー下は2段。1段目＝状態、2段目＝操作（再生ボタンは中央）。
-   1段に詰めると、一番よく使う再生ボタンが端に寄って毎回探すことになる。 */
+/* プレビュー下は1段（時刻＋操作。再生ボタンは中央）。
+   押さない物（画質・fps・尺）はパネルの見出し行 .panel-tabs-right へ出した。
+   2段だった頃はここで 26px ぶんプレビューの縦を損していた。 */
 .transport {
   background: var(--head);
   border-top: 1px solid var(--line);
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
   padding: 6px 14px 8px;
   flex: 0 0 auto;
-}
-.transport-info {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 22px;
-}
-.transport-info-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
 }
 .tc-cur {
   font-size: 13px;
@@ -1548,6 +1554,8 @@ body {
   justify-content: center;
   align-items: center;
   flex-wrap: wrap;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 /* **再生ボタンだけが行の中心に来る。**
    左右を同じ幅で伸ばして挟むので、ボタンが増えても中心は動かない。
@@ -1562,6 +1570,10 @@ body {
 }
 .tb-side-l {
   justify-content: flex-end;
+}
+/* 時刻だけは左端へ逃がす。ボタンは右詰めのままなので、中心はずれない */
+.tb-side-l .tc-cur {
+  margin-right: auto;
 }
 .tb-side-r {
   justify-content: flex-start;
@@ -1586,11 +1598,6 @@ body {
 }
 .tbtn-shot {
   margin-left: 4px;
-}
-.transport-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 .pq-select {
   background: var(--panel-2);

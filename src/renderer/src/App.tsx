@@ -7304,9 +7304,11 @@ function AppInner(): JSX.Element {
 
   const monitorAspect = ratio === '16:9' ? '16 / 9' : ratio === '9:16' ? '9 / 16' : '1 / 1'
 
-  // プレビュー下の1段目に出す「状態」（画質・fps・全体の長さ）。
-  // 操作ボタンと同じ行に混ぜると、よく使う再生ボタンが端に押しやられる。
-  // 操作バーの右に出る「いまどう見えているか」は components/panels/PreviewBars.tsx
+  // プレビューの見出し（タブ）行の右端に出す「状態」（画質・fps・全体の長さ）。
+  //
+  // **押す物ではないので、操作バーには置かない。** 同じ行に混ぜると
+  // よく使う再生ボタンが端へ押しやられ、ここへ出すと操作バーが1段で済む
+  // （プレビューの縦が約26px 広がる）。中身は components/panels/PreviewBars.tsx
   const transportInfo = (
     <TransportInfo
       previewRes={previewRes}
@@ -7862,6 +7864,7 @@ function AppInner(): JSX.Element {
                 setTabOverflow({ x: e.clientX, y: e.clientY, group: grp, hidden })
               }}
               onReorder={(ids) => setTabOrder((p) => ({ ...p, monitor: ids }))}
+              right={transportInfo}
             />
             {/* ミキサー表示中も video は破棄せず隠すだけ（再生を止めないため） */}
             <div
@@ -8122,7 +8125,6 @@ function AppInner(): JSX.Element {
             />
             <TransportBar
               timecode={formatTimecode(currentTime, fps)}
-              info={transportInfo}
               playing={playing}
               onSkip={skipSec}
               onStep={stepFrame}

@@ -4,11 +4,21 @@
 //   PreviewScrub … 全体のどこを見ているかのバー
 //   TransportBar … 再生などの操作
 //
-// 操作の並びには理由がある。**1段目＝いま何秒か（状態）／2段目＝操作**に
-// 分け、再生ボタンを中央に置く。1段に詰め込むと、一番よく使う再生ボタンが
-// 端に寄って毎回探すことになる。
+// ## 操作バーは1段。ただし「詰め込んだ」わけではない
+//
+// 以前は2段で、1段目＝状態（いま何秒か・画質・fps・尺）／2段目＝操作だった。
+// **プレビューの縦を 26px 損していた**ので1段にまとめたが、素直に詰めると
+// 一番よく押す再生ボタンが端へ寄って毎回探すことになる（前に実際そうだった）。
+//
+// そこで、状態のうち**押さない物（画質・fps・尺＝`TransportInfo`）は
+// パネルの見出し行へ出した**。残った時刻とボタンだけなら、左右を同じ幅で
+// 挟んだまま1段に収まる＝再生ボタンは中央のまま。
+//
+// 一度「見出しへ出さずに1段化」を試して**逆に 71→73px 増えた**。
+// 右側が 534px 要るのに 505px しかなく、ボタンが折り返したため。
+// 左右対称をやめれば入るが、それは再生ボタンの中央維持を捨てることになる。
 
-import type { JSX, ReactNode } from 'react'
+import type { JSX } from 'react'
 import { formatTime } from '../../lib/srt'
 
 /** 再生して見るときの映像の高さ。**書き出しの画質とは別物** */
@@ -211,7 +221,6 @@ export function TransportInfo({
 
 export function TransportBar({
   timecode,
-  info,
   playing,
   onSkip,
   onStep,
@@ -222,8 +231,6 @@ export function TransportBar({
   keyHint
 }: {
   timecode: string
-  /** 右側に出す状態（画質・fps・尺など） */
-  info: ReactNode
   playing: boolean
   onSkip: (sec: number) => void
   onStep: (frames: number) => void
@@ -236,16 +243,14 @@ export function TransportBar({
 }): JSX.Element {
   return (
     <div className="transport">
-      <div className="transport-info">
-        <span className="tc tc-cur">{timecode}</span>
-        <div className="transport-info-right">{info}</div>
-      </div>
       {/* **再生ボタンを行のど真ん中に置く。**
           並べただけだと、左右のボタンの数で中心がずれる（前は左寄りだった）。
           左右を同じ幅の入れ物で挟み、真ん中に再生だけを置けば、
           ボタンが増えても中心は動かない。一番よく押す物の位置を毎回探さずに済む。 */}
       <div className="transport-btns">
         <div className="tb-side tb-side-l">
+        {/* いま何秒か。左端へ寄せる（ボタンは右詰めのまま＝中心は動かない） */}
+        <span className="tc tc-cur">{timecode}</span>
         <button className="tbtn" onClick={() => onSkip(-10)} title="10秒戻る">
           «10
         </button>
