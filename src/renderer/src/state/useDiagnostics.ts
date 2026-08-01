@@ -39,10 +39,6 @@ export interface UseDiagnosticsDeps {
   /** 掴んでいる最中に出す物（何を掴んでいるかの手掛かりになる） */
   dragTip: any
   marquee: any
-  /** 追いかけの輪の起点（裏から戻ったら測り直す） */
-  clockStartPosRef: any
-  clockStartWallRef: any
-  lastTsRef: any
   segLayoutRef: any
   previewResRef: any
   videoRef: any
@@ -51,12 +47,15 @@ export interface UseDiagnosticsDeps {
 
 export function useDiagnostics(deps: UseDiagnosticsDeps): void {
   const {
-    setPerfOpen, dragTip, marquee, clockStartPosRef, clockStartWallRef, lastTsRef,
-    segLayoutRef, previewResRef, videoRef
+    setPerfOpen, dragTip, marquee, segLayoutRef, previewResRef, videoRef
   } = deps
   const { cuesRef, segsRef } = useDoc()
   const { setSnapLineX } = useDragPreviewCtx()
-  const { playRateRef, currentTimeRef, playing } = usePlaybackCtx()
+  const {
+    playRateRef, currentTimeRef, playing,
+    // 裏から戻ったら測り直すための起点（心臓が持っている）
+    clockStartPosRef, clockStartWallRef, lastTsRef
+  } = usePlaybackCtx()
   const { showToast } = useToastCtx()
 
   // 計測に「いま何をしているか」を教える。数字だけ見ても、

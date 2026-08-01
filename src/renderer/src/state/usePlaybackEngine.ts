@@ -40,25 +40,11 @@ export interface UsePlaybackEngineDeps {
   setActiveHalf: any
   halfOf: any
   elKey: any
-  /** 先に合わせておいた面。位置が飛んだら捨てる */
-  preparedRef: any
-  /** いま流している切片 */
-  currentSegRef: any
   segLayoutRef: any
   srcOfSeg: any
   videoTLenRef: any
   videoDurationRef: React.MutableRefObject<number>
   contentEndRef: any
-  /** 追いかけの輪。壁時計と、そこから進めた位置 */
-  clockStartWallRef: any
-  clockStartPosRef: any
-  lastTsRef: any
-  /** ずれを直している最中か（直しの最中に重ねて直さない） */
-  fixingDriftRef: any
-  /** 飛んだ直後は少し待つ（連打で詰まらせない） */
-  seekCooldownRef: any
-  /** クロスフェードが効いている間 */
-  xfadeUntilRef: any
   /** 効果音の <audio> */
   seAudioRefs: any
   sePreviewRef: any
@@ -72,14 +58,16 @@ export interface UsePlaybackEngineDeps {
 
 export function usePlaybackEngine(deps: UsePlaybackEngineDeps) {
   const {
-    videoRef, videoBRef, videoElsRef, setActiveHalf, halfOf, elKey, preparedRef,
-    currentSegRef, segLayoutRef, srcOfSeg, videoTLenRef, videoDurationRef, contentEndRef,
-    clockStartWallRef, clockStartPosRef, lastTsRef, fixingDriftRef, seekCooldownRef,
-    xfadeUntilRef, seAudioRefs, sePreviewRef, paintTime, setTime, seekAndReveal
+    videoRef, videoBRef, videoElsRef, setActiveHalf, halfOf, elKey, segLayoutRef,
+    srcOfSeg, videoTLenRef, videoDurationRef, contentEndRef,
+    seAudioRefs, sePreviewRef, paintTime, setTime, seekAndReveal
   } = deps
   const {
     currentTimeRef, durationRef, fpsRef, playRateRef, rafRef,
-    setCurrentTime, setPlayRateUI, setPlaying
+    setCurrentTime, setPlayRateUI, setPlaying,
+    // 追いかけの時計まわりは心臓（usePlayback）が持っている
+    clockStartWallRef, clockStartPosRef, lastTsRef, seekCooldownRef, xfadeUntilRef,
+    fixingDriftRef, preparedRef, currentSegRef
   } = usePlaybackCtx()
 
 

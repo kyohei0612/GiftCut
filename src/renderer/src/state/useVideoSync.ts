@@ -46,8 +46,6 @@ export interface UseVideoSyncDeps {
   seAudioRefs: any
   /** 映像レイヤーの <video> */
   vcElsRef: any
-  /** 重ねが効いている間（この間は音量を触らない） */
-  xfadeUntilRef: any
   /** いま画面に出す重ねの状態（state/usePreviewFrame） */
   xfPreview: any
   segLayout: any
@@ -74,7 +72,7 @@ export interface UseVideoSyncDeps {
 export function useVideoSync(deps: UseVideoSyncDeps): void {
   const {
     videoRef, videoBRef, videoElsRef, halfOf, elKey, elOf, seAudioRefs, vcElsRef,
-    xfadeUntilRef, xfPreview, segLayout, srcOfSeg, previewUrl, proxyMap, previewRes,
+    xfPreview, segLayout, srcOfSeg, previewUrl, proxyMap, previewRes,
     lastPreviewResRef, srcAddedAtRef, audioTrackGain, duckGainAt, seFadeGain, vcFadeGain,
     trackNum, undoStackRef, redoStackRef
   } = deps
@@ -84,7 +82,11 @@ export function useVideoSync(deps: UseVideoSyncDeps): void {
     videoSrc, setVideoSrc, sources, setSources, curSourceIdRef, setActiveSrcId,
     setVideoDuration
   } = useMediaCtx()
-  const { currentTime, playing, playRateRef, rafRef, setFps } = usePlaybackCtx()
+  const {
+    currentTime, playing, playRateRef, rafRef, setFps,
+    // 重ねが効いている間は音量を触らない（心臓が持っている）
+    xfadeUntilRef
+  } = usePlaybackCtx()
   const { masterVolume } = useExportCtx()
 
   // 音声ミュート/音量を動画要素に反映（A1トラック＝メイン音声。切片ミュート・音量・フェードも合成）

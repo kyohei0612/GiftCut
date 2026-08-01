@@ -485,7 +485,11 @@ function AppInner(): JSX.Element {
   const {
     currentTime, setCurrentTime, currentTimeRef, durationRef,
     playing, setPlaying, playRateUI, setPlayRateUI, playRateRef, rafRef,
-    fps, setFps, fpsRef
+    fps, setFps, fpsRef,
+    // 追いかけの時計まわりも心臓が持っている。**App で別に宣言しないこと**
+    //（同じ名前の入れ物が2つできて、「消す方」と「読む方」が食い違う）
+    preparedRef, clockStartWallRef, clockStartPosRef, currentSegRef,
+    lastTsRef, seekCooldownRef, xfadeUntilRef, fixingDriftRef
   } = usePlaybackCtx()
   // アイコンの出し方（どちら側・ずらし・大きさ・揃えるか）
   const icons = useIconsCtx()
@@ -786,12 +790,7 @@ function AppInner(): JSX.Element {
   /** いま映している方の要素 */
   const elOf = (srcId: number): HTMLVideoElement | undefined =>
     videoElsRef.current.get(elKey(srcId, halfOf(srcId)))
-  /** 次のカットへ向けて温めてある面（用意できていれば入れ替えるだけで済む） */
-  const preparedRef = useRef<{ segIdx: number; srcId: number; half: 0 | 1 } | null>(null)
   const videoBRef = useRef<HTMLVideoElement>(null) // クロスディゾルブ用の2本目video（同じproxy srcをオーバーレイ）
-  // 再生ヘッドの時計（壁時計マスター）。再生ヘッドは実時間で常に一定速度で進み、動画がそれを追う。
-  const clockStartWallRef = useRef(0) // 再生開始時の performance.now()/1000（秒）
-  const clockStartPosRef = useRef(0) // 再生開始時のタイムライン位置（秒）
 
 
   // 選択という選択を全部解除する唯一の入口。
@@ -800,10 +799,6 @@ function AppInner(): JSX.Element {
   // 無反応」「プレビューのリフレーム枠から抜けられない」が同時に起きていた。
   // 解除したい場所は必ずここを通すこと（部分的に消したい場合を除く）。
 
-  // タイムライン上で選択中のトランジション（動画クリップの頭/尻ディップ or カット間ディゾルブ）。
-  // クリップ本体とは別枠で選択でき、ここが選択中なら右パネルでそのトランジションだけを編集/削除できる。
-  // 選択中のテロップ出入りアニメ（動画トランジションと同じ選択/編集/削除の仕組み）。
-  const currentSegRef = useRef(0) // 再生中に追従しているセグメント index
 
   // ---- トラック（可変。+ボタンで増やせる）----
   const nVideoTracks = useMemo(() => tracks.filter((t) => t.kind === 'video').length, [tracks])
@@ -1442,23 +1437,6 @@ function AppInner(): JSX.Element {
 
   // ---- refミラー（stale closure 対策）----
   const videoDurationRef = useRef(0)
-  const lastTsRef = useRef(0)
-  /**
-   * 次にシークを頼んでよい時刻（performance.now）。
-   * **シークが重い相手を追いかけ続けないための間。** 直前のシークにかかった時間から決める。
-   */
-  const seekCooldownRef = useRef(0)
-  /** カットで音を重ねている間（この時刻まで）は、音量 effect に書かせない */
-  const xfadeUntilRef = useRef(0)
-  /**
-   * いまズレを詰めている最中か。
-   *
-   * **入り口と出口をずらす（履歴）。** 同じしきい値で出入りさせると、
-   * 境目で速さが 1.00 と 1.02 の間を行ったり来たりする。速さを変えるたびに
-   * 音は伸縮処理を通るので、**カットでもない普通の所で音が荒れる**。
-   * 大きくズレた時だけ入り、ほぼ0まで詰めてから出る。
-   */
-  const fixingDriftRef = useRef(false)
 
   // ---- クリップボード & 編集履歴（Undo/Redo）----
   // 履歴は cues / segments / seClips / markers / imgClips を1スナップショットで管理する（統合Undo）
@@ -1599,8 +1577,7 @@ function AppInner(): JSX.Element {
 
   // 動きの計測と不具合の記録は state/useDiagnostics
   useDiagnostics({
-    setPerfOpen, dragTip, marquee, clockStartPosRef, clockStartWallRef, lastTsRef,
-    segLayoutRef, previewResRef, videoRef
+    setPerfOpen, dragTip, marquee, segLayoutRef, previewResRef, videoRef
   })
   const videoTLenRef = useRef(0)
   useEffect(() => {
@@ -1802,10 +1779,9 @@ function AppInner(): JSX.Element {
     startPlayback, togglePlay, shuttleForward, shuttleReverse, handleVideoEnded,
     seekTo, xfBStyle, curSegId, skipSec, stepFrame
   } = usePlaybackEngine({
-    videoRef, videoBRef, videoElsRef, setActiveHalf, halfOf, elKey, preparedRef,
-    currentSegRef, segLayoutRef, srcOfSeg, videoTLenRef, videoDurationRef, contentEndRef,
-    clockStartWallRef, clockStartPosRef, lastTsRef, fixingDriftRef, seekCooldownRef,
-    xfadeUntilRef, seAudioRefs, sePreviewRef, paintTime, setTime,
+    videoRef, videoBRef, videoElsRef, setActiveHalf, halfOf, elKey, segLayoutRef,
+    srcOfSeg, videoTLenRef, videoDurationRef, contentEndRef,
+    seAudioRefs, sePreviewRef, paintTime, setTime,
     // 見せる側（state/useViewNav）は後で作られるので「呼ぶときに見に行く」形で渡す
     seekAndReveal: (t: number) => seekAndReveal(t)
   })
@@ -2511,7 +2487,7 @@ function AppInner(): JSX.Element {
   // 画面の <video> / <audio> を「いま」に追従させるのは state/useVideoSync
   useVideoSync({
     videoRef, videoBRef, videoElsRef, halfOf, elKey, elOf, seAudioRefs, vcElsRef,
-    xfadeUntilRef, xfPreview, segLayout, srcOfSeg, previewUrl, proxyMap, previewRes,
+    xfPreview, segLayout, srcOfSeg, previewUrl, proxyMap, previewRes,
     lastPreviewResRef, srcAddedAtRef, audioTrackGain, duckGainAt, seFadeGain, vcFadeGain,
     trackNum, undoStackRef, redoStackRef
   })
