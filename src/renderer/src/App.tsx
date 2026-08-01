@@ -166,6 +166,7 @@ import { useTimelineEdit } from './state/useTimelineEdit'
 import { useTracksAdmin } from './state/useTracksAdmin'
 import { useMediaDrop } from './state/useMediaDrop'
 import { usePreviewManip } from './state/usePreviewManip'
+import { useIconLibrary } from './state/useIconLibrary'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -1973,16 +1974,6 @@ function AppInner(): JSX.Element {
 
   // ---- アイコン画像ライブラリ（単純な画像置き場。追加時にクロップ）----
   const [iconLibrary, setIconLibrary] = useState<IconItem[]>(loadIconLibrary)
-  // レーン（テロップトラック）→画像。色と別軸でレーン単位でもアイコンを割当できる
-  function setIconForLane(lane: string, image: string | null): void {
-    setLaneIconAssign((prev) => {
-      const n = { ...prev }
-      if (image) n[lane] = image
-      else delete n[lane]
-      saveLS('giftcut.laneIconAssign', n)
-      return n
-    })
-  }
   const [cropSrc, setCropSrc] = useState<{ src: string; onDone: (img: string) => void } | null>(
     null
   )
@@ -1991,148 +1982,12 @@ function AppInner(): JSX.Element {
   // アイコン軸: 自動調整ONで全テロップを揃える共有アンカー点（左端・縦中央）。
   // テロップごとに位置がバラつくとアイコンが飛び回るため、軸を1点に固定する（ユーザー要望 2026-07-23）。
   const iconScaleFor = (): number => iconScale
-  // 自動調整のON/OFF切替時は、サイズ倍率とXYオフセットを既定(100%,0)に戻す。
-  // ＝前モードの調整が乗ったまま「+」で効いてズレるのを防ぐ（常にクリーンな基準から調整）。
-  function changeIconAuto(on: boolean): void {
-    // 切替前の本文位置を記録（アイコンを含まない telop-textmain 基準）
-    const el = screenRef.current
-    const before = el?.querySelector('.telop-box-sel .telop-textmain')?.getBoundingClientRect()
-    setIconAuto(on)
-    setIconScale(1)
-    setIconOffset({ x: 0, y: 0 })
-    // ONにしたら「左詰め」を適用（選択テロップ）。ただし固定枠は作らず内容ぴったり＝枠が常に本体一致。
-    if (on && selectedIds.length) applyIconAutoLeft()
-    // 差分補正: モード切替で本文が動いたぶんを打ち消し、テロップは今の位置のまま＝アイコンだけ付け外し。
-    // （旧実装は縦を常に中央基準で再計算しており、縦アンカー下のテロップがONのたびに上へズレていた）
-    if (before && el && primaryId != null) {
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          const after = el.querySelector('.telop-box-sel .telop-textmain')?.getBoundingClientRect()
-          if (!after) return
-          const S = el.getBoundingClientRect()
-          const dx = (after.left - before.left) / S.width
-          const dy = (after.top - before.top) / S.height
-          if (Math.abs(dx) < 0.0005 && Math.abs(dy) < 0.0005) return
-          // アイコン軸整列後は全テロップが同じ点を共有するので、補正も全テロップ＋軸に適用
-          setCues((prev) =>
-            prev.map((c) => ({
-              ...c,
-              pos: {
-                x: clamp((c.pos?.x ?? 0.5) - dx, 0, 1),
-                y: clamp((c.pos?.y ?? 0.85) - dy, 0, 1)
-              }
-            }))
-          )
-          setIconAnchorPos((p) =>
-            p ? { x: clamp(p.x - dx, 0, 1), y: clamp(p.y - dy, 0, 1) } : p
-          )
-        })
-      )
-    }
-  }
-  // 色 → 画像 の割当（「アイコン設定」で設定。null で解除）
-  function setIconForColor(color: string, image: string | null): void {
-    setIconAssignState((prev) => {
-      const next = { ...prev }
-      if (image) next[color] = image
-      else delete next[color]
-      saveIconAssign(next)
-      return next
-    })
-  }
   // テロップの実効アイコン画像。優先: 個別D&D(iconImage) → 色(ラベル)割当 → レーン(トラック)割当。
   // 何も割り当ててなければ非表示（デフォOFF）。personIcon===false のテロップだけ個別に非表示。
   // どの画像を出すかの決まりは state/useIcons（割り当ての優先順位も中にある）
   const iconForCue = (c: Cue): string | undefined =>
     icons.iconForCue(c, iconAssign, laneIconAssign, cueTrack)
-  function appendIconImage(name: string, image: string): void {
-    // 保存は updater の外で行う（副作用を updater に入れない＋失敗を検知して通知するため）
-    const prev = iconLibrary
-    const id = Math.max(0, ...prev.map((i) => i.id)) + 1
-    const next = [...prev, { id, name, image }]
-    setIconLibrary(next)
-    if (!saveIconLibrary(next))
-      showToast(
-        'アイコンを保存できませんでした（保存容量の上限）。\n不要なアイコンを削除してください。',
-        'error'
-      )
-    setOpenAccSec((p) => ({ ...p, icon: ['lib'] })) // 追加したら開いて見せる（各タブ共通の動作）
-  }
   // ライブラリに画像を追加（ファイル選択 → 円形クロップ → 保存）
-  /**
-   * 画像を1枚ずつ切り抜いて足す。
-   *
-   * **複数まとめて受け取る。** 1枚だけしか受け付けないと、
-   * 何枚も足したい人は同じ操作を繰り返すことになる。
-   * 切り抜きは1枚ずつなので、終わったら次の1枚へ送る。
-   */
-  function addIconFiles(files: File[]): void {
-    const rest = files.filter((f) => f.type.startsWith('image/'))
-    if (!rest.length) return
-    const next = async (): Promise<void> => {
-      const f = rest.shift()
-      if (!f) return
-      try {
-        const src = await fileToDataUrl(f)
-        const name = f.name.replace(/\.[^.]+$/, '')
-        setCropSrc({
-          src,
-          onDone: (img) => {
-            appendIconImage(name, img)
-            void next()
-          }
-        })
-      } catch {
-        void next() // 読めない1枚で止めない
-      }
-    }
-    void next()
-  }
-  async function addIconImages(): Promise<void> {
-    const inp = document.createElement('input')
-    inp.type = 'file'
-    inp.accept = 'image/*'
-    inp.multiple = true
-    inp.onchange = (): void => addIconFiles([...(inp.files ?? [])])
-    inp.click()
-  }
-  function removeIconImage(id: number): void {
-    setIconLibrary((prev) => {
-      const next = prev.filter((it) => it.id !== id)
-      saveIconLibrary(next)
-      return next
-    })
-    // ★/フォルダ振り分けも掃除
-    setIconFavs((prev) => {
-      const n = prev.filter((x) => x !== String(id))
-      saveLS('giftcut.iconFavorites', n)
-      return n
-    })
-    setIconOv((prev) => {
-      if (!(String(id) in prev)) return prev
-      const n = { ...prev }
-      delete n[String(id)]
-      saveLS('giftcut.iconOverrides', n)
-      return n
-    })
-  }
-  // アイコン表示ON/OFF。チェックは「選択テロップと同じ色(ラベル)のテロップ全部」に反映。
-  // ON=undefined(色割当があれば自動表示)、OFF=false(その色を隠す)。単体付与はドラッグ&ドロップで行う。
-  function setPersonIconForSelected(on: boolean): void {
-    if (!selectedIds.length) return
-    const labels = new Set(cues.filter((c) => isSelected(c.id)).map((c) => c.label))
-    setCues((prev) =>
-      prev.map((c) => (labels.has(c.label) ? { ...c, personIcon: on ? undefined : false } : c))
-    )
-    if (
-      on &&
-      selected &&
-      (currentTimeRef.current < selected.start || currentTimeRef.current >= selected.end)
-    ) {
-      stopPlayback()
-      seekTo(selected.start)
-    }
-  }
 
   // ---- ショートカット / 環境設定 ----
   const [shortcuts, setShortcuts] = useState<Shortcuts>(loadShortcuts)
@@ -4838,6 +4693,16 @@ function AppInner(): JSX.Element {
     seekTo,
     iconAuto,
     setIconAnchorPos
+  })
+
+  // アイコンの置き場と割り当て（段ごと・色ごと）は state/useIconLibrary
+  const {
+    setIconForLane, changeIconAuto, setIconForColor, appendIconImage,
+    addIconFiles, addIconImages, removeIconImage, setPersonIconForSelected
+  } = useIconLibrary({
+    iconLibrary, setIconLibrary, setCropSrc, setIconAssignState, setLaneIconAssign,
+    setIconOv, setIconFavs, applyIconAutoLeft, setOpenAccSec, saveLS, screenRef,
+    seekTo, stopPlayback, selected
   })
 
 
