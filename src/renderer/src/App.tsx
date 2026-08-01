@@ -182,6 +182,8 @@ import { useSegmentPlace } from './state/useSegmentPlace'
 import { TimelineOpsProvider, type TimelineOps } from './state/timelineOpsContext'
 import { TimelineViewProvider, type TimelineView } from './state/timelineViewContext'
 import { TimelineArea } from './components/timeline/TimelineArea'
+import { PreviewProvider, type PreviewCtxValue } from './state/previewContext'
+import { PreviewArea } from './components/panels/PreviewArea'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -3030,9 +3032,26 @@ function AppInner(): JSX.Element {
     zoomAroundPlayhead, fitTimelineZoom
   }
 
+  // プレビュー（中央の映像）まわり。中身は state/previewContext.tsx
+  const previewCtx: PreviewCtxValue = {
+    screenRef, videoRef, videoBRef, videoElsRef, elKey, activeHalf, effActiveSrcId,
+    previewSources, previewUrl, monitorAspect,
+    xfPreview, xfBStyle, xfNextBUrl, xfDipOverlay, transOverlay, videoMainStyle,
+    curAdjustCss, curBlank, v1Hidden, videoTLen, activeCues, windowVClips,
+    vcRefCb, vcXform, imgXform, vcLen, iconForCue, proxyPct, packPct,
+    onVideoReframeStart, onVideoRotateStart, resetVideoZoom, resetCount,
+    selectPreviewOverlay, reframeTarget, onTelopPointerDown, onTelopResizeStart,
+    editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
+    draggingTemplateRef, draggingIconRef, applyTemplateToCue, applyIconToCue,
+    togglePlay, skipSec, stepFrame, jumpMarker, addMarkerAtPlayhead, captureScreenshot,
+    seekAndReveal, handleVideoEnded, startFader, setTrackVolume, setMasterVolume,
+    transportInfo
+  }
+
   return (
     <TimelineOpsProvider value={timelineOps}>
     <TimelineViewProvider value={timelineView}>
+    <PreviewProvider value={previewCtx}>
     <div
       className="app"
       // 素材をドラッグしている間は、アプリのどこにいても受け付ける。
@@ -3399,304 +3418,19 @@ function AppInner(): JSX.Element {
               </section>
             }
           >
-          {/* --- 中央: プログラムモニター / オーディオミキサー --- */}
-          <section
-            className="panel monitor"
-            style={{ flex: '1 1 0', minWidth: 0 }}
-          >
-            <PanelTabs
-              group="monitor"
-              tabs={orderedTabs('monitor', TAB_DEFS.monitor)}
-              active={monitorTab}
-              onPick={(id) => pickTab('monitor', id)}
-              onTabMenu={(e, grp, id, label) => {
-                e.preventDefault()
-                e.stopPropagation()
-                setTabOverflow(null)
-                setTabMenu({ x: e.clientX, y: e.clientY, group: grp, id, label })
-              }}
-              onOverflow={(e, grp, hidden) => {
-                e.stopPropagation()
-                setTabMenu(null)
-                setTabOverflow({ x: e.clientX, y: e.clientY, group: grp, hidden })
-              }}
-              onReorder={(ids) => setTabOrder((p) => ({ ...p, monitor: ids }))}
-              right={transportInfo}
-            />
-            {/* ミキサー表示中も video は破棄せず隠すだけ（再生を止めないため） */}
-            <div
-              className="monitor-stage"
-              style={{ display: monitorTab === 'program' ? 'flex' : 'none' }}
-              onPointerDown={(e) => {
-                // 画面（フレーム）の外＝モニターの余白をクリックしたら選択解除・枠を閉じる
-                if (e.target === e.currentTarget) {
-                  setVideoSelected(false)
-                  clearSegSel()
-                  setSelectedIds([])
-                  setEditingId(null)
-                }
-              }}
-            >
-              <div
-                ref={screenRef}
-                className="screen"
-                style={{ aspectRatio: monitorAspect }}
-                onPointerDown={(e) => {
-                  // プレビューの空きエリア（テロップ以外）をクリック＝テロップ選択解除＋動画リフレーム。
-                  // テロップ本体/リサイズハンドル/編集エディタは stopPropagation 済みでここへ来ない。
-                  if (e.button !== 0) return
-                  setSelectedIds([])
-                  setEditingId(null)
-                  if (videoSrc) {
-                    setVideoSelected(true)
-                    onVideoReframeStart(e, null) // 本体ドラッグ＝パン（クリックだけなら動かない）
-                  }
-                }}
-                // ホイールでの拡大縮小は付けない。枠が出ているだけで意図せず映像が
-                // 拡大され、元に戻すのが手間になるため（拡大はスライダーと四隅のドラッグで行う）。
-                onDragOver={(e) => {
-                  if (draggingMediaRef.current?.kind === 'video') e.preventDefault()
-                }}
-                onDrop={(e) => {
-                  const m = draggingMediaRef.current
-                  // 動画以外はここでは受け取らない。preventDefault を先に呼ぶと
-                  // 「処理済み」と見なされ、画像や音声を落としたときに何も起きず消える。
-                  if (m?.kind !== 'video') return
-                  e.preventDefault()
-                  if (!videoPath) void loadVideo(m.path)
-                  else showToast('タイムラインへドロップすると、その位置に配置できます。')
-                }}
-              >
-                {/* 元動画ごとに <video> を常設し、切替は「表示の切替」だけで行う。
-                    src を差し替えると要素が一度アンロードされて背景が透ける＝ちらつきの原因になるため。
-
-                    さらに**1本につき2つ（A面/B面）**持つ。片方を映している間に
-                    もう片方を次のカットの頭へ送っておき、カットで表示を入れ替える。
-                    カットのたびに飛んで待たされる（実測145〜235ms）のを、
-                    再生の裏に隠す＝プレミアのプリロールと同じ考え方。 */}
-                {previewSources.flatMap((s) =>
-                  ([0, 1] as const).map((half) => {
-                  const isActive = s.id === effActiveSrcId && half === (activeHalf[s.id] ?? 0)
-                  return (
-                    <video
-                      key={`${s.id}:${half}`}
-                      ref={(el) => {
-                        if (el) {
-                          videoElsRef.current.set(elKey(s.id, half), el)
-                          if (isActive) videoRef.current = el
-                        } else videoElsRef.current.delete(elKey(s.id, half))
-                      }}
-                      className="screen-video"
-                      style={{
-                        opacity:
-                          !isActive ||
-                          v1Hidden ||
-                          curBlank ||
-                          (videoTLen > 0 && currentTime >= videoTLen - 1e-3)
-                            ? 0
-                            : 1,
-                        // 非表示のソースはクリック等を拾わない
-                        pointerEvents: isActive ? undefined : 'none',
-                        // **見た目の指定は、映していない面にも同じものを当てておく。**
-                        // 入れ替えた瞬間に filter や transform が付くと、その面の
-                        // 描き方（合成の経路）が切り替わり、そこで待ちが出る。
-                        // 先に当てておけば、入れ替えで変わるのは透明度だけになる。
-                        filter: curAdjustCss,
-                        ...videoMainStyle
-                      }}
-                      src={previewUrl(s.path, s.origUrl)}
-                      preload="auto"
-                      // **どの面も muted にしない。**
-                      // 音のある動画はメディア時計が音声側に従うため、muted を
-                      // 切り替えると時計が張り替わり、絵まで250ms止まる（カットのたびに発生）。
-                      // 裏の面は音量0で黙らせている（上の音量 effect と入れ替えの所）。
-                      muted={false}
-                      onLoadedMetadata={(e) => {
-                        const d = e.currentTarget.duration || 0
-                        if (s.id >= 0) updateSource(s.id, { duration: d })
-                        if (!isActive) return
-                        setVideoDuration(d)
-                        // 初期切片は「この動画で初回だけ」作る（プロキシ差し替えの再発火では作らない）
-                        if (
-                          segsRef.current.length === 0 &&
-                          d > 0 &&
-                          initializedForPathRef.current !== s.path
-                        ) {
-                          initializedForPathRef.current = s.path
-                          suppressHistoryRef.current = true // 初期切片は履歴化しない
-                          setSegments([{ id: segIdCounter.current++, srcStart: 0, srcEnd: d }])
-                        }
-                      }}
-                      onLoadedData={(e) => {
-                        // ロード直後、停止中なら現在位置（自ソースぶん）へシークして正しいフレームを出す
-                        const v = e.currentTarget
-                        if (playRateRef.current > 0) return
-                        if (isActive) {
-                          const src = tToSource(segLayoutRef.current, currentTimeRef.current)
-                          if (src) v.currentTime = src.srcTime
-                        } else {
-                          // 待機中のソースは自分の最初の出番の頭に置いておく
-                          const first = segLayoutRef.current.find((l) => srcOfSeg(l.seg)?.id === s.id)
-                          if (first) v.currentTime = first.seg.srcStart
-                        }
-                      }}
-                      onEnded={isActive ? handleVideoEnded : undefined}
-                      onError={() => {
-                        if (isActive) stopPlayback()
-                      }}
-                    />
-                  )
-                  })
-                )}
-                {videoSrc && (
-                  // クロスディゾルブ用の2本目video。区間外は透明＆pause（駆動は専用effect）
-                  // マルチソース: B側切片のソースURLを使う（別ソース間の境界でも正しい相手が映る）
-                  <video
-                    ref={videoBRef}
-                    className="screen-video screen-video-b"
-                    style={
-                      xfPreview && !xfPreview.blank && !v1Hidden
-                        ? xfBStyle(xfPreview)
-                        : { opacity: 0 }
-                    }
-                    src={xfPreview?.bUrl ?? xfNextBUrl ?? videoSrc}
-                    preload="auto"
-                    muted
-                  />
-                )}
-                {xfPreview?.blank && !v1Hidden && (
-                  <div
-                    className="trans-overlay"
-                    style={{ background: '#000', opacity: xfPreview.p }}
-                  />
-                )}
-                {xfDipOverlay && !v1Hidden && (
-                  <div
-                    className="trans-overlay"
-                    style={{ background: xfDipOverlay.color, opacity: xfDipOverlay.opacity }}
-                  />
-                )}
-                {/* 重なる中身（重ねた動画→画像→テロップ）は
-                    components/panels/PreviewLayers.tsx。並び順が重なり順になる */}
-                <VideoLayers
-                  clips={windowVClips}
-                  vcLen={vcLen}
-                  vcRefCb={vcRefCb}
-                  vcXform={vcXform}
-                  previewUrl={previewUrl}
-                  toGcUrl={toGcUrl}
-                  onSelect={selectPreviewOverlay}
-                />
-                <ImageLayers imgXform={imgXform} toGcUrl={toGcUrl} onSelect={selectPreviewOverlay} />
-                <TelopLayer
-                  activeCues={activeCues}
-                  cueTrack={cueTrack}
-                  iconForCue={iconForCue}
-                  iconScale={iconScale}
-                  iconAuto={iconAuto}
-                  iconSide={iconSide}
-                  iconOffset={iconOffset}
-                  ratio={ratio}
-                  draggingTemplateRef={draggingTemplateRef}
-                  draggingIconRef={draggingIconRef}
-                  applyTemplateToCue={applyTemplateToCue}
-                  applyIconToCue={applyIconToCue}
-                  onResizeStart={onTelopResizeStart}
-                  onPointerDown={onTelopPointerDown}
-                  onEdit={(c) => {
-                    stopPlayback()
-                    setSelectedIds([c.id])
-                    setEditingId(c.id)
-                  }}
-                />
-                {transOverlay && (
-                  <div
-                    className="trans-overlay"
-                    style={{ background: transOverlay.color, opacity: transOverlay.opacity }}
-                  />
-                )}
-                {/* 映像に重ねて出る物は components/panels/PreviewOverlays.tsx */}
-                {(videoSelected ||
-                  selectedVideoIds.length > 0 ||
-                  selectedImgIds.length === 1 ||
-                  selectedVClipIds.length === 1) &&
-                  reframeTarget && (
-                  <ReframeBox
-                    target={reframeTarget}
-                    onReframeStart={onVideoReframeStart}
-                    onRotateStart={onVideoRotateStart}
-                    onReset={resetVideoZoom}
-                    resetCount={resetCount()}
-                    onDone={() => {
-                      setVideoSelected(false)
-                      clearSegSel()
-                    }}
-                  />
-                )}
-                {!videoSrc && !activeCues.length && <ScreenEmpty />}
-                <ProgressBadges proxyPct={proxyPct} packPct={packPct} />
-                {editingId != null &&
-                  activeCues.some((c) => c.id === editingId) && (
-                    <TelopEditor
-                      cue={cues.find((c) => c.id === editingId)!}
-                      textRef={editorTextRef}
-                      onChangeText={updateCueText}
-                      onSelChange={setEditorSel}
-                      onClearRuns={clearRunsInSelection}
-                      onClose={() => setEditingId(null)}
-                    />
-                  )}
-              </div>
-            </div>
-
-            {/* オーディオトラックミキサー（components/panels/PreviewBars.tsx） */}
-            {monitorTab === 'mixer' && (
-              <AudioMixer
-                tracks={tracks
-                  .filter((t) => t.kind === 'audio')
-                  .map((tr) => {
-                    const st = trackStates[tr.id] ?? newTrackState(tr.id)
-                    return {
-                      id: tr.id,
-                      name: tr.name,
-                      muted: st.muted,
-                      solo: st.solo,
-                      volume: st.volume ?? 1
-                    }
-                  })}
-                master={masterVolume}
-                onToggleMute={(id) => toggleTrack(id, 'muted')}
-                onToggleSolo={(id) => toggleTrack(id, 'solo')}
-                onVolume={setTrackVolume}
-                onMaster={(v) => setMasterVolume(clamp(v, 0, 1))}
-                startFader={startFader}
-                gainToDb={gainToDb}
-              />
-            )}
-            <PreviewScrub
-              currentTime={currentTime}
-              duration={duration}
-              // 飛ばしたら、タイムライン側もその場所を見せる（連動）
-              onSeek={seekAndReveal}
-              onScrubStart={stopPlayback}
-            />
-            <TransportBar
-              timecode={formatTimecode(currentTime, fps)}
-              playing={playing}
-              onSkip={skipSec}
-              onStep={stepFrame}
-              onTogglePlay={togglePlay}
-              onScreenshot={() => void captureScreenshot()}
-              onJumpMarker={jumpMarker}
-              onAddMarker={addMarkerAtPlayhead}
-              keyHint={{
-                back: formatCombo(shortcuts.frameBack),
-                play: formatCombo(shortcuts.playPause),
-                fwd: formatCombo(shortcuts.frameFwd),
-                marker: formatCombo(shortcuts.addMarker)
-              }}
-            />
-          </section>
+          {/* プレビューの区画は components/panels/PreviewArea.tsx。
+              プレビュー固有の物は心臓（previewContext）から取る */}
+          <PreviewArea
+            orderedTabs={orderedTabs} TAB_DEFS={TAB_DEFS} monitorTab={monitorTab}
+            pickTab={pickTab} setTabMenu={setTabMenu} setTabOverflow={setTabOverflow}
+            setTabOrder={setTabOrder} shortcuts={shortcuts} cueTrack={cueTrack}
+            srcOfSeg={srcOfSeg} loadVideo={loadVideo} updateSource={updateSource}
+            segLayoutRef={segLayoutRef} segsRef={segsRef} segIdCounter={segIdCounter}
+            suppressHistoryRef={suppressHistoryRef}
+            initializedForPathRef={initializedForPathRef} stopPlayback={stopPlayback}
+            clearSegSel={clearSegSel} toggleTrack={toggleTrack} duration={duration}
+            draggingMediaRef={draggingMediaRef} toGcUrl={toGcUrl} gainToDb={gainToDb}
+          />
           </PaneHost>
 
           <div className="resizer resizer-v" onPointerDown={(e) => startResize('right', e)} />
@@ -4331,6 +4065,7 @@ function AppInner(): JSX.Element {
         copiedAttrs={copiedAttrs} attrSummary={attrSummary} shortcuts={shortcuts}
       />
     </div>
+    </PreviewProvider>
     </TimelineViewProvider>
     </TimelineOpsProvider>
   )
