@@ -310,10 +310,12 @@ describe('拡大＋移動の焼き方', () => {
     const sc = chain.match(/scale=(\d+):(\d+)/)
     const pd = chain.match(/pad=(\d+):(\d+):(-?\d+):(-?\d+)/)
     const cp = chain.match(/crop=(\d+):(\d+):(-?\d+):(-?\d+)/)
-    if (!sc || !pd || !cp) throw new Error('見たことのない列: ' + chain)
+    // 素通しになる pad / crop は書かれない（無駄に絵をもう1枚確保しないため）。
+    // 書かれていなければ「ずらさない」と同じ意味。
+    if (!sc) throw new Error('見たことのない列: ' + chain)
     const [zw, zh] = [Number(sc[1]), Number(sc[2])]
-    const [px, py] = [Number(pd[3]), Number(pd[4])]
-    const [cx, cy] = [Number(cp[3]), Number(cp[4])]
+    const [px, py] = pd ? [Number(pd[3]), Number(pd[4])] : [0, 0]
+    const [cx, cy] = cp ? [Number(cp[3]), Number(cp[4])] : [0, 0]
     // 出力 → 台紙 → 拡大後の絵
     const ax = cx + u - px
     const ay = cy + v - py
@@ -372,9 +374,18 @@ describe('拡大＋移動の焼き方', () => {
     expect(srcAt(moved, 960, 540)!.x).toBeCloseTo(960 - 0.25 * W, 0)
   })
 
-  it('何もしていなければ、絵をそのまま出す（既存の見た目を変えない）', () => {
-    const chain = zoomPanChain(W, H, { scale: 1, x: 0, y: 0 }, 'black@0')
-    expect(chain).toBe(`scale=1920:1080,pad=1920:1080:0:0:color=black@0,crop=1920:1080:0:0,setsar=1`)
+  // 素通しの pad / crop でも ffmpeg はその大きさの絵をもう1枚確保して写す。
+  // 寄りの強い切片は中間の絵が 4000×7000 級になるので、素通し1つで消費が倍になる。
+  it('素通しになる pad / crop は書かない（無駄に絵を確保しない）', () => {
+    expect(zoomPanChain(W, H, { scale: 1, x: 0, y: 0 }, 'black@0')).toBe(
+      'scale=1920:1080,setsar=1'
+    )
+    // 寄るだけ（動かさない）なら、今までどおり scale→crop の2つで済む
+    expect(zoomPanChain(W, H, { scale: 2, x: 0, y: 0 }, 'black@0')).toBe(
+      'scale=3840:2160,crop=1920:1080:960:540,setsar=1'
+    )
+    // 動かすときだけ台紙を広げる
+    expect(zoomPanChain(W, H, { scale: 1, x: 0.25, y: 0 }, 'black@0')).toContain('pad=')
   })
 
   // 動き側。台紙は「動かすのに足りるぶんだけ」広げる。

@@ -113,8 +113,31 @@ export function useExport(deps: UseExportDeps) {
     try {
       // 非表示（👁OFF）トラックのテロップは書き出しに含めない（プレビューと一致させる）
       const exportCues = cues.filter((c) => !trackStates[cueTrack(c)]?.hidden)
-      // 動きの刻みはここに合わせる（出力の1フレームに1枚ずつ当てる）
+      // 動きの刻みは書き出しの fps に合わせる（出力の1フレームに1枚ずつ当てる）。
+      // ただし**枚数には上限が要る**。
+      //
+      // テロップの1枚は ffmpeg の入力1つになる。入力が増えるほど、コマンドライン長
+      // （Windows は 32767字）にも、同時に抱える絵の枚数にも効く。以前は刻みが
+      // 15 固定だったので表に出なかったが、fps に合わせた途端 30fps で2倍・
+      // 60fps で4倍になり、**エフェクトを多めに付けた素材で実際に書き出しが落ちた**
+      // （実測: 43本のテロップで 15fps=585枚 → 60fps=2253枚）。
+      //
+      // なので「全部で何枚になるか」を先に見て、収まる刻みまで落とす。
+      // 上限は、落ちなかった実績（585枚）に少し余裕を見た数。
+      // 落ちるのは動きの滑らかさだけで、書き出しそのものは必ず通る。
       const expFps = resolveExportFps()
+      const MAX_TELOP_PNGS = 900
+      const animSec = exportCues
+        .filter((c) => hasAnim(c.style.anim) || hasMotion(c.motion))
+        .reduce((a, c) => a + (c.end - c.start), 0)
+      const stepFps =
+        animSec > 0 ? Math.max(1, Math.min(expFps, Math.floor(MAX_TELOP_PNGS / animSec))) : expFps
+      if (stepFps < expFps) {
+        showToast(
+          `動きの付いたテロップが多いため、書き出しの動きを ${stepFps}fps 相当に落としました` +
+            `（${expFps}fps のままだと書き出せる枚数を超えます）`
+        )
+      }
       setExportStatus(`テロップを画像化中… (0/${exportCues.length})`)
       const frames: { png: string; start: number; end: number }[] = []
       for (let i = 0; i < exportCues.length; i++) {

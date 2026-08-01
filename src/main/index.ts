@@ -3207,6 +3207,18 @@ app.whenReady().then(() => {
           /* noop */
         }
       }
+      /**
+       * ffmpeg の言い分を切り詰める。**頭も残す。**
+       *
+       * 前は末尾だけ残していた。しかし「なぜ最初の1フレームも作れなかったか」は
+       * 頭の方に出る（フィルタの組み立て失敗・入力が開けない など）。末尾には
+       * "Conversion failed!" のような結果しか無いので、**本当の原因が読めない**。
+       * 実際に、書き出し失敗の報告を受けても切り分けられなかった。
+       */
+      const trimLog = (s: string, keep: number): string => {
+        if (s.length <= keep * 2) return s
+        return `${s.slice(0, keep)}\n……（中略 ${s.length - keep * 2}字）……\n${s.slice(-keep)}`
+      }
       /** 書き出しが失敗したときの控え。画面のお知らせは1行しか出ないので、
        *  原因を切り分けられるだけの中身をファイルに残す。 */
       const saveDiag = (why: string, detail = ""): void => {
@@ -3221,9 +3233,18 @@ app.whenReady().then(() => {
 作業フォルダ: ${tmp}（ある: ${existsSync(tmp)}）` +
               `
 出力先: ${save.filePath}` +
-              (detail ? `
+              // **数がおかしいときは、ここを見れば分かる。**
+              // テロップ1枚が入力1つになるので、増えすぎるとコマンドラインの
+              // 上限や開けるファイル数に当たる。落ちてから数えられないと切り分けできない
+              `
+入力の数: ${args.filter((a) => a === '-i').length}（うちテロップ画像 ${pngPaths.length} 枚）` +
+              `
+フィルタの長さ: ${filter.length}字` +
+              (detail
+                ? `
 ---- ffmpeg の言い分 ----
-${detail}` : ""),
+${detail}`
+                : ''),
             "utf-8"
           )
         } catch {
@@ -3302,7 +3323,7 @@ ${detail}` : ""),
               // そもそもなぜ GPU が駄目だったのかが分からない
               saveDiag(
                 `CPUでのやり直しも失敗 (code ${c2})`,
-                `【1回目 GPU (code ${code})】\n${err.slice(-1500)}\n\n【2回目 CPU】\n${err2.slice(-1500)}`
+                `【1回目 GPU (code ${code})】\n${trimLog(err, 1500)}\n\n【2回目 CPU】\n${trimLog(err2, 1500)}`
               )
               resolve({ ok: false, error: `ffmpeg失敗 (code ${c2})\n` + err2.slice(-600) })
             }
@@ -3310,7 +3331,7 @@ ${detail}` : ""),
           return
         }
         cleanup()
-        saveDiag(`ffmpeg失敗 (code ${code})`, err.slice(-2000))
+        saveDiag(`ffmpeg失敗 (code ${code})`, trimLog(err, 2000))
         resolve({ ok: false, error: `ffmpeg失敗 (code ${code})\n` + err.slice(-600) })
       })
     })

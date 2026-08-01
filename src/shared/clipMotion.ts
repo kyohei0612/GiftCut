@@ -71,10 +71,21 @@ export function zoomPanChain(
   const py = oy + cy
   const pw = Math.max(px + zw, cx + width)
   const ph = Math.max(py + zh, cy + height)
-  return (
-    `scale=${zw}:${zh},pad=${pw}:${ph}:${px}:${py}:color=${bg},` +
-    `crop=${width}:${height}:${cx}:${cy},setsar=1`
-  )
+  // **何もしない pad / crop は書かない。**
+  //
+  // 素通しの pad でも、ffmpeg はその大きさの絵をもう1枚確保して写す。
+  // 寄りの強い切片では中間の絵が 4406×7834（1枚138MB）にもなるので、
+  // 素通し1つで消費が倍になり、余裕の無いPCでは書き出しが落ちる。
+  // 寄るだけ（動かさない）の切片は、これで今までと同じ列に戻る。
+  const parts = [`scale=${zw}:${zh}`]
+  if (pw !== zw || ph !== zh || px !== 0 || py !== 0) {
+    parts.push(`pad=${pw}:${ph}:${px}:${py}:color=${bg}`)
+  }
+  if (cx !== 0 || cy !== 0 || pw !== width || ph !== height) {
+    parts.push(`crop=${width}:${height}:${cx}:${cy}`)
+  }
+  parts.push('setsar=1')
+  return parts.join(',')
 }
 
 export interface Zoom {
