@@ -157,6 +157,7 @@ import { useToast } from './state/useToast'
 import { TracksProvider, useTracksCtx } from './state/tracksContext'
 import { ViewProvider, useViewCtx } from './state/viewContext'
 import { useTelopLook } from './state/useTelopLook'
+import { useMarkers } from './state/useMarkers'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -1255,74 +1256,10 @@ function AppInner(): JSX.Element {
     return fadeGain(t, vcLen(c), c.afadeIn, c.afadeOut)
   }
 
-  // ---- マーカー（タイムライン上の目印。頭出し/メモ用。書き出しには影響しない）----
-  // 再生ヘッド位置にマーカーを追加（同じ位置に既にあれば選択のみ）
-  function addMarkerAtPlayhead(): void {
-    const t = currentTimeRef.current
-    const near = markers.find((m) => Math.abs(m.t - t) < 1 / fpsRef.current)
-    if (near) {
-      setSelectedMarkerId(near.id)
-      return
-    }
-    const id = markerIdCounter.current++
-    setMarkers((prev) => [...prev, { id, t, label: '' }].sort((a, b) => a.t - b.t))
-    setSelectedMarkerId(id)
-  }
-  function deleteMarker(id: number): void {
-    setMarkers((prev) => prev.filter((m) => m.id !== id))
-    if (selectedMarkerId === id) setSelectedMarkerId(null)
-    if (editingMarkerId === id) setEditingMarkerId(null)
-  }
-  // 前/次のマーカーへ頭出し
-  function jumpMarker(dir: 1 | -1): void {
-    const t = currentTimeRef.current
-    const sorted = [...markers].sort((a, b) => a.t - b.t)
-    const target =
-      dir > 0
-        ? sorted.find((m) => m.t > t + 1e-3)
-        : [...sorted].reverse().find((m) => m.t < t - 1e-3)
-    if (target) {
-      stopPlayback()
-      // 飛んだ先のめじるしが枠の外なら、そこを見せる
-      seekAndReveal(target.t)
-      setSelectedMarkerId(target.id)
-    }
-  }
-  // マーカーの掴み＝選択＋ドラッグで移動。動かさなければクリック＝その位置へ頭出し。
-  function onMarkerPointerDown(mk: Marker, e: React.PointerEvent): void {
-    e.stopPropagation()
-    if (e.button !== 0) return
-    // 選択は排他に（他のクリップ選択が残っていると Delete がどれに効くか分からなくなる）
-    setSelectedIds([])
-    clearSegSel()
-    setSelectedTrackId(null)
-    setSelectedMarkerId(mk.id)
-    const sx = e.clientX
-    const t0 = mk.t
-    let moved = false
-    const onMove = (ev: PointerEvent): void => {
-      if (!moved && Math.abs(ev.clientX - sx) < 3) return
-      moved = true
-      // カット点/クリップ端に吸着（他のクリップと同じ操作感）
-      const nt = Math.max(0, snapTime(t0 + (ev.clientX - sx) / zoomRef.current))
-      setMarkers((prev) => prev.map((m) => (m.id === mk.id ? { ...m, t: nt } : m)))
-      setDragTip({ x: ev.clientX, y: ev.clientY, text: `🚩 ${formatTime(nt)}` })
-    }
-    const onUp = (): void => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-      if (!moved) {
-        stopPlayback()
-        seekTo(t0)
-      } else {
-        setMarkers((prev) => [...prev].sort((a, b) => a.t - b.t))
-      }
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
-  }
+  // タイムライン上の目印（頭出し・メモ）は state/useMarkers
+  const { addMarkerAtPlayhead, deleteMarker, jumpMarker, onMarkerPointerDown } = useMarkers({
+    stopPlayback, seekTo, seekAndReveal, snapTime, setDragTip
+  })
 
   async function placeSE(m: MediaItem, t: number, track = 'A2'): Promise<void> {
     if (trackStates[track]?.locked) {
