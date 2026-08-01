@@ -168,6 +168,7 @@ import { useCurrentLook } from './state/useCurrentLook'
 import { useWindowDrop } from './state/useWindowDrop'
 import { useAutosaveMark } from './state/useAutosaveMark'
 import { TELOP_MOTIONS, motionLabel, useLabelsPresets } from './state/useLabelsPresets'
+import { useTrackGeom } from './state/useTrackGeom'
 import type { MediaItem } from './components/panels/ProjectBinTab'
 import { useViewNav } from './state/useViewNav'
 import { useTransitions } from './state/useTransitions'
@@ -663,10 +664,6 @@ function AppInner(): JSX.Element {
   useEffect(() => {
     vClipsRef.current = vClips
   }, [vClips])
-  const vcLen = (c: VClip): number => Math.max(0.05, c.srcEnd - c.srcStart)
-  // トラックIDの番号（V3→3）。対になる音声トラックは同じ番号（V3→A3）。
-  const trackNum = (id: string): number => Number(id.slice(1)) || 0
-  const pairedAudioOf = (vTrack: string): string => 'A' + trackNum(vTrack)
   // 確保済みだがまだ state に反映されていないトラックID。placeVClip は await getDuration を
   // 挟むので、2本続けてドロップすると後発が同じ番号を選んでしまう。それを防ぐための予約。
   const reservedTrackIdsRef = useRef<Set<string>>(new Set())
@@ -684,42 +681,11 @@ function AppInner(): JSX.Element {
   // （解除は必ず clearAll を通す決まりも、中に書いてある）
 
   // ---- トラック（可変。+ボタンで増やせる）----
-  const nVideoTracks = useMemo(() => tracks.filter((t) => t.kind === 'video').length, [tracks])
-  const nAudioTracks = useMemo(() => tracks.filter((t) => t.kind === 'audio').length, [tracks])
-  const v1Index = useMemo(() => tracks.findIndex((t) => t.id === 'V1'), [tracks])
-  const a1Index = useMemo(() => tracks.findIndex((t) => t.id === 'A1'), [tracks])
-
-  // ---- トラック状態 ----
-  // 段とその状態（鍵など）は state/useTracks が持つ
-
-  // ---- トラック高さ（映像/音声グループごとにまとめて可変・localStorage 永続化）----
-  // プレミア同様、映像レーン全体・音声レーン全体をそれぞれ一括で高さ調整する
-  //
-  // 既定は**一番細く**（TRACK_H_MIN）。段が7本あると、太いままでは枠に収まらず
-  // 初めて開いた人がいきなり縦に送る羽目になる。細ければ全部が一度に見えるので、
-  // 太らせたい人だけが太らせればいい（太さは保存されるので次から続く）。
-  //
-  // 前の既定（映像34/音声52）がそのまま保存されている場合は、自分で決めた値では
-  // ないので新しい既定へ移す。**触った覚えのない値だけ**を動かす
-  // （1px でもずらしてあれば、その人が選んだ太さとして尊重する）。
-  const OLD_DEF_H = { 'gc.videoTrackH': 34, 'gc.audioTrackH': 52 }
-  const loadGroupH = (key: keyof typeof OLD_DEF_H, def: number): number => {
-    const v = Number(localStorage.getItem(key))
-    if (!(v >= TRACK_H_MIN && v <= TRACK_H_MAX)) return def
-    return v === OLD_DEF_H[key] ? def : v
-  }
-  /** 段の高さ。id を渡せばその段の値、種類だけなら種類の値 */
-  const trackHOf = (idOrKind: string): number => {
-    const own = laneH[idOrKind]
-    if (own != null) return own
-    if (idOrKind === 'video' || idOrKind === 'audio')
-      return idOrKind === 'video' ? videoTrackH : audioTrackH
-    const t = tracks.find((x) => x.id === idOrKind)
-    return t?.kind === 'audio' ? audioTrackH : videoTrackH
-  }
-  const cueTrack = (c: Cue): string => c.track ?? 'V2' // テロップの配置トラック（未指定=V2）
-  // オーディオトラックの実効ゲイン（ミュート/ソロ/音量×マスターを合成）
-  const anyAudioSolo = tracks.some((t) => t.kind === 'audio' && trackStates[t.id]?.solo)
+  // 段の数え方・太さ・どの段に居るかは state/useTrackGeom
+  const {
+    nVideoTracks, nAudioTracks, v1Index, a1Index,
+    trackHOf, trackNum, pairedAudioOf, cueTrack, vcLen, anyAudioSolo
+  } = useTrackGeom({ tracks, trackStates, laneH, videoTrackH, audioTrackH })
 
   // 段（トラック）の足す・消す・選ぶ・鍵・音量は state/useTracksAdmin
   const {
