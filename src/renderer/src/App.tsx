@@ -157,6 +157,7 @@ import { useToast } from './state/useToast'
 import { TracksProvider, useTracksCtx } from './state/tracksContext'
 import { ViewProvider, useViewCtx } from './state/viewContext'
 import { useTelopLook } from './state/useTelopLook'
+import { useAsk } from './state/useAsk'
 import { useMarkers } from './state/useMarkers'
 import { useSnap } from './state/useSnap'
 import { useViewNav } from './state/useViewNav'
@@ -881,11 +882,8 @@ function AppInner(): JSX.Element {
   // ---- トースト通知（OS標準alertの置き換え。右下にふわっと出て自動で消える）----
   // お知らせは state/useToast（積み上げない決まりも中にある）
 
-  // ---- テキスト入力モーダル（OS標準promptの置き換え）----
-  const [promptState, setPromptState] = useState<PromptState | null>(null)
-  function askText(title: string, defaultValue: string, onOk: (v: string) => void): void {
-    setPromptState({ title, value: defaultValue, onOk })
-  }
+  // 人に聞く（文字を入れてもらう・はい/いいえ）は state/useAsk
+  const { promptState, setPromptState, confirmState, askText, askConfirm, closeConfirm } = useAsk()
   // ---- パネルの切り離し（ドッキング解除）----
   //
   // 切り抜きは「絵を見る作業」なので、プレビューを大きく取れることが要る。
@@ -939,35 +937,6 @@ function AppInner(): JSX.Element {
       /* 保存できなくても動作には影響しない */
     }
   }, [recentProjects])
-  // ---- 確認モーダル（OS標準 confirm / メッセージボックスの置き換え）----
-  // OS のダイアログは見た目も文言の作法もアプリと揃わないうえ、
-  // window.confirm はレンダラを丸ごと止めるので再生や書き出しの進行も巻き添えになる。
-  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
-  function askConfirm(o: {
-    title: string
-    body: string
-    okLabel?: string
-    cancelLabel?: string
-    danger?: boolean
-  }): Promise<boolean> {
-    return new Promise((resolve) =>
-      setConfirmState({
-        title: o.title,
-        body: o.body,
-        okLabel: o.okLabel ?? '続ける',
-        cancelLabel: o.cancelLabel ?? 'キャンセル',
-        danger: !!o.danger,
-        resolve
-      })
-    )
-  }
-  // 開いたまま握りつぶされないよう、閉じる経路は必ずここを通す
-  function closeConfirm(ok: boolean): void {
-    setConfirmState((s) => {
-      s?.resolve(ok)
-      return null
-    })
-  }
   // ラウドネス正規化の目標LUFS（null=OFF）。既定はYouTube最適の -14
 
   // ---- 右パネル（プロジェクト/テロップ/エフェクト/トランジション）----
