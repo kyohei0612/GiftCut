@@ -6,6 +6,7 @@
 // あって、開いた中身が1つも見えないことがある。開いた分類の1つ目が見えるよう、
 // 見出しをパネルの先頭へ送る。
 import { useEffect, useRef, useState } from 'react'
+import { useDismissOnOutside } from './useDismissOnOutside'
 
 export interface TplMenu {
   x: number
@@ -27,20 +28,8 @@ export function useTemplateShelf(deps: UseTemplateShelfDeps) {
   /** 見本を右クリックしたときの品書き（分類の移動） */
   const [tplMenu, setTplMenu] = useState<TplMenu | null>(null)
 
-  // 外を押す・Escape で閉じる。**開いたままにしない**
-  useEffect(() => {
-    if (!tplMenu) return
-    const close = (): void => setTplMenu(null)
-    const onEsc = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setTplMenu(null)
-    }
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', onEsc)
-    return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', onEsc)
-    }
-  }, [tplMenu])
+  // 外を押す・Escape で閉じる（閉じ方は useDismissOnOutside に1つ）
+  useDismissOnOutside(!!tplMenu, () => setTplMenu(null))
 
   /** 分類の見出しの置き場（開いたときに送る先） */
   const tplSecRefs = useRef<Record<string, HTMLDivElement | null>>({})

@@ -178,6 +178,10 @@ import { useSubtitlePrefs } from './state/useSubtitlePrefs'
 import { useTimelineBox } from './state/useTimelineBox'
 import { useTemplateShelf } from './state/useTemplateShelf'
 import { useSegLayout } from './state/useSegLayout'
+import { kindOf, useSegOps } from './state/useSegOps'
+import { useNowShowing } from './state/useNowShowing'
+import { useTimelineWheel } from './state/useTimelineWheel'
+import { useDismissOnOutside } from './state/useDismissOnOutside'
 import { EMPTY_DRAG_IMG, setDragChip } from './lib/dragChip'
 import {
   AUTOSAVE_MS, FPS, RECENT_KEY, RECENT_MAX, RULER_H, TRACK_PAD_ROWS, XF_GRACE, gainToDb
@@ -865,19 +869,11 @@ function AppInner(): JSX.Element {
     seekAndReveal: (t: number) => seekAndReveal(t)
   })
 
-  // 上位トラック(V3)が上に重なるよう描画順を整える（DOM後方=前面）
-  // 先頭が0付近(≤0.5s)から始まるキューは、先頭の小ギャップを埋めて t=0(最左)でも表示する
-  // （SRTの先頭が0.1s等から始まるケースで、頭が字幕なしになるのを防ぐ）。他キューは通常判定。
-  const firstStart = cues.reduce((m, c) => Math.min(m, c.start), Infinity)
-  const headFill = firstStart <= 0.5
-  const activeCues = cues
-    .filter((c) => {
-      const eff = headFill && c.start === firstStart ? 0 : c.start
-      // 開始ちょうどから表示（旧: -1/FPSの先行表示があり、隣接テロップが切替時に1フレーム
-      // 重なって「2枚ぬめっと重なる」見た目になっていた。隣接(end==次start)は判定が相補なので隙間も出ない）
-      return currentTime >= eff && currentTime < c.end
-    })
-    .sort((a, b) => tracks.findIndex((t) => t.id === cueTrack(b)) - tracks.findIndex((t) => t.id === cueTrack(a)))
+  // いま出ているテロップと、映す素材の一覧は state/useNowShowing
+  // （先頭だけ特別扱いする理由・開始ちょうどから出す理由も中にある）
+  const { activeCues, previewSources } = useNowShowing({
+    cues, currentTime, tracks, cueTrack, sources, videoSrc, videoDuration, fps
+  })
   // 色ラベルの並びは state/useLabelsPresets
 
   useEffect(() => {
@@ -902,15 +898,6 @@ function AppInner(): JSX.Element {
 
   // 重ねる動画の <video>（窓で区切って残す理由も中に）は state/useVClipEls
   const { windowVClips, vcElsRef, vcRefCb } = useVClipEls(vClips, currentTime, tracks)
-  // プレビューに常設する <video> の一覧。sources 未確定でも videoSrc があれば仮の1件で描く。
-  const previewSources: Source[] = useMemo(() => {
-    if (sources.length) return sources
-    if (videoSrc)
-      return [
-        { id: -1, path: '', name: '', origUrl: videoSrc, duration: videoDuration, fps, waveform: null }
-      ]
-    return []
-  }, [sources, videoSrc, videoDuration, fps])
   // 再生ヘッドの位置の見た目と、リフレーム枠の相手は state/useCurrentLook
   const {
     effActiveSrcId, curBlank, curAdjustCss, curSegZoom, curSegCrop, curCropInset,
@@ -962,42 +949,13 @@ function AppInner(): JSX.Element {
 
 
 
-  // 切片を切ったときの断片の作り方。頭側は「尻に付いていたもの」、尻側は
-  // 「頭に付いていたもの」を落とす（切り口にトランジションやフェードが残らないように）。
-  // 尻側は別クリップになるので id を振り直す。
-  const segSplit: SplitSeg<VSeg> = (s, part, srcStart, srcEnd) =>
-    part === 'head'
-      ? { ...s, srcStart, srcEnd, transOut: undefined, xfade: undefined, afadeOut: undefined }
-      : {
-          ...s,
-          id: segIdCounter.current++,
-          srcStart,
-          srcEnd,
-          transIn: undefined,
-          afadeIn: undefined
-        }
-  // 空白切片（映像なし・無音）。位置を指定した配置・移動で空いた所を埋める。
-  const makeGapSeg = (len: number): VSeg => ({
-    id: segIdCounter.current++,
-    srcStart: 0,
-    srcEnd: len,
-    videoBlank: true,
-    muted: true,
-    gap: true
-  })
-  const segOps: SegOps<VSeg> = { split: segSplit, makeGap: makeGapSeg, isGap: (s) => !!s.gap }
+  // 切片の切り方・空きの作り方（切り口に演出を残さない理由も中に）は state/useSegOps
+  const { segSplit, makeGapSeg, segOps } = useSegOps({ segIdCounter })
   // 本編の切片をどこへ置くか（動かす・新しく置く・落とした所へ）は state/useSegmentPlace
   const { cutRangeFromSegs, moveSegmentTo, placeSegAt, placeVideoAtDrop } = useSegmentPlace({
     mainLocked, segOps, segSplit, shiftAfter, loadVideo, registerSource
   })
 
-  // ---- プロジェクトのメディアライブラリ（動画/SE/画像。フォルダ追加対応）----
-  const kindOf = (p: string): 'video' | 'audio' | 'image' => {
-    const ext = p.toLowerCase().split('.').pop() ?? ''
-    if (['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'].includes(ext)) return 'audio'
-    if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return 'image'
-    return 'video'
-  }
 
 
   const hasProjectContent = (): boolean =>
@@ -1176,47 +1134,14 @@ function AppInner(): JSX.Element {
   // キー割当の待ち受けと、ファイルメニューの開け閉めは state/useShortcutPrefs
 
 
-  // 再生中は再生ヘッドを画面内に自動スクロール
-  useEffect(() => {
-    if (!playing) return
-    const el = scrollRef.current
-    if (!el) return
-    const x = currentTime * zoom
-    if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 40) {
-      el.scrollLeft = x - 60
-    }
-  }, [currentTime, playing, zoom])
+  // ホイールの割り当てと、再生ヘッドの追いかけは state/useTimelineWheel
+  useTimelineWheel({
+    scrollRef, zoomRef, setZoom, ZOOM_MIN, ZOOM_MAX, playing, currentTime, zoom
+  })
 
-  // クリップ（テロップ以外）の右クリックメニューを閉じる
-  useEffect(() => {
-    if (!clipMenu) return
-    const close = (): void => setClipMenu(null)
-    const onEsc = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setClipMenu(null)
-    }
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', onEsc)
-    return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', onEsc)
-    }
-  }, [clipMenu])
-  // コンテキストメニューを閉じる
-  useEffect(() => {
-    if (!menu) return
-    function close(): void {
-      setMenu(null)
-    }
-    function onEsc(e: KeyboardEvent): void {
-      if (e.key === 'Escape') setMenu(null)
-    }
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', onEsc)
-    return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', onEsc)
-    }
-  }, [menu])
+  // 品書きは、外を押す・Escape で閉じる（閉じ方は state/useDismissOnOutside に1つ）
+  useDismissOnOutside(!!clipMenu, () => setClipMenu(null))
+  useDismissOnOutside(!!menu, () => setMenu(null))
 
   // 素材を読み込んだ直後に一度だけ全体表示にする。
   // 既定の拡大率のままだと、15秒の素材に対して目盛りが50秒まで伸びていて、
@@ -1236,37 +1161,6 @@ function AppInner(): JSX.Element {
   useWindowDrop({ draggingMediaRef, updateDropGhost, clearDropGhosts, dropMediaNearest })
 
 
-  // ホイール: 素=横スクロール / Shift=縦スクロール / Ctrl・Alt=カーソル位置を中心にズーム
-  //
-  // 素を横のままにしてあるのは、これまでずっと横だったから。
-  // 縦に送れるようになったからといって主を入れ替えると、今までの手が全部空振りする。
-  // ※ブラウザは Shift＋ホイールを勝手に横（deltaX）へ振り替えることがあるので、
-  //   縦横どちらで来ても拾う。
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const onWheel = (e: WheelEvent): void => {
-      if (e.ctrlKey || e.altKey) {
-        e.preventDefault()
-        const rect = el.getBoundingClientRect()
-        const mx = e.clientX - rect.left
-        const timeAt = (el.scrollLeft + mx) / zoomRef.current
-        const nz = clamp(zoomRef.current * (e.deltaY < 0 ? 1.15 : 0.87), ZOOM_MIN, ZOOM_MAX)
-        setZoom(nz)
-        requestAnimationFrame(() => {
-          el.scrollLeft = Math.max(0, timeAt * nz - mx)
-        })
-      } else if (e.shiftKey && (e.deltaY !== 0 || e.deltaX !== 0)) {
-        e.preventDefault()
-        el.scrollTop += e.deltaY !== 0 ? e.deltaY : e.deltaX
-      } else if (e.deltaY !== 0) {
-        e.preventDefault()
-        el.scrollLeft += e.deltaY
-      }
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [])
 
 
   // ================= パネルリサイズ =================

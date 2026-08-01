@@ -21,6 +21,7 @@ import {
   type Shortcuts
 } from '../../../shared/shortcuts'
 import { comboFromEvent } from '../../../shared/keymap'
+import { useDismissOnOutside } from './useDismissOnOutside'
 
 export function useShortcutPrefs() {
   const [shortcuts, setShortcuts] = useState<Shortcuts>(loadShortcuts)
@@ -72,26 +73,12 @@ export function useShortcutPrefs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [capturingId])
 
-  // ファイルメニューを外側クリック・Escape で閉じる。
-  //
+  // ファイルメニューも、外を押す・Escape で閉じる。
   // **Escape が効かなかった。** 他のメニューも画面も全部 Escape で閉じるので、
   // ここだけ効かないと「閉じたつもり」のまま次の操作へ進む。しかも見出しの
-  // 「ファイル」をもう一度押す動きは*開く*ではなく*閉じる*なので、
-  // 閉じたつもりで押すと開かない——という分かりにくい形で表に出る
-  // （通しの確認が実際にこれで1件落ちた）。
-  useEffect(() => {
-    if (!fileMenuOpen) return
-    const close = (): void => setFileMenuOpen(false)
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close()
-    }
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [fileMenuOpen])
+  // 「ファイル」をもう一度押す動きは*開く*ではなく*閉じる*なので、閉じたつもりで
+  // 押すと開かない——という分かりにくい形で表に出る（通しの確認が実際に落ちた）。
+  useDismissOnOutside(fileMenuOpen, () => setFileMenuOpen(false))
 
   return {
     shortcuts,
