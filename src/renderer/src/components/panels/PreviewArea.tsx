@@ -52,14 +52,10 @@ export interface PreviewAreaProps {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export function PreviewArea(p: PreviewAreaProps): JSX.Element {
+export function PreviewArea(): JSX.Element {
+  // **受け取らず、心臓から自分で見に行く**（他の区画と同じ流儀）
   const {
-    orderedTabs, TAB_DEFS, monitorTab, pickTab, setTabMenu, setTabOverflow, setTabOrder,
-    shortcuts, cueTrack, srcOfSeg, loadVideo, updateSource, segLayoutRef, segsRef,
-    segIdCounter, suppressHistoryRef, initializedForPathRef, stopPlayback, clearSegSel,
-    toggleTrack, duration, draggingMediaRef
-  } = p
-  const {
+    orderedTabs, TAB_DEFS, monitorTab, pickTab, setTabMenu, setTabOverflow, setTabOrder, shortcuts, cueTrack, srcOfSeg, loadVideo, updateSource, segLayoutRef, segsRef, segIdCounter, suppressHistoryRef, initializedForPathRef, stopPlayback, clearSegSel, toggleTrack, duration, draggingMediaRef,
     screenRef, videoRef, videoBRef, videoElsRef, elKey, activeHalf, effActiveSrcId,
     previewSources, previewUrl, monitorAspect, xfPreview, xfBStyle, xfNextBUrl,
     xfDipOverlay, transOverlay, videoMainStyle, curAdjustCss, curBlank, v1Hidden,

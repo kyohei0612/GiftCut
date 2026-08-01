@@ -180,6 +180,8 @@ import { useTemplateShelf } from './state/useTemplateShelf'
 import { useSegLayout } from './state/useSegLayout'
 import { kindOf, useSegOps } from './state/useSegOps'
 import { useNowShowing } from './state/useNowShowing'
+import { LeftPanelProvider, type LeftPanelValue } from './state/leftPanelContext'
+import { Workspace } from './components/panels/Workspace'
 import { useTimelineWheel } from './state/useTimelineWheel'
 import { useDismissOnOutside } from './state/useDismissOnOutside'
 import { EMPTY_DRAG_IMG, setDragChip } from './lib/dragChip'
@@ -1465,6 +1467,8 @@ function AppInner(): JSX.Element {
     fallbackTrack, stopPlayback, seekTo
   }
   const timelineView: TimelineView = {
+    cueTrack, vcLen, mediaMeta, srcOfSeg, pairedAudioOf, trackNum, motionLabel,
+    silenceCut, shortcuts, duration,
     tool, setTool, snap,
     hoverX, setHoverX, lastHoverPaintRef,
     telopDrop, setTelopDrop, transDrop, setTransDrop,
@@ -1475,6 +1479,10 @@ function AppInner(): JSX.Element {
 
   // プレビュー（中央の映像）まわり。中身は state/previewContext.tsx
   const previewCtx: PreviewCtxValue = {
+    orderedTabs, TAB_DEFS, monitorTab, pickTab, setTabMenu, setTabOverflow, setTabOrder,
+    shortcuts, cueTrack, srcOfSeg, loadVideo, updateSource, segLayoutRef, segsRef, segIdCounter,
+    suppressHistoryRef, initializedForPathRef, stopPlayback, clearSegSel, toggleTrack, duration,
+    draggingMediaRef,
     screenRef, videoRef, videoBRef, videoElsRef, elKey, activeHalf, effActiveSrcId,
     previewSources, previewUrl, monitorAspect,
     xfPreview, xfBStyle, xfNextBUrl, xfDipOverlay, transOverlay, videoMainStyle,
@@ -1490,7 +1498,20 @@ function AppInner(): JSX.Element {
   }
 
   // 右パネルまわり。中身は state/rightPanelContext.tsx
+  // 左パネルが要る物（右・プレビュー・タイムラインと同じ流儀）
+  const leftPanel: LeftPanelValue = {
+    alignTelop, applyTemplate, changeIconAuto, clearClipMotions, currentTime, duration,
+    motionSelRef, nudgeClips, pairedAudioOf, panelStyleFor, reframeTarget, resetClipChannel,
+    resetCount, saveMyMotion, savePreset, seekTo, setBoxAnchor, setPersonIconForSelected,
+    setSelectedSegSpeed, toggleKeys, updateSelectedStyle, updateSelectedText, userTemplates,
+    vcLen, iconForCue
+  }
+
   const rightPanel: RightPanelValue = {
+    PANE_LABEL, orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow,
+    setTplMenu, setOrgMenu, rightTab, setTransDrop, draggingTransRef, draggingTelopAnimRef,
+    setTelopDrop, toggleTelopEmphasis, myMotions, motionPresets, applyMotionPreset,
+    deleteMyMotion,
     accSec, rightBodyRef, importSeInto, addMediaAtPlayhead, catOf, srtPath,
     labelGroups, removeMedia, beginMediaDrag, draggingMediaRef, localTemplates, isFav,
     draggingTemplateRef, iconFavs, toggleIconFav, draggingIconRef, seLibrary, seFavs,
@@ -1522,6 +1543,7 @@ const dialogs: DialogsValue = {
     <TimelineOpsProvider value={timelineOps}>
     <TimelineViewProvider value={timelineView}>
     <PreviewProvider value={previewCtx}>
+    <LeftPanelProvider value={leftPanel}>
     <RightPanelProvider value={rightPanel}>
     <DialogsProvider value={dialogs}>
     <div
@@ -1546,119 +1568,12 @@ const dialogs: DialogsValue = {
         changeRatio={changeRatio} projectPath={projectPath}
       />
 
-      {/* ===== ワークスペース ===== */}
-      <div className="workspace">
-        <div className="upper">
-          <PaneHost id="left" title={PANE_LABEL.left} popped={isPopped('left')}
-            geom={paneGeom.left} onClose={() => unpopPane('left')}>
-          {/* --- 左: プロパティ --- 中身は components/panels/PropertiesPanel.tsx。
-              出す物は「いま選んでいる種類」で決まる。優先順はここで決めて、
-              該当する1つだけを渡す（テロップ → 効果音 → 動画 → 音声 → 映像レイヤー → 画像）。 */}
-          <LeftPanel
-            alignTelop={alignTelop}
-            applyTemplate={applyTemplate}
-            changeIconAuto={changeIconAuto}
-            clearClipMotions={clearClipMotions}
-            currentTime={currentTime}
-            duration={duration}
-            motionSelRef={motionSelRef}
-            nudgeClips={nudgeClips}
-            pairedAudioOf={pairedAudioOf}
-            panelStyleFor={panelStyleFor}
-            reframeTarget={reframeTarget}
-            resetClipChannel={resetClipChannel}
-            resetCount={resetCount}
-            saveMyMotion={saveMyMotion}
-            savePreset={savePreset}
-            seekTo={seekTo}
-            setBoxAnchor={setBoxAnchor}
-            setPersonIconForSelected={setPersonIconForSelected}
-            setSelectedSegSpeed={setSelectedSegSpeed}
-            toggleKeys={toggleKeys}
-            updateSelectedStyle={updateSelectedStyle}
-            updateSelectedText={updateSelectedText}
-            userTemplates={userTemplates}
-            vcLen={vcLen}
-            iconForCue={iconForCue}
-          />
-
-          </PaneHost>
-
-          <div className="resizer resizer-v" onPointerDown={(e) => startResize('left', e)} />
-
-          {/* 真ん中のパネルだけは、出て行くと横幅が丸ごと余る（左右は幅が固定で、
-              伸び縮みするのはここだけ）。何も置かないと画面の6割が空になり、
-              壊れたように見えるので、行き先の案内と戻すボタンを置く。 */}
-          <PaneHost
-            id="preview"
-            title={PANE_LABEL.preview}
-            popped={isPopped('preview')}
-            geom={paneGeom.preview}
-            onClose={() => unpopPane('preview')}
-            placeholder={
-              <section className="panel pane-away" style={{ flex: '1 1 0', minWidth: 0 }}>
-                <div className="pane-away-box">
-                  <div className="pane-away-title">
-                    ⧉ {PANE_LABEL.preview} は別ウィンドウで開いています
-                  </div>
-                  <button className="float-dock" onClick={() => unpopPane('preview')}>
-                    ⇤ 本体へ戻す
-                  </button>
-                </div>
-              </section>
-            }
-          >
-          {/* プレビューの区画は components/panels/PreviewArea.tsx。
-              プレビュー固有の物は心臓（previewContext）から取る */}
-          <PreviewArea
-            orderedTabs={orderedTabs} TAB_DEFS={TAB_DEFS} monitorTab={monitorTab}
-            pickTab={pickTab} setTabMenu={setTabMenu} setTabOverflow={setTabOverflow}
-            setTabOrder={setTabOrder} shortcuts={shortcuts} cueTrack={cueTrack}
-            srcOfSeg={srcOfSeg} loadVideo={loadVideo} updateSource={updateSource}
-            segLayoutRef={segLayoutRef} segsRef={segsRef} segIdCounter={segIdCounter}
-            suppressHistoryRef={suppressHistoryRef}
-            initializedForPathRef={initializedForPathRef} stopPlayback={stopPlayback}
-            clearSegSel={clearSegSel} toggleTrack={toggleTrack} duration={duration}
-            draggingMediaRef={draggingMediaRef}
-          />
-          </PaneHost>
-
-          <div className="resizer resizer-v" onPointerDown={(e) => startResize('right', e)} />
-
-          {/* 右パネルの区画は components/panels/RightPanelArea.tsx。
-              右パネル固有の物は心臓（rightPanelContext）から取る */}
-          <RightPanelArea
-            PANE_LABEL={PANE_LABEL} orderedTabs={orderedTabs} TAB_DEFS={TAB_DEFS}
-            pickTab={pickTab} setTabOrder={setTabOrder} setTabMenu={setTabMenu}
-            setTabOverflow={setTabOverflow} setTplMenu={setTplMenu} setOrgMenu={setOrgMenu}
-            rightTab={rightTab} setTransDrop={setTransDrop} draggingTransRef={draggingTransRef}
-            draggingTelopAnimRef={draggingTelopAnimRef}
-            setTelopDrop={setTelopDrop} toggleTelopEmphasis={toggleTelopEmphasis}
-            myMotions={myMotions} motionPresets={motionPresets}
-            applyMotionPreset={applyMotionPreset} deleteMyMotion={deleteMyMotion}
-          />
-        </div>
-
-        <div className="resizer resizer-h" onPointerDown={(e) => startResize('timeline', e)} />
-
-        <PaneHost id="timeline" title={PANE_LABEL.timeline} popped={isPopped('timeline')}
-            geom={paneGeom.timeline} onClose={() => unpopPane('timeline')}>
-        {/* タイムラインの区画は components/timeline/TimelineArea.tsx。
-            掴む操作と見え方は心臓（timelineOpsContext / timelineViewContext）から取る */}
-        <TimelineArea
-          cueTrack={cueTrack}
-          vcLen={vcLen}
-          mediaMeta={mediaMeta}
-          srcOfSeg={srcOfSeg}
-          pairedAudioOf={pairedAudioOf}
-          trackNum={trackNum}
-          motionLabel={motionLabel}
-          silenceCut={silenceCut}
-          shortcuts={shortcuts}
-          duration={duration}
-        />
-        </PaneHost>
-      </div>
+      {/* 作業する所（左・プレビュー・右・タイムライン）の並べ方は
+          components/panels/Workspace.tsx。中身は各区画が心臓から自分で見に行く */}
+      <Workspace
+        PANE_LABEL={PANE_LABEL} isPopped={isPopped} paneGeom={paneGeom}
+        unpopPane={unpopPane} startResize={startResize}
+      />
 
       {/* 一番下の帯は components/StatusBar.tsx */}
       <StatusBar
@@ -1725,6 +1640,7 @@ const dialogs: DialogsValue = {
     </div>
     </DialogsProvider>
     </RightPanelProvider>
+    </LeftPanelProvider>
     </PreviewProvider>
     </TimelineViewProvider>
     </TimelineOpsProvider>

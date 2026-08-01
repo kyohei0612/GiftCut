@@ -21,6 +21,23 @@ import { createContext, useContext, type ReactNode } from 'react'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface TimelineView {
+  // ---- 帯を描くのに要る「読み方」----
+  // 区画へ prop で渡していた物。**心臓を持っているのに prop も受ける**という
+  // 二重の受け渡しになっていたので、こちらへ寄せた。
+  cueTrack: (c: any) => string
+  vcLen: (c: any) => number
+  srcOfSeg: (seg: any) => any
+  pairedAudioOf: (vTrack: string) => string
+  trackNum: (id: string) => number
+  motionLabel: (t: any) => string
+  /** 素材の下ごしらえ（波形をそのまま帯に出す） */
+  mediaMeta: any
+  /** 静かな所の探索結果（切る位置の下敷きを帯に出す） */
+  silenceCut: any
+  shortcuts: any
+  /** 画面に出すタイムラインの長さ */
+  duration: number
+
   // ---- いま持っている道具 ----
   tool: any
   setTool: any

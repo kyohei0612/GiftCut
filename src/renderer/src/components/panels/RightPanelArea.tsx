@@ -38,14 +38,10 @@ export interface RightPanelAreaProps {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export function RightPanelArea(p: RightPanelAreaProps): JSX.Element {
+export function RightPanelArea(): JSX.Element {
+  // **受け取らず、心臓から自分で見に行く**（他の区画と同じ流儀）
   const {
-    PANE_LABEL, orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow,
-    setTplMenu, setOrgMenu, rightTab, setTransDrop, draggingTransRef, draggingTelopAnimRef,
-    setTelopDrop, toggleTelopEmphasis, myMotions, motionPresets,
-    applyMotionPreset, deleteMyMotion
-  } = p
-const {
+    PANE_LABEL, orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow, setTplMenu, setOrgMenu, rightTab, setTransDrop, draggingTransRef, draggingTelopAnimRef, setTelopDrop, toggleTelopEmphasis, myMotions, motionPresets, applyMotionPreset, deleteMyMotion,
     accSec, rightBodyRef, importSeInto, addMediaAtPlayhead, catOf, srtPath,
     labelGroups, removeMedia, beginMediaDrag, draggingMediaRef, localTemplates, isFav,
     draggingTemplateRef, iconFavs, toggleIconFav, draggingIconRef, seLibrary, seFavs,

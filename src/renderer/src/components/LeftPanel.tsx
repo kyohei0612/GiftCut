@@ -21,6 +21,7 @@ import { PropertiesPanel, RESET_TRANSFORM } from './panels/PropertiesPanel'
 import type { Adjust, Crop } from './panels/PropertyRows'
 import { MotionTab, type MotionRow } from './panels/MotionTab'
 import { useLayout } from '../state/layoutContext'
+import { useLeftPanel } from '../state/leftPanelContext'
 import { useSel } from '../state/selectionContext'
 import { useDoc } from '../state/contentContext'
 import { useTracksCtx } from '../state/tracksContext'
@@ -99,33 +100,37 @@ export interface LeftPanelProps {
   iconForCue: (c: Cue) => string | undefined
 }
 
-export function LeftPanel({
-  alignTelop,
-  applyTemplate,
-  changeIconAuto,
-  clearClipMotions,
-  currentTime,
-  duration,
-  motionSelRef,
-  nudgeClips,
-  pairedAudioOf,
-  panelStyleFor,
-  reframeTarget,
-  resetClipChannel,
-  resetCount,
-  saveMyMotion,
-  savePreset,
-  seekTo,
-  setBoxAnchor,
-  setPersonIconForSelected,
-  setSelectedSegSpeed,
-  toggleKeys,
-  updateSelectedStyle,
-  updateSelectedText,
-  userTemplates,
-  vcLen,
-  iconForCue
-}: LeftPanelProps): React.JSX.Element {
+export function LeftPanel(): React.JSX.Element {
+  // **受け取らず、心臓から自分で見に行く**（state/leftPanelContext.tsx）。
+  // 右パネル・プレビュー・タイムラインと同じ流儀に揃えてある。
+  const {
+    alignTelop,
+    applyTemplate,
+    changeIconAuto,
+    clearClipMotions,
+    currentTime,
+    duration,
+    motionSelRef,
+    nudgeClips,
+    pairedAudioOf,
+    panelStyleFor,
+    reframeTarget,
+    resetClipChannel,
+    resetCount,
+    saveMyMotion,
+    savePreset,
+    seekTo,
+    setBoxAnchor,
+    setPersonIconForSelected,
+    setSelectedSegSpeed,
+    toggleKeys,
+    updateSelectedStyle,
+    updateSelectedText,
+    userTemplates,
+    vcLen,
+    iconForCue
+  } = useLeftPanel()
+
   // **区画は props で受け取らず、心臓から自分で見に行く**（state/layoutContext.tsx）。
   // 渡す形にすると、区画を切り出すたびに受け渡しが増えて、
   // App が小さくなっても全体は読みにくくなる（試算で73個だった）。

@@ -15,6 +15,27 @@ import { createContext, useContext, type ReactNode } from 'react'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface RightPanelValue {
+  // 区画へ prop で渡していた物。**心臓を持っているのに prop も受ける**という
+  // 二重の受け渡しになっていたので、こちらへ寄せた。
+  PANE_LABEL: any
+  orderedTabs: any
+  TAB_DEFS: any
+  pickTab: any
+  setTabOrder: any
+  setTabMenu: any
+  setTabOverflow: any
+  setTplMenu: any
+  setOrgMenu: any
+  rightTab: any
+  setTransDrop: any
+  draggingTransRef: any
+  draggingTelopAnimRef: any
+  setTelopDrop: any
+  toggleTelopEmphasis: any
+  myMotions: any
+  motionPresets: any
+  applyMotionPreset: any
+  deleteMyMotion: any
   accSec: any
   rightBodyRef: any
   importSeInto: any

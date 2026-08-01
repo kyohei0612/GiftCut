@@ -23,6 +23,30 @@ import { createContext, useContext, type ReactNode } from 'react'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface PreviewCtxValue {
+  // 区画へ prop で渡していた物。**心臓を持っているのに prop も受ける**という
+  // 二重の受け渡しになっていたので、こちらへ寄せた。
+  orderedTabs: any
+  TAB_DEFS: any
+  monitorTab: any
+  pickTab: any
+  setTabMenu: any
+  setTabOverflow: any
+  setTabOrder: any
+  shortcuts: any
+  cueTrack: any
+  srcOfSeg: any
+  loadVideo: any
+  updateSource: any
+  segLayoutRef: any
+  segsRef: any
+  segIdCounter: any
+  suppressHistoryRef: any
+  initializedForPathRef: any
+  stopPlayback: any
+  clearSegSel: any
+  toggleTrack: any
+  duration: any
+  draggingMediaRef: any
   // ---- 映像の入れ物 ----
   /** 映している枠。掴んだ位置はここを基準に測る */
   screenRef: any

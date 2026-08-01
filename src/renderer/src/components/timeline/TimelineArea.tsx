@@ -59,11 +59,7 @@ export interface TimelineAreaProps {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export function TimelineArea(p: TimelineAreaProps): JSX.Element {
-  const {
-    cueTrack, vcLen, mediaMeta, srcOfSeg, pairedAudioOf, trackNum, motionLabel,
-    silenceCut, shortcuts, duration
-  } = p
+export function TimelineArea(): JSX.Element {
   const {
     onClipPointerDown, onClipContextMenu, onTrimStart, onSegPointerDown, onSegTrimStart,
     onSePointerDown, onImgPointerDown, onVClipPointerDown, onMarkerPointerDown,
@@ -77,6 +73,8 @@ export function TimelineArea(p: TimelineAreaProps): JSX.Element {
     addAudioTrack, addBgm, setTracks, askText, fallbackTrack, stopPlayback, seekTo
   } = useTimelineOps()
   const {
+    cueTrack, vcLen, mediaMeta, srcOfSeg, pairedAudioOf, trackNum, motionLabel,
+    silenceCut, shortcuts, duration,
     tool, setTool, snap, hoverX, setHoverX, lastHoverPaintRef, telopDrop, setTelopDrop,
     transDrop, setTransDrop, segLayout, rulerTicks, padTop, padBottom, trackHOf, inView,
     scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll, zoomAroundPlayhead,
