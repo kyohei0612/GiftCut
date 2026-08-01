@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   zoomAt,
+  zoomPanChain,
   zoompanFilter,
   hasClipMotion,
   sanitizeClipMotion,
@@ -174,6 +175,15 @@ describe('書き出しの zoompan', () => {
 
   const args = { width: W, height: H, timeExpr: 'T', fpsArg: '30', frames: 1 }
 
+  /**
+   * zoompan に入る絵の大きさ。**台紙を広げていれば W×H ではない。**
+   * 式の中の iw/ih はこちらを指すので、評価するときは必ずこれを渡す。
+   */
+  const inSizeOf = (f: string): { iw: number; ih: number } => {
+    const m = f.match(/^pad=(\d+):(\d+):/)
+    return m ? { iw: Number(m[1]), ih: Number(m[2]) } : { iw: W, ih: H }
+  }
+
   it('大きさと出す枚数を必ず書く（既定のままだと 720p・25fps に化ける）', () => {
     const f = zoompanFilter({ scale: 1, x: 0, y: 0 }, { sc: [{ t: 0, v: 2 }] }, args)
     expect(f).toContain(`:s=${W}x${H}`)
@@ -233,9 +243,14 @@ describe('書き出しの zoompan', () => {
     }
   })
 
-  it('1倍未満は式の側でも1で止まる（画面と同じ）', () => {
-    const z = optOf(zoompanFilter({ scale: 0.4, x: 0, y: 0 }, { x: [{ t: 0, v: 0.1 }] }, args), 'z')
-    expect(evalExpr(z, { T: 0 })).toBe(1)
+  // 台紙を広げると z の数字そのものは 1 を越える（広げたぶんの倍率が乗る）。
+  // 見た目が 1倍かどうかは「窓の幅が画面1枚ぶんか」で見る。
+  it('1倍未満は1で止まる（画面と同じ。窓が画面1枚ぶんになる）', () => {
+    const f = zoompanFilter({ scale: 0.4, x: 0, y: 0 }, { x: [{ t: 0, v: 0.1 }] }, args)
+    const { iw } = inSizeOf(f)
+    const z = evalExpr(optOf(f, 'z'), { T: 0 })
+    // 倍率は式に書ける桁で丸めるので、1画素より細かい差は出る。それは見えない
+    expect(iw / z).toBeCloseTo(W, 1)
   })
 
   it('式にカンマが入るので、必ず引用符で囲む（フィルタの区切りと混ざる）', () => {
@@ -268,5 +283,150 @@ describe('打たれている印の時刻', () => {
     }
     expect(clipMotionKeyTimes(m)).toEqual([0, 1, 2])
     expect(clipMotionKeyTimes(undefined)).toEqual([])
+  })
+})
+
+// ============================================================================
+// 拡大＋移動の焼き方（「書き出すと画像がデフォ位置に戻る」の再発防止）
+// ============================================================================
+//
+// 実際に出た不具合: **拡大していないと X/Y が書き出しに効かない。**
+// 前は「大きくした絵のどこを切り抜くか」で移動を表していて、等倍では
+// 切り抜く余地がゼロ＝位置が 0 に丸められていた。動き（zoompan）側も同じ。
+//
+// ここでは組み立てたフィルタ列をそのまま読み直し、**出力の画素が元画像の
+// どこを指すか**を計算して、画面（CSS の translate+scale）と一致するか見る。
+// 「それらしい式」を書いて安心してしまうのが一番ありがちな取りこぼしなので、
+// 文字列の形ではなく、行き着く先の座標で確かめる。
+describe('拡大＋移動の焼き方', () => {
+  const W = 1920
+  const H = 1080
+
+  /**
+   * scale→pad→crop の列を読んで、出力(u,v) が指す**元画像の座標**を返す。
+   * 元画像の外（台紙の余白）なら null。
+   */
+  function srcAt(chain: string, u: number, v: number): { x: number; y: number } | null {
+    const sc = chain.match(/scale=(\d+):(\d+)/)
+    const pd = chain.match(/pad=(\d+):(\d+):(-?\d+):(-?\d+)/)
+    const cp = chain.match(/crop=(\d+):(\d+):(-?\d+):(-?\d+)/)
+    if (!sc || !pd || !cp) throw new Error('見たことのない列: ' + chain)
+    const [zw, zh] = [Number(sc[1]), Number(sc[2])]
+    const [px, py] = [Number(pd[3]), Number(pd[4])]
+    const [cx, cy] = [Number(cp[3]), Number(cp[4])]
+    // 出力 → 台紙 → 拡大後の絵
+    const ax = cx + u - px
+    const ay = cy + v - py
+    if (ax < 0 || ay < 0 || ax >= zw || ay >= zh) return null
+    // 拡大後の絵 → 元画像
+    return { x: (ax * W) / zw, y: (ay * H) / zh }
+  }
+
+  /** 画面側（CSS: translate(x%,y%) scale(s)、原点は中心）の同じ計算 */
+  function srcAtCss(z: Zoom, u: number, v: number): { x: number; y: number } | null {
+    const s = z.scale
+    const ox = (W - W * s) / 2 + z.x * W
+    const oy = (H - H * s) / 2 + z.y * H
+    const x = (u - ox) / s
+    const y = (v - oy) / s
+    if (x < 0 || y < 0 || x >= W || y >= H) return null
+    return { x, y }
+  }
+
+  const cases: Zoom[] = [
+    { scale: 1, x: 0, y: 0 }, // 何もしていない
+    { scale: 1, x: 0.25, y: 0 }, // **等倍で右へ**（これが効かなかった）
+    { scale: 1, x: -0.3, y: 0.2 }, // 等倍で左上へ
+    { scale: 1.5, x: 0.1, y: -0.2 }, // 寄せながら動かす
+    { scale: 0.6, x: 0.2, y: 0.1 }, // 引きながら動かす
+    { scale: 1, x: 0.9, y: 0 } // ほとんど画面の外
+  ]
+
+  it('画面（CSS）と同じ場所を指す', () => {
+    for (const z of cases) {
+      const chain = zoomPanChain(W, H, z, 'black@0')
+      for (const u of [0, 1, 480, 960, 1439, 1919]) {
+        for (const v of [0, 540, 1079]) {
+          const got = srcAt(chain, u, v)
+          const want = srcAtCss(z, u, v)
+          const label = `z=${JSON.stringify(z)} 出力(${u},${v})`
+          if (want === null) {
+            // 絵から外れた所は透明（下の映像が見える）
+            expect({ label, got }).toEqual({ label, got: null })
+          } else {
+            expect(got).not.toBeNull()
+            // 拡大後の大きさを整数へ丸めるぶんは、1画素まで許す
+            expect({ label, x: Math.abs(got!.x - want.x) < 1.5 }).toEqual({ label, x: true })
+            expect({ label, y: Math.abs(got!.y - want.y) < 1.5 }).toEqual({ label, y: true })
+          }
+        }
+      }
+    }
+  })
+
+  it('等倍のままでも動く（前はここが動かなかった）', () => {
+    const still = zoomPanChain(W, H, { scale: 1, x: 0, y: 0 }, 'black@0')
+    const moved = zoomPanChain(W, H, { scale: 1, x: 0.25, y: 0 }, 'black@0')
+    // 出力の真ん中が指す元画像の位置が、ちょうど 0.25 枚ぶん左へずれる
+    expect(srcAt(still, 960, 540)!.x).toBeCloseTo(960, 0)
+    expect(srcAt(moved, 960, 540)!.x).toBeCloseTo(960 - 0.25 * W, 0)
+  })
+
+  it('何もしていなければ、絵をそのまま出す（既存の見た目を変えない）', () => {
+    const chain = zoomPanChain(W, H, { scale: 1, x: 0, y: 0 }, 'black@0')
+    expect(chain).toBe(`scale=1920:1080,pad=1920:1080:0:0:color=black@0,crop=1920:1080:0:0,setsar=1`)
+  })
+
+  // 動き側。台紙は「動かすのに足りるぶんだけ」広げる。
+  it('動きも、位置の印だけで（拡大せずに）動く', () => {
+    const m: ClipMotion = {
+      x: [
+        { t: 0, v: 0 },
+        { t: 2, v: 0.25 }
+      ]
+    }
+    const f = zoompanFilter({ scale: 1, x: 0, y: 0 }, m, {
+      width: W,
+      height: H,
+      timeExpr: 'T',
+      fpsArg: '30',
+      frames: 1
+    })
+    const pd = f.match(/^pad=(\d+):(\d+):(\d+):(\d+)/)
+    expect(pd).not.toBeNull() // 広げていなければ、そもそも動けない
+    const iw = Number(pd![1])
+    // ffmpeg の式をその場で評価する（if/lt/max だけ差し替える）
+    const ev = (expr: string, vars: Record<string, number>): number => {
+      const js = expr
+        .replace(/\bif\(/g, 'IF(')
+        .replace(/\blt\(/g, 'LT(')
+        .replace(/\bmax\(/g, 'MAX(')
+      const names = Object.keys(vars)
+      // eslint-disable-next-line no-new-func
+      return new Function('IF', 'LT', 'MAX', ...names, `return ${js}`)(
+        (c: boolean, a: number, b: number) => (c ? a : b),
+        (a: number, b: number) => a < b,
+        Math.max,
+        ...names.map((n) => vars[n])
+      )
+    }
+    const zAt = (t: number): number => ev(f.match(/z='([^']+)'/)![1], { T: t })
+    const xAt = (t: number): number =>
+      ev(f.match(/x='([^']+)'/)![1], { T: t, iw, zoom: zAt(t) })
+    // 窓の幅は画面1枚ぶんのまま（拡大していない）
+    expect(iw / zAt(0)).toBeCloseTo(W, 1)
+    // 窓の左端が、0秒 → 2秒 で 0.25枚ぶん左へ動く（＝絵は右へ動く）
+    expect(xAt(2) - xAt(0)).toBeCloseTo(-0.25 * W, 0)
+  })
+
+  it('動かす必要が無ければ台紙は広げない（今までどおりの重さ）', () => {
+    const f = zoompanFilter({ scale: 1, x: 0, y: 0 }, { sc: [{ t: 0, v: 2 }] }, {
+      width: W,
+      height: H,
+      timeExpr: 'T',
+      fpsArg: '30',
+      frames: 1
+    })
+    expect(f.startsWith('zoompan=')).toBe(true)
   })
 })

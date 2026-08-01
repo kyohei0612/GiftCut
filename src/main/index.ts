@@ -32,7 +32,7 @@ import {
 import { checkProject, formatProjectProblems } from '../shared/projectCheck'
 // クリップ・画像の動き（キーフレーム）。**画面と同じ折れ線を式にする**ので、
 // 焼き方をここで別に考えない（別々に書くと、見た絵と出来た絵が違う事故になる）。
-import { hasClipMotion, zoompanFilter, type ClipMotion } from '../shared/clipMotion'
+import { hasClipMotion, zoomPanChain, zoompanFilter, type ClipMotion } from '../shared/clipMotion'
 // 色調整のフィルタ。**GPL 専用の eq は使えない**（同梱は LGPL 版）ので、
 // 同じ計算を lutyuv で書いてある。
 import { colorAdjustFilter } from '../shared/colorAdjust'
@@ -2691,21 +2691,13 @@ app.whenReady().then(() => {
             height,
             timeExpr: t,
             fpsArg,
-            frames: 1
+            frames: 1,
+            // いちばん下の段なので、広げた台紙の余白は黒（透ける先が無い）
+            bg: 'black'
           })},setsar=1`
         } else if (z && (Math.abs(z.scale - 1) > 1e-3 || z.x !== 0 || z.y !== 0)) {
-          const zs = Math.max(0.05, z.scale)
-          const zw = Math.round(width * zs)
-          const zh = Math.round(height * zs)
-          if (zs >= 1) {
-            const ox = `(iw-${width})/2-(${(z.x * width).toFixed(1)})`
-            const oy = `(ih-${height})/2-(${(z.y * height).toFixed(1)})`
-            zm = `,scale=${zw}:${zh},crop=${width}:${height}:${ox}:${oy},setsar=1`
-          } else {
-            const px = `(${width}-iw)/2+(${(z.x * width).toFixed(1)})`
-            const py = `(${height}-ih)/2+(${(z.y * height).toFixed(1)})`
-            zm = `,scale=${zw}:${zh},pad=${width}:${height}:${px}:${py}:color=black,setsar=1`
-          }
+          // いちばん下の段なので、絵から外れた所は黒（透ける先が無い）
+          zm = ',' + zoomPanChain(width, height, z, 'black')
         }
         // クロップ（切り抜き）: 各辺を内側へ切り込み、切った領域は黒。
         // W×H(scalePad/zoom後)から部分矩形をcropし、元位置にpadで黒埋めして戻す（枠サイズ不変）。
@@ -2939,18 +2931,8 @@ app.whenReady().then(() => {
             }) +
             `,setpts=PTS-STARTPTS+${vc.tStart.toFixed(3)}/TB,format=rgba,setsar=1`
         } else if (z && (Math.abs(z.scale - 1) > 1e-3 || z.x !== 0 || z.y !== 0)) {
-          const zs = Math.max(0.05, z.scale)
-          const zw = Math.round(width * zs)
-          const zh = Math.round(height * zs)
-          if (zs >= 1) {
-            const ox = `(iw-${width})/2-(${(z.x * width).toFixed(1)})`
-            const oy = `(ih-${height})/2-(${(z.y * height).toFixed(1)})`
-            zm = `,scale=${zw}:${zh},crop=${width}:${height}:${ox}:${oy},setsar=1`
-          } else {
-            const px = `(${width}-iw)/2+(${(z.x * width).toFixed(1)})`
-            const py = `(${height}-ih)/2+(${(z.y * height).toFixed(1)})`
-            zm = `,scale=${zw}:${zh},pad=${width}:${height}:${px}:${py}:color=black@0,setsar=1`
-          }
+          // 重ねる段。絵から外れた所は透明（下の映像が見える）
+          zm = ',' + zoomPanChain(width, height, z, 'black@0')
         }
         let cr = ''
         const cp = vc.crop
@@ -3039,19 +3021,8 @@ app.whenReady().then(() => {
             }) +
             `,setpts=PTS-STARTPTS+${im.tStart.toFixed(3)}/TB,format=rgba,setsar=1`
         } else if (iz && (Math.abs(iz.scale - 1) > 1e-3 || iz.x !== 0 || iz.y !== 0)) {
-          const zs = Math.max(0.05, iz.scale)
-          const zw = Math.round(width * zs)
-          const zh = Math.round(height * zs)
-          if (zs >= 1) {
-            const ox = `(iw-${width})/2-(${(iz.x * width).toFixed(1)})`
-            const oy = `(ih-${height})/2-(${(iz.y * height).toFixed(1)})`
-            izm = `,scale=${zw}:${zh},crop=${width}:${height}:${ox}:${oy},setsar=1`
-          } else {
-            const px = `(${width}-iw)/2+(${(iz.x * width).toFixed(1)})`
-            const py = `(${height}-ih)/2+(${(iz.y * height).toFixed(1)})`
-            // 縮小時の余白は透明（下の映像が見える）
-            izm = `,scale=${zw}:${zh},pad=${width}:${height}:${px}:${py}:color=black@0,setsar=1`
-          }
+          // 重ねる段。絵から外れた所は透明（下の映像が見える）
+          izm = ',' + zoomPanChain(width, height, iz, 'black@0')
         }
         let icr = ''
         const icp = im.crop

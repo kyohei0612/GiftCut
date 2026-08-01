@@ -29,6 +29,54 @@
 
 import { valueAt, hasKeys, sanitizeKeys, keyTimesOf, keysToExpr, type Keys } from './keyframes'
 
+/**
+ * 「拡大＋移動」を焼くフィルタ列。**等倍のままでも動く。**
+ *
+ * ## なぜ crop ではないのか（実際に出た不具合）
+ *
+ * 前は `scale=W*s:H*s, crop=W:H:(iw-W)/2-x*W:...` と書いていた。これは
+ * 「大きくした絵の、どこを切り抜くか」で移動を表している。**拡大していない
+ * （s=1）と切り抜く余地がゼロ**なので、crop の位置は 0 に丸められ、
+ * X/Y をいくら動かしても絵は動かない。実測でも、s=1 では境目が動かず、
+ * s=1.5 にした途端に効いた。「書き出すと画像がデフォ位置に戻る」の正体。
+ *
+ * ## 代わりにやること
+ *
+ * 先に**余白ごと広げた台紙**に置いてから、必要な所を切り出す。置き場所が
+ * マイナスでも、切り出す側をずらせば表せるので、丸められない。
+ *
+ * 画面（CSS の `translate(x%,y%) scale(s)`、原点は中心）と同じ意味になる:
+ *   出力(u,v) = 元画像( (u-ox)/s, (v-oy)/s )
+ *   ox = (W - W*s)/2 + x*W,  oy = (H - H*s)/2 + y*H
+ * 絵から外れた所は `bg`（重ねる物は透明、いちばん下の段は黒）。
+ */
+export function zoomPanChain(
+  width: number,
+  height: number,
+  z: Zoom,
+  /** 絵の外を何で埋めるか。重ねる物は 'black@0'（下の映像が見える） */
+  bg: string
+): string {
+  const s = Math.max(0.05, z.scale)
+  const zw = Math.round(width * s)
+  const zh = Math.round(height * s)
+  // 出力の左上を原点にした、絵の置き場所（マイナスもあり得る）
+  const ox = Math.round((width - zw) / 2 + z.x * width)
+  const oy = Math.round((height - zh) / 2 + z.y * height)
+  // 台紙は「絵も、切り出す窓も、どちらも収まる」大きさにする。
+  // 置き場所がマイナスのぶんだけ、切り出す側を右下へずらす。
+  const cx = Math.max(0, -ox)
+  const cy = Math.max(0, -oy)
+  const px = ox + cx
+  const py = oy + cy
+  const pw = Math.max(px + zw, cx + width)
+  const ph = Math.max(py + zh, cy + height)
+  return (
+    `scale=${zw}:${zh},pad=${pw}:${ph}:${px}:${py}:color=${bg},` +
+    `crop=${width}:${height}:${cx}:${cy},setsar=1`
+  )
+}
+
 export interface Zoom {
   scale: number
   x: number
@@ -79,11 +127,21 @@ export function zoomAt(zoom: Zoom | undefined, m: ClipMotion | undefined, t: num
  * 代わりに使っていた `scale`＋`crop` は、切り出す**大きさ**に時間の式を書けない
  * （crop の w/h は最初に1回だけ評価される）。
  *
- * 座標の対応（いまの固定値の焼き方と1対1で合わせてある）:
- *   固定: scale=W*s:H*s, crop=W:H:(iw-W)/2-x*W:(ih-H)/2-y*H
- *   これを元の絵の座標に直すと、切り出し窓は
- *     幅 = W/s、左 = W/2 - W/(2s) - x*W/s
- *   zoompan の x は「元の絵の座標での窓の左上」なので、そのまま同じ式になる。
+ * 座標の対応:
+ *   切り出し窓は 幅 = W/s、左 = W/2 - W/(2s) - x*W/s。
+ *   zoompan の x は「元の絵の座標での窓の左上」なので、そのまま式になる。
+ *
+ * ## 等倍のままでは動けない問題（zoomPanChain と同じ穴）
+ *
+ * zoompan も「大きい絵のどこを切り抜くか」で移動を表すので、拡大1.0では
+ * 窓が絵と同じ大きさになり、位置は 0 に丸められて**まったく動かない**。
+ * 「位置のキーだけ打った動き」がプレビューでは動くのに書き出すと止まっている、
+ * という一番たちの悪いズレになる（実測で確認した）。
+ *
+ * そこで、**足りないぶんだけ台紙を広げてから** zoompan に渡す。広げた台紙の
+ * 上では窓を動かす余地ができるので、丸められない。式そのものは iw/ih 基準の
+ * ままで正しい（広げた台紙が iw/ih になるだけ）。拡大率だけ台紙の倍率を
+ * 掛ける。動かす必要が無ければ広げない（今までどおりの重さ）。
  *
  * 注意（実際に測って分かったこと）:
  *   - zoompan は**出力の時刻を作り直す**（入れる前にずらしておいた時刻は消える）。
@@ -103,21 +161,60 @@ export function zoompanFilter(
     fpsArg: string
     /** 入力1フレームから何フレーム出すか（動画=1、静止画=尺×fps） */
     frames: number
+    /** 広げた台紙の余白を何で埋めるか。既定は透明（重ねる物） */
+    bg?: string
   }
 ): string {
   const base = zoom ?? NEUTRAL_ZOOM
   const t = o.timeExpr
   // 固定値も1で止める（zoomAt と同じ。画面と書き出しを一致させる）
   const z = keysToExpr(m?.sc, Math.max(MIN_MOTION_SCALE, base.scale), t)
-  const zExpr = `max(1,${z})`
+  // 台紙を広げる量（フレーム比）。0 なら広げない
+  const mg = padMarginFor(zoom, m)
+  const mw = Math.ceil(mg * o.width)
+  // 縦も同じ倍率にする（違うと窓の縦横比が狂って、わずかに伸びる）
+  const mh = Math.round((mw * o.height) / o.width)
+  const pw = o.width + 2 * mw
+  const ph = o.height + 2 * mh
+  const pre = mw > 0 ? `pad=${pw}:${ph}:${mw}:${mh}:color=${o.bg ?? 'black@0'},` : ''
+  // 台紙を広げたぶん、同じ見た目にするには拡大率も同じ倍率だけ上げる
+  const zExpr = mw > 0 ? `max(1,${z})*${(pw / o.width).toFixed(6)}` : `max(1,${z})`
   const xExpr = `iw/2-(iw/zoom/2)-(${keysToExpr(m?.x, base.x, t)})*iw/zoom`
   const yExpr = `ih/2-(ih/zoom/2)-(${keysToExpr(m?.y, base.y, t)})*ih/zoom`
   // 式にはカンマが入る（if(lt(t,1),a,b)）。フィルタの区切りと混ざらないよう ' で囲む
   const q = (s: string): string => `'${s.replace(/'/g, '')}'`
   return (
+    pre +
     `zoompan=z=${q(zExpr)}:x=${q(xExpr)}:y=${q(yExpr)}` +
     `:d=${Math.max(1, Math.round(o.frames))}:s=${o.width}x${o.height}:fps=${o.fpsArg}`
   )
+}
+
+/**
+ * zoompan に渡す前に台紙を広げる量（フレーム比）。**要るときだけ広げる。**
+ *
+ * zoompan の窓は絵の内側にしか置けない（外へ出ると端で丸められる）。
+ * 拡大率 s・位置 x のとき、絵の座標での窓の左は `((1-s)/2 + x)/s`（フレーム比）で、
+ * これが 0 未満なら左へはみ出し、`1/s - 1` を越えたら右へはみ出す。
+ * どちらのはみ出し量も、そのぶん台紙を広げれば収まる。
+ *
+ * 印は折れ線なので、極値は必ず印の時刻にある。印の時刻だけ見れば足りる。
+ * 上限を付けてあるのは、際限なく広げると1コマの絵が巨大になって焼けなくなるため
+ * （1.5＝画面1枚半ぶん。完全に画面の外へ出すには十分）。
+ */
+function padMarginFor(zoom: Zoom | undefined, m: ClipMotion | undefined): number {
+  const base = zoom ?? NEUTRAL_ZOOM
+  const baseS = Math.max(MIN_MOTION_SCALE, base.scale)
+  let need = 0
+  for (const t of [0, ...clipMotionKeyTimes(m)]) {
+    const s = Math.max(MIN_MOTION_SCALE, valueAt(m?.sc, t, baseS))
+    for (const v of [valueAt(m?.x, t, base.x), valueAt(m?.y, t, base.y)]) {
+      const left = (1 - s) / 2 + v // 窓の左（フレーム比）に s を掛けたもの
+      need = Math.max(need, left / s, 1 / s - 1 - left / s)
+    }
+  }
+  // 丸めで端に張り付かないよう、ほんの少し余分に取る
+  return need > 0 ? Math.min(1.5, need + 0.01) : 0
 }
 
 /** 保存ファイルから読み直すときの検査（壊れていたら「動き無し」に落とす。落ちない） */
