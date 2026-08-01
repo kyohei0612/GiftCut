@@ -160,6 +160,7 @@ import { useTelopLook } from './state/useTelopLook'
 import { useMarkers } from './state/useMarkers'
 import { useSnap } from './state/useSnap'
 import { useViewNav } from './state/useViewNav'
+import { useTransitions } from './state/useTransitions'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -262,14 +263,7 @@ import {
   cropInset,
   adjustCss
 } from './lib/clipLook'
-import {
-  TRANS_TYPES,
-  transLabel,
-  transIco,
-  dipColor,
-  bandClass,
-  loadSegTrans
-} from './lib/transitions'
+import { TRANS_TYPES, dipColor } from './lib/transitions'
 import type { TransType, SegTrans } from './lib/transitions'
 import { DB_LADDER, enoughSilences } from '../../shared/silenceLadder'
 import {
@@ -5734,54 +5728,15 @@ function AppInner(): JSX.Element {
       prev.map((s) => (s.id === segId ? { ...s, rotate: d === 0 ? undefined : d } : s))
     )
   }
-  // タイムラインのトランジション枠を選択（動画クリップは選択しない＝トランジションだけを編集対象に）。
-  function selectTransition(segId: number, kind: 'in' | 'out' | 'xfade'): void {
-    setSelectedTrackId(null)
-    setSelectedIds([])
-    setEditingId(null)
-    setSelectedVideoIds([])
-    setSelectedAudioIds([])
-    setSelectedSeIds([])
-    setVideoSelected(false)
-    setSelectedTelopTrans(null)
-    setSelectedTrans({ segId, kind })
-    setRightTab('transition') // 設定パネルを開く
-  }
-  // 選択中トランジションの or 指定 seg/kind の1プロパティ(dur/type)を更新するヘルパー。
-  function patchSegTrans(
-    segId: number,
-    kind: 'in' | 'out' | 'xfade',
-    patch: Partial<SegTrans>
-  ): void {
-    const key = kind === 'in' ? 'transIn' : kind === 'out' ? 'transOut' : 'xfade'
-    setSegments((prev) =>
-      prev.map((s) => (s.id === segId && s[key] ? { ...s, [key]: { ...s[key], ...patch } } : s))
-    )
-  }
-  // 選択中トランジションの長さ／種類を変更。
-  function updateSelectedTransDur(dur: number): void {
-    if (selectedTrans) patchSegTrans(selectedTrans.segId, selectedTrans.kind, { dur })
-  }
-  function setSelectedTransType(type: TransType): void {
-    if (selectedTrans) patchSegTrans(selectedTrans.segId, selectedTrans.kind, { type })
-  }
-  // 選択中トランジションを削除。
-  function deleteSelectedTrans(): void {
-    if (!selectedTrans) return
-    const { segId, kind } = selectedTrans
-    setSegments((prev) =>
-      prev.map((s) =>
-        s.id !== segId
-          ? s
-          : kind === 'xfade'
-            ? { ...s, xfade: undefined }
-            : kind === 'in'
-              ? { ...s, transIn: undefined }
-              : { ...s, transOut: undefined }
-      )
-    )
-    setSelectedTrans(null)
-  }
+  // つなぎ目の演出（選ぶ・付ける・長さ・外す）は state/useTransitions
+  const {
+    selectTransition, patchSegTrans, updateSelectedTransDur, setSelectedTransType,
+    deleteSelectedTrans, startTransResize, setVideoTransDur, resolveTransDrop,
+    applyTransDrop, cleanupOrphanTrans
+  } = useTransitions({
+    segLayout, segLayoutRef, draggingTransRef, trackInnerRef, setRightTab,
+    clearSegSel, mainLocked, showToast, transDur
+  })
 
   // ===== テロップの出入りアニメ（動画トランジションと同じ流儀: D&D配置 / 帯表示 / 選択 / 削除）=====
   // 選択可能なモーション種（頭=in / 尻=out に付く）。emphasis は範囲を持たないので別扱い。
@@ -6016,37 +5971,6 @@ function AppInner(): JSX.Element {
     }
   }
 
-  // タイムライン上でトランジションの端をドラッグして長さを変える（プレミア風）。
-  // sign: ドラッグ方向→長さの符号（頭/尻/中央で異なる）。apply(dur) で実際の適用。
-  function startTransResize(
-    e: React.PointerEvent,
-    startDur: number,
-    sign: number,
-    apply: (d: number) => void,
-    maxDur = 2
-  ): void {
-    e.stopPropagation()
-    e.preventDefault()
-    const startX = e.clientX
-    const z = zoomRef.current
-    // 上限は選択パネルのスライダー(max=2s)と揃える（表示矛盾を防ぐ）
-    const cap = Math.min(maxDur, 2)
-    const onMove = (ev: PointerEvent): void => {
-      apply(clamp(startDur + (sign * (ev.clientX - startX)) / z, 0.05, cap))
-    }
-    const onUp = (): void => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
-  }
-  // 動画トランジションの長さを直接設定（帯の端リサイズ用）。type は保持。
-  function setVideoTransDur(segId: number, kind: 'in' | 'out' | 'xfade', dur: number): void {
-    patchSegTrans(segId, kind, { dur })
-  }
 
   /**
    * 見本帳の動きを、選んでいるテロップに付ける。
@@ -6084,105 +6008,6 @@ function AppInner(): JSX.Element {
     )
   }
 
-  // トランジションD&D: マウス位置で配置先を判別（駐禁なし＝どこでも置ける・種類は無関係）。
-  // ・カット境界（クリップの境目）の近く → 間。
-  // ・それ以外はクリップ本体で 前半=頭 / 後半=尻。
-  const BOUNDARY_PX = 22 // カット境界の当たり幅（画面px）。この範囲に入ったら間。
-  function resolveTransDrop(
-    clientX: number
-  ): {
-    segId: number
-    kind: 'in' | 'out' | 'xfade'
-    left: number
-    width: number
-    label: string
-  } | null {
-    const drag = draggingTransRef.current
-    const rect = trackInnerRef.current?.getBoundingClientRect()
-    const lay = segLayoutRef.current
-    if (!drag || !rect || !lay.length) return null
-    const z = zoomRef.current
-    const t = Math.max(0, (clientX - rect.left) / z)
-    // 最寄りの内部カット（クリップの境目）を探す
-    let cutIdx = -1
-    let cutPx = Infinity
-    for (let i = 0; i < lay.length - 1; i++) {
-      const dpx = Math.abs(lay[i].tEnd - t) * z
-      if (dpx < cutPx) {
-        cutPx = dpx
-        cutIdx = i
-      }
-    }
-    // カット境界の近く → 間（左クリップに付与）。
-    // **予告帯も「実際に掛かる区間」に出す＝カットの手前 d 秒。**
-    // 置いたあとの帯と位置が食い違うと、置いた場所が動いたように見える。
-    if (cutIdx >= 0 && cutPx <= BOUNDARY_PX) {
-      const A = lay[cutIdx]
-      const d = Math.min(transDur, A.len, lay[cutIdx + 1].len)
-      return {
-        segId: A.seg.id,
-        kind: 'xfade',
-        left: (A.len - d) * z,
-        width: d * z,
-        label: `間 ${transIco(drag.type)}`
-      }
-    }
-    // 境界でない → クリップ本体で 前半=頭 / 後半=尻
-    const L = lay.find((l) => t >= l.tStart && t < l.tEnd) ?? lay[lay.length - 1]
-    const f = (t - L.tStart) / Math.max(1e-6, L.len)
-    const w = Math.min(transDur, L.len) * z
-    if (f < 0.5)
-      return { segId: L.seg.id, kind: 'in', left: 0, width: w, label: `頭 ${transIco(drag.type)}` }
-    return {
-      segId: L.seg.id,
-      kind: 'out',
-      left: L.len * z - w,
-      width: w,
-      label: `尻 ${transIco(drag.type)}`
-    }
-  }
-  // トランジションD&Dのドロップ確定。resolveTransDrop の判別（頭/間/尻）に drag.type を付与。
-  function applyTransDrop(clientX: number): void {
-    if (mainLocked()) return
-    const drag = draggingTransRef.current
-    const r = resolveTransDrop(clientX)
-    if (!drag || !r) return
-    const nt: SegTrans = { type: drag.type, dur: transDur }
-    if (r.kind === 'xfade') {
-      const next = segments.map((s, i) =>
-        s.id === r.segId && i < segments.length - 1 ? { ...s, xfade: nt } : s
-      )
-      setSegments(next)
-      const idx = next.findIndex((s) => s.id === r.segId)
-      if (idx >= 0 && xfadeDurAt(layoutSegs(next), idx) <= 0)
-        showToast(
-          '次のクリップの頭に素材の余白がないため間トランジションが効きません。\n（次のクリップの頭を少しトリムすると余白ができます）'
-        )
-    } else {
-      setSegments((prev) =>
-        prev.map((s) => {
-          if (s.id !== r.segId) return s
-          if (r.kind === 'in') return { ...s, transIn: nt }
-          return { ...s, transOut: nt }
-        })
-      )
-    }
-  }
-  // 切片が消えたときに、隣に取り残されるトランジションを掃除する。
-  // 残すと別の2クリップ間でディゾルブが勝手に復活する。
-  function cleanupOrphanTrans(list: VSeg[], removedIds: Set<number>): VSeg[] {
-    const out: VSeg[] = []
-    for (let i = 0; i < list.length; i++) {
-      const cur = list[i]
-      if (removedIds.has(cur.id)) continue
-      let g = cur
-      if (i + 1 < list.length && removedIds.has(list[i + 1].id) && g.xfade)
-        g = { ...g, xfade: undefined }
-      if (i > 0 && removedIds.has(list[i - 1].id) && g.transIn) g = { ...g, transIn: undefined }
-      out.push(g)
-    }
-    return out
-  }
   // 再生ヘッドから「1つ前のカット点」までを詰めて削除（切り抜きの不要部カット用）
   // 対象切片の頭を再生ヘッドまで前進＝[切片開始, 再生ヘッド]を除去し、後続は自動で詰まる。
   // リップルトリムが止まる「編集点」の一覧。カット点のほかに、テロップ・画像・
