@@ -101,7 +101,6 @@ import {
 } from './components/panels/PreviewBars'
 import { TimelineToolbar } from './components/timeline/TimelineToolbar'
 import { TrackHeaders } from './components/timeline/TrackHeaders'
-import { ClipBand } from './components/timeline/ClipBand'
 import { TimeRuler, Marquee, MarkerFlags, Playhead } from './components/timeline/Ruler'
 import type { Adjust, Crop } from './components/panels/PropertyRows'
 import { SeLibraryTab, seMoveTarget } from './components/panels/SeLibraryTab'
@@ -210,6 +209,7 @@ import {
 import type { OpenClipMenu } from './components/timeline/ClipBand'
 import { TelopBands, TelopDropGhost } from './components/timeline/TelopBands'
 import { MainAudioBands, MainVideoBands } from './components/timeline/MainClipBands'
+import { SeBands } from './components/timeline/SeBands'
 import {
   ACTION_LIST,
   DEFAULT_SHORTCUTS,
@@ -8811,44 +8811,15 @@ function AppInner(): JSX.Element {
                         onPointerDown={onSegPointerDown}
                       />
                     )}
-                    {(tr.kind === 'audio'
-                      ? seClips.filter(
-                          (c) => c.track === tr.id && inView(c.tStart, c.tStart + c.duration)
-                        )
-                      : []
-                    ).map(
-                      (clip) => (
-                        <ClipBand
-                          key={clip.id}
-                          className="se-clip"
-                          label={clip.label}
-                          left={clip.tStart * zoom}
-                          // **短い効果音でも掴めるだけの幅を必ず残す。**
-                          // 実物には0.2秒の物があり、拡大率しだいで数pxになる
-                          width={Math.max(clip.duration * zoom - 1, 16)}
-                          selected={selectedSeIds.includes(clip.id)}
-                          title={`${clip.name}（ドラッグで移動・Deleteで削除／短くするなら分割してから）`}
-                          onPointerDown={(e) => onSePointerDown(clip, e)}
-                          // ※長さ変更（左右端を掴む）は外した。
-                          // 端の当たり判定が左右7pxずつあるので、短い効果音は
-                          // **帯の全部が「長さ変更」になって、選ぶ余地が無かった**。
-                          // 短くしたいときは分割して消すほうが速く、そちらは既にできる。
-                          onContextMenu={(e) => openClipMenu(e, 'se', clip)}
-                          deleteTitle="削除"
-                          onDelete={(e) => {
-                            e.stopPropagation()
-                            // ロック中は消さない（Delete キー側は守っているので揃える）
-                            if (trackStates[clip.track]?.locked) {
-                              showToast('このトラックはロックされています。')
-                              return
-                            }
-                            setSeClips((prev) => prev.filter((c) => c.id !== clip.id))
-                            setSelectedSeIds([])
-                          }}
-                        >
-                          <span className="clip-text">🔊 {clip.name}</span>
-                        </ClipBand>
-                      )
+                    {/* 効果音・BGM の帯は components/timeline/SeBands.tsx */}
+                    {tr.kind === 'audio' && (
+                      <SeBands
+                        trackId={tr.id}
+                        zoom={zoom}
+                        inView={inView}
+                        onPointerDown={onSePointerDown}
+                        openClipMenu={openClipMenu}
+                      />
                     )}
                     {/* 掴んで運んでいる最中の置き場所プレビューは
                         components/timeline/DropGhosts.tsx */}
