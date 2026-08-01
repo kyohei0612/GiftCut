@@ -170,6 +170,7 @@ import { useIconLibrary } from './state/useIconLibrary'
 import { useProjectIO } from './state/useProjectIO'
 import { AppMenus } from './components/AppMenus'
 import { usePlaybackEngine } from './state/usePlaybackEngine'
+import { usePreviewFrame } from './state/usePreviewFrame'
 // 寄れる限界。バー・ホイール・フィットで同じ物を使う
 import { ZOOM_MAX, ZOOM_MIN, clampZoom } from './state/useView'
 import { ToasterProvider, useToastCtx } from './state/toastContext'
@@ -2995,139 +2996,12 @@ function AppInner(): JSX.Element {
   })()
   const reframeTargetRef = useRef(reframeTarget)
   reframeTargetRef.current = reframeTarget
-  // 再生ヘッド位置の切片の回転/反転（CSS transform）。ズーム/トランジションと合成する。
-  const curSegXform = (() => {
-    const src = tToSource(segLayout, currentTime)
-    const seg = src ? segments[src.index] : undefined
-    if (!seg) return ''
-    const parts: string[] = []
-    if (seg.rotate) parts.push(`rotate(${seg.rotate}deg)`)
-    if (seg.flipH) parts.push('scaleX(-1)')
-    if (seg.flipV) parts.push('scaleY(-1)')
-    return parts.join(' ')
-  })()
-  // 動画ズームのCSS変換（プレビュー用・現切片）。translateはフレーム比→%、原点は中心。
-  const videoZoomTransform = isNeutralZoom(curSegZoom)
-    ? undefined
-    : `translate(${(curSegZoom.x * 100).toFixed(3)}%, ${(curSegZoom.y * 100).toFixed(3)}%) scale(${curSegZoom.scale.toFixed(4)})`
-  // 頭/尻トランジションのプレビュー。dip系(fade/黒/白)は色オーバーレイ、slide/wipeは映像自体を動かす。
-  // 現在の切片の in/out と再生ヘッド位置から「進捗 p(0..1)」を出す。xfade境界のディップは出さない。
-  const inOutPreview = (() => {
-    const L = segLayout.find((l) => currentTime >= l.tStart && currentTime < l.tEnd)
-    if (!L) return null
-    const local = currentTime - L.tStart
-    const ti = L.seg.transIn
-    const to = L.seg.transOut
-    const xfPrev = L.index > 0 ? xfadeDurAt(segLayout, L.index - 1) : 0
-    const xfNext = xfadeDurAt(segLayout, L.index)
-    if (ti && ti.dur > 0 && local < ti.dur && !xfPrev)
-      return { type: ti.type, dir: 'in' as const, p: clamp(local / ti.dur, 0, 1) }
-    if (to && to.dur > 0 && local > L.len - to.dur && !xfNext)
-      return { type: to.type, dir: 'out' as const, p: clamp((local - (L.len - to.dur)) / to.dur, 0, 1) }
-    return null
-  })()
-  // dip系の色オーバーレイ（頭=色→映像、尻=映像→色）。slide/wipe のときは null（映像側で表現）。
-  const transOverlay = (() => {
-    if (!inOutPreview) return null
-    const col = dipColor(inOutPreview.type)
-    if (!col) return null
-    // in: p=0で覆い1→p=1で0 / out: p=0で0→p=1で1
-    const opacity = inOutPreview.dir === 'in' ? 1 - inOutPreview.p : inOutPreview.p
-    return { color: col, opacity }
-  })()
-  // 頭/尻が slide/wipe のとき、メイン映像に掛けるCSS（回転/反転・ズーム変換と合成）。
-  const videoMainStyle = (() => {
-    // トランジション（slide/wipe）分の transform / clipPath
-    const trans: React.CSSProperties = (() => {
-      const base: React.CSSProperties = { transform: videoZoomTransform }
-      if (!inOutPreview || dipColor(inOutPreview.type)) return base
-      const { type, dir, p } = inOutPreview
-      const off = (dir === 'in' ? 1 - p : p) * 100
-      const zoom = videoZoomTransform ? ` ${videoZoomTransform}` : ''
-      if (type === 'slideleft') return { transform: `translateX(${dir === 'in' ? off : -off}%)${zoom}` }
-      if (type === 'slideright') return { transform: `translateX(${dir === 'in' ? -off : off}%)${zoom}` }
-      if (type === 'slideup') return { transform: `translateY(${dir === 'in' ? off : -off}%)${zoom}` }
-      if (type === 'slidedown') return { transform: `translateY(${dir === 'in' ? -off : off}%)${zoom}` }
-      if (type === 'wipeleft') return { transform: videoZoomTransform, clipPath: `inset(0 0 0 ${off}%)` }
-      if (type === 'wiperight') return { transform: videoZoomTransform, clipPath: `inset(0 ${off}% 0 0)` }
-      return base
-    })()
-    // 現切片の回転/反転を先頭に合成（＝映像自体を回す/反転させてから、ズーム/スライドを掛ける）
-    const tf = [curSegXform, trans.transform].filter(Boolean).join(' ')
-    // クロップ（clip-path inset）。wipe中はwipe側のclipPathを優先（trans.clipPathがあればそれを使う）。
-    const clip = trans.clipPath ?? curCropInset
-    return { ...trans, transform: tf || undefined, clipPath: clip }
-  })()
-
-  // クロスディゾルブのプレビュー状態: 再生ヘッドが [カット-d, カット) にいる間、
-  // 次クリップ(B)を2本目のvideoでオーバーレイし opacity 0→1 でフェードイン。
-  // カット到達後も XF_GRACE 秒だけ B を不透明で保持し、main が B にシークし終わるまで
-  // A の最終フレームが素通しでちらつくのを防ぐ（プロキシでもシークは1〜数フレーム遅れる）。
-  const xfPreview = (() => {
-    if (!videoSrc) return null
-    for (let i = 0; i < segLayout.length - 1; i++) {
-      const d = xfadeDurAt(segLayout, i)
-      if (!d) continue
-      const cut = segLayout[i].tEnd
-      const B = segLayout[i + 1]
-      const sp = segSpeed(B.seg)
-      const blank = !!B.seg.videoBlank // 黒ブランクへのディゾルブは黒divのフェードで表現
-      const type = segLayout[i].seg.xfade?.type ?? 'fade'
-      // マルチソース: B側は自分の元動画のURL/ズームでプレビュー（A側と別ソースでも正しい映像）
-      const bs = srcOfSeg(B.seg)
-      const bUrl = bs ? previewUrl(bs.path, bs.origUrl) : null
-      const bZoom = B.seg.zoom
-      if (currentTime >= cut - d && currentTime < cut) {
-        // トランジション中: B がソース頭の手前(srcStart - 残り*速度)から先読み。p=進捗0→1。
-        return {
-          p: clamp(1 - (cut - currentTime) / d, 0, 1),
-          type,
-          blank,
-          srcTime: Math.max(0, B.seg.srcStart - (cut - currentTime) * sp),
-          speed: sp,
-          bUrl,
-          bZoom
-        }
-      }
-      if (currentTime >= cut && currentTime < cut + XF_GRACE) {
-        // カット直後の猶予: main が B に追いつくまで B 本編を不透明で保持
-        return {
-          p: 1,
-          type,
-          blank,
-          srcTime: B.seg.srcStart + (currentTime - cut) * sp,
-          speed: sp,
-          bUrl,
-          bZoom
-        }
-      }
-    }
-    return null
-  })()
-  // 次に来る「間トランジション」のB側ソースURLを先読み（境界の少し前からvideoBへロードしておき、
-  // ディゾルブ開始の瞬間にsrc切替リロードのヒッチが出ないようにする）。マルチソース時のみ。
-  const xfNextBUrl = (() => {
-    if (!videoSrc || sources.length <= 1) return null
-    for (let i = 0; i < segLayout.length - 1; i++) {
-      const d = xfadeDurAt(segLayout, i)
-      if (!d) continue
-      const cut = segLayout[i].tEnd
-      if (cut + XF_GRACE < currentTime) continue // 既に過ぎた境界
-      if (cut - currentTime > 8) break // 8秒より先はまだ読まない
-      const bs = srcOfSeg(segLayout[i + 1].seg)
-      return bs ? previewUrl(bs.path, bs.origUrl) : null
-    }
-    return null
-  })()
-  // 黒/白ディップを「間」に置いたとき、書き出し(fadeblack/fadewhite)に合わせて色に沈んで戻る覆い。
-  // 中央(p=0.5)で覆いが最大＝一度色に沈み、B が出てくる。
-  const xfDipOverlay = (() => {
-    if (!xfPreview || xfPreview.blank) return null
-    const col = dipColor(xfPreview.type)
-    if (!col) return null
-    return { color: col, opacity: 1 - Math.abs(1 - 2 * xfPreview.p) }
-  })()
-
+  // プレビューに出す「いまの絵」の組み立て（回転・拡大・つなぎ目の演出）は
+  // state/usePreviewFrame
+  const {
+    curSegXform, videoZoomTransform, inOutPreview, transOverlay, videoMainStyle,
+    xfPreview, xfNextBUrl, xfDipOverlay
+  } = usePreviewFrame({ XF_GRACE, segLayout, srcOfSeg, curSegZoom, curCropInset, previewUrl })
   // 2本目video(videoB)を xfPreview に追従させる（シーク/再生/レート）。ドリフトしたら再シーク。
   useEffect(() => {
     const vb = videoBRef.current
