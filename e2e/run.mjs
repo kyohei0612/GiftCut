@@ -22,14 +22,9 @@
 //                               対応表に無いファイルは「見ていない」と出る
 //   （項目名の一覧は `grep "await check(" e2e/run.mjs` で見られる）
 //
-// ## 絞ったときに見ない項目（orderDependent）
-//
-// 手前の項目が作った状態に寄りかかっている確認は、`{ orderDependent: true }` を
-// 付けておくと **--only のときだけ飛ばす**。絞ると必ず赤くなるが通しでは緑、という
-// **嘘の赤**を消すため（見るたびに stash して変更前と比べる羽目になっていた）。
-//
-// **無条件に全部を緑にはしない。** それをやると絞った確認が何も見ていないことになる。
-// 印を付けるときは、なぜ順番に依存するのかを必ずその場に書くこと。
+// 手前の項目に寄りかかっている確認は `{ orderDependent: true }` を付けると
+// **--only のときだけ飛ばす**（絞ると必ず赤いが通しでは緑、という嘘の赤を消す）。
+// **無条件に全部を緑にはしない**——それでは絞った確認が何も見ていないことになる。
 // ============================================================================
 import { _electron as electron } from 'playwright'
 import { spawn, execSync } from 'node:child_process'
@@ -216,15 +211,10 @@ async function check(name, fn, opts = {}) {
     results.push({ name, skipped: true })
     return
   }
-  // **絞ったときは「順番に依存する項目」を見ない。**
-  //
-  // 手前の項目が作った状態に寄りかかっている確認がいくつかある。絞って回すと
-  // その状態が無いので必ず赤くなるが、それは**通しでは緑になる嘘の赤**で、
-  // 見るたびに「自分が壊したのか」を stash して確かめる羽目になる（実際に何度もやった）。
-  //
-  // **無条件に全部を緑にはしない。** それをやると、絞った確認そのものが
-  // 何も見ていないことになる。印を付けた物だけ、絞ったときに飛ばす。
-  // 印を付けるときは**なぜ順番に依存するのか**を必ず一緒に書くこと。
+  // **絞ったときは「順番に依存する項目」を見ない。** 手前が作った状態に
+  // 寄りかかっている確認は、絞ると必ず赤くなるが通しでは緑＝嘘の赤で、
+  // 見るたびに stash して変更前と比べる羽目になる（実際に何度もやった）。
+  // 印を付けるときは**なぜ順番に依存するのか**を必ずその場に書くこと。
   if (ONLY.length && opts.orderDependent) {
     results.push({ name, skipped: true })
     console.log(`  \x1b[2m− ${name}（順番に依存するので、絞ったときは見ない）\x1b[0m`)
@@ -1074,7 +1064,17 @@ try {
       },
       { targetSel, mods }
     )
+    // 本物のブラウザは drop のあと掴んだ元へ dragend を飛ばす。後片付けまで同じにする
+    await page.evaluate(() => {
+      document
+        .querySelector('.media-card')
+        ?.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: window.__dt }))
+    })
     await page.waitForTimeout(400)
+    // **置いたら影は消えていること。** 消え残ると触れない破線の枠が段に居座り、
+    // 「見覚えのない透明な枠」と映る（実際に言われた）。素材を落とす確認すべてが見張りになる
+    const strayGhost = await page.locator('.se-ghost').count()
+    assert(strayGhost === 0, `置いたのに「置き先の影」が ${strayGhost} 個残っている`)
     return { prevented, ghost }
   }
 

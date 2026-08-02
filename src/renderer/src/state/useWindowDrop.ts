@@ -57,6 +57,12 @@ export function useWindowDrop(deps: UseWindowDropDeps) {
     },
     drop: (e) => {
       const m = draggingMediaRef.current
+      // **影は、掴んでいる物が残っているかに関わらず必ず消す。**
+      // 先に受け皿が処理して掴んでいる物を手放していると、ここで `m` が無い。
+      // 前はその場合に何もせず帰っていたので、**置き先の影（薄い破線の枠）が
+      // 段に残りっぱなし**になっていた。触れない（pointer-events: none）ので、
+      // 見た人には「見覚えのない透明な枠」としか映らない。
+      clearDropGhosts()
       if (!m) return
       // タイムライン・プレビュー・ビンなど、ちゃんとした受け皿が処理した場合は
       // そちらが preventDefault 済み。二重に置かないよう、ここでは影を消すだけ。
@@ -65,7 +71,6 @@ export function useWindowDrop(deps: UseWindowDropDeps) {
         return
       }
       e.preventDefault()
-      clearDropGhosts()
       // 左右のパネル（素材ビン・テロップ一覧など）の中で離したのは「やめた」扱い。
       // ビンから掴んで同じビンへ戻しただけでタイムラインに置かれると事故になる。
       if ((e.target as HTMLElement | null)?.closest?.('.panel:not(.monitor)')) return
@@ -75,6 +80,15 @@ export function useWindowDrop(deps: UseWindowDropDeps) {
   }
 
   useEffect(() => {
+    // **最後の受け皿。** 掴んでいないのに影が残っていたら、次に画面を押した時点で消す。
+    // `dragend` は**掴んだ元の要素**へ飛ぶので、素材ビンが描き直されて元の
+    // カードが消えていると誰も受け取れず、影だけが残る。
+    // 掴んでいる最中は（HTML5 のドラッグ中なので）pointerdown は飛んでこない＝
+    // 出ている途中の影を消してしまうことはない。
+    const stray = (): void => {
+      if (!draggingMediaRef.current) clearDropGhosts()
+    }
+    window.addEventListener('pointerdown', stray, true)
     const enter = (e: DragEvent): void => winDragRef.current.enter(e)
     const over = (e: DragEvent): void => winDragRef.current.over(e)
     const drop = (e: DragEvent): void => winDragRef.current.drop(e)
@@ -84,6 +98,7 @@ export function useWindowDrop(deps: UseWindowDropDeps) {
     window.addEventListener('drop', drop)
     window.addEventListener('dragend', end)
     return () => {
+      window.removeEventListener('pointerdown', stray, true)
       window.removeEventListener('dragenter', enter)
       window.removeEventListener('dragover', over)
       window.removeEventListener('drop', drop)
