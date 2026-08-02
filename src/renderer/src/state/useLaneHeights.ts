@@ -61,6 +61,14 @@ export interface LaneHeights {
   laneH: Record<string, number>
   setLaneH: React.Dispatch<React.SetStateAction<Record<string, number>>>
   laneHRef: React.MutableRefObject<Record<string, number>>
+  /**
+   * 高さを既定へ戻す。
+   *
+   * **既定を変えても、前に触ったことのある人の画面は前のまま**になる
+   * （高さは1つずつ localStorage に覚えている）。黙って書き換えると、
+   * その太さに慣れた人の画面が理由もなく変わるので、戻す口の方を用意した。
+   */
+  resetLaneH: () => void
 }
 
 export function useLaneHeights(): LaneHeights {
@@ -108,6 +116,13 @@ export function useLaneHeights(): LaneHeights {
     }
   }, [laneH])
 
+  const resetLaneH = (): void => {
+    setVideoTrackH(TRACK_H_MIN)
+    setAudioTrackH(TRACK_H_MIN)
+    // 段ごとの控えは丸ごと捨てて、既定（本編の音だけ波形が読める高さ）へ戻す
+    setLaneH({ ...DEFAULT_LANE_H })
+  }
+
   return {
     videoTrackH,
     setVideoTrackH,
@@ -117,6 +132,7 @@ export function useLaneHeights(): LaneHeights {
     audioTrackHRef,
     laneH,
     setLaneH,
-    laneHRef
+    laneHRef,
+    resetLaneH
   }
 }

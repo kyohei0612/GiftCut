@@ -230,10 +230,9 @@ const {
           )}
           laneRows={tracks
             .filter((t) => t.kind === 'video' && t.id !== 'V1')
-            .map((t) => ({
-              id: t.id,
-              label: t.id === 'V2' ? 'V2 テロップ' : t.name || t.id
-            }))}
+            // V2 にだけ注釈を足さない。足した段（V4以降）には付かないので、
+            // 同じ一覧に2通りの書き方が混ざる（名前は lib/trackState で番号に揃えた）
+            .map((t) => ({ id: t.id, label: t.name || t.id }))}
           colorAssign={iconAssign}
           laneAssign={laneIconAssign}
           onAssignColor={setIconForColor}

@@ -15,7 +15,13 @@ import { toGcUrl } from '../lib/gcUrl'
 import { clamp, FPS_FALLBACK as FPS } from '../../../shared/timeline'
 import { loadCues, loadSegs, loadSeClips, loadMarkers, loadImgClips, loadVClips } from '../lib/projectLoad'
 import {  type TelopStyle, type TextRun } from '../lib/telopStyle'
-import { DEFAULT_TRACKS, EXTRA_AUDIO_TRACK, initTrackStates, newTrackState } from '../lib/trackState'
+import {
+  DEFAULT_TRACKS,
+  EXTRA_AUDIO_TRACK,
+  initTrackStates,
+  newTrackState,
+  normalizeTrackName
+} from '../lib/trackState'
 import { mergeAssignments, mergeFavorites, mergeFolders, mergeNamed } from '../../../shared/templateMerge'
 import { saveCatOverrides, saveCustomCats, saveFavorites, saveUserTemplates } from '../lib/telopTemplates'
 import { saveIconAssign } from '../lib/iconLibrary'
@@ -392,7 +398,14 @@ export function useProjectFile(deps: UseProjectFileDeps) {
               /^[VA]\d+$/.test(t.id) &&
               (t.kind === 'video' || t.kind === 'audio')
           )
-          .map((t: any) => ({ id: t.id, name: String(t.name ?? t.id), kind: t.kind }))
+          // 前の既定に付いていた注釈（「V2 テロップ」など）は番号だけに戻す。
+          // 名前はプロジェクトに保存されるので、既定を変えただけでは
+          // 開き直した人の画面が前のまま＝新しい段と書き方が混ざる
+          .map((t: any) => ({
+            id: t.id,
+            name: normalizeTrackName(t.id, String(t.name ?? t.id)),
+            kind: t.kind
+          }))
       : []
     /* eslint-enable @typescript-eslint/no-explicit-any */
     let nextTracks =

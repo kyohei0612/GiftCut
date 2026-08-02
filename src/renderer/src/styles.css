@@ -1622,6 +1622,20 @@ body {
   padding: 0 4px;
   cursor: pointer;
 }
+/* **文字を打つ欄は、指ではなく I 形にする。**
+   この見た目は <select> と <input> で使い回しているので、指のまま
+   「押す物」に見えていた（打てることが見た目から分からない）。 */
+input.pq-select {
+  cursor: text;
+}
+/* 中身を出すだけの欄（書き出し先の道など）。
+   <span> は箱の高さに対して**上へ寄る**ので、真ん中に置き直す。
+   長い道は尻を残して頭を … にする（下の tailEllipsis）。 */
+span.pq-select {
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
 
 /* 動画リフレーム（ズーム）枠 */
 .reframe-box {

@@ -173,7 +173,7 @@ export function useAppWiring() {
   // 段の高さ（種類ごと＋段ごと）。state と ref を1か所で面倒を見る
   const {
     videoTrackH, setVideoTrackH, audioTrackH, setAudioTrackH,
-    videoTrackHRef, audioTrackHRef, laneH, setLaneH,
+    videoTrackHRef, audioTrackHRef, laneH, setLaneH, resetLaneH,
   } = useLaneHeights()
   // 再生の「今」（時刻・流しているか・速さ）。**追いかけの仕組みは動かしていない**
   const {
@@ -1127,7 +1127,7 @@ export function useAppWiring() {
     resolveTelopTransDrop, applyTelopTransDrop, selectTelopTrans, patchCueAnim,
     undo, redo, undoStackRef, redoStackRef, isDirty, cutAtPlayhead, findSilences,
     setSilenceOpen, toggleSnap,
-    selectTrack, toggleTrack, addVideoTrack, addAudioTrack, addBgm, setTracks, askText,
+    selectTrack, toggleTrack, addVideoTrack, addAudioTrack, addBgm, resetLaneH, setTracks, askText,
     fallbackTrack, stopPlayback, seekTo
   }
   const timelineView: TimelineView = {

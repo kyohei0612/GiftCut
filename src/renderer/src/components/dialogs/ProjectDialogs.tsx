@@ -10,6 +10,18 @@
 
 import { useState } from 'react'
 
+/**
+ * 長い道は**尻を残して、頭を … にする**。
+ *
+ * 素直に `text-overflow: ellipsis` に任せると頭から出て尻が切れるが、
+ * 道で知りたいのは**どのフォルダに入るか**（尻）で、頭は
+ * `C:\Users\...` のようにどれも同じ。切る側を逆にする。
+ * 全部は `title` で出るので、消えるわけではない。
+ */
+function tailEllipsis(s: string, max = 42): string {
+  return s.length <= max ? s : '…' + s.slice(-(max - 1))
+}
+
 export interface ExportOpts {
   resP: 2160 | 1080 | 720 | 480
   fps: 'source' | 24 | 30 | 60
@@ -87,10 +99,10 @@ export function ExportSettingsDialog({
           <span className="sp-label">書き出し先</span>
           <span
             className="pq-select"
-            style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            style={{ flex: 1, minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap' }}
             title={dir || undefined}
           >
-            {dir || '（未選択）'}
+            {dir ? tailEllipsis(dir) : '（未選択）'}
           </span>
           <button className="btn small" onClick={onPickDir}>
             参照…

@@ -97,6 +97,8 @@ export interface TimelineOps {
   toggleTrack: any
   addVideoTrack: any
   addAudioTrack: any
+  /** 段の高さを既定へ戻す（保存してある物を捨てる） */
+  resetLaneH: () => void
   addBgm: any
   setTracks: any
   askText: any

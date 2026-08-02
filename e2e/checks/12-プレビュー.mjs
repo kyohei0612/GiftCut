@@ -205,6 +205,41 @@ export default async function (C) {
     await page.waitForTimeout(300)
   })
 
+  await check('テロップを重ねて置くと、重なった分が消える（上書き）', async () => {
+    // **動画クリップは元から上書きされるのに、テロップだけ重なったまま残っていた。**
+    // 画面では前後に重なって見えるだけで、どちらが出ているのか分からない。
+    //
+    // 判定そのものは shared/overwrite の試験で見ているので、ここは
+    // 「掴んで落としたときに、本当にその道を通るか」だけを見る。
+    await resetProject()
+    const bands = () => page.locator('.telop-clip')
+    assert((await bands().count()) >= 2, 'テロップが2つ以上ないと重ねられない')
+    const box = async (i) => await bands().nth(i).boundingBox()
+    const a = await box(0)
+    const b = await box(1)
+    const wBefore = b.width
+    assert(wBefore > 20, `2つ目が細すぎて確かめられない（${wBefore}px）`)
+
+    // 1つ目を右へ運んで、2つ目の頭へ食い込ませる（2つ目の幅の3割ほど）
+    const bite = Math.round(b.width * 0.3)
+    const toX = b.x + bite - a.width / 2
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(toX, a.y + a.height / 2, { steps: 12 })
+    await page.mouse.up()
+    await page.waitForTimeout(600)
+
+    // 2つ目は、食い込まれた分だけ頭が削れて短くなっているはず
+    const after = await page.locator('.telop-clip').nth(1).boundingBox()
+    assert(after, '2つ目のテロップが消えてしまった（削りすぎ）')
+    assert(
+      after.width < wBefore - 4,
+      `重ねても2つ目が短くなっていない（${Math.round(wBefore)} → ${Math.round(after.width)}px）`
+    )
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
   await check('打ち直しの欄は、左右のパネルを押しても消えない（タイムラインでは消える）', async () => {
     // **打ちながら色やフォントを直しに行くのは、同じ一続きの作業。**
     // そこで閉じると、打ちかけの文字と「変えたかった選択そのもの」が消える

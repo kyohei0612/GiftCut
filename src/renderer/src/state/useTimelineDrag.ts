@@ -20,6 +20,7 @@
 // （画面のあちこちから同じ問いが飛ぶので、掴む操作の持ち物にはしない）。
 
 import { toggleSelect } from '../../../shared/clipEdit'
+import { subtractRanges, isUntouched } from '../../../shared/overwrite'
 import { clamp } from '../../../shared/timeline'
 import { formatTime, type Cue } from '../lib/srt'
 import { type SegLayout } from '../lib/projectTypes'
@@ -90,7 +91,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     setDragTip, setMarquee, setSnapLineX, snapClipStart, snapTime,
     scrubFromClientX, reserveTrackPairForVideo, addVideoTrack, pendingLaneRef, setMenu
   } = deps
-  const { cues, setCues,  seClips, imgClips, vClips } = useDoc()
+  const { cues, cuesRef, setCues,  seClips, imgClips, vClips } = useDoc()
   const {
     selectedIds, setSelectedIds, setSelectedVideoIds, setSelectedAudioIds,
     setSelectedSeIds, setSelectedImgIds, setSelectedVClipIds,
@@ -161,8 +162,14 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     const fwd = dir > 0
     const want = (id: string): boolean => !single || laneId === id
     // 右方向=クリップが T より右に伸びている / 左方向=T より左から始まっている
+    // **テロップの段を V2・V3 と決め打ちにしない。**
+    // 段を足した先（V4以降）に載せたテロップが、この道具で一度も選ばれなかった
+    //（本人から「新しく作ったレーンで効かないものが多い」と出ていた物の1つ）。
+    // テロップが載れるのは「V1 以外の映像の段」——移動の TELOP_ORDER と同じ決まり。
+    const telopLane = (id: string | null): boolean =>
+      !!id && id !== 'V1' && tracks.some((t) => t.id === id && t.kind === 'video')
     setSelectedIds(
-      want('V2') || want('V3')
+      !single || telopLane(laneId)
         ? cues
             .filter(
               (c) => (fwd ? c.end > T : c.start < T) && (!single || cueTrack(c) === laneId)
@@ -460,10 +467,65 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
       setDragTip(null)
       // ドラッグせずクリックのみ → そのクリップ単体を選択（プレミア準拠）
       if (!moved && alreadySel) setSelectedIds([cue.id])
+      // 落としたら、同じ段で重なった分は**置いた側が勝つ**（プレミアの上書き）。
+      // 動画クリップは元からそうなっているのに、テロップだけ重なったまま残っていた。
+      if (moved) overwriteOverlappedCues(dragIds)
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
+  }
+
+  /**
+   * 落とした先で重なったテロップを、**置いた側を勝たせて**削る（プレミアの上書き）。
+   *
+   * 動画クリップは元から上書きされるのに、テロップだけ重なったまま残っていた
+   * （画面では前後に重なって見えるだけで、どちらが出ているのか分からない）。
+   *
+   * ## 新しい id は updater の外で決める
+   *
+   * 真ん中を抜かれたテロップは2つに割れるので、片方に新しい id が要る。
+   * setState の updater の中で `idCounter.current++` を回すと、
+   * StrictMode の2回走りで番号が飛ぶ・ずれる。**ここで作りきって、
+   * 出来上がった配列を絶対値で入れる。**
+   *
+   * ## どこを削るかの判定は shared/overwrite
+   *
+   * 削りすぎれば文字が消え、削り足りなければ重なったまま残る。
+   * 画面を起動せずに確かめられるように分けてある。
+   */
+  function overwriteOverlappedCues(winnerIds: number[]): void {
+    const all = cuesRef.current
+    const winners = all.filter((c) => winnerIds.includes(c.id))
+    if (!winners.length) return
+    const next: Cue[] = []
+    let changed = false
+    for (const c of all) {
+      if (winnerIds.includes(c.id)) {
+        next.push(c)
+        continue
+      }
+      // 削るのは**同じ段に居る物だけ**（段が違えば重なって当然）
+      const cuts = winners
+        .filter((w) => cueTrack(w) === cueTrack(c))
+        .map((w) => ({ start: w.start, end: w.end }))
+      const parts = subtractRanges({ start: c.start, end: c.end }, cuts)
+      if (isUntouched({ start: c.start, end: c.end }, parts)) {
+        next.push(c)
+        continue
+      }
+      changed = true
+      parts.forEach((p, i) => {
+        // 先頭は元の id のまま（選択や打った動きの行き先が変わらないように）
+        next.push(
+          i === 0
+            ? { ...c, start: p.start, end: p.end }
+            : { ...structuredClone(c), id: idCounter.current++, start: p.start, end: p.end }
+        )
+      })
+    }
+    if (!changed) return
+    setCues(next.sort((a, b) => a.start - b.start))
   }
 
   function onClipContextMenu(cue: Cue, e: React.MouseEvent): void {

@@ -70,7 +70,7 @@ export function TimelineArea(): JSX.Element {
     setVideoTransDur, resolveTelopTransDrop, applyTelopTransDrop, selectTelopTrans,
     patchCueAnim, undo, redo, undoStackRef, redoStackRef, isDirty, cutAtPlayhead,
     findSilences, setSilenceOpen, toggleSnap, selectTrack, toggleTrack, addVideoTrack,
-    addAudioTrack, addBgm, setTracks, askText, fallbackTrack, stopPlayback, seekTo
+    addAudioTrack, addBgm, resetLaneH, setTracks, askText, fallbackTrack, stopPlayback, seekTo
   } = useTimelineOps()
   const {
     cueTrack, vcLen, mediaMeta, srcOfSeg, pairedAudioOf, trackNum, motionLabel,
@@ -165,6 +165,7 @@ export function TimelineArea(): JSX.Element {
           onAddVideoTrack={addVideoTrack}
           onAddAudioTrack={addAudioTrack}
           onAddBgm={() => void addBgm()}
+          onResetLaneH={resetLaneH}
         />
 
         {/* トラック領域 */}

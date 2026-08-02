@@ -45,7 +45,8 @@ export function TrackHeaders({
   onToggle,
   onAddVideoTrack,
   onAddAudioTrack,
-  onAddBgm
+  onAddBgm,
+  onResetLaneH
 }: {
   tracks: HeaderTrack[]
   stateOf: (id: string) => HeaderState
@@ -82,12 +83,22 @@ export function TrackHeaders({
   onAddVideoTrack: () => void
   onAddAudioTrack: () => void
   onAddBgm: () => void
+  /** 段の高さを既定へ戻す（保存してある物を捨てる） */
+  onResetLaneH: () => void
 }): JSX.Element {
   return (
     <div className="track-headers">
       <div className="th-spacer">
         <button className="th-add" title="映像トラックを追加" onClick={onAddVideoTrack}>
           ＋
+        </button>
+        {/* **高さを既定へ戻す口。**
+            段の高さは1つずつ覚えているので、既定を変えても
+            **前に触ったことのある人の画面は前のまま**になる。
+            黙って書き換えると、その太さに慣れた人の画面が理由もなく変わるので、
+            戻すかどうかは本人に決めてもらう（`やること.md` の「段」で決めた形）。 */}
+        <button className="th-add" title="段の高さを既定へ戻す" onClick={onResetLaneH}>
+          ⤒
         </button>
       </div>
       <div className="th-body" ref={bodyRef}>
