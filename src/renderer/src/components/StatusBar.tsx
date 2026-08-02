@@ -8,6 +8,8 @@
 // 押せばそのまま本体へ戻せる。
 
 import type { JSX } from 'react'
+import { perf } from '../lib/perfMonitor'
+import { useToastCtx } from '../state/toastContext'
 
 export interface SelectionCounts {
   telop: number
@@ -27,6 +29,23 @@ const TOOL_LABEL: Record<string, string> = {
   razor: 'レザー',
   trackFwd: 'トラック選択(右)',
   trackBack: 'トラック選択(左)'
+}
+
+/**
+ * 測っている物をファイルへ書き出す。
+ *
+ * **どこへ出したかを必ず言う。** 場所を言わないと、押した人は
+ * 「押したけど何も起きなかった」と思う（スクショで実際にそうなっていた）。
+ * 書けなかったときも黙らない——黙ると、知らせる口があること自体が信用されなくなる。
+ */
+async function savePerf(showToast: (m: string, kind?: 'success' | 'error') => void): Promise<void> {
+  try {
+    const r = await window.giftcut?.savePerfReport?.(perf.report(), true)
+    if (r?.ok) showToast('測定を書き出しました:\n' + (r.path ?? 'ダウンロード'), 'success')
+    else showToast('測定を書き出せませんでした: ' + (r?.error ?? '理由不明'), 'error')
+  } catch (e) {
+    showToast('測定を書き出せませんでした: ' + String(e), 'error')
+  }
 }
 
 /** 選んでいる物を「テロップ2 / 画像1個」のような一行にする（0の種類は出さない） */
@@ -77,6 +96,9 @@ export function StatusBar({
   appVersion?: string
   onDock: (id: string) => void
 }): JSX.Element {
+  // **受け取らず自分で見に行く。** 出すのは「書き出せたか」の一言だけなので、
+  // 心臓の配線を1本増やす価値が無い（品書き＝AppMenus と同じ流儀）
+  const { showToast } = useToastCtx()
   return (
     <footer className="statusbar">
       {/* 落ちたときの備えが効いていない、というのは一番先に知りたいこと。
@@ -110,6 +132,23 @@ export function StatusBar({
           ⧉ {p.label}
         </button>
       ))}
+      {/* **不具合を知らせるための口。**
+          測るのは起動した瞬間からずっと走っている（`useDiagnostics`）。
+          足りなかったのは**押せる場所**だけ——Ctrl+Shift+P は知らないと辿り着けず、
+          5分ごとの自動書き出しは `userData/perf` にあって場所を説明するのが面倒。
+          「重い」「カクつく」と思った瞬間に押せば、**その前の分がそのまま**出る。
+          出し先はダウンロード（そのまま渡せる場所。確認の窓も出さない）。 */}
+      <button
+        className="status-pop"
+        title={
+          'いま測っている物をファイルに書き出します（ダウンロードへ）。\n' +
+          '重い・カクつく・落ちた、を知らせるときに押してください。\n' +
+          '押した時点より前の分も入っています（起動から測り続けています）。'
+        }
+        onClick={() => void savePerf(showToast)}
+      >
+        📈 測定を書き出す
+      </button>
       {/* **いま動いている版。** 自動更新は黙って入れ替わるので、
           「直したはずが直っていない」と言われたときに、まずここを見れば
           新旧の取り違えかどうかが分かる。名前と並べて常に見える所に置く。 */}
