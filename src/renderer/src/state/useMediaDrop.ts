@@ -101,7 +101,7 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
   } = useDoc()
   const {
     selectedImgIds, setSelectedImgIds, setSelectedSeIds, selectedVClipIds,
-    setSelectedVClipIds, selectedMediaId, setSelectedMediaId
+    setSelectedVClipIds, setSelectedMediaIds
   } = useSel()
   const { tracks, setTracks, trackStates, setTrackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
@@ -497,7 +497,8 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
       }
     }
     setMediaItems((prev) => prev.filter((x) => x.id !== id))
-    if (selectedMediaId === id) setSelectedMediaId(null)
+    // まとめて選んでいることがあるので、消した物だけを選択から外す
+    setSelectedMediaIds((prev) => prev.filter((x) => x !== id))
   }
 
   return {

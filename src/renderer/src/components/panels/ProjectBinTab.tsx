@@ -25,13 +25,16 @@ const KIND_HINT = {
   image: 'タイムラインの映像トラック(V2/V3)へドラッグで画像を配置'
 } as const
 
+/** 素材ビンに並べる種類の順。**カードの並びはこの順**（範囲選択もこの順で入る） */
+const KIND_ORDER = ['video', 'audio', 'image'] as const
+
 export function ProjectBinTab({
   bodyRef,
   accSec,
   items,
   /** いま読み込んでいる動画（印を付ける） */
   activePath,
-  selectedId,
+  selectedIds,
   srtName,
   cueCount,
   labelGroups,
@@ -58,14 +61,19 @@ export function ProjectBinTab({
   ) => JSX.Element
   items: MediaItem[]
   activePath: string | null
-  selectedId: number | null
+  /** 選んでいる素材（**押した順**）。まとめて置くときの並びになる */
+  selectedIds: number[]
   srtName: string | null
   cueCount: number
   labelGroups: { color: string; name: string; count: number }[]
   onAddFiles: () => void
   onAddFolder: () => void
   onImportSrt: () => void
-  onSelect: (id: number) => void
+  /**
+   * 押した。`mode` は Ctrl＝足し引き / Shift＝範囲 / それ以外＝1つだけ。
+   * `shown` は**いま並んでいる順**（範囲で選んだときの並びに使う）。
+   */
+  onSelect: (id: number, mode: 'one' | 'toggle' | 'range', shown: number[]) => void
   /** 動画のダブルクリック（読み込み or 案内） */
   onOpenVideo: (item: MediaItem) => void
   onRemove: (id: number) => void
@@ -116,8 +124,15 @@ export function ProjectBinTab({
           <div className="tpl-hint">
             タイムラインへドラッグで配置／ダブルクリックで再生ヘッドへ／右クリックで送り先
           </div>
-          {(['video', 'audio', 'image'] as const).map((kind) => {
+          {KIND_ORDER.map((kind) => {
             const list = items.filter((m) => m.kind === kind)
+            // **範囲で選ぶときの並びは「画面に出ている順」。**
+            // 素材は種類ごとに section へ分けて並べているので、
+            // 渡された順（items のまま）ではカードの並びと一致しない
+            // ＝Shift で選んだ範囲が見た目とずれる。ここで組み直す。
+            const shownOrder = KIND_ORDER.flatMap((k) =>
+              items.filter((m) => m.kind === k).map((m) => m.id)
+            )
             if (!list.length) return null
             return accSec(
               'project',
@@ -135,7 +150,7 @@ export function ProjectBinTab({
                   <div
                     key={m.id}
                     className={`media-card ${m.path === activePath ? 'media-active' : ''} ${
-                      selectedId === m.id ? 'media-sel' : ''
+                      selectedIds.includes(m.id) ? 'media-sel' : ''
                     }`}
                     title={KIND_HINT[m.kind]}
                     draggable={true}
@@ -143,7 +158,11 @@ export function ProjectBinTab({
                     onDragEnd={onDragEnd}
                     onClick={(e) => {
                       e.stopPropagation()
-                      onSelect(m.id)
+                      onSelect(
+                        m.id,
+                        e.ctrlKey || e.metaKey ? 'toggle' : e.shiftKey ? 'range' : 'one',
+                        shownOrder
+                      )
                     }}
                     // **右クリックで先へ送れるようにする。**
                     // 音をここへ入れても SE の一覧には出てこないので、

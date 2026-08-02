@@ -31,6 +31,43 @@ export default async function (C) {
    */
   // dndFromBin は章をまたいで使うので e2e/run.mjs にある
 
+  await check('素材はまとめて選べる（Ctrl で足し引き・Shift で範囲）', async () => {
+    // **1つずつしか選べなかった。** プロジェクトに素材が何本もあるとき、
+    // まとめて選んでまとめて置けないと、1本ずつ運ぶことになる。
+    //
+    // **押した順を覚えるのが要点**（まとめて置いたときにその順で並べるため）。
+    // ここでは「選べる／外せる／範囲で入る」までを見る。
+    await resetProject()
+    const cards = page.locator('.media-card')
+    const n = await cards.count()
+    assert(n >= 3, `素材が3つ以上ないと確かめられない（${n}個）`)
+    const sel = () => page.locator('.media-card.media-sel').count()
+
+    await cards.nth(0).click()
+    await page.waitForTimeout(200)
+    assert((await sel()) === 1, `1つ押して1つ選ばれない（${await sel()}個）`)
+
+    // Ctrl で足す
+    await cards.nth(1).click({ modifiers: ['Control'] })
+    await page.waitForTimeout(200)
+    assert((await sel()) === 2, `Ctrl+クリックで足せない（${await sel()}個）`)
+
+    // Ctrl でもう一度押すと外れる
+    await cards.nth(1).click({ modifiers: ['Control'] })
+    await page.waitForTimeout(200)
+    assert((await sel()) === 1, `Ctrl+クリックで外せない（${await sel()}個）`)
+
+    // Shift で範囲（並んでいる順にまとめて入る）
+    await cards.nth(2).click({ modifiers: ['Shift'] })
+    await page.waitForTimeout(200)
+    assert((await sel()) === 3, `Shift+クリックで範囲にならない（${await sel()}個）`)
+
+    // 普通に押したら1つに戻る
+    await cards.nth(0).click()
+    await page.waitForTimeout(200)
+    assert((await sel()) === 1, `普通のクリックで1つに戻らない（${await sel()}個）`)
+  })
+
   await check('タイムラインのどこに重ねても「置けません」にならない', async () => {
     for (const [where, sel, off] of [
       ['クリップの上', '[data-tid="V1"]', { x: 60, y: 10 }],

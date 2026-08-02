@@ -69,7 +69,11 @@ export interface Selection {
   setEditingId: React.Dispatch<React.SetStateAction<number | null>>
   /** 素材ビンで選んでいる物 */
   selectedMediaId: number | null
-  setSelectedMediaId: React.Dispatch<React.SetStateAction<number | null>>
+  /** 素材ビンの選択。**押した順**（まとめて置くときの並び） */
+  selectedMediaIds: number[]
+  setSelectedMediaIds: React.Dispatch<React.SetStateAction<number[]>>
+  /** 1つだけ選ぶ（null で全部外す）。まとめ選択は setSelectedMediaIds */
+  setSelectedMediaId: (id: number | null) => void
   /** プレビューの枠を出しているか（残るとホイールが拡大縮小になる） */
   videoSelected: boolean
   setVideoSelected: React.Dispatch<React.SetStateAction<boolean>>
@@ -97,7 +101,21 @@ export function useSelection(): Selection {
   const [selectedMarkerId, setSelectedMarkerId] = useState<number | null>(null)
   const [editingMarkerId, setEditingMarkerId] = useState<number | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [selectedMediaId, setSelectedMediaId] = useState<number | null>(null)
+  /**
+   * 素材ビンで選んでいる物。**押した順を覚える。**
+   *
+   * まとめてタイムラインへ置くとき、その順に並べる（本人の指定）。
+   * 順番を捨てて集合にすると「押した順」が作れない。
+   *
+   * ※ 1つだけ扱う所のために `selectedMediaId`（最後に押した物）も出しておく。
+   *   使う側を全部書き換えると、まとめ選択と関係ない所まで触ることになる。
+   */
+  const [selectedMediaIds, setSelectedMediaIds] = useState<number[]>([])
+  const selectedMediaId = selectedMediaIds.length
+    ? selectedMediaIds[selectedMediaIds.length - 1]
+    : null
+  const setSelectedMediaId = (id: number | null): void =>
+    setSelectedMediaIds(id == null ? [] : [id])
   const [videoSelected, setVideoSelected] = useState(false)
 
   const clearSegSel = (): void => {
@@ -146,6 +164,8 @@ export function useSelection(): Selection {
     editingId,
     setEditingId,
     selectedMediaId,
+    selectedMediaIds,
+    setSelectedMediaIds,
     setSelectedMediaId,
     videoSelected,
     setVideoSelected,

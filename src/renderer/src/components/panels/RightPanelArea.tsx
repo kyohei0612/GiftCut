@@ -10,6 +10,7 @@
 // 右パネル固有の物は state/rightPanelContext。**props で配ると100個を超える。**
 
 import { setDragChip } from '../../lib/dragChip'
+import { toggleSelect } from '../../../../shared/clipEdit'
 import type { JSX } from 'react'
 import { PaneHost, PanelTabs } from '../PanelChrome'
 import { ProjectBinTab } from './ProjectBinTab'
@@ -57,7 +58,7 @@ export function RightPanelArea(): JSX.Element {
   const { cues, setCues, segments } = useDoc()
   const {
     selectedTrans, setSelectedTrans, selectedTelopTrans, setSelectedTelopTrans,
-    selectedIds, isSelected, selectedMediaId, setSelectedMediaId
+    selectedIds, isSelected, selectedMediaIds, setSelectedMediaIds
   } = useSel()
   const { videoPath, mediaItems } = useMediaCtx()
   const { showToast } = useToastCtx()
@@ -101,7 +102,7 @@ export function RightPanelArea(): JSX.Element {
             accSec={accSec}
             items={mediaItems}
             activePath={videoPath}
-            selectedId={selectedMediaId}
+            selectedIds={selectedMediaIds}
             srtName={srtPath ? (srtPath.split(/[\\/]/).pop() ?? null) : null}
             cueCount={cues.length}
             labelGroups={labelGroups}
@@ -109,7 +110,19 @@ export function RightPanelArea(): JSX.Element {
             onAddFolder={addFolderToProject}
             onImportSrt={handleImportSrt}
             onAddAtPlayhead={addMediaAtPlayhead}
-            onSelect={setSelectedMediaId}
+            // まとめ選択。**押した順を覚える**（そのままの順でタイムラインへ並べる）。
+            // 範囲（Shift）と全部は「並んでいる順」＝名前順で若い方から入れる
+            onSelect={(id, mode, shown) =>
+              setSelectedMediaIds((prev) => {
+                if (mode === 'toggle') return toggleSelect(prev, id)
+                if (mode !== 'range' || !prev.length) return [id]
+                const from = shown.indexOf(prev[prev.length - 1])
+                const to = shown.indexOf(id)
+                if (from < 0 || to < 0) return [id]
+                const [a, b] = from <= to ? [from, to] : [to, from]
+                return shown.slice(a, b + 1)
+              })
+            }
             onOpenVideo={(m) => {
               // 何も読み込んでいなければ読み込む。既に編集中なら
               // タイムラインを壊さない（ダブルクリックで全消しは事故になる）。
