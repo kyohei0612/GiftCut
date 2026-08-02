@@ -22,7 +22,6 @@ import { saveIconAssign } from '../lib/iconLibrary'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, Marker, SEClip, Source, Track, VClip, VSeg } from '../lib/projectTypes'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
-import type { Snap } from './useHistory'
 import { useDoc } from './contentContext'
 import { useProjectStateCtx } from './projectStateContext'
 import { useSel } from './selectionContext'
@@ -75,15 +74,14 @@ export interface UseProjectFileDeps {
   baselineRef: any
   undoStackRef: any
   redoStackRef: any
-  suppressHistoryRef: any
   pendingTimerRef: any
   hydrateSource: any
   updateSource: any
-  setHistTick: any  /* eslint-enable @typescript-eslint/no-explicit-any */
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
 export function useProjectFile(deps: UseProjectFileDeps) {
-  const { stopPlayback, setTime, fallbackTrack, kindOf, applyLayout, layoutNow, snapNow, resetHistory, confirmDiscard, hasProjectContent, askText, rememberProject, prepareMediaMeta, runColorFromStyle, applyRunRange, curSel, selected, commitPending, idCounter, savedJsonRef, projectJsonRef, markUnsavedRef, lastAutosaveRef, initializedForPathRef, proxyForPathRef, videoElsRef, videoRef, setTemplatePicker, saveLS, baselineRef, suppressHistoryRef, hydrateSource, updateSource, setHistTick } = deps
+  const { stopPlayback, setTime, fallbackTrack, kindOf, applyLayout, layoutNow, snapNow, resetHistory, confirmDiscard, hasProjectContent, askText, rememberProject, prepareMediaMeta, runColorFromStyle, applyRunRange, curSel, selected, commitPending, idCounter, savedJsonRef, projectJsonRef, markUnsavedRef, lastAutosaveRef, initializedForPathRef, proxyForPathRef, videoElsRef, videoRef, setTemplatePicker, saveLS, baselineRef, hydrateSource, updateSource } = deps
   const { cues, setCues, segments, setSegments, seClips, setSeClips, imgClips, setImgClips, vClips, setVClips, markers, setMarkers, segIdCounter, seIdCounter, imgIdCounter, vClipIdCounter, markerIdCounter } = useDoc()
   const { setSelectedIds, clearSegSel, isSelected, editingId, setEditingId, setSelectedTrackId, setSelectedVClipIds,
     setSelectedMarkerId, setSelectedSeIds,
@@ -116,27 +114,9 @@ export function useProjectFile(deps: UseProjectFileDeps) {
     saveUserTemplates(next)
   }
 
-  function restore(s: Snap): void {
-    baselineRef.current = s
-    suppressHistoryRef.current = true
-    setCues(s.cues)
-    setSegments(s.segments)
-    setSeClips(s.seClips)
-    // 旧スナップショット（markers/imgClips 等の導入前）は現状維持
-    if (s.markers) setMarkers(s.markers)
-    if (s.imgClips) setImgClips(s.imgClips)
-    if (s.vClips) setVClips(s.vClips)
-    if (s.tracks) setTracks(s.tracks)
-    if (s.trackStates) setTrackStates(s.trackStates)
-    if (s.ratio) setRatio(s.ratio)
-    // 戻したあとも、残っている物は選んだままにする。
-    // 毎回外すと、打っている最中に戻すたび選び直しになる（手数が増える）。
-    // 消えた物だけ選択から外す。
-    setSelectedIds((prev) => prev.filter((id) => s.cues.some((c) => c.id === id)))
-    setEditingId(null) // Undo/Redoで消えたテロップの編集画面が残らないように
-    clearSegSel()
-    setHistTick()
-  }
+  // ※ restore（控えを画面へ戻す）は state/useHistory へ移した。
+  //   控えを取る側と同じ持ち物を触るだけなのに、ここに置いていたせいで
+  //   「履歴は戻す物を要り、こちらは履歴の初期化を要る」という輪になっていた。
 
   // ================= プロジェクト保存 / 読み込み =================
   // プロジェクトのシリアライズ（保存・自動保存で共通）
@@ -789,5 +769,5 @@ export function useProjectFile(deps: UseProjectFileDeps) {
     setEditingId(null)
   }
 
-  return { saveCurrentAsTemplate, deleteUserTemplate, restore, projectJson, saveProjectFn, openProjectFn, templateJson, applyProjectTemplate, saveAsTemplateFn, openTemplateFn, pickTemplate, applyProjectData, applyTemplate, mergeTemplateKeepFrame, applyTemplateToCue }
+  return { saveCurrentAsTemplate, deleteUserTemplate, projectJson, saveProjectFn, openProjectFn, templateJson, applyProjectTemplate, saveAsTemplateFn, openTemplateFn, pickTemplate, applyProjectData, applyTemplate, mergeTemplateKeepFrame, applyTemplateToCue }
 }

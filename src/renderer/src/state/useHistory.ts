@@ -18,6 +18,8 @@ import { useRef, useState } from 'react'
 import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
 import { usePlaybackCtx } from './playbackContext'
+import { useSel } from './selectionContext'
+import { useExportCtx } from './exportContext'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, Marker, SEClip, Track, TrackState, VClip, VSeg } from '../lib/projectTypes'
 import type { Ratio } from './useExportSettings'
@@ -42,8 +44,6 @@ export interface Snap {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseHistoryDeps {
-  /** 控えを画面へ戻す（state/useProjectFile の物。相互に必要なので遅延参照で渡す） */
-  restore: any
   /** 位置が飛んだら、温めてあった面は当てにできない */
   preparedRef: any
   previewResRef: any
@@ -81,10 +81,15 @@ export interface History {
 }
 
 export function useHistory(deps: UseHistoryDeps): History {
-  const { restore, preparedRef, previewResRef, lastPaintRef, ratioRef } = deps
-  const { cuesRef, segsRef, seClipsRef, markersRef, imgClipsRef, vClipsRef } = useDoc()
-  const { tracksRef, trackStatesRef } = useTracksCtx()
+  const { preparedRef, previewResRef, lastPaintRef, ratioRef } = deps
+  const {
+    cuesRef, segsRef, seClipsRef, markersRef, imgClipsRef, vClipsRef,
+    setCues, setSegments, setSeClips, setMarkers, setImgClips, setVClips
+  } = useDoc()
+  const { tracksRef, trackStatesRef, setTracks, setTrackStates } = useTracksCtx()
   const { currentTimeRef, setCurrentTime } = usePlaybackCtx()
+  const { setSelectedIds, setEditingId, clearSegSel } = useSel()
+  const { setRatio } = useExportCtx()
   const undoStackRef = useRef<Snap[]>([])
   const redoStackRef = useRef<Snap[]>([])
   const baselineRef = useRef<Snap>({ cues: [], segments: [], seClips: [] })
@@ -171,6 +176,41 @@ export function useHistory(deps: UseHistoryDeps): History {
       redoStackRef.current = []
     }
   }
+  /**
+   * 控えを画面へ戻す（元に戻す・やり直すの、戻す側）。
+   *
+   * **書き戻す相手は9種類ある。** 新しく控える物を足したら、必ずここへも足すこと。
+   * 1つ忘れると、そこだけ戻らずに「Ctrl+Z したのに一部だけ残る」になる。
+   *
+   * 古い控え（markers や imgClips がまだ無かった頃の物）は、その項目が
+   * 入っていない。**無ければ今のままにする**（空で上書きすると、開いた瞬間に消える）。
+   *
+   * ここに置いてあるのは、**控えを取る側と同じ持ち物を触るから**。
+   * 以前は開く／保存する側（state/useProjectFile）に置いていて、
+   * あちらは履歴の初期化を要り、こちらは戻す物を要る、という輪になっていた。
+   * 中身は心臓を書き換えるだけなので、他人を待つ必要が無い。
+   */
+  function restore(s: Snap): void {
+    baselineRef.current = s
+    suppressHistoryRef.current = true
+    setCues(s.cues)
+    setSegments(s.segments)
+    setSeClips(s.seClips)
+    if (s.markers) setMarkers(s.markers)
+    if (s.imgClips) setImgClips(s.imgClips)
+    if (s.vClips) setVClips(s.vClips)
+    if (s.tracks) setTracks(s.tracks)
+    if (s.trackStates) setTrackStates(s.trackStates)
+    if (s.ratio) setRatio(s.ratio)
+    // 戻したあとも、残っている物は選んだままにする。
+    // 毎回外すと、打っている最中に戻すたび選び直しになる（手数が増える）。
+    // 消えた物だけ選択から外す。
+    setSelectedIds((prev) => prev.filter((id) => s.cues.some((c) => c.id === id)))
+    setEditingId(null) // 戻して消えたテロップの書き換え画面が残らないように
+    clearSegSel()
+    bumpHist()
+  }
+
   function undo(): void {
     commitPending()
     if (!undoStackRef.current.length) return

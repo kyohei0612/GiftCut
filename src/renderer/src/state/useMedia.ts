@@ -16,7 +16,7 @@
 // 一緒にすると、焼き直した粗い映像で書き出してしまう。
 
 import { useRef, useState } from 'react'
-import type { Source } from '../lib/projectTypes'
+import type { Source, VSeg } from '../lib/projectTypes'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 
 /** 音の波形（描くためだけの物。保存しない） */
@@ -54,6 +54,16 @@ export interface Media {
   curSourceIdRef: React.MutableRefObject<number | null>
   activeSrcId: number | null
   setActiveSrcId: React.Dispatch<React.SetStateAction<number | null>>
+  /**
+   * その切片がどの元動画の物か（指していなければ主ソース）。
+   *
+   * **ここに置いてあるのは、読む人がとても多いから。**
+   * 再生・プレビューの絵・書き出し・帯の描画——どれも「この切片の元は何か」を
+   * 要る。素材を読み込む側（state/useMediaOps）に置いていた頃は、
+   * 再生の心臓がそちらを要り、あちらは再生を止める物を要る、という輪になっていた。
+   * 引くだけの物なので、心臓に置けば誰も他人を待たない。
+   */
+  srcOfSeg: (seg: VSeg | undefined) => Source | undefined
 
   /** 取り込んで並べてある素材（まだ使っていなくてよい） */
   mediaItems: MediaItem[]
@@ -79,7 +89,16 @@ export function useMedia(): Media {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
   const mediaIdCounter = useRef(1)
 
+  // 「いまこの瞬間」の一覧を引く。掴んでいる最中も読むので state ではなく写しを見る
+  const srcOfSeg = (seg: VSeg | undefined): Source | undefined => {
+    const list = sourcesRef.current
+    if (!list.length) return undefined
+    if (seg?.srcId == null) return list[0]
+    return list.find((s) => s.id === seg.srcId) ?? list[0]
+  }
+
   return {
+    srcOfSeg,
     videoSrc,
     setVideoSrc,
     videoPath,

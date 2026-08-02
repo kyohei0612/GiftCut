@@ -17,21 +17,15 @@
 // （毎回聞くと、聞かれること自体に慣れて読まなくなる）。
 
 import { toGcUrl } from '../lib/gcUrl'
-import type { RecentProject } from './useProjectState'
 import { useDoc } from './contentContext'
 import { useToastCtx } from './toastContext'
 import { useMediaCtx } from './mediaContext'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseProjectIODeps {
-  /** 最近開いた物を何件まで覚えるか */
-  RECENT_MAX: number
-  setRecentProjects: React.Dispatch<React.SetStateAction<RecentProject[]>>
   projectPath: any
   /** いまの中身を文字列にした物（保存の要否を見る） */
   projectJson: any
-  currentJsonRef: any
-  savedJsonRef: any
   /** 読み込んだ中身をタイムラインへ流し込む */
   applyProjectData: any
   askConfirm: any
@@ -50,28 +44,23 @@ export interface UseProjectIODeps {
   autosavedRevRef: any
   lastAutosaveRef: any
   setAutosaveNg: any
-  /** 中身が入っているか（空なら聞かずに開いてよい） */
-  hasProjectContent: any
+  /** 捨てる前に聞く／最近開いた物に足す（state/useProjectGuard の物） */
+  confirmDiscard: any
+  rememberProject: any
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useProjectIO(deps: UseProjectIODeps) {
   const {
-    RECENT_MAX, setRecentProjects, projectPath, projectJson, currentJsonRef, savedJsonRef,
+    projectPath, projectJson,
     applyProjectData, askConfirm, loadVideo, registerSource, addMediaPaths,
     mediaQueue, thumbDoneRef, packBusyRef, setPackPct, autosaveNgRef, autosavedRevRef,
-    lastAutosaveRef, setAutosaveNg, hasProjectContent
+    lastAutosaveRef, setAutosaveNg, confirmDiscard, rememberProject
   } = deps
   const { setSegments, segsRef, segIdCounter } = useDoc()
   const { showToast } = useToastCtx()
   const { videoPath, videoName, sourcesRef, setMediaItems } = useMediaCtx()
 
-  function rememberProject(path: string): void {
-    const name = path.split(/[\\/]/).pop() ?? path
-    setRecentProjects((prev) =>
-      [{ path, name, at: Date.now() }, ...prev.filter((r) => r.path !== path)].slice(0, RECENT_MAX)
-    )
-  }
 
   // 動画をプロジェクト（メディアビン）に貯める。タイムラインには即反映しない。
   // ＝2本目以降が勝手に末尾へ足されないように。配置はビンからタイムラインへドラッグする。
@@ -143,29 +132,9 @@ export function useProjectIO(deps: UseProjectIODeps) {
     else if (res) showToast('フォルダ内にメディアファイルが見つかりませんでした。')
   }
 
-  // 保存（既存パスがあれば上書き）。asNew=true で「別名で保存」。
-  // 未保存の変更があるか。ウィンドウを閉じるときの判定と同じ基準にそろえる
-  // （isDirty() は履歴のベースライン比較で450msで false に戻るため使えない）。
-  function hasUnsavedChanges(): boolean {
-    try {
-      if (!hasProjectContent()) return false
-      // ここはその場で比べ直す（「＊」の更新が遅れていても、閉じるときは必ず正しい）
-      return savedJsonRef.current !== currentJsonRef.current()
-    } catch {
-      return false
-    }
-  }
-  // 作業内容を捨てる操作の前に確認する。true=進めてよい
-  async function confirmDiscard(what: string): Promise<boolean> {
-    if (!hasUnsavedChanges()) return true
-    return askConfirm({
-      title: '保存していない変更があります',
-      body: `${what}と、その変更は失われます。`,
-      okLabel: 'このまま続ける',
-      cancelLabel: '中止して保存する',
-      danger: true
-    })
-  }
+  // ※ hasUnsavedChanges / confirmDiscard / rememberProject は
+  //   state/useProjectGuard へ出した。開く側（state/useProjectFile）も要るのに
+  //   ここに置いていたせいで、あちらとこちらが互いを待つ輪になっていた。
 
   // ---- 持ち出し（素材ごと1つの ZIP）----
   //
@@ -263,8 +232,8 @@ export function useProjectIO(deps: UseProjectIODeps) {
   }
 
   return {
-    rememberProject, handleOpenVideo, handleReplaceVideo, appendVideo, handleAppendVideo,
-    genThumbFor, addFilesToProject, addFolderToProject, hasUnsavedChanges, confirmDiscard,
+    handleOpenVideo, handleReplaceVideo, appendVideo, handleAppendVideo,
+    genThumbFor, addFilesToProject, addFolderToProject,
     packProjectFn, openPackFn, writeAutosave
   }
 }

@@ -46,8 +46,13 @@ export interface UsePlaybackEngineDeps {
   /** 再生位置を進める（描き直しは頭打ち） */
   paintTime: any
   setTime: any
-  /** 飛んで、そこを見せる。state/useViewNav の物 */
-  seekAndReveal: (t: number) => void
+  /**
+   * 再生ヘッドを横に見えている所へ連れてくる。state/useTimelineBox の物。
+   *
+   * **見せ方（state/useViewNav）ごと受け取らないこと。** あちらは飛ばす側＝
+   * ここの seekTo を要るので、輪になる。連れてくるだけの物は飛ばす側を要らない。
+   */
+  revealPlayhead: () => void
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -55,7 +60,7 @@ export function usePlaybackEngine(deps: UsePlaybackEngineDeps) {
   const {
     videoRef, videoBRef, videoElsRef, setActiveHalf, halfOf, elKey, segLayoutRef,
     srcOfSeg, videoTLenRef, videoDurationRef, contentEndRef,
-    seAudioRefs, sePreviewRef, paintTime, setTime, seekAndReveal
+    seAudioRefs, sePreviewRef, paintTime, setTime, revealPlayhead
   } = deps
   const {
     currentTimeRef, durationRef, fpsRef, playRateRef, rafRef,
@@ -479,9 +484,19 @@ export function usePlaybackEngine(deps: UsePlaybackEngineDeps) {
     return src ? (segLayoutRef.current[src.index]?.seg.id ?? null) : null
   }
 
+  /**
+   * 飛ばして、そこを見せる。**プレビュー側の操作はすべてこれを通す。**
+   *
+   * 飛ばす操作は**すべてタイムライン側も追従させる**。バーだけ連動して、
+   * ボタンだと付いてこない、という食い違いが一番読みにくい。
+   *
+   * 幅と位置は飛んだ後でなければ決まらないので、連れてくるのは1コマ待つ。
+   */
+  function seekAndReveal(t: number): void {
+    seekTo(t)
+    requestAnimationFrame(revealPlayhead)
+  }
   // 再生ヘッドを指定秒だけ移動（±5/±10 秒送り戻し）。再生中は止めてから。
-  // ※飛ばす操作は**すべてタイムライン側も追従させる**。
-  // バーだけ連動して、ボタンだと付いてこない、という食い違いが一番読みにくい。
   function skipSec(sec: number): void {
     stopPlayback()
     seekAndReveal(currentTimeRef.current + sec)
@@ -495,6 +510,6 @@ export function usePlaybackEngine(deps: UsePlaybackEngineDeps) {
   return {
     getPlayEnd, stopPlayback, startRafClock, startVideoSegClock, startVideoClock,
     startPlayback, togglePlay, shuttleForward, shuttleReverse, handleVideoEnded,
-    seekTo, xfBStyle, curSegId, skipSec, stepFrame
+    seekTo, seekAndReveal, xfBStyle, curSegId, skipSec, stepFrame
   }
 }

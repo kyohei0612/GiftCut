@@ -28,10 +28,6 @@ export interface UseViewNavDeps {
 export interface ViewNav {
   /** 再生ヘッドを軸にして寄る／引く */
   zoomAroundPlayhead: (nz: number) => void
-  /** 再生ヘッドが枠の外なら、見える所へ連れてくる */
-  revealPlayhead: () => void
-  /** 飛ばして、そこを見せる（プレビュー側の操作はすべてこれを通す） */
-  seekAndReveal: (t: number) => void
   /** 中身がちょうど収まる拡大率に合わせる */
   fitTimelineZoom: () => void
   /** 目盛りを擦った位置へ飛ぶ */
@@ -72,31 +68,11 @@ export function useViewNav(deps: UseViewNavDeps): ViewNav {
     })
   }
 
-  /**
-   * 再生ヘッドをタイムラインの見えている範囲へ連れてくる。
-   *
-   * プレビューのバーで飛ばしても、タイムラインは動かないままだった
-   * （再生ヘッド自体は動いているが、**枠の外なので見えない**）。
-   * 再生し始めてようやく画面が追いつくので、「飛んだ先がどこか分からない」
-   * 状態がしばらく続く。飛ばした時点で見える所へ持ってくる。
-   *
-   * すでに見えているなら**何もしない**（見えている物を動かすと、
-   * 押すたびに画面が揺れて逆に読みにくい）。
-   */
-  function revealPlayhead(): void {
-    const el = scrollRef.current
-    if (!el) return
-    const x = currentTimeRef.current * zoomRef.current
-    const w = el.clientWidth
-    const margin = Math.min(80, w * 0.15) // 端ぎりぎりだと次の操作でまた外れる
-    if (x >= el.scrollLeft + margin && x <= el.scrollLeft + w - margin) return
-    el.scrollLeft = Math.max(0, x - w / 2)
-  }
-  /** 飛ばして、そこを見せる（プレビュー側の操作はすべてこれを通す） */
-  function seekAndReveal(t: number): void {
-    seekTo(t)
-    requestAnimationFrame(revealPlayhead)
-  }
+  // 「連れてくる」（revealPlayhead）と「飛ばして見せる」（seekAndReveal）は
+  // ここには無い。**飛ばす側と輪になっていた**ので、
+  //   連れてくる … state/useTimelineBox（縦の追従と同じ持ち主。飛ばす側を要らない）
+  //   飛ばして見せる … state/usePlaybackEngine（飛ばす本人）
+  // へ移した。ここは飛ばす側を要るだけの片道になっている。
 
   // タイムラインの拡大率を「中身がちょうど収まる」ところに合わせる。
   function fitTimelineZoom(): void {
@@ -116,5 +92,5 @@ export function useViewNav(deps: UseViewNavDeps): ViewNav {
     seekTo((cx - rect.left) / zoomRef.current)
   }
 
-  return { zoomAroundPlayhead, revealPlayhead, seekAndReveal, fitTimelineZoom, scrubFromClientX }
+  return { zoomAroundPlayhead, fitTimelineZoom, scrubFromClientX }
 }

@@ -1,12 +1,3 @@
-
-
-
-
-// 取り込んで置いてある動きの見本帳（motion-presets/*.json の1件ぶん）
-
-
-
-
 import { defaultTelopStyle } from './lib/telopStyle'
 import {
   loadUserTemplates,
@@ -14,222 +5,50 @@ import {
   loadCatOverrides,
   loadCustomCats
 } from './lib/telopTemplates'
-
-
-
-
-import {  loadIconAssign,   } from './lib/iconLibrary'
-
-import type {} from '../../preload/index.d'
-
-
-
-
-
-
-
-import { StatusBar } from './components/StatusBar'
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+import { loadIconAssign } from './lib/iconLibrary'
+import { loadJson, loadRecentProjects, useProjectState } from './state/useProjectState'
+import { DEFAULT_TRACKS, initTrackStates } from './lib/trackState'
+import { FPS, RECENT_KEY, RECENT_MAX } from './lib/appConst'
 
 // 時間計算はすべて shared/timeline に集約（ズレの一元管理）。
 // ここに同じ計算を書き直さないこと。不変条件は timeline.test.ts が守っている。
 import { formatTimecode } from '../../shared/timeline'
 
-
-// キーフレーム（時間で変わる値）。プレビューも書き出しも同じ計算を使う
-
-
-
-
-
-import { LayoutProvider,  } from './state/layoutContext'
-
-import type { PaneId } from './state/usePanelLayout'
-
-import { SelectionProvider,  } from './state/selectionContext'
-
-import { ContentProvider,  } from './state/contentContext'
-
 import { useTracks } from './state/useTracks'
-
 import { useView } from './state/useView'
-
 import { useToast } from './state/useToast'
-
-import { TracksProvider,  } from './state/tracksContext'
-
-import { ViewProvider,  } from './state/viewContext'
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-import type {  } from './state/useExportSettings'
-
-import { LeftPanelProvider,   } from './state/leftPanelContext'
-import { Workspace } from './components/panels/Workspace'
-import { MenusProvider,   } from './state/menusContext'
-import { HeaderProvider } from './state/headerContext'
-import { TimelineOpsProvider } from './state/timelineOpsContext'
-import { TimelineViewProvider } from './state/timelineViewContext'
+import { usePlayback } from './state/usePlayback'
+import { useDragPreview } from './state/useDragPreview'
 import { useAppWiring } from './state/useAppWiring'
 
-
-import { FPS, RECENT_KEY, RECENT_MAX,   } from './lib/appConst'
-
-
-import type {  } from './components/panels/ProjectBinTab'
-
-
-
-
-
-
-
-
-
-
-import { AppMenus } from './components/AppMenus'
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-import { PreviewProvider,   } from './state/previewContext'
-
-
-import { RightPanelProvider,   } from './state/rightPanelContext'
-
+import type { PaneId } from './state/usePanelLayout'
+import { LayoutProvider } from './state/layoutContext'
+import { SelectionProvider } from './state/selectionContext'
+import { ContentProvider } from './state/contentContext'
+import { TracksProvider } from './state/tracksContext'
+import { ViewProvider } from './state/viewContext'
+import { ToasterProvider } from './state/toastContext'
+import { IconsProvider } from './state/iconsContext'
+import { PlaybackProvider } from './state/playbackContext'
+import { ExportProvider } from './state/exportContext'
+import { MediaProvider } from './state/mediaContext'
+import { ProjectStateProvider } from './state/projectStateContext'
+import { ClipboardProvider } from './state/clipboardContext'
+import { DragPreviewProvider } from './state/dragPreviewContext'
+import { TimelineOpsProvider } from './state/timelineOpsContext'
+import { TimelineViewProvider } from './state/timelineViewContext'
+import { PreviewProvider } from './state/previewContext'
+import { LeftPanelProvider } from './state/leftPanelContext'
+import { RightPanelProvider } from './state/rightPanelContext'
+import { HeaderProvider } from './state/headerContext'
+import { MenusProvider } from './state/menusContext'
+import { DialogsProvider } from './state/dialogsContext'
 
 import { AppHeader } from './components/panels/AppHeader'
-
-import { DialogsProvider,   } from './state/dialogsContext'
-
+import { Workspace } from './components/panels/Workspace'
+import { StatusBar } from './components/StatusBar'
 import { AppDialogs } from './components/panels/AppDialogs'
-
-// 寄れる限界。バー・ホイール・フィットで同じ物を使う
-
-import { ToasterProvider,  } from './state/toastContext'
-
-
-import { IconsProvider,  } from './state/iconsContext'
-
-import { ExportProvider,  } from './state/exportContext'
-
-import { MediaProvider,  } from './state/mediaContext'
-
-
-
-
-
-import { loadJson, loadRecentProjects, useProjectState } from './state/useProjectState'
-
-import { ProjectStateProvider,  } from './state/projectStateContext'
-
-import { DEFAULT_TRACKS,  initTrackStates } from './lib/trackState'
-
-
-import { useDragPreview } from './state/useDragPreview'
-
-import { DragPreviewProvider,  } from './state/dragPreviewContext'
-
-
-
-import { ClipboardProvider,  } from './state/clipboardContext'
-
-
-
-import { usePlayback } from './state/usePlayback'
-
-import { PlaybackProvider,  } from './state/playbackContext'
-
-
-
-
-
-
-
-
-
-
-
-
-
-import type {  } from './components/timeline/ClipBand'
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// 書き出しに渡す中身の組み立て（画面に依らない・単体で確かめてある）
-
-// 押されたキーをどの操作に割り当てるか（受ける/受けないの判断もこちら）
-
-// テンプレートを開いたとき、いまの設定とどう混ぜるか（置き換えない）
-
-// ビンの素材が使用中か（＝クリップが残っているか）の判定
-
-
-
-// 初期トラック（映像は先頭に連続、音声はその後に連続）。+ボタンで増やせる。
-// 既定で用意する追加音声トラック（クイック追加ボタンの対象・旧プロジェクト補完先）
-
-// キーボードの割り当て表は shared/shortcuts.ts（既定・一覧・見やすい表記）
-
-
+import { AppMenus } from './components/AppMenus'
 
 /**
  * 画面の中身。
@@ -326,9 +145,8 @@ function AppInner(): JSX.Element {
 /**
  * 入口。**中身を囲うだけ**で、ここには処理を書かない。
  *
- * 区画（左パネル・プレビュー・タイムライン…）を切り出していくと、
- * それぞれが `useLayout()` などで必要な物を自分で見に行く形になる。
- * その囲いをここに並べる。
+ * 区画（左パネル・プレビュー・タイムライン…）は、それぞれが `useLayout()` などで
+ * 必要な物を自分で見に行く。その囲いをここに並べる。
  */
 export default function App(): React.JSX.Element {
   // **中身はここで作る。** 囲いの中で作ると、描き直すたびに作り直されて

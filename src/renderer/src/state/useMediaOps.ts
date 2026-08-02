@@ -10,7 +10,7 @@
 import { toGcUrl } from '../lib/gcUrl'
 import { FPS_FALLBACK as FPS } from '../../../shared/timeline'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
-import type { Source, VSeg } from '../lib/projectTypes'
+import type { Source } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useMediaCtx } from './mediaContext'
@@ -20,17 +20,10 @@ import { usePlaybackCtx } from './playbackContext'
 export interface UseMediaOpsDeps {
   stopPlayback: () => void
   setTime: (t: number) => void
-  duration: number
-  /** その段が今も在るか見て、無ければ在る段へ寄せる */
-  fallbackTrack: (id: string, kind: 'video' | 'audio') => string
   /** 拡張子から種類を見分ける */
   kindOf: (path: string) => 'video' | 'image' | 'audio'
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  placeImage: (...a: any[]) => any
-  placeSE: (...a: any[]) => any
-  placeVideoAtDrop: (...a: any[]) => any
   setOpenAccSec: (fn: (p: Record<string, string[]>) => Record<string, string[]>) => void
-  /* eslint-enable @typescript-eslint/no-explicit-any */
+  /* eslint-disable @typescript-eslint/no-explicit-any */
   videoElsRef: React.MutableRefObject<Map<string, HTMLVideoElement>>
   /** いま焼き直している原本のパス */
   proxyForPathRef: React.MutableRefObject<string | null>
@@ -48,20 +41,15 @@ export interface UseMediaOpsDeps {
 }
 
 export function useMediaOps(deps: UseMediaOpsDeps) {
-  const { stopPlayback, setTime, fallbackTrack, kindOf, placeImage, placeSE, placeVideoAtDrop, setOpenAccSec, videoElsRef, proxyForPathRef, srcAddedAtRef, initializedForPathRef, baselineRef, redoStackRef, pendingTimerRef, undoStackRef, suppressHistoryRef } = deps
+  const { stopPlayback, setTime, kindOf, setOpenAccSec, videoElsRef, proxyForPathRef, srcAddedAtRef, initializedForPathRef, baselineRef, redoStackRef, pendingTimerRef, undoStackRef, suppressHistoryRef } = deps
   const { setSegments, segIdCounter, cuesRef, segsRef, seClipsRef } = useDoc()
   const { clearSegSel } = useSel()
   const { setVideoPath, setVideoSrc, setVideoName, setWaveform, setThumbnailSrc, setSources, sourcesRef, sourceIdCounter, curSourceIdRef, setActiveSrcId, mediaItems, setMediaItems, mediaIdCounter } = useMediaCtx()
   const { showToast } = useToastCtx()
-  const { setFps, currentTimeRef } = usePlaybackCtx()
+  const { setFps } = usePlaybackCtx()
 
-  // seg の元動画を返す（srcId 未指定 or 見つからなければ主ソース）
-  function srcOfSeg(seg: VSeg | undefined): Source | undefined {
-    const list = sourcesRef.current
-    if (!list.length) return undefined
-    if (seg?.srcId == null) return list[0]
-    return list.find((s) => s.id === seg.srcId) ?? list[0]
-  }
+  // ※ srcOfSeg（切片の元動画を引く）は state/useMedia＝素材の心臓へ移した。
+  //   引くだけの物なのに、ここに置くと再生の心臓がこのフックを待つ形になっていた。
 
   function updateSource(id: number, patch: Partial<Source>): void {
     setSources((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
@@ -82,20 +70,10 @@ export function useMediaOps(deps: UseMediaOpsDeps) {
     })
   }
 
-  /**
-   * 素材を**再生ヘッドの位置へ置く**（ダブルクリック用）。
-   *
-   * 置く場所をマウスで指す必要があるのはドラッグだけで、
-   * 「とりあえず今いる所に足したい」ときにドラッグを強いるのは手間なだけ。
-   * プレミアも素材のダブルクリック／挿入は再生ヘッド基準。
-   * どのレーンに載せるかは、ドラッグで何も指さなかったときと同じ既定に合わせる。
-   */
-  function addMediaAtPlayhead(m: MediaItem): void {
-    const t = currentTimeRef.current
-    if (m.kind === 'video') void placeVideoAtDrop(m.path, t, false)
-    else if (m.kind === 'audio') void placeSE(m, t, 'A2')
-    else placeImage(m, t, fallbackTrack('V3', 'video'))
-  }
+  // ※ addMediaAtPlayhead（素材を再生ヘッドの位置へ置く）は state/useAppWiring へ移した。
+  //   置く物（state/useMediaDrop・state/useSegmentPlace）を要るが、
+  //   あちらは読み込む物（このフックの loadVideo）を要る——という輪になっていた。
+  //   置き方を1つ知っているだけの6行なので、両方が揃った後で組む方が素直。
 
   // 指定パスの動画をアクティブ動画として読み込む（差し替え）
   // placed=true: 切片は呼び出し側が置くので、読み込み時の自動配置（先頭に全長1本）はしない。
@@ -254,5 +232,5 @@ export function useMediaOps(deps: UseMediaOpsDeps) {
     // タイムラインへドラッグするか、ビンでダブルクリックすると読み込まれる。
   }
 
-  return { srcOfSeg, updateSource, hydrateSource, addMediaAtPlayhead, loadVideo, registerSource, addMediaPaths }
+  return { updateSource, hydrateSource, loadVideo, registerSource, addMediaPaths }
 }
