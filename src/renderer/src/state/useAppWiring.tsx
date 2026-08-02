@@ -822,7 +822,10 @@ export function useAppWiring() {
   })
 
   // プレビューの上でテロップを掴む・拡げる・枠内に寄せるのは state/useTelopBox
-  const { onTelopPointerDown, onTelopResizeStart, setBoxAnchor, applyIconAutoLeft } = useTelopBox({
+  const {
+    onTelopPointerDown, onTelopResizeStart, setBoxAnchor, applyIconAutoLeft,
+    resetSelectedTelops, telopResetCount
+  } = useTelopBox({
     screenRef,
     telopLocked,
     stopPlayback,
@@ -1139,6 +1142,7 @@ export function useAppWiring() {
     curAdjustCss, curBlank, v1Hidden, videoTLen, activeCues, windowVClips,
     vcRefCb, vcXform, imgXform, vcLen, iconForCue, proxyPct, packPct,
     onVideoReframeStart, onVideoRotateStart, resetVideoZoom, resetCount,
+    resetSelectedTelops, telopResetCount,
     selectPreviewOverlay, reframeTarget, onTelopPointerDown, onTelopResizeStart,
     editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
     draggingTemplateRef, draggingIconRef, applyTemplateToCue, applyIconToCue,

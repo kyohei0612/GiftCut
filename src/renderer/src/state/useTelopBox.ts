@@ -37,11 +37,18 @@ export interface UseTelopBoxDeps {
   setIconAnchorPos: (p: { x: number; y: number }) => void
 }
 
+/** テロップの置き場所の既定（画面の下寄り・中央） */
+export const DEFAULT_TELOP_POS = { x: 0.5, y: 0.85 }
+
 export interface TelopBox {
   onTelopPointerDown: (cue: Cue, e: React.PointerEvent) => void
   onTelopResizeStart: (cue: Cue, e: React.PointerEvent, corner: number) => void
   setBoxAnchor: (hx: 'l' | 'c' | 'r', vy: 't' | 'm' | 'b', retried?: boolean) => void
   applyIconAutoLeft: (retried?: boolean) => void
+  /** 選んでいるテロップの位置・大きさ・打った動きを、まとめて元へ戻す */
+  resetSelectedTelops: () => void
+  /** 戻す対象が何個あるか（ボタンに「（◯個）」と出すため） */
+  telopResetCount: () => number
 }
 
 export function useTelopBox(deps: UseTelopBoxDeps): TelopBox {
@@ -86,7 +93,7 @@ export function useTelopBox(deps: UseTelopBoxDeps): TelopBox {
     const sx = e.clientX
     const sy = e.clientY
     // 掴んだ点とテロップ中心のズレを保持（中心が掴んだ点へ飛ばず、そのまま動くように）
-    const startPos = cue.pos ?? { x: 0.5, y: 0.85 }
+    const startPos = cue.pos ?? DEFAULT_TELOP_POS
     const grabDX = e.clientX - (rect.left + startPos.x * rect.width)
     const grabDY = e.clientY - (rect.top + startPos.y * rect.height)
     // **選んである物は一緒に動かす。**
@@ -99,7 +106,7 @@ export function useTelopBox(deps: UseTelopBoxDeps): TelopBox {
     const basePos = new Map(
       cues
         .filter((c) => groupIds.includes(c.id) && !telopLocked(c))
-        .map((c) => [c.id, c.pos ?? { x: 0.5, y: 0.85 }])
+        .map((c) => [c.id, c.pos ?? DEFAULT_TELOP_POS])
     )
     let moved = false
     const onMove = (ev: PointerEvent): void => {
@@ -214,7 +221,7 @@ export function useTelopBox(deps: UseTelopBoxDeps): TelopBox {
     }
     // ★Premiere式拡縮: リサイズはテロップ全体の scale（変形倍率）だけを変える。
     // fontSize・縁・影・ベベルの「数値」は固定＝パネルの数字が大きさで変わらない（Premiere準拠）。
-    const p = cue.pos ?? { x: 0.5, y: 0.85 }
+    const p = cue.pos ?? DEFAULT_TELOP_POS
     const cx = rect.left + p.x * rect.width
     const cy = rect.top + p.y * rect.height
     const startDist = Math.hypot(e.clientX - cx, e.clientY - cy)
@@ -307,5 +314,40 @@ export function useTelopBox(deps: UseTelopBoxDeps): TelopBox {
     )
   }
 
-  return { onTelopPointerDown, onTelopResizeStart, setBoxAnchor, applyIconAutoLeft }
+  /**
+   * 選んでいるテロップを、プレビューで動かす前の状態へ戻す。
+   *
+   * **動画・画像の「リセット」と同じ物をテロップにも用意する。** 動かす手段は
+   * あるのに戻す手段が無いと、行き過ぎたときに手で戻すことになる（そして
+   * 元の位置は誰も覚えていない）。
+   *
+   * **打った動きも一緒に消す。** 位置だけ戻しても、印が残っていれば再生した
+   * 瞬間にまた動きだす＝「戻っていない」ように見える
+   * （動画側の resetVideoZoom と同じ考え方）。
+   *
+   * 見た目（色・縁・大きさの設定）は触らない。戻したいのは「置き場所と動き」で、
+   * そこまで戻すと作り込んだ見た目が消える。
+   */
+  function resetSelectedTelops(): void {
+    if (!selectedIds.length) return
+    setCues((prev) =>
+      prev.map((c) =>
+        selectedIds.includes(c.id) && !telopLocked(c)
+          ? { ...c, pos: { ...DEFAULT_TELOP_POS }, scale: undefined, motion: undefined }
+          : c
+      )
+    )
+  }
+  /** 戻す対象の数（鍵のかかった段の物は数えない＝押しても効かないので） */
+  const telopResetCount = (): number =>
+    cues.filter((c) => selectedIds.includes(c.id) && !telopLocked(c)).length
+
+  return {
+    onTelopPointerDown,
+    onTelopResizeStart,
+    setBoxAnchor,
+    applyIconAutoLeft,
+    resetSelectedTelops,
+    telopResetCount
+  }
 }

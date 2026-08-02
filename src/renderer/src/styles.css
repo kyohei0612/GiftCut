@@ -1717,6 +1717,17 @@ body {
   padding: 3px 8px;
   border-radius: 6px;
 }
+/* テロップのバーは映像の**中の上寄り**に出す。
+   動画側のバーは枠の下（top: calc(100% + 6px)）だが、テロップには枠が無いので
+   その指定だとプレビューの外へ飛び出す。下に出すと既定のテロップ位置（y=0.85）と
+   重なって、戻したい当の文字が読めなくなる。 */
+.telop-bar {
+  top: 8px;
+  bottom: auto;
+  /* テロップの層（.telop-overlay は z-index 1）とリフレーム枠（6）より上に置く。
+     指定が無いと重なり順で下に潜り、**押せないボタン**になる（実際になった）。 */
+  z-index: 7;
+}
 .reframe-scale {
   font-size: 11px;
   font-weight: 700;

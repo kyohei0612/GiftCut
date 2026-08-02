@@ -99,6 +99,38 @@ export default async function (C) {
     await page.waitForTimeout(400)
   })
 
+  await check('プレビューで動かした文字を、その場で元へ戻せる', async () => {
+    // **動かす手段はあるのに戻す手段が無かった。** 動画・画像には枠のバーに
+    // リセットがあるのに、テロップにだけ無く、行き過ぎたら手で戻すしかなかった
+    // （元の位置は誰も覚えていない）。
+    await resetProject()
+    await seekTo(2)
+    const t0 = page.locator('.telop-box').first()
+    assert(await t0.count(), 'プレビューに文字が出ていない')
+    const yOf = async () => (await t0.boundingBox())?.y ?? null
+    const before = await yOf()
+    assert(before != null, '文字の位置が測れない')
+    // 掴んで上へ動かす
+    const b = await t0.boundingBox()
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 5; i++) await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2 - (80 * i) / 5)
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const moved = await yOf()
+    assert(moved != null && before - moved > 20, `動かせていない（${before} → ${moved}）`)
+    // バーの「戻す」を押す
+    const btn = page.locator('button', { hasText: '位置と動きを戻す' }).first()
+    assert(await btn.count(), 'テロップのバーに戻すボタンが無い')
+    await btn.click()
+    await page.waitForTimeout(400)
+    const after = await yOf()
+    assert(
+      after != null && Math.abs(after - before) < 6,
+      `元の位置に戻っていない（元 ${before} / 動かした後 ${moved} / 戻した後 ${after}）`
+    )
+  })
+
   await check('文字を選んで切ると、下地の動画にはカット点が増えない', async () => {
     // 「何も選んでいない＝全部／選んでいる＝その物だけ」の後半。
     // ここが効いていないと、文字を切るたびに本編へ余計なカット点が増える。

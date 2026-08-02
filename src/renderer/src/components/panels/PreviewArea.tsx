@@ -29,6 +29,7 @@ import {
   ProgressBadges,
   ReframeBox,
   ScreenEmpty,
+  TelopBar,
   TelopEditor
 } from './PreviewOverlays'
 import { formatTimecode } from '../../../../shared/timeline'
@@ -60,6 +61,7 @@ export function PreviewArea(): JSX.Element {
     xfDipOverlay, transOverlay, videoMainStyle, curAdjustCss, curBlank, v1Hidden,
     videoTLen, activeCues, windowVClips, vcRefCb, vcXform, imgXform, vcLen, iconForCue,
     proxyPct, packPct, onVideoReframeStart, onVideoRotateStart, resetVideoZoom,
+    resetSelectedTelops, telopResetCount,
     resetCount, selectPreviewOverlay, reframeTarget, onTelopPointerDown,
     onTelopResizeStart, editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
     draggingTemplateRef, draggingIconRef, applyTemplateToCue, applyIconToCue,
@@ -69,7 +71,7 @@ export function PreviewArea(): JSX.Element {
   } = usePreviewCtx()
   const { cues, setSegments } = useDoc()
   const {
-    setSelectedIds, setEditingId, editingId, setVideoSelected, videoSelected,
+    selectedIds, setSelectedIds, setEditingId, editingId, setVideoSelected, videoSelected,
     selectedVideoIds, selectedImgIds, selectedVClipIds
   } = useSel()
   const { tracks, trackStates } = useTracksCtx()
@@ -308,6 +310,19 @@ export function PreviewArea(): JSX.Element {
                 onDone={() => {
                   setVideoSelected(false)
                   clearSegSel()
+                }}
+              />
+            )}
+            {/* テロップを選んでいるときのバー。枠と四隅はテロップ側が持っているので、
+                ここは戻す口だけを出す（動画側のバーと形を揃えてある） */}
+            {selectedIds.length > 0 && !videoSelected && (
+              <TelopBar
+                count={selectedIds.length}
+                onReset={resetSelectedTelops}
+                resetCount={telopResetCount()}
+                onDone={() => {
+                  setSelectedIds([])
+                  setEditingId(null)
                 }}
               />
             )}

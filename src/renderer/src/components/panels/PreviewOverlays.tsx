@@ -88,6 +88,49 @@ export function ReframeBox({
 }
 
 /**
+ * テロップを選んでいるときのバー。
+ *
+ * **動かす手段はあるのに、戻す手段が無かった。** 動画・画像・重ねた動画には
+ * リフレーム枠のバーに「リセット」があるのに、テロップにだけ無く、
+ * 行き過ぎたときは手で戻すしかなかった（元の位置は誰も覚えていない）。
+ *
+ * 枠そのものはテロップ側（`.telop-box-sel` と四隅）が既に持っているので、
+ * ここは**バーだけ**を出す。形は動画側と揃える——同じ役目の物が2つの
+ * 見た目を持つと、どちらが何だったか毎回思い出すことになる。
+ */
+export function TelopBar({
+  count,
+  onReset,
+  resetCount,
+  onDone
+}: {
+  /** いま選んでいるテロップの数 */
+  count: number
+  onReset: () => void
+  /** リセットが何個に効くか（鍵のかかった段の物は入らない） */
+  resetCount: number
+  onDone: () => void
+}): JSX.Element {
+  return (
+    <div className="reframe-bar telop-bar" onPointerDown={(e) => e.stopPropagation()}>
+      <span className="reframe-target">📝 テロップ{count > 1 ? `（${count}個）` : ''}</span>
+      <button
+        className="reframe-btn"
+        onClick={onReset}
+        title="置き場所と大きさを元へ戻し、打った動きも消します（選択中すべて）。見た目の設定は消えません"
+        disabled={resetCount === 0}
+      >
+        位置と動きを戻す
+        {resetCount > 1 ? `（${resetCount}個）` : ''}
+      </button>
+      <button className="reframe-btn" onClick={onDone} title="選択を外す">
+        ✓ 完了
+      </button>
+    </div>
+  )
+}
+
+/**
  * まだ何も無いときの案内。
  *
  * 市松模様（＝透明）だけだと、初見では「壊れている？」に見える。

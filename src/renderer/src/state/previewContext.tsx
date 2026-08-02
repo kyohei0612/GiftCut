@@ -97,6 +97,9 @@ export interface PreviewCtxValue {
   onVideoReframeStart: any
   onVideoRotateStart: any
   resetVideoZoom: any
+  /** テロップの位置・大きさ・動きを戻す（プレビューのバーから） */
+  resetSelectedTelops: () => void
+  telopResetCount: () => number
   resetCount: any
   selectPreviewOverlay: any
   reframeTarget: any
