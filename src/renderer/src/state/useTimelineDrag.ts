@@ -19,6 +19,7 @@
 // 「いま縦のどこか」は state/useLaneGeometry が持つ。ここは受け取るだけ
 // （画面のあちこちから同じ問いが飛ぶので、掴む操作の持ち物にはしない）。
 
+import { toggleSelect } from '../../../shared/clipEdit'
 import { clamp } from '../../../shared/timeline'
 import { formatTime, type Cue } from '../lib/srt'
 import { type SegLayout } from '../lib/projectTypes'
@@ -93,7 +94,11 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     setSelectedSeIds, setSelectedImgIds, setSelectedVClipIds,
       setSelectedTrackId, 
     setVideoSelected,  
-    isSelected, clearAll:  clearSegSel
+    // **名前を変えて受けない。** ここは「全部外す」（テロップの選択も消える）。
+    // 以前は clearSegSel という名前で受けていたので、読んだ人が
+    // 「切片の選択だけ外れる」と誤解し、Ctrl+クリックのまとめ選択が
+    // 一度も成立しないまま気づかれなかった。
+    isSelected, clearAll
   } = useSel()
   const { tracks } = useTracksCtx()
 
@@ -194,7 +199,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     e.preventDefault()
     setSelectedTrackId(null)
     setSelectedIds([])
-    clearSegSel()
+    clearAll()
     trackSelect(e, tool === 'trackFwd' ? 1 : -1)
     return true
   }
@@ -229,7 +234,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     const y0 = e.clientY - rect.top
     setSelectedTrackId(null)
     setSelectedIds([])
-    clearSegSel()
+    clearAll()
     setVideoSelected(false) // タイムライン空白クリックで動画リフレーム枠も閉じる
     let dragged = false
     const cuesNow = cues
@@ -323,7 +328,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     e.stopPropagation()
     if (e.button !== 0) return // 右/中クリックは contextmenu に任せる
     setSelectedTrackId(null)
-    clearSegSel() // テロップ選択時は動画切片の選択を解除
+    clearAll() // 段・切片・素材ビンの選択を外す（テロップの選択はこの下で作り直す）
     if (telopLocked(cue)) return // このテロップの載っているトラックがロック中は編集不可
     if (tool === 'razor') {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -339,10 +344,14 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
       return
     }
     // Ctrl/Cmd+クリック: 選択トグル（ドラッグしない）
+    //
+    // **絶対値で上書きする。関数updater を使ってはいけない。**
+    // すぐ上の clearAll() が同じバッチで `setSelectedIds([])` を積むので、
+    // 関数updater だと空になった後の [] に足すことになり、**何個 Ctrl+クリック
+    // しても常に1個だけ**になる（＝まとめ選択が一度も成立しない）。
+    // 効果音・画像・映像レイヤーも同じ理由で toggleSelect を使っている。
     if (e.ctrlKey || e.metaKey) {
-      setSelectedIds((prev) =>
-        prev.includes(cue.id) ? prev.filter((id) => id !== cue.id) : [...prev, cue.id]
-      )
+      setSelectedIds(toggleSelect(selectedIds, cue.id))
       return
     }
     // プレミア準拠: 選択済みクリップを掴んだら選択全体をまとめて移動。
