@@ -19,6 +19,7 @@
 // 位置の計算（吸い付き先）は App 側にある。ここはそれを借りて動く。
 
 import { splitAt, toggleSelect, trimLeft, trimRight } from '../../../shared/clipEdit'
+import { startEdgeScroll } from '../lib/edgeScroller'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
@@ -47,6 +48,8 @@ function spanOf<T extends { tStart: number }>(
 export interface ClipDragDeps {
   /** タイムラインの中身（座標の基準） */
   trackInnerRef: React.MutableRefObject<HTMLElement | null>
+  /** 横に送る入れ物。端まで持っていったときに、ここを送る */
+  scrollRef: React.RefObject<HTMLDivElement | null>
   /** いま選んでいる道具（レザーなら分割） */
   tool: string
   /** 全体の長さ（秒） */
@@ -87,7 +90,9 @@ export interface ClipDragDeps {
 export function useClipDrag(deps: ClipDragDeps) {
   const {
     trackInnerRef,
-    tool,    laneAtY,
+    scrollRef,
+    tool,
+    laneAtY,
     maybeTrackSelect,
     setDragTip,
     setSnapLineX,
@@ -158,12 +163,21 @@ export function useClipDrag(deps: ClipDragDeps) {
     const grpSpan = spanOf(seClips.filter((c) => grpIds.includes(c.id)), (c) => c.duration)
     setSelectedSeIds(grpIds)
     const inner = trackInnerRef.current
-    const sx = e.clientX
+    // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
+    // 指は止まったままでも物は進むべきなので、そのぶん戻す）
+    let sx = e.clientX
+    let lastEv: PointerEvent | null = null
+    const es = startEdgeScroll(scrollRef.current, (dv) => {
+      sx -= dv
+      if (lastEv) onMove(lastEv)
+    })
     const s0 = clip.tStart
     const d0 = clip.duration
     const off0 = clip.srcOffset ?? 0
     let moved = false
     const onMove = (ev: PointerEvent): void => {
+      lastEv = ev
+      es.track(ev.clientX)
       if (!moved && Math.abs(ev.clientX - sx) < 3) return
       moved = true
       if (!inner) return
@@ -216,6 +230,7 @@ export function useClipDrag(deps: ClipDragDeps) {
       }
     }
     const onUp = (): void => {
+      es.stop()
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
@@ -273,11 +288,20 @@ export function useClipDrag(deps: ClipDragDeps) {
     )
     // 吸い付ける相手は束の全体（上の spanOf）
     const grpSpan = spanOf(imgClips.filter((c) => grpIds.includes(c.id)), (c) => c.duration)
-    const sx = e.clientX
+    // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
+    // 指は止まったままでも物は進むべきなので、そのぶん戻す）
+    let sx = e.clientX
+    let lastEv: PointerEvent | null = null
+    const es = startEdgeScroll(scrollRef.current, (dv) => {
+      sx -= dv
+      if (lastEv) onMove(lastEv)
+    })
     const s0 = clip.tStart
     const d0 = clip.duration
     let moved = false
     const onMove = (ev: PointerEvent): void => {
+      lastEv = ev
+      es.track(ev.clientX)
       if (!moved && Math.abs(ev.clientX - sx) < 3) return
       moved = true
       const dt = (ev.clientX - sx) / zoomRef.current
@@ -329,6 +353,7 @@ export function useClipDrag(deps: ClipDragDeps) {
       }
     }
     const onUp = (): void => {
+      es.stop()
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
@@ -389,12 +414,21 @@ export function useClipDrag(deps: ClipDragDeps) {
       (c) => Math.max(0.05, c.srcEnd - c.srcStart)
     )
     setSelectedVClipIds(grpIds)
-    const sx = e.clientX
+    // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
+    // 指は止まったままでも物は進むべきなので、そのぶん戻す）
+    let sx = e.clientX
+    let lastEv: PointerEvent | null = null
+    const es = startEdgeScroll(scrollRef.current, (dv) => {
+      sx -= dv
+      if (lastEv) onMove(lastEv)
+    })
     const t0 = clip.tStart
     const s0 = clip.srcStart
     const e0 = clip.srcEnd
     let moved = false
     const onMove = (ev: PointerEvent): void => {
+      lastEv = ev
+      es.track(ev.clientX)
       if (!moved && Math.abs(ev.clientX - sx) < 3) return
       moved = true
       const dt = (ev.clientX - sx) / zoomRef.current
@@ -457,6 +491,7 @@ export function useClipDrag(deps: ClipDragDeps) {
       }
     }
     const onUp = (): void => {
+      es.stop()
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)

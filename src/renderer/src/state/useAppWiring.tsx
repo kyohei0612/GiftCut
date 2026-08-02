@@ -961,7 +961,7 @@ export function useAppWiring() {
     moveSegmentTo,
     razorSegment,
     srcOfSeg, shiftAfter,
-    trackInnerRef, zoomRef, videoDurationRef, videoName, videoPath,
+    trackInnerRef, scrollRef, zoomRef, videoDurationRef, videoName, videoPath,
     setDragTip, setSnapLineX, setVideoGhost, setOverwriteIds,
     snapClipStart, snapTime
   })

@@ -22,6 +22,7 @@
 // **縮めた分は捨てていない**ので、あとから伸ばして戻せる。
 
 import { useRef } from 'react'
+import { startEdgeScroll } from '../lib/edgeScroller'
 import { clamp, layoutSegs, segSpeed } from '../../../shared/timeline'
 import { dragModeOf, movedEnough, type SegDropMode } from '../../../shared/dragMode'
 import { toggleSelect } from '../../../shared/clipEdit'
@@ -52,6 +53,8 @@ export interface UseSegmentDragDeps {
   shiftAfter: (boundaryT: number, delta: number) => void
 
   trackInnerRef: React.RefObject<HTMLDivElement | null>
+  /** 横に送る入れ物。端まで持っていったときに、ここを送る */
+  scrollRef: React.RefObject<HTMLDivElement | null>
   /** 横の拡大率（px/秒）。掴んでいる最中にも読むので ref */
   zoomRef: React.MutableRefObject<number>
   videoDurationRef: React.MutableRefObject<number>
@@ -73,7 +76,7 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
   const {
     tool, mainLocked, maybeTrackSelect, stopPlayback, 
     moveSegmentTo, razorSegment, srcOfSeg, shiftAfter,
-    trackInnerRef, zoomRef, videoDurationRef, videoName, videoPath,
+    trackInnerRef, scrollRef, zoomRef, videoDurationRef, videoName, videoPath,
     setDragTip, setSnapLineX, setVideoGhost, setOverwriteIds,
     snapClipStart, snapTime
   } = deps
@@ -91,7 +94,8 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
     selectedIds,  selectedSeIds, 
     selectedImgIds,  selectedVClipIds, 
     selectedMarkerId,
-      setSelectedTrackId,         clearAll: clearAllSelections
+      setSelectedTrackId, 
+        clearAll: clearAllSelections
   } = useSel()
 
   // 動画/音声の切片クリック（選択 / レザー分割 / ドラッグで並べ替え）
@@ -161,7 +165,14 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
     // 空きは「選ぶ／消す」だけ。穴そのものを動かしても意味がないうえ、
     // 動かせると空きが増殖して収拾がつかなくなる。
     if (L.seg.gap) return
-    const sx = e.clientX
+    // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
+    // 指は止まったままでも切片は進むべきなので、そのぶん戻す）
+    let sx = e.clientX
+    let lastEv: PointerEvent | null = null
+    const es = startEdgeScroll(scrollRef.current, (dv) => {
+      sx -= dv
+      if (lastEv) applyMove(lastEv)
+    })
     const t0 = L.tStart
     const len = L.tEnd - L.tStart
     const src = srcOfSeg(L.seg)
@@ -171,6 +182,8 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
     // 修飾キーの決め事は shared/dragMode（Alt=複製 / Ctrl=割り込み）
     const modeOf = dragModeOf
     const applyMove = (ev: PointerEvent): void => {
+      lastEv = ev
+      es.track(ev.clientX)
       // 数px の震えで動かさない（クリック＝選択のままにする）
       if (!moved && !movedEnough(ev.clientX - sx)) return
       if (!moved) {
@@ -272,6 +285,7 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
     const mover = rafThrottle<PointerEvent>(applyMove)
     const onMove = (ev: PointerEvent): void => mover.run(ev)
     const onUp = (): void => {
+      es.stop()
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)

@@ -20,6 +20,7 @@
 // （画面のあちこちから同じ問いが飛ぶので、掴む操作の持ち物にはしない）。
 
 import { toggleSelect } from '../../../shared/clipEdit'
+import { startEdgeScroll } from '../lib/edgeScroller'
 import { subtractRanges, isUntouched } from '../../../shared/overwrite'
 import { clamp } from '../../../shared/timeline'
 import { formatTime, type Cue } from '../lib/srt'
@@ -112,32 +113,18 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     stopPlayback()
     scrubFromClientX(e.clientX)
     // プレミア風: ヘッドを端まで持っていく（画面外含む）とタイムラインが追従スクロール
-    const scroll = scrollRef.current
+    // 端まで持っていったら送る。**速さの決め方は shared/edgeScroll に1つ**
+    // （掴んだクリップ側も同じ物を使う。別々に書くと手つきが場所で変わる）
     let lastCx = e.clientX
-    let raf: number | null = null
-    const EDGE = 56 // 端からこの範囲でオートスクロール開始（バッファ）
-    const MAXV = 28 // 1フレームの最大スクロール量(px)
-    const autoScroll = (): void => {
-      raf = requestAnimationFrame(autoScroll)
-      if (!scroll) return
-      const r = scroll.getBoundingClientRect()
-      let dv = 0
-      if (lastCx > r.right - EDGE) dv = Math.min(MAXV, ((lastCx - (r.right - EDGE)) / EDGE) * MAXV)
-      else if (lastCx < r.left + EDGE)
-        dv = -Math.min(MAXV, ((r.left + EDGE - lastCx) / EDGE) * MAXV)
-      if (dv !== 0) {
-        const before = scroll.scrollLeft
-        scroll.scrollLeft = before + dv
-        if (scroll.scrollLeft !== before) scrubFromClientX(lastCx) // スクロール分ヘッドを進める
-      }
-    }
-    raf = requestAnimationFrame(autoScroll)
+    const es = startEdgeScroll(scrollRef.current, () => scrubFromClientX(lastCx))
+    es.track(e.clientX)
     const onMove = (ev: PointerEvent): void => {
       lastCx = ev.clientX
+      es.track(ev.clientX)
       scrubFromClientX(ev.clientX)
     }
     const onUp = (): void => {
-      if (raf) cancelAnimationFrame(raf)
+      es.stop()
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
@@ -215,6 +202,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
   // 効果音・画像・映像クリップの掴み方は state/useClipDrag（決め事は共通なので1か所）
   const { onSePointerDown, onImgPointerDown, onVClipPointerDown } = useClipDrag({
     trackInnerRef,
+    scrollRef,
     tool,
     duration,
     laneAtY,
@@ -398,11 +386,21 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     const maxEnd = Math.max(...[...startMap.values()].map((v) => v.e))
     const spanLen = maxEnd - minStart
     const innerRect = trackInnerRef.current?.getBoundingClientRect()
-    const sx = e.clientX
+    // **掴み始めの位置は動かせるようにしておく（let）。**
+    // 端まで持っていって景色の方が送られたとき、指は動いていないのに
+    // 物は進むべきなので、掴み始めをそのぶん戻す（lib/edgeScroller の言うとおり）
+    let sx = e.clientX
     const sy = e.clientY
     let moved = false
     let addedLane = false
+    let lastEv: PointerEvent | null = null
+    const es = startEdgeScroll(scrollRef.current, (dv) => {
+      sx -= dv
+      if (lastEv) onMove(lastEv)
+    })
     const onMove = (ev: PointerEvent): void => {
+      lastEv = ev
+      es.track(ev.clientX)
       const dxPx = ev.clientX - sx
       const dyPx = ev.clientY - sy
       // 横=時間, 縦=トラック移動。どちらかがしきい値を超えたらドラッグ開始
@@ -460,6 +458,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
       setDragTip({ x: ev.clientX, y: ev.clientY, text: formatTime(Math.max(0, grabbed.s + delta)) })
     }
     const onUp = (): void => {
+      es.stop()
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
