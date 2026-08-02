@@ -19,6 +19,7 @@
 // 帯は最低 12px で描かれるので、引いた状態で文字を出すと
 // 「ろ」「ク」のような読めない断片が並ぶだけになる。
 
+import { bandWidth } from '../../lib/bandGeom'
 import type { JSX } from 'react'
 import { ClipBand } from './ClipBand'
 import { KeyMarks } from './KeyMarks'
@@ -105,7 +106,7 @@ export function TelopBands({
           className="telop-clip"
           label={cue.label}
           left={cue.start * zoom}
-          width={Math.max((cue.end - cue.start) * zoom, 12)}
+          width={bandWidth(cue.end - cue.start, zoom, 12)}
           selected={isSelected(cue.id)}
           title={cue.text}
           onPointerDown={(e) => onPointerDown(cue, e)}

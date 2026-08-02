@@ -22,6 +22,7 @@
 // 素材を混ぜて並べられるので、先頭の動画の波形を使い回すと**別動画の波形**が出る。
 // 自分の元動画の波形が未取得なら「解析中」と書く（何も出ないと壊れて見える）。
 
+import { bandWidth } from '../../lib/bandGeom'
 import type { JSX } from 'react'
 import { ClipBand, type OpenClipMenu } from './ClipBand'
 import { KeyMarks } from './KeyMarks'
@@ -69,7 +70,7 @@ export function MainVideoBands({
             key={L.seg.id}
             className="gap-clip"
             left={L.tStart * zoom}
-            width={Math.max(L.len * zoom - 1, 6)}
+            width={bandWidth(L.len, zoom, 6)}
             selected={isVideoSel(L.seg.id)}
             title="空き（クリックして Delete で詰める）"
             onPointerDown={(e) => onPointerDown(L, e, 'video')}
@@ -81,7 +82,7 @@ export function MainVideoBands({
           className={`video-clip ${L.seg.videoBlank ? 'clip-blank' : ''} ${overwriteIds.includes(L.seg.id) ? 'clip-overwrite' : ''}`}
           label={L.seg.label}
           left={L.tStart * zoom}
-          width={Math.max(L.len * zoom - 1, 10)}
+          width={bandWidth(L.len, zoom, 10)}
           selected={isVideoSel(L.seg.id)}
           title={
             L.seg.gap
@@ -175,7 +176,7 @@ export function MainAudioBands({
             className={`audio-clip ${L.seg.muted ? 'clip-muted' : ''}`}
             label={L.seg.label}
             left={L.tStart * zoom}
-            width={Math.max(L.len * zoom - 1, 10)}
+            width={bandWidth(L.len, zoom, 10)}
             selected={isAudioSel(L.seg.id)}
             title={ssrc?.name ?? videoName ?? ''}
             onPointerDown={(e) => onPointerDown(L, e, 'audio')}
@@ -187,7 +188,7 @@ export function MainAudioBands({
                 srcStart={L.seg.srcStart}
                 srcEnd={L.seg.srcEnd}
                 audioDuration={wf.dur || sdur}
-                width={Math.max(L.len * zoom - 1, 10)}
+                width={bandWidth(L.len, zoom, 10)}
                 height={trackH - 6}
               />
             ) : (

@@ -11,6 +11,7 @@
 // なってしまい、本体を掴んで動かす余地が残らなかった。
 // 短くしたいときは分割して消すほうが速く、そちらは既にできる。
 
+import { bandWidth } from '../../lib/bandGeom'
 import type { JSX } from 'react'
 import { ClipBand, type OpenClipMenu } from './ClipBand'
 import type { SEClip } from '../../lib/projectTypes'
@@ -48,7 +49,7 @@ export function SeBands({
             label={clip.label}
             left={clip.tStart * zoom}
             // 短い効果音でも掴めるだけの幅を必ず残す（上の説明のとおり）
-            width={Math.max(clip.duration * zoom - 1, 16)}
+            width={bandWidth(clip.duration, zoom, 16)}
             selected={selectedSeIds.includes(clip.id)}
             title={`${clip.name}（ドラッグで移動・Deleteで削除／短くするなら分割してから）`}
             onPointerDown={(e) => onPointerDown(clip, e)}

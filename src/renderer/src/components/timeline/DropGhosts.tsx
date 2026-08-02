@@ -18,6 +18,7 @@
 // 「この音を、この位置に」が離す前に確かめられる。まだ解析中なら、
 // そう書いておく（何も出ないと壊れて見える）。
 
+import { bandWidth } from '../../lib/bandGeom'
 import type { JSX } from 'react'
 import WaveformCanvas from '../WaveformCanvas'
 import type { SegLayout } from '../../lib/projectTypes'
@@ -28,7 +29,7 @@ import type { SegLayout } from '../../lib/projectTypes'
 function ghostStyle(t: number, dur: number, zoom: number): React.CSSProperties {
   // **最低でも12px は見せる。** 短いクリップだと線になって、
   // どこに入るのか分からなくなる
-  return { left: t * zoom, width: Math.max(dur * zoom - 1, 12) }
+  return { left: t * zoom, width: bandWidth(dur, zoom, 12) }
 }
 
 /** 波形を出す中身（音のゴースト2種で共通） */
@@ -116,7 +117,7 @@ export function VideoAudioGhost({
   meta: any
   trackH: number
 }): JSX.Element {
-  const width = Math.max(ghost.dur * zoom - 1, 12)
+  const width = bandWidth(ghost.dur, zoom, 12)
   return (
     <div
       className={`clip audio-clip se-ghost ${ghost.track === 'V1' && ghost.insert ? 'ghost-insert' : ''}`}
@@ -146,7 +147,7 @@ export function SeGhost({
   meta: any
   trackH: number
 }): JSX.Element {
-  const width = Math.max(ghost.dur * zoom - 1, 12)
+  const width = bandWidth(ghost.dur, zoom, 12)
   return (
     <div className="clip se-clip se-ghost" style={ghostStyle(ghost.t, ghost.dur, zoom)}>
       <WaveInside

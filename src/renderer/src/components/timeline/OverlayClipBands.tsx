@@ -15,6 +15,7 @@
 // 「この1つだけを選び直す → 元の品書きを閉じる → クリップ用の品書きを開く」。
 // 呼ぶ側で1つにまとめた `OpenClipMenu`（timeline/ClipBand.tsx）を渡してもらう。
 
+import { bandWidth } from '../../lib/bandGeom'
 import type { JSX } from 'react'
 import { ClipBand, type OpenClipMenu } from './ClipBand'
 import { KeyMarks } from './KeyMarks'
@@ -29,7 +30,7 @@ import { useToastCtx } from '../../state/toastContext'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** 帯の幅。**最低でも12px は見せる**（短いと線になって掴めない） */
-const bandW = (dur: number, zoom: number): number => Math.max(dur * zoom - 1, 12)
+const bandW = (dur: number, zoom: number): number => bandWidth(dur, zoom, 12)
 
 /** V2以降に重ねた動画（映像側） */
 export function VideoLayerBand({
