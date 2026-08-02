@@ -69,6 +69,32 @@ export interface UseSessionMemoryDeps {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/**
+ * この起動で「見ていた場所」（拡大率・横位置）を戻したか。
+ *
+ * **戻したなら、素材を読んだ直後の「全体表示」をやってはいけない。**
+ * 全体表示は拡大率を書き換えて横位置を0へ戻すので、戻したばかりの場所が消える。
+ * 一方で**再生ヘッドは別口で戻る**ので、
+ * 「再生ヘッドは32秒、タイムラインは先頭」という食い違いだけが残る。
+ * その状態だと、32秒に置いた画像はプレビューに出るのにタイムラインには
+ * 帯が出ない（見えている範囲の帯しか作らないため）＝本人から上がった
+ * 「タイムラインから消えている画像が、プレビューには出る」の正体。
+ */
+let restoredView = false
+
+/**
+ * 1回だけ答える（聞いたら降ろす）。
+ *
+ * **降ろさないと、あとから別の動画を開いたときも全体表示にならない。**
+ * 抑えたいのは「戻した直後の1回」だけで、全体表示そのものは要る機能
+ *（既定の拡大率のままだと15秒の素材が左端の小さな塊に見える）。
+ */
+export function takeRestoredView(): boolean {
+  const v = restoredView
+  restoredView = false
+  return v
+}
+
 export function useSessionMemory(deps: UseSessionMemoryDeps): void {
   const {
     writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef,
@@ -84,6 +110,22 @@ export function useSessionMemory(deps: UseSessionMemoryDeps): void {
   const pendingEditRef = useRef<number | null>(null)
   /** 右パネルの縦スクロール。一覧が伸びて届く高さになってから戻す */
   const pendingRsxRef = useRef<number | null>(null)
+  /**
+   * タイムラインの横スクロール。**中身が伸びて届く幅になってから戻す。**
+   *
+   * 前は起動直後に1回だけ `scrollLeft = sx` と書いていた。その時点では
+   * 動画もクリップもまだ読めておらず中身の幅がほぼ0なので、**ブラウザが
+   * 黙って0へ丸める**（例外も出ない）。一方で再生ヘッドは読み終わってから
+   * 戻すので、**「再生ヘッドは32秒、タイムラインは先頭」**という食い違いが残った。
+   *
+   * この状態だと、32秒に置いた画像はプレビューには出るのに、
+   * タイムラインには帯が出ない（見えている範囲の帯しか作らないため）＝
+   * **「タイムラインから消えている画像が、プレビューには出る」**の正体。
+   *
+   * 右パネルの縦スクロール（pendingRsx）で既に同じ穴を踏んで、
+   * 「届く高さになってから」に直してある。横も同じ扱いにする。
+   */
+  const pendingSxRef = useRef<number | null>(null)
   const {
     cues, cuesRef, segments, segsRef, seClips, seClipsRef, imgClips, imgClipsRef,
     vClips, vClipsRef, markers, markersRef
@@ -302,10 +344,37 @@ export function useSessionMemory(deps: UseSessionMemoryDeps): void {
       if (typeof s.edit === 'number') pendingEditRef.current = s.edit
       if (typeof s.rsx === 'number') pendingRsxRef.current = s.rsx
       if (typeof s.tab === 'string') setRightTab(s.tab)
-      if (typeof s.sx === 'number')
-        requestAnimationFrame(() => {
-          if (scrollRef.current) scrollRef.current.scrollLeft = s.sx
-        })
+      // **ここでは書かない。** まだ中身の幅が無いので0へ丸められる（上の説明）。
+      // 届く幅になるのを見張って、なってから戻す。
+      //
+      // **この見張りは、保留に入れたあとで始めること。** 別の効果に分けて上に
+      // 置いていたら、効果は宣言順に走るので**保留がまだ空のうちに1回見て終わって**
+      // いた（e2e が `7613 → 0` で捕まえた）。
+      if (typeof s.zoom === 'number' || typeof s.sx === 'number') restoredView = true
+      if (typeof s.sx === 'number') {
+        pendingSxRef.current = s.sx
+        // 幅が育つのはクリップを読み終えてから。それが何コマ後かは素材次第で、
+        // 読み終わりを知らせてくれる物が無いので見張る。届いたら即やめる。
+        // 5秒経っても届かないなら諦める——前より短いタイムライン（クリップを
+        // 消して保存した）だと永遠に届かないので、張り付かせたままにしない。
+        let left = Math.round(5000 / 16)
+        const tick = (): void => {
+          const el = scrollRef.current
+          const sx = pendingSxRef.current
+          if (sx == null) return
+          if (el && el.scrollWidth - el.clientWidth >= sx - 1) {
+            el.scrollLeft = sx
+            pendingSxRef.current = null
+            return
+          }
+          if (left-- <= 0) {
+            pendingSxRef.current = null
+            return
+          }
+          requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      }
     } catch {
       /* 無視 */
     }

@@ -392,6 +392,67 @@ export default async function (C) {
     assert(got === want, `色が残っていない（${got} / 期待 ${want}）`)
   })
 
+  // **再生ヘッドとタイムラインの横位置は、必ず一緒に戻る。**
+  //
+  // 前は横位置だけ起動直後に1回書いていた。その時点では中身の幅がまだ無いので
+  // ブラウザが黙って0へ丸め、再生ヘッドだけ後から戻る＝
+  // 「再生ヘッドは32秒、タイムラインは先頭」という食い違いが残っていた。
+  // その状態だと、そこに置いた画像はプレビューに出るのにタイムラインには
+  // 帯が無い（見えている範囲の帯しか作らないため）＝本人から上がった
+  // 「タイムラインから消えている画像が、プレビューには出る」の正体。
+  await check('前回の続きを開くと、タイムラインの横位置も戻る', async () => {
+    await resetProject()
+    const scroller = page.locator('.track-scroll').first()
+    // 送れる幅が無いと、この確認は何も見ていないことになる。まず寄る
+    const thumb = page.locator('.zoom-bar-thumb').first()
+    const tb0 = await thumb.boundingBox()
+    const knob = page.locator('.zbk-r').first()
+    const kb = await knob.boundingBox()
+    await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(tb0.x + tb0.width * 0.4, kb.y + kb.height / 2, { steps: 10 })
+    await page.mouse.up()
+    await page.waitForTimeout(600)
+    const room = await scroller.evaluate((el) => el.scrollWidth - el.clientWidth)
+    assert(room > 100, `準備が成立していない（送れる幅が ${Math.round(room)}px しかない）`)
+
+    // 先頭から離れた所へ送る（スクロールの見張りが localStorage へ書く）
+    const want = Math.round(room * 0.6)
+    await scroller.evaluate((el, x) => el.scrollTo({ left: x }), want)
+    await page.waitForTimeout(600)
+    const sx0 = await scroller.evaluate((el) => Math.round(el.scrollLeft))
+    assert(sx0 > 50, `送れていない（${sx0}）`)
+
+    // **下書きを自分で置いてから開き直す。** 置かないと復元の箱が出ず、
+    // 「テンプレートから始める」が出て中身が空になる（＝何も見ていないことになる）
+    writeFileSync(
+      join(fx.userData, 'giftcut-autosave.json'),
+      readFileSync(fx.gcprojOrig, 'utf-8'),
+      'utf-8'
+    )
+    await page.reload()
+    await page.waitForSelector('.restore-btns', { timeout: 30000 })
+    // **.first() を使わない。** 「1つ前の状態で復元」も『復元』を含むので、
+    // それが出ている場面では先頭がそちらになる
+    await page.locator('.restore-btns button', { hasText: '復元' }).last().click()
+    // **クリップの帯を待ってはいけない。** 帯は見えている範囲にしか作らないので、
+    // 横位置を戻した先に帯が無ければ永遠に出ない（それで30秒待って落ちた）。
+    // 待つのは段そのもの
+    await page.waitForSelector('[data-tid="V1"]', { timeout: 30000 })
+    await page.waitForTimeout(2500) // 中身の幅が育つのを待つ（そこで初めて戻せる）
+    const after = await page
+      .locator('.track-scroll')
+      .first()
+      .evaluate((el) => ({
+        sx: Math.round(el.scrollLeft),
+        room: Math.round(el.scrollWidth - el.clientWidth)
+      }))
+    assert(
+      Math.abs(after.sx - sx0) < 40,
+      `横位置が戻っていない（${sx0} → ${after.sx}／送れる幅 ${room} → ${after.room}）`
+    )
+  })
+
   await check('下の拡大バーで、拡大縮小と移動ができる', async () => {
     // **拡大のつまみと横スクロールを1本にまとめた。**
     // 真ん中を掴めば移動、左右の●で拡大・縮小（プレミアと同じ形）。

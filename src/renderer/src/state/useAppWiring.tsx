@@ -98,7 +98,7 @@ import { useProjectIO } from './useProjectIO'
 import { usePlaybackEngine } from './usePlaybackEngine'
 import { usePreviewFrame } from './usePreviewFrame'
 import { useVideoSync } from './useVideoSync'
-import { useSessionMemory } from './useSessionMemory'
+import { useSessionMemory, takeRestoredView } from './useSessionMemory'
 import { useSelectionCleanup } from './useSelectionCleanup'
 import { useNestSelectSync } from './useNest'
 import { useDiagnostics } from './useDiagnostics'
@@ -799,6 +799,7 @@ export function useAppWiring() {
     if (!videoPath || videoDuration <= 0) return
     if (didFitForRef.current === videoPath) return
     didFitForRef.current = videoPath
+    if (takeRestoredView()) return // 前回の見ていた場所を戻したなら、上書きしない
     // 切片のレイアウトが確定してから測る
     const t = window.setTimeout(fitTimelineZoom, 60)
     return () => window.clearTimeout(t)
