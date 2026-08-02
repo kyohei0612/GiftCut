@@ -35,17 +35,28 @@ export function VirtualBlock<T>({
 }): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null)
   const innerRef = useRef<HTMLDivElement | null>(null)
-  const [top, setTop] = useState(0)
+  /**
+   * スクロールの中で、この箱が始まる位置。
+   *
+   * **測る前を 0 と決め打ってはいけない。** 前は `useState(0)` で始めていたので、
+   * 一覧を下まで送った状態で別の節を開くと、その節の1回目の描画で
+   * `scrollTop - 0` ＝ 送った量そのものが「この箱の中でのスクロール量」になり、
+   * **一覧の途中から描き始めていた**（本人から「1からではなく途中から表示される」）。
+   * 測れるまでは null にして、下の `ready` で「まだ窓を掛けない」に倒す。
+   */
+  const [top, setTop] = useState<number | null>(null)
   const [rowH, setRowH] = useState(fixedRowHeight ?? 0)
 
   const columns = grid ? columnsFor(viewport.width, grid.minWidth, grid.gap) : 1
-  // 高さがまだ測れていないうちは全部作る（測る相手が要るので）
+  // **測れていないうちは全部作る。** 高さも位置も、実物が無いと測れない。
+  // 窓を掛けるのは両方が分かってから（片方でも当て推量にすると、上の事故が起きる）
+  const ready = rowH > 0 && top != null
   const w = gridWindow({
     count: items.length,
     columns,
     rowHeight: rowH,
-    viewportHeight: rowH > 0 ? viewport.height : 0,
-    scrollTop: Math.max(0, viewport.scrollTop - top),
+    viewportHeight: ready ? viewport.height : 0,
+    scrollTop: Math.max(0, viewport.scrollTop - (top ?? 0)),
     overscan: 2
   })
   const shown = items.slice(w.start, w.end)

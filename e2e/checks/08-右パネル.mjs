@@ -62,10 +62,11 @@ export default async function (C) {
   // 節を開いたら、その節の頭から出る。
   //
   // ※ **本人から上がった「1からではなく途中から表示される」は、これでは捕まらない。**
-  //   わざと前の形（開いた2コマ後に1回だけ合わせる）へ戻しても、この確認は緑のまま
-  //   ——素材が少なくて一覧が短いか、症状が出ているのが別の場所（右パネルの節では
-  //   なく、字幕の一覧やタイムラインの段）かのどちらか。**再現できていない。**
-  //   ここに残してあるのは「節を開いたのに頭から出ない」を丸ごと落とさないため。
+  //   場所は右パネルのテロップタブと分かっており、**原因も見つけて直してある**
+  //   （`VirtualBlock` が自分の位置を測る前に 0 と決め打っていた。詳細はそのファイル）。
+  //   だが、わざと前の形へ戻してもこの確認は緑のまま——見本を120個入れて
+  //   一覧を伸ばしても再現できなかった。**この確認は症状の見張りにはなっていない。**
+  //   残してあるのは「節を開いたのに頭から出ない」を丸ごと落とさないため。
   await check('下まで見てから次の節を開くと、その節の頭から出る', async () => {
     // **テロップのタブで見る。** ここは「1つだけ開く」作りなので、次を開くと
     // 前の節が畳まれて一覧が一気に縮む＝送っていた位置が行き場を失う。
@@ -74,7 +75,7 @@ export default async function (C) {
     await page.locator('.telop-clip').first().click()
     await page.waitForTimeout(300)
     await strip.locator('.tab', { hasText: 'テロップ' }).first().click()
-    await page.waitForTimeout(500)
+    await page.waitForTimeout(700)
     const secs = page.locator('.tpl-acc')
     const n = await secs.count()
     assert(n >= 2, `節が2つ以上ないと確かめられない（${n}）`)
@@ -96,6 +97,21 @@ export default async function (C) {
     const head = await secs.nth(1).boundingBox()
     assert(box && head, '節または一覧が見つからない')
     const gap = Math.round(head.y - box.y)
+
+    // **ここが本題。** 見えている分だけ描く箱（VirtualBlock）は、上に「まだ描いて
+    // いない分」の空きを置く。開いた直後にその空きがあるということは、
+    // **一覧の途中から描き始めている**＝「1からではなく途中から表示される」。
+    // 位置（上の gap）だけ見ても、この状態は捕まらない。
+    const padTop = await page.evaluate(() => {
+      const open = [...document.querySelectorAll('.tpl-acc.open')].pop()
+      const body = open?.parentElement
+      if (!body) return null
+      const spacer = body.querySelector('div[aria-hidden="true"]')
+      // 空きは「上の空き」が先に来る。無ければ 0（＝頭から描いている）
+      return spacer ? Math.round(spacer.getBoundingClientRect().height) : 0
+    })
+    assert(padTop != null, '開いた節の中身が見つからない')
+    assert(padTop === 0, `一覧の途中から描き始めている（上の空きが ${padTop}px）`)
     assert(gap >= -4 && gap < 60, `節の頭が上端に来ていない（上端から ${gap}px）`)
   })
 
