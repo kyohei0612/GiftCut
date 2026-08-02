@@ -940,7 +940,7 @@ export function useAppWiring() {
   // プレビューの上で映像を掴む（動かす・拡げる・回す）と画面を撮るのは state/usePreviewManip
   const {
     onVideoReframeStart, selectPreviewOverlay, resetVideoZoom, onVideoRotateStart,
-    captureScreenshot
+    captureScreenshot, zoomAnchor, toggleZoomAnchor, onZoomAnchorStart
   } = usePreviewManip({
     screenRef, videoRef, reframeTargetRef, segLayout, cueTrack, iconForCue, vcLen,
     videoTLen, v1Hidden, curBlank, curSegZoom, patchClipMotion,
@@ -1147,6 +1147,7 @@ export function useAppWiring() {
     curAdjustCss, curBlank, v1Hidden, videoTLen, activeCues, windowVClips,
     vcRefCb, vcXform, imgXform, vcLen, iconForCue, proxyPct, packPct,
     onVideoReframeStart, onVideoRotateStart, resetVideoZoom, resetCount,
+    zoomAnchor, toggleZoomAnchor, onZoomAnchorStart,
     resetSelectedTelops, telopResetCount,
     selectPreviewOverlay, reframeTarget, onTelopPointerDown, onTelopResizeStart,
     editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,

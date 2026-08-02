@@ -30,7 +30,8 @@ import {
   ReframeBox,
   ScreenEmpty,
   TelopBar,
-  TelopEditor
+  TelopEditor,
+  ZoomAnchor
 } from './PreviewOverlays'
 import { formatTimecode } from '../../../../shared/timeline'
 import { formatCombo } from '../../../../shared/shortcuts'
@@ -61,6 +62,7 @@ export function PreviewArea(): JSX.Element {
     xfDipOverlay, transOverlay, videoMainStyle, curAdjustCss, curBlank, v1Hidden,
     videoTLen, activeCues, windowVClips, vcRefCb, vcXform, imgXform, vcLen, iconForCue,
     proxyPct, packPct, onVideoReframeStart, onVideoRotateStart, resetVideoZoom,
+    zoomAnchor, toggleZoomAnchor, onZoomAnchorStart,
     resetSelectedTelops, telopResetCount,
     resetCount, selectPreviewOverlay, reframeTarget, onTelopPointerDown,
     onTelopResizeStart, editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
@@ -307,12 +309,17 @@ export function PreviewArea(): JSX.Element {
                 onRotateStart={onVideoRotateStart}
                 onReset={resetVideoZoom}
                 resetCount={resetCount()}
+                anchorOn={!!zoomAnchor}
+                onToggleAnchor={toggleZoomAnchor}
                 onDone={() => {
                   setVideoSelected(false)
                   clearSegSel()
                 }}
               />
             )}
+            {/* 拡大の中心（◎）。枠のバーの「◎ 拡大の中心」で出し入れする。
+                枠（z-index 6）より上に置く——下に潜ると掴めない */}
+            {zoomAnchor && <ZoomAnchor anchor={zoomAnchor} onDragStart={onZoomAnchorStart} />}
             {/* テロップを選んでいるときのバー。枠と四隅はテロップ側が持っているので、
                 ここは戻す口だけを出す（動画側のバーと形を揃えてある） */}
             {selectedIds.length > 0 && !videoSelected && (

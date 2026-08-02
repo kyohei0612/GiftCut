@@ -16,6 +16,7 @@ export default async function (C) {
     resetProject,
     section,
     seekTo,
+    touchedRef,
     v1Clips,
   } = C
   section('6-8. プレビュー操作・文字・重ねた動画')
@@ -202,6 +203,61 @@ export default async function (C) {
     assert(await editor.count(), 'その場で打ち直す欄が出ない')
     await page.keyboard.press('Escape')
     await page.waitForTimeout(300)
+  })
+
+  await check('拡大の中心を決めると、そこへ向かって寄る', async () => {
+    // **基準点は画面だけの道具で、絵に残るのは今までどおりの位置（x/y）だけ。**
+    // だから確かめるのは「基準点を置いて拡大したら、位置が計算どおりに入るか」。
+    // 式は shared/clipMotion の zoomOffsetForAnchor:  x = (0.5 - 基準点) * (拡大 - 1)
+    //
+    // 拡大は**モーションタブの数値欄**から変える。四隅を掴んだときだけ効く作りだと、
+    // 数値で拡大した人には「基準点が効かない」ままなので、そちらの道で見る。
+    await resetProject()
+    await v1Clips().nth(0).click()
+    await page.waitForTimeout(400)
+
+    const anchorBtn = page.locator('.reframe-btn').filter({ hasText: '拡大の中心' }).first()
+    assert(await anchorBtn.count(), 'プレビューに「拡大の中心」のボタンが出ていない')
+    assert((await page.locator('.zoom-anchor').count()) === 0, '押す前からマーカーが出ている')
+    await anchorBtn.click()
+    await page.waitForTimeout(300)
+    assert(await page.locator('.zoom-anchor').count(), '押してもマーカーが出ない')
+
+    // 画面の 25% / 75% の所へマーカーを持っていく
+    const scr = await page.locator('.screen').first().boundingBox()
+    const mark = await page.locator('.zoom-anchor').first().boundingBox()
+    const to = { x: scr.x + scr.width * 0.25, y: scr.y + scr.height * 0.75 }
+    await page.mouse.move(mark.x + mark.width / 2, mark.y + mark.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(to.x, to.y, { steps: 8 })
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+
+    // 拡大を 200% に（基準点を置いた道とは別の道から変える）
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    const row = () => page.locator('.mo-row').filter({ hasText: '拡大' }).first()
+    await row().locator('.mo-val').fill('200')
+    await row().locator('.mo-val').press('Enter')
+    await page.waitForTimeout(600)
+
+    const tr = await page.evaluate(
+      () => document.querySelector('.screen-video')?.style.transform ?? ''
+    )
+    const m = /translate\((-?[\d.]+)%,\s*(-?[\d.]+)%\)\s*scale\(([\d.]+)\)/.exec(tr)
+    assert(m, `プレビューの変換が読めない（「${tr}」）`)
+    const [x, y, s] = [Number(m[1]), Number(m[2]), Number(m[3])]
+    assert(Math.abs(s - 2) < 0.01, `拡大が 200% になっていない（${s}）`)
+    // 基準点(0.25, 0.75)・拡大2倍 → x = +25% / y = -25%
+    // **ここが 0 のままなら、基準点が効かず真ん中へ寄っている**（＝直す前の状態）
+    assert(Math.abs(x - 25) < 3, `横の寄り先が違う（${x}%。25% のはず）`)
+    assert(Math.abs(y + 25) < 3, `縦の寄り先が違う（${y}%。-25% のはず）`)
+
+    // もう一度押せばしまえる（出しっぱなしだと絵の確認の邪魔になる）
+    await anchorBtn.click()
+    await page.waitForTimeout(200)
+    assert((await page.locator('.zoom-anchor').count()) === 0, 'もう一度押してもしまえない')
+    touchedRef.dirty = true
+    await resetProject()
   })
 
   await check('重ねた動画に、拡大・不透明度・回転・色調整・切り抜きが全部ある', async () => {

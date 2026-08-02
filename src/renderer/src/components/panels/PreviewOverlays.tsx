@@ -1,6 +1,7 @@
 // プレビューの映像に重ねて出る物。
 //
 //   ReframeBox      … 拡大縮小・回転の枠（動画・画像・重ねた動画が相手）
+//   ZoomAnchor      … 拡大の中心（◎）。どこへ向かって寄るかを決める
 //   ScreenEmpty     … まだ何も無いときの案内
 //   ProgressBadges  … 裏で進んでいる仕事の進み具合
 //   TelopEditor     … テロップをその場で打ち替える欄
@@ -32,6 +33,8 @@ export function ReframeBox({
   onRotateStart,
   onReset,
   resetCount,
+  anchorOn,
+  onToggleAnchor,
   onDone
 }: {
   target: ReframeTargetInfo
@@ -40,6 +43,9 @@ export function ReframeBox({
   onReset: () => void
   /** リセットが何個に効くか。1個のつもりで押して他まで戻るのを防ぐ */
   resetCount: number
+  /** 拡大の中心（マーカー）を出しているか */
+  anchorOn: boolean
+  onToggleAnchor: () => void
   onDone: () => void
 }): JSX.Element {
   return (
@@ -71,6 +77,15 @@ export function ReframeBox({
         <span className="reframe-scale">{Math.round(target.zoom.scale * 100)}%</span>
         {/* 何個に効くかを出す。選択中の全部に効くので、
             1個のつもりで押して他まで戻る、が起きないように */}
+        {/* どこへ向かって寄るかを決める。押している間だけマーカーが出る
+            （出しっぱなしにすると、絵を見たいときに邪魔になる） */}
+        <button
+          className={`reframe-btn${anchorOn ? ' on' : ''}`}
+          onClick={onToggleAnchor}
+          title="拡大の中心を決めます。◎ を動かした先へ向かって寄ります"
+        >
+          ◎ 拡大の中心
+        </button>
         <button
           className="reframe-btn"
           onClick={onReset}
@@ -126,6 +141,33 @@ export function TelopBar({
       <button className="reframe-btn" onClick={onDone} title="選択を外す">
         ✓ 完了
       </button>
+    </div>
+  )
+}
+
+/**
+ * 拡大の中心（◎）。掴んで動かすと、そこへ向かって寄るようになる。
+ *
+ * **これは画面だけの道具。** 動かした結果はいまある位置（x/y）へ書き込まれるので、
+ * 書き出し側には何も増えない（理由は `shared/clipMotion` の
+ * `zoomOffsetForAnchor` の真上）。だから、この印そのものは保存されない。
+ */
+export function ZoomAnchor({
+  anchor,
+  onDragStart
+}: {
+  /** フレーム比（0..1）。0.5/0.5 が真ん中 */
+  anchor: { x: number; y: number }
+  onDragStart: (e: React.PointerEvent) => void
+}): JSX.Element {
+  return (
+    <div
+      className="zoom-anchor"
+      style={{ left: `${anchor.x * 100}%`, top: `${anchor.y * 100}%` }}
+      title="ここへ向かって寄ります（掴んで移動）"
+      onPointerDown={onDragStart}
+    >
+      ◎
     </div>
   )
 }

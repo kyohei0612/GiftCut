@@ -15,9 +15,18 @@
 // プレビューは編集用に焼き直した映像なので、撮った物も書き出しの画質とは違う。
 // 確認用と割り切って、見えている通りを保存する。
 
+import { useEffect, useState } from 'react'
 import { clamp } from '../../../shared/timeline'
 import { hasKeys, putKey, type Keys } from '../../../shared/keyframes'
-import { zoomAt, MIN_MOTION_SCALE, type ClipMotion } from '../../../shared/clipMotion'
+import {
+  zoomAt,
+  zoomOffsetForAnchor,
+  anchorOfZoom,
+  MIN_MOTION_SCALE,
+  type Anchor,
+  type ClipMotion,
+  type Zoom
+} from '../../../shared/clipMotion'
 import { DEFAULT_ZOOM } from '../lib/clipLook'
 import { telopStateAt } from '../lib/telopStyle'
 import { renderCueToPng } from '../lib/rasterize'
@@ -76,6 +85,29 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
   const { ratio } = useExportCtx()
   const { iconAuto, iconOffset, iconScale, iconSide } = useIconsCtx()
 
+  // 拡大の基準点（「どこへ向かって寄るか」）。**画面だけの持ち物**で、
+  // プロジェクトには保存しない。動かした結果は今までどおりの x/y へ書き込むので、
+  // 書き出し側には新しい式が1つも増えない（`shared/clipMotion` の
+  // `zoomOffsetForAnchor` の真上に、なぜそうするかを書いてある）。
+  // null＝出していない。**誰に付いている基準点かも一緒に持つ**（別のクリップを
+  // 選んだときに、その子の位置を勝手に書き換えないため）。
+  const [zoomAnchor, setZoomAnchor] = useState<(Anchor & { kind: string; id: number }) | null>(null)
+
+  /** 印を読む・打つときの時刻（クリップの先頭からの秒） */
+  const clipTimeOf = (t: ReframeTarget): number =>
+    clamp(currentTimeRef.current - t.tStart, 0, Math.max(0, t.len))
+
+  /** 固定値の zoom を書き込む（種類ごとに置き場が違うだけ） */
+  const setFixedZoom = (t: ReframeTarget, z: Zoom): void =>
+    t.kind === 'video'
+      ? setSegZoom(t.id, z)
+      : t.kind === 'vclip'
+        ? setVClipZoom(t.id, z)
+        : setImgZoom(t.id, z)
+
+  const lockedFor = (t: ReframeTarget): boolean =>
+    !!(t.kind === 'video' ? trackStates['V1']?.locked : trackStates[t.track]?.locked)
+
   // リフレーム操作: corner=null で本体ドラッグ=パン、cornerあり=四隅ドラッグで拡大縮小（中心基準）。
   // 対象は「画像を選択中なら画像、それ以外は再生ヘッド位置の動画切片」（reframeTarget）。
   //
@@ -90,7 +122,7 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
     if (e.button !== 0) return
     const tgt = override ?? reframeTargetRef.current
     if (!tgt) return
-    if (tgt.kind === 'video' ? trackStates['V1']?.locked : trackStates[tgt.track]?.locked) return
+    if (lockedFor(tgt)) return
     e.stopPropagation()
     e.preventDefault()
     const rect = screenRef.current?.getBoundingClientRect()
@@ -101,15 +133,10 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
     // 固定値の方を触ると、打った印はそのままなので「掴んだのに動かない」ことになる。
     // 掴み始めの値も、いま画面に出ている値（＝印を反映した値）から取る。
     const m = tgt.motion
-    const clipT = clamp(currentTimeRef.current - tgt.tStart, 0, Math.max(0, tgt.len))
+    const clipT = clipTimeOf(tgt)
     const start = zoomAt(tgt.zoom, m, clipT)
-    const setFixed = (z: { scale: number; x: number; y: number }): void =>
-      tgt.kind === 'video'
-        ? setSegZoom(tgt.id, z)
-        : tgt.kind === 'vclip'
-          ? setVClipZoom(tgt.id, z)
-          : setImgZoom(tgt.id, z)
-    const apply = (z: { scale: number; x: number; y: number }): void => {
+    const setFixed = (z: Zoom): void => setFixedZoom(tgt, z)
+    const apply = (z: Zoom): void => {
       const fixed = { ...z }
       if (hasKeys(m?.sc)) {
         const v = Math.max(MIN_MOTION_SCALE, z.scale)
@@ -210,10 +237,16 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
       }
     }
 
+    // 掴んだ瞬間の基準点で通す（掴んでいる途中に出し入れされても、
+    // 同じドラッグの中で寄り先が変わらない）
+    const anchor = zoomAnchor
     const onMove = (ev: PointerEvent): void => {
       if (corner != null) {
         const dist = Math.hypot(ev.clientX - cx, ev.clientY - cy)
-        apply({ ...start, scale: clamp(start.scale * (dist / startDist), 0.2, 8) })
+        const ns = clamp(start.scale * (dist / startDist), 0.2, 8)
+        // **基準点を出しているなら、そこへ向かって寄る。**
+        // 拡大は中心基準なので、位置を一緒にずらして「その点が動かない」状態を作る。
+        apply(anchor ? { scale: ns, ...zoomOffsetForAnchor(anchor, ns) } : { ...start, scale: ns })
       } else {
         // **枠の外まで自由に持っていける**（プレミアと同じ）。
         // 以前はフレーム1つぶん（±1）で頭打ちにしていたため、画面の外へ
@@ -224,15 +257,25 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
         // 避けるためだけ（フレーム10個ぶんあれば、送り出す演出には十分足りる）。
         const dx = (ev.clientX - sx) / rect.width
         const dy = (ev.clientY - sy) / rect.height
-        apply({
+        const nz = {
           ...start,
           x: clamp(start.x + dx, -10, 10),
           y: clamp(start.y + dy, -10, 10)
-        })
+        }
+        apply(nz)
+        // 掴んで動かすと基準点も動く（絵をずらせば、止まっている点は別の場所になる）。
+        // ここで付いていかせないと、下の見張りが「基準点と合っていない」と見て
+        // **動かした先から引き戻す**＝パンできなくなる
+        if (anchor) setZoomAnchor({ ...anchorOfZoom(nz), kind: tgt.kind, id: tgt.id })
         if (others.length) moveOthers(dx, dy)
       }
     }
     const onUp = (): void => {
+      // 拡大に印があるなら、掴み終わってから基準点を**すべての印へ引き直す**。
+      // ドラッグ中に打てるのはその時刻の1点だけなので、そのままでは
+      // 寄っていく途中で基準点がずれる。
+      if (corner != null && anchor && hasKeys(reframeTargetRef.current?.motion?.sc))
+        applyZoomAnchor(anchor)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
@@ -278,6 +321,119 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
     onVideoReframeStart(e, null, tgt)
   }
   /**
+   * 「拡大の中心」を出す／しまう。
+   *
+   * 出すときは**いまの絵から基準点を取り直す**（`anchorOfZoom`）ので、
+   * 保存も持ち物も増えない。等倍のときはどこを基準にしていたか絵に残らないため
+   * 真ん中から始まる。
+   */
+  function toggleZoomAnchor(): void {
+    const tgt = reframeTargetRef.current
+    if (!tgt) return
+    setZoomAnchor((a) => (a ? null : anchorFor(tgt)))
+  }
+
+  /** その相手の、いまの絵が示している基準点 */
+  const anchorFor = (t: ReframeTarget): Anchor & { kind: string; id: number } => ({
+    ...anchorOfZoom(zoomAt(t.zoom, t.motion, clipTimeOf(t))),
+    kind: t.kind,
+    id: t.id
+  })
+
+  /**
+   * **基準点を出している間は、拡大がどこで変わっても、その点へ向くように引き直す。**
+   *
+   * 四隅を掴む以外にも拡大が変わる道はいくつもある（モーションタブの数値欄・
+   * 属性の貼り付け・見本帳）。そこを通ったときだけ中心へ寄ってしまうと、
+   * せっかく決めた基準点が「掴んだときだけ効く飾り」になる。
+   *
+   * 輪にならない理由: 引き直した先は**この式の不動点**なので、当たった次の回は
+   * 「もう合っている」で何もしない。合わせに行くのは相手が動いたときだけ。
+   *
+   * ※ 元に戻す（Ctrl+Z）は、拡大の変更と位置の引き直しで**2回ぶん**積まれる。
+   *   1回にまとめるには拡大を変える側を全部通す形にする必要があり、そちらの方が
+   *   道が増える（＝壊れる所が増える）ので、ここでは受け入れている。
+   */
+  useEffect(() => {
+    if (!zoomAnchor) return
+    const tgt = reframeTargetRef.current
+    if (!tgt || lockedFor(tgt)) return
+    // 別の物を選んだら、その子の絵から取り直す（前の子の基準点で書き換えない）
+    if (tgt.kind !== zoomAnchor.kind || tgt.id !== zoomAnchor.id) {
+      setZoomAnchor(anchorFor(tgt))
+      return
+    }
+    const z = zoomAt(tgt.zoom, tgt.motion, clipTimeOf(tgt))
+    // **等倍のときは何もしない。** 等倍では基準点がどこであれ位置は 0 なので、
+    // 合わせに行くと「等倍のまま横へずらす」ができなくなる（0 へ引き戻される）。
+    // マーカーは「次に寄せたい先」として置いたまま
+    if (Math.abs(z.scale - 1) < 1e-6) return
+    const want = zoomOffsetForAnchor(zoomAnchor, z.scale)
+    if (Math.abs(z.x - want.x) < 1e-6 && Math.abs(z.y - want.y) < 1e-6) return
+    applyZoomAnchor(zoomAnchor)
+  })
+
+  /**
+   * 基準点を、いまある位置（x/y）へ書き込む。**掴んだ物1つだけに効く。**
+   *
+   * まとめて効かせないのは拡大と同じ理由——基準点はそれぞれの絵の中の場所なので、
+   * 揃えたつもりでばらばらに飛ぶ。
+   */
+  function applyZoomAnchor(a: Anchor): void {
+    const tgt = reframeTargetRef.current
+    if (!tgt || lockedFor(tgt)) return
+    const m = tgt.motion
+    if (hasKeys(m?.sc)) {
+      // **拡大に印があるときは、位置も「同じ時刻」に打つ。**
+      // その場の1点だけ打つと、寄っていく途中で基準点がずれていく。
+      // x は s の一次式（`zoomOffsetForAnchor`）なので、同じ時刻・同じつなぎ方で
+      // 打てば間もぴたりと合う。
+      // ※ ベジェの接線（速度・影響）までは写していない。手で打つぶんは e しか
+      //   使わないので今は足りる。向こうから写し取った動きをクリップに載せる日が
+      //   来たら、ここも接線ごと写す必要がある。
+      for (const k of m!.sc!) {
+        const off = zoomOffsetForAnchor(a, Math.max(MIN_MOTION_SCALE, k.v))
+        patchClipMotion(tgt.kind, tgt.id, 'x', (ks: Keys | undefined) => putKey(ks, k.t, off.x, k.e))
+        patchClipMotion(tgt.kind, tgt.id, 'y', (ks: Keys | undefined) => putKey(ks, k.t, off.y, k.e))
+      }
+      return
+    }
+    const base = tgt.zoom ?? DEFAULT_ZOOM
+    setFixedZoom(tgt, { ...base, ...zoomOffsetForAnchor(a, base.scale) })
+  }
+
+  /** 基準点のマーカーを掴んで動かす */
+  function onZoomAnchorStart(e: React.PointerEvent): void {
+    if (e.button !== 0) return
+    const tgt = reframeTargetRef.current
+    if (!tgt) return
+    e.stopPropagation()
+    e.preventDefault()
+    const rect = screenRef.current?.getBoundingClientRect()
+    if (!rect) return
+    // 枠の中だけ。外へ出せる作りにもできるが、「どこへ向かって寄るか」は
+    // 映っている場所を指す道具なので、外に置けても指す先が無い
+    const at = (ev: { clientX: number; clientY: number }): Anchor => ({
+      x: clamp((ev.clientX - rect.left) / rect.width, 0, 1),
+      y: clamp((ev.clientY - rect.top) / rect.height, 0, 1)
+    })
+    const onMove = (ev: PointerEvent): void => {
+      const a = at(ev)
+      setZoomAnchor({ ...a, kind: tgt.kind, id: tgt.id })
+      applyZoomAnchor(a)
+    }
+    const onUp = (ev: PointerEvent): void => {
+      onMove(ev)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }
+
+  /**
    * リフレームのリセット。
    *
    * **選んでいる物すべてに効く。** 大きさや位置を変えるときは選択中の全部に
@@ -290,6 +446,9 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
   function resetVideoZoom(): void {
     const tgt = reframeTargetRef.current
     if (!tgt) return
+    // 基準点のマーカーは**そのまま残す**。等倍に戻った時点で絵の側に基準点は
+    // 残らないが、マーカーは「次はここへ寄せたい」という指定なので、
+    // 戻すたびに真ん中へ帰られると置き直す羽目になる
     // 選んでいなければ、いま触っている1つだけが対象
     const vids = selectedVideoIds.length
       ? selectedVideoIds
@@ -325,7 +484,7 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
     if (e.button !== 0) return
     const tgt = reframeTargetRef.current
     if (!tgt) return
-    if (tgt.kind === 'video' ? trackStates['V1']?.locked : trackStates[tgt.track]?.locked) return
+    if (lockedFor(tgt)) return
     e.stopPropagation()
     e.preventDefault()
     const rect = screenRef.current?.getBoundingClientRect()
@@ -424,5 +583,8 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
     else if (r?.error && r.error !== 'キャンセル') showToast('保存失敗: ' + r.error, 'error')
   }
 
-  return { onVideoReframeStart, selectPreviewOverlay, resetVideoZoom, onVideoRotateStart, captureScreenshot }
+  return {
+    onVideoReframeStart, selectPreviewOverlay, resetVideoZoom, onVideoRotateStart,
+    captureScreenshot, zoomAnchor, toggleZoomAnchor, onZoomAnchorStart
+  }
 }

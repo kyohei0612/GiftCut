@@ -1746,6 +1746,38 @@ body {
 .reframe-btn:hover {
   background: #30353a;
 }
+/* 出しているときだけ点ける。マーカーが画面の端に居ると出ているかどうかが
+   分からないので、ボタン側にも状態を出す */
+.reframe-btn.on {
+  background: #2b6cb0;
+  border-color: #4a90d9;
+  color: #fff;
+}
+/* 拡大の中心（◎）。**枠（.reframe-box は z-index 6）より上に置く。**
+   指定が無いと重なり順で下に潜り、掴めないマーカーになる
+   （テロップのバーで実際にやらかしたのと同じ穴）。 */
+.zoom-anchor {
+  position: absolute;
+  z-index: 8;
+  transform: translate(-50%, -50%);
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  color: #ffd34d;
+  text-shadow:
+    0 0 3px #000,
+    0 0 6px #000;
+  cursor: move;
+  pointer-events: auto;
+  user-select: none;
+}
+.zoom-anchor:hover {
+  color: #fff;
+}
 
 /* 左パネル: 編集フィールド */
 .field-label {

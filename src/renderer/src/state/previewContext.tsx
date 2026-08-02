@@ -97,6 +97,10 @@ export interface PreviewCtxValue {
   onVideoReframeStart: any
   onVideoRotateStart: any
   resetVideoZoom: any
+  /** 拡大の中心（マーカーを出していなければ null）。**画面だけの持ち物** */
+  zoomAnchor: { x: number; y: number } | null
+  toggleZoomAnchor: () => void
+  onZoomAnchorStart: (e: React.PointerEvent) => void
   /** テロップの位置・大きさ・動きを戻す（プレビューのバーから） */
   resetSelectedTelops: () => void
   telopResetCount: () => number

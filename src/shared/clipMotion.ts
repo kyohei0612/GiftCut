@@ -228,6 +228,58 @@ function padMarginFor(zoom: Zoom | undefined, m: ClipMotion | undefined): number
   return need > 0 ? Math.min(1.5, need + 0.01) : 0
 }
 
+/** 拡大の基準点（フレーム比。0..1。0.5/0.5 が真ん中） */
+export interface Anchor {
+  x: number
+  y: number
+}
+
+export const CENTER_ANCHOR: Anchor = { x: 0.5, y: 0.5 }
+
+/**
+ * 「この点へ向かって寄る」を、**いまある位置（x/y）だけ**で表す。
+ *
+ * ## なぜ基準点を持ち物として増やさないのか
+ *
+ * 基準点を新しい持ち物にして、画面と書き出しの両方でそれを見る形にすると、
+ * 画面は CSS の `transform-origin`、書き出しは `zoompan` の式——**同じことを
+ * 2つの別々の式で書く**ことになる。この部門で一番たちの悪いズレ
+ * （画面では正しく見えるのに書き出すと違う）にまっすぐ入る。
+ *
+ * そこで基準点は**画面だけの道具**にして、動かした結果をここで x/y に直す。
+ * 書き出し側は今までどおり x/y を見るだけ＝**新しい式が1つも増えない。**
+ *
+ * ## 式
+ *
+ * 画面は「中心を原点に scale してから translate」（`zoomPanChain` の頭にある
+ * 対応と同じ）。フレーム比 a の点は
+ *
+ *     a' = (a - 0.5) * s + 0.5 + x
+ *
+ * へ移る。その点が動かない（a' = a）ための x が答え:
+ *
+ *     x = (a - 0.5)(1 - s) = (0.5 - a)(s - 1)
+ *
+ * 等倍（s=1）では常に 0。**等倍では、どこを基準にしても絵は動かない。**
+ */
+export function zoomOffsetForAnchor(a: Anchor, scale: number): { x: number; y: number } {
+  const k = scale - 1
+  return { x: (0.5 - a.x) * k, y: (0.5 - a.y) * k }
+}
+
+/**
+ * いまの zoom から基準点を逆に取る（マーカーを出すときの初期位置）。
+ *
+ * 等倍のときは真ん中を返す。上の式のとおり s=1 では x が常に 0 で、
+ * **どこを基準にしていたかは絵に残っていない**（割り算の分母が 0）。
+ */
+export function anchorOfZoom(z: Zoom | undefined): Anchor {
+  const base = z ?? NEUTRAL_ZOOM
+  const k = base.scale - 1
+  if (Math.abs(k) < 1e-6) return CENTER_ANCHOR
+  return { x: 0.5 - base.x / k, y: 0.5 - base.y / k }
+}
+
 /** 保存ファイルから読み直すときの検査（壊れていたら「動き無し」に落とす。落ちない） */
 export function sanitizeClipMotion(v: unknown): ClipMotion | undefined {
   if (!v || typeof v !== 'object') return undefined

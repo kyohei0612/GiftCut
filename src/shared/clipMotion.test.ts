@@ -6,6 +6,9 @@ import {
   hasClipMotion,
   sanitizeClipMotion,
   clipMotionKeyTimes,
+  zoomOffsetForAnchor,
+  anchorOfZoom,
+  CENTER_ANCHOR,
   NEUTRAL_ZOOM,
   type ClipMotion,
   type Zoom
@@ -439,5 +442,53 @@ describe('拡大＋移動の焼き方', () => {
       frames: 1
     })
     expect(f.startsWith('zoompan=')).toBe(true)
+  })
+
+  // 拡大の基準点。**画面だけの道具**なので、書き出し側には x/y しか渡らない。
+  // だから確かめるべきは「x/y に直したあと、書き出しの列で本当にその点が
+  // 止まっているか」であって、式そのものではない。
+  // 上の srcAt（組み立てた列を読み直す）をそのまま使って見る。
+  it('基準点は、寄っても同じ画素に居座る（書き出しの列で確かめる）', () => {
+    for (const a of [
+      { x: 0.5, y: 0.5 }, // 真ん中（今までと同じ＝x/y は動かない）
+      { x: 0.25, y: 0.75 },
+      { x: 0, y: 0 }, // 左上の角
+      { x: 1, y: 1 } // 右下の角
+    ]) {
+      for (const s of [1.2, 2, 4]) {
+        const off = zoomOffsetForAnchor(a, s)
+        const chain = zoomPanChain(W, H, { scale: s, ...off }, 'black@0')
+        // 基準点の画素は、寄る前も後も同じ元画像の点を指す
+        const u = Math.min(W - 1, Math.round(a.x * W))
+        const v = Math.min(H - 1, Math.round(a.y * H))
+        const got = srcAt(chain, u, v)
+        const label = `基準点=${JSON.stringify(a)} 拡大=${s}`
+        expect(got).not.toBeNull()
+        expect({ label, x: Math.abs(got!.x - u) < 1.5 }).toEqual({ label, x: true })
+        expect({ label, y: Math.abs(got!.y - v) < 1.5 }).toEqual({ label, y: true })
+      }
+    }
+  })
+
+  it('真ん中を基準にすると、今までと1ミリも変わらない', () => {
+    expect(zoomOffsetForAnchor(CENTER_ANCHOR, 3)).toEqual({ x: 0, y: 0 })
+  })
+
+  it('等倍では、どこを基準にしても絵は動かない', () => {
+    const off = zoomOffsetForAnchor({ x: 0, y: 1 }, 1)
+    expect(off.x).toBeCloseTo(0, 12)
+    expect(off.y).toBeCloseTo(0, 12)
+    // 逆に取るときも、等倍からは基準点を復元できない（真ん中を返す）
+    expect(anchorOfZoom({ scale: 1, x: 0, y: 0 })).toEqual(CENTER_ANCHOR)
+  })
+
+  it('いまの zoom から基準点を取り出せる（マーカーを出すときの初期位置）', () => {
+    for (const a of [{ x: 0.25, y: 0.75 }, { x: 0, y: 0 }, { x: 1, y: 0.5 }]) {
+      for (const s of [1.2, 2, 4]) {
+        const got = anchorOfZoom({ scale: s, ...zoomOffsetForAnchor(a, s) })
+        expect(got.x).toBeCloseTo(a.x, 6)
+        expect(got.y).toBeCloseTo(a.y, 6)
+      }
+    }
   })
 })
