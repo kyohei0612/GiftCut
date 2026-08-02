@@ -19,7 +19,7 @@
 // 左右対称をやめれば入るが、それは再生ボタンの中央維持を捨てることになる。
 
 import { gainToDb } from '../../lib/appConst'
-import type { JSX } from 'react'
+import { useState, type JSX } from 'react'
 import { formatTime } from '../../lib/srt'
 
 /**
@@ -165,31 +165,82 @@ export function PreviewScrub({
 }
 
 /**
- * 操作バーの右側に出る「いまどう見えているか」。画質・素材のfps・再生速度・尺。
+ * 全体の音量。**ミキサーを開かなくても触れる所に置く。**
  *
- * **書き出しの設定と取り違えやすい。** 書き出し設定にも同じ見た目の解像度選択が
- * あり、実際に取り違えが起きた。「👁 プレビュー」の札と、選択肢そのものにも
- * 「プレビュー」を書いて、見るときの話だと分かるようにしてある。
+ * これまで音量はミキサーのタブの中にしか無く、聞こえ方を変えるだけのために
+ * モニタを切り替える（＝映像が見えなくなる）必要があった。
+ * よく触る物なので、常に見えている見出し行へ出す。
+ *
+ * **Windows 側の音量とは掛け算になる。** ここは「アプリの中でどれだけ絞るか」で、
+ * 既定は 1.0＝絞らない＝Windows で聞こえる大きさそのまま。
+ * ミキサーの「マスター」と同じ値を触っているので、片方を動かすと両方動く。
  */
+function MasterVolume({
+  value,
+  onChange
+}: {
+  value: number
+  onChange: (v: number) => void
+}): JSX.Element {
+  // 消す前の大きさを覚えておく（🔊 を押して戻したときに元の音量に戻す）
+  const [last, setLast] = useState(value > 0 ? value : 1)
+  const muted = value <= 0
+  return (
+    <span className="tc-vol" title={`全体の音量 ${gainToDb(value)} dB（Windows の音量とは別に、アプリの中で絞る量）`}>
+      <button
+        className="pq-tag"
+        onClick={() => {
+          if (muted) onChange(last)
+          else {
+            setLast(value)
+            onChange(0)
+          }
+        }}
+        title={muted ? '音を戻す' : '音を消す'}
+      >
+        {muted ? '🔇' : '🔊'}
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={value}
+        onChange={(e) => {
+          const v = Number(e.target.value)
+          if (v > 0) setLast(v)
+          onChange(v)
+        }}
+      />
+    </span>
+  )
+}
+
 export function TransportInfo({
   previewRes,
   onPreviewRes,
   hasVideo,
   fps,
   playRate,
-  duration
+  duration,
+  master,
+  onMaster
 }: {
   previewRes: PreviewRes
   onPreviewRes: (v: PreviewRes) => void
   /** 素材が入っているか。無いときは fps を出さない（出すと嘘になる） */
   hasVideo: boolean
   fps: number
+  /** 全体の音量（ミキサーのマスターと同じ値） */
+  master: number
+  onMaster: (v: number) => void
   /** 早送り・巻き戻しの倍率。0 と ±1 のときは出さない（等速は言わなくても分かる） */
   playRate: number
   duration: number
 }): JSX.Element {
   return (
     <>
+      <MasterVolume value={master} onChange={onMaster} />
       <span className="pq-tag" title="再生して見るときの画質（書き出しには影響しません）">
         👁 プレビュー
       </span>

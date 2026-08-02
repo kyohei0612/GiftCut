@@ -152,7 +152,12 @@ export function defaultTelopStyle(): TelopStyle {
     italic: false,
     align: 'center',
     anchor: { h: 'c', v: 'm' },
-    tracking: 0,
+    // **既定を詰める。** 和文フォントは1文字ぶんの枠が広く、そのまま並べると
+    // 切り抜きのテロップとしては間延びして見える（「字間が全体的に広すぎる」）。
+    // 単位は 1/1000em（プレミア準拠）なので、-40 は字の大きさの 4%ぶん詰める。
+    // 0 に戻したいときは字間の欄で打てる。**保存済みのテロップは変わらない**
+    // （それぞれ自分の字間を持っている）ので、変わるのはこれから作る分だけ。
+    tracking: -40,
     leading: 0,
     fill: { enabled: true, color: '#ffffff' },
     strokes: [{ enabled: true, color: '#000000', width: 5, position: 'outside' }],

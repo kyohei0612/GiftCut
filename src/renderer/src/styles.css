@@ -1547,6 +1547,19 @@ body {
   border-radius: 3px;
   padding: 0 5px;
 }
+/* 全体の音量。**見出し行はもともと狭い**ので、つまみは短く（72px）。
+   細かく合わせたいときはミキサーの縦フェーダーがある（同じ値を触っている）。 */
+.tc-vol {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tc-vol input[type='range'] {
+  width: 72px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 /* 操作は中央に置く。左右に伸びる余白で挟んで、幅が変わっても中心が動かない。 */
 .transport-btns {
   display: flex;

@@ -165,7 +165,7 @@ export function useAppWiring() {
   } = useMediaCtx()
   // 書き出しの設定と進み具合（設定はプロジェクトの一部、進み具合は画面の一部）
   const {
-    ratio, setRatio, setMasterVolume,
+    ratio, setRatio, masterVolume, setMasterVolume,
     exportOpts, showExportDialog, setShowExportDialog,
     exportStatus, setExportStatus, exportPct, setExportPct
   } = useExportCtx()
@@ -761,6 +761,19 @@ export function useAppWiring() {
   // 品書きは、外を押す・Escape で閉じる（閉じ方は state/useDismissOnOutside に1つ）
   useDismissOnOutside(!!clipMenu, () => setClipMenu(null))
   useDismissOnOutside(!!menu, () => setMenu(null))
+  // **テロップの打ち直しも、外を押したら完了。**
+  // 以前はプレビューの余白を押したときしか閉じず、タイムライン・右パネル・
+  // 再生では開いたままだった（＝Enter を押すまで終われない）。
+  // クリップは pointerdown を自分で止めるので、**capture で拾って
+  // 「打ち直しの中かどうか」を自分で見る**（決まりは useDismissOnOutside）。
+  useDismissOnOutside(sel.editingId != null, () => sel.setEditingId(null), {
+    inside: '.telop-editor'
+  })
+  // 再生を始めたときも完了にする（押した先が無いので上の見張りには掛からない）
+  useEffect(() => {
+    if (playing && sel.editingId != null) sel.setEditingId(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, sel.editingId])
 
   // 素材を読み込んだ直後に一度だけ全体表示にする。
   // 既定の拡大率のままだと、15秒の素材に対して目盛りが50秒まで伸びていて、
@@ -844,6 +857,8 @@ export function useAppWiring() {
       fps={fps}
       playRate={playRateUI}
       duration={duration}
+      master={masterVolume}
+      onMaster={(v) => setMasterVolume(Math.min(1, Math.max(0, v)))}
     />
   )
   // テロップの足し引きと出入りの演出は state/useTelopEdit
