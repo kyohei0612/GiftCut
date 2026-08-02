@@ -30,6 +30,7 @@ import type { ImgClip, SEClip, VClip } from '../lib/projectTypes'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
+import { avoidBusyLane } from '../../../shared/lanes'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { useMediaCtx } from './mediaContext'
@@ -38,7 +39,8 @@ import { useViewCtx } from './viewContext'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseMediaDropDeps {
-  /** 掴んでいる絵を消すための透明画像（既定の巨大なゴーストを出さない） */  /** 効果音を置くとき、足りなければ増やす音声段の名前 */
+  /** 掴んでいる絵を消すための透明画像（既定の巨大なゴーストを出さない） */
+  /** 効果音を置くとき、足りなければ増やす音声段の名前 */
   EXTRA_AUDIO_TRACK: string
   dragSeDurRef: any
   /** いま掴んでいる素材 */
@@ -46,6 +48,9 @@ export interface UseMediaDropDeps {
   /** 縦位置から段を割り出す */
   dropLaneAt: any
   fallbackTrack: any
+  /** テロップが載っている段（既定の扱いを1か所にするため受け取る） */
+  /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+  cueTrack: (c: any) => string
   /** 段を正しい並びで足す */
   insertTrackOrdered: any
   /** その素材が、いまタイムラインで使われているか */
@@ -85,13 +90,13 @@ export interface UseMediaDropDeps {
 export function useMediaDrop(deps: UseMediaDropDeps) {
   const {
     EXTRA_AUDIO_TRACK, dragSeDurRef, draggingMediaRef, dropLaneAt,
-    fallbackTrack, insertTrackOrdered, mediaInUse, mediaMetaRef, mediaQueue,
+    fallbackTrack, cueTrack, insertTrackOrdered, mediaInUse, mediaMetaRef, mediaQueue,
     metaInFlightRef, pairedAudioOf, placeVideoAtDrop, reserveTrackPairForVideo,
     scrollRef, trackInnerRef, snapClipStart, staleSourceIds, trackFromEvent, trackNum,
     vcLen, setMediaMeta, setImgGhost, setSeGhost, setVideoGhost, setSnapLineX
   } = deps
   const {
-    seClips, setSeClips, seClipsRef, seIdCounter, imgClipsRef, imgIdCounter,
+    cuesRef, seClips, setSeClips, seClipsRef, seIdCounter, imgClipsRef, imgIdCounter,
     setImgClips, segsRef, vClips, setVClips, vClipsRef, vClipIdCounter
   } = useDoc()
   const {
@@ -249,10 +254,39 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
       setSeGhost(null)
       setImgGhost(null)
     } else {
-      setImgGhost({ t, name: m.name, dur, track: fallbackTrack(dropLaneAt(yRel, 'video', true) ?? 'V3', 'video') })
+      setImgGhost({ t, name: m.name, dur, track: imgLaneAt(yRel, t) })
       setSeGhost(null)
       setVideoGhost(null)
     }
+  }
+
+  /**
+   * 画像を置く段。**影と実際の置き先で必ず同じ判定を通す**（別々にすると影が嘘をつく）。
+   *
+   * 狙った段がその時刻に埋まっていれば1段ずつ上へ避ける（判定は shared/lanes の
+   * avoidBusyLane）。見るのはその段に乗り得る物すべて——テロップ・画像・重ねた映像。
+   */
+  function imgLaneAt(yRel: number, t: number): string {
+    const picked = fallbackTrack(dropLaneAt(yRel, 'video', true) ?? 'V3', 'video')
+    const order = tracks.filter((tr) => tr.kind === 'video' && tr.id !== 'V1').map((tr) => tr.id)
+    const busy = [
+      ...cuesRef.current.map((c) => ({
+        track: cueTrack(c),
+        tStart: c.start,
+        duration: c.end - c.start
+      })),
+      ...imgClipsRef.current.map((c) => ({
+        track: c.track,
+        tStart: c.tStart,
+        duration: c.duration
+      })),
+      ...vClipsRef.current.map((c) => ({
+        track: c.track,
+        tStart: c.tStart,
+        duration: Math.max(0.05, c.srcEnd - c.srcStart)
+      }))
+    ]
+    return avoidBusyLane(order, busy, t, picked)
   }
   /** ドラッグが終わったら影を全部消す */
   function clearDropGhosts(): void {
@@ -283,7 +317,7 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
     } else if (m.kind === 'audio') {
       void placeSE(m, t, dropLaneAt(yRel, 'audio', true) ?? 'A2')
     } else {
-      placeImage(m, t, fallbackTrack(dropLaneAt(yRel, 'video', true) ?? 'V3', 'video'))
+      placeImage(m, t, imgLaneAt(yRel, t))
     }
   }
   /**
@@ -469,6 +503,7 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
   return {
     prepareMediaMeta, beginMediaDrag, placeImage, deleteSelectedImg, vcXform, imgXform,
     updateDropGhost, clearDropGhosts, dropMediaNearest, videoDropLane, placeVClip,
-    deleteSelectedVClip, vcFadeGain, placeSE, trackForNewBgm, addBgm, seFadeGain, removeMedia
+    deleteSelectedVClip, vcFadeGain, placeSE, trackForNewBgm, addBgm, seFadeGain, removeMedia,
+    imgLaneAt
   }
 }

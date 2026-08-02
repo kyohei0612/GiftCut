@@ -64,13 +64,13 @@ export function TimelineArea(): JSX.Element {
     onClipPointerDown, onClipContextMenu, onTrimStart, onSegPointerDown, onSegTrimStart,
     onSePointerDown, onImgPointerDown, onVClipPointerDown, onMarkerPointerDown,
     onTrackAreaPointerDown, startScrub, startGroupResize, startTransResize, openClipMenu,
-    updateDropGhost, clearDropGhosts, dropLaneAt, videoDropLane, placeSE, placeImage,
+    updateDropGhost, clearDropGhosts, dropLaneAt, videoDropLane, placeSE, placeImage, imgLaneAt,
     placeVClip, placeVideoAtDrop, snapClipStart, draggingMediaRef, draggingTransRef,
     draggingTelopAnimRef, dragSeDurRef, resolveTransDrop, applyTransDrop, selectTransition,
     setVideoTransDur, resolveTelopTransDrop, applyTelopTransDrop, selectTelopTrans,
     patchCueAnim, undo, redo, undoStackRef, redoStackRef, isDirty, cutAtPlayhead,
     findSilences, setSilenceOpen, toggleSnap, selectTrack, toggleTrack, addVideoTrack,
-    addAudioTrack, addBgm, resetLaneH, setTracks, askText, fallbackTrack, stopPlayback, seekTo
+    addAudioTrack, addBgm, resetLaneH, setTracks, askText, stopPlayback, seekTo
   } = useTimelineOps()
   const {
     cueTrack, vcLen, mediaMeta, srcOfSeg, pairedAudioOf, trackNum, motionLabel,
@@ -258,7 +258,7 @@ export function TimelineArea(): JSX.Element {
             } else if (m.kind === 'audio') {
               void placeSE(m, t, dropLaneAt(yRel, 'audio', true) ?? 'A2')
             } else if (m.kind === 'image') {
-              placeImage(m, t, fallbackTrack(dropLaneAt(yRel, 'video', true) ?? 'V3', 'video'))
+              placeImage(m, t, imgLaneAt(yRel, t))
             }
           }}
         >

@@ -132,3 +132,31 @@ export function audioLaneFor(
   const lanes = tracks.filter((tr) => tr.kind === 'audio' && tr.id !== 'A1').map((tr) => tr.id)
   return pickAudioLane(lanes, busy, t, lanes[0] ?? 'A2', prefer)
 }
+
+/**
+ * 狙った段が**その時刻に埋まっていたら、1段ずつ上へ避ける**。
+ *
+ * 落とす先の影が、既にテロップや画像が乗っている段に出ていた。
+ * そのまま離すと上書きになるので、影の時点で空いている段を指しておく
+ *（本人から「そこにテロップ等が入っていたら1段ずらす」と出ていた）。
+ *
+ * **影と実際の置き先は必ず同じ判定を通すこと。** 別々にすると影が嘘をつく。
+ *
+ * 上まで詰まっていたら狙った段のまま返す（置かないより、上書きでも置く方が
+ * 分かりやすい。段を足すかどうかは人が決める）。
+ *
+ * @param order 段の並び。**上から順**
+ */
+export function avoidBusyLane(
+  order: readonly string[],
+  busy: readonly LaneBusy[],
+  t: number,
+  picked: string
+): string {
+  const at = order.indexOf(picked)
+  if (at < 0) return picked
+  const free = (id: string): boolean =>
+    !busy.some((c) => c.track === id && t >= c.tStart && t < c.tStart + c.duration)
+  for (let i = at; i >= 0; i--) if (free(order[i])) return order[i]
+  return picked
+}

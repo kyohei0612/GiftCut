@@ -55,6 +55,8 @@ export interface TimelineOps {
   dropLaneAt: any
   videoDropLane: any
   placeSE: any
+  /** 画像を置く段（影と置き先で同じ判定を通す。shared/lanes の avoidBusyLane） */
+  imgLaneAt: (yRel: number, t: number) => string
   placeImage: any
   placeVClip: any
   placeVideoAtDrop: any

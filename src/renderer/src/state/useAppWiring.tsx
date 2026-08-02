@@ -712,10 +712,10 @@ export function useAppWiring() {
   const {
     prepareMediaMeta, beginMediaDrag, placeImage, deleteSelectedImg, vcXform, imgXform,
     updateDropGhost, clearDropGhosts, dropMediaNearest, videoDropLane, placeVClip,
-    deleteSelectedVClip, vcFadeGain, placeSE, addBgm, seFadeGain, removeMedia
+    deleteSelectedVClip, vcFadeGain, placeSE, addBgm, seFadeGain, removeMedia, imgLaneAt
   } = useMediaDrop({
     EXTRA_AUDIO_TRACK, dragSeDurRef, draggingMediaRef, dropLaneAt,
-    fallbackTrack, insertTrackOrdered, mediaInUse, mediaMetaRef, mediaQueue,
+    fallbackTrack, cueTrack, insertTrackOrdered, mediaInUse, mediaMetaRef, mediaQueue,
     metaInFlightRef, pairedAudioOf, placeVideoAtDrop, reserveTrackPairForVideo,
     scrollRef, trackInnerRef, snapClipStart, staleSourceIds, trackFromEvent, trackNum,
     vcLen, setMediaMeta, setImgGhost, setSeGhost, setVideoGhost, setSnapLineX
@@ -1124,7 +1124,7 @@ export function useAppWiring() {
     onClipPointerDown, onClipContextMenu, onTrimStart, onSegPointerDown, onSegTrimStart,
     onSePointerDown, onImgPointerDown, onVClipPointerDown, onMarkerPointerDown,
     onTrackAreaPointerDown, startScrub, startGroupResize, startTransResize, openClipMenu,
-    updateDropGhost, clearDropGhosts, dropLaneAt, videoDropLane, placeSE, placeImage,
+    updateDropGhost, clearDropGhosts, dropLaneAt, videoDropLane, placeSE, placeImage, imgLaneAt,
     placeVClip, placeVideoAtDrop, snapClipStart, draggingMediaRef, draggingTransRef,
     draggingTelopAnimRef, dragSeDurRef,
     resolveTransDrop, applyTransDrop, selectTransition, setVideoTransDur,

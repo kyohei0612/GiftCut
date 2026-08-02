@@ -4,7 +4,7 @@
 // 特に「外したときに本編へ落とさない」は、間違えると元の映像が消える。
 
 import { describe, expect, it } from 'vitest'
-import { dropLaneAt, laneAtY, laneRows, pickAudioLane } from './lanes'
+import { dropLaneAt, laneAtY, laneRows, pickAudioLane, avoidBusyLane } from './lanes'
 
 /** V1 V2 V3 / A1 A2 の5段。映像40px・音声30px・目盛り24px */
 const TRACKS = [
@@ -109,5 +109,32 @@ describe('音を置く段を選ぶ', () => {
 
   it('無い段を選んであっても、そこには置かない', () => {
     expect(pickAudioLane(lanes, busy, 1, 'A2', 'A1')).toBe('A3')
+  })
+})
+
+describe('埋まっている段を避ける', () => {
+  const order = ['V4', 'V3', 'V2'] // 上から順
+  const busy = [
+    { track: 'V2', tStart: 0, duration: 5 },
+    { track: 'V3', tStart: 0, duration: 5 }
+  ]
+
+  it('空いていればそのまま', () => {
+    expect(avoidBusyLane(order, busy, 9, 'V2')).toBe('V2')
+  })
+
+  // **上書きになる所へ影を出さない。** 1段ずつ上へ避ける
+  it('埋まっていたら1段ずつ上へ避ける', () => {
+    expect(avoidBusyLane(order, busy, 1, 'V2')).toBe('V4')
+    expect(avoidBusyLane(order, busy, 1, 'V3')).toBe('V4')
+  })
+
+  it('上まで詰まっていたら、狙った段のまま', () => {
+    const full = order.map((track) => ({ track, tStart: 0, duration: 5 }))
+    expect(avoidBusyLane(order, full, 1, 'V2')).toBe('V2')
+  })
+
+  it('並びに無い段は触らない', () => {
+    expect(avoidBusyLane(order, busy, 1, 'V1')).toBe('V1')
   })
 })
