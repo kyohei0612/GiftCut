@@ -68,8 +68,12 @@ export function RightPanelArea(): JSX.Element {
       <PaneHost id="right" title={PANE_LABEL.right} popped={isPopped('right')}
         geom={paneGeom.right} onClose={() => unpopPane('right')}>
       {/* --- 右: プロジェクト --- */}
+      {/* data-editor-safe: ここを押してもテロップの打ち直しは閉じない。
+          見た目を直しに来ただけなので、閉じると打ちかけの文字と選択が失われる
+          （決まりは state/useDismissOnOutside の「閉じない場所」） */}
       <section
         className="panel"
+        data-editor-safe=""
         style={{ width: rightW, flex: '0 0 auto' }}
       >
         <PanelTabs

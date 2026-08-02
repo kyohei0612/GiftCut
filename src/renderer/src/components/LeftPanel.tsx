@@ -142,7 +142,10 @@ export function LeftPanel(): React.JSX.Element {
   const { updateSelectedImg, updateSelectedSE, updateSelectedVClip, patchCuePos, patchCueScale, patchMotion, patchClipMotion, clearTelopMotions, setSelectedAdjust, setSelectedCrop, setSegZoom, setImgZoom, setVClipZoom, rotateSelectedSeg, flipSelectedSeg, toggleMuteSelectedSegments, resetTelopChannel, nudgeOthers, setSelectedAudio, clearBox, selected } = useEdit()
 
   return (
-    <section className="panel" style={{ width: leftW, flex: '0 0 auto' }}>
+    // data-editor-safe: ここを押してもテロップの打ち直しは閉じない。
+    // **左パネルは「選んだ文字だけ色を変える」の行き先**なので、押した瞬間に
+    // 閉じると、変えたかった選択そのものが消える（決まりは useDismissOnOutside）
+    <section className="panel" data-editor-safe="" style={{ width: leftW, flex: '0 0 auto' }}>
       <div className="panel-tabs">
         <span
           className={`tab ${leftTab === 'props' ? 'tab-on' : ''}`}

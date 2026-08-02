@@ -769,8 +769,14 @@ export function useAppWiring() {
   // 再生では開いたままだった（＝Enter を押すまで終われない）。
   // クリップは pointerdown を自分で止めるので、**capture で拾って
   // 「打ち直しの中かどうか」を自分で見る**（決まりは useDismissOnOutside）。
+  //
+  // **左右のパネルは「外」に数えない**（`data-editor-safe`）。
+  // 打っている最中に色やフォントを直しに行くのは同じ一続きの作業で、そこで
+  // 閉じると**打ちかけの文字と、変えたかった選択そのものが消える**
+  // （左パネルの「その文字だけ変える」は、まさにその選択を見ている）。
+  // タイムライン・プレビュー・再生は今までどおり「外」＝押したら完了。
   useDismissOnOutside(sel.editingId != null, () => sel.setEditingId(null), {
-    inside: '.telop-editor'
+    inside: '.telop-editor, [data-editor-safe]'
   })
   // 再生を始めたときも完了にする（押した先が無いので上の見張りには掛からない）
   useEffect(() => {
@@ -821,7 +827,7 @@ export function useAppWiring() {
     segLayout, segLayoutRef, v1Index, a1Index,
     cueTrack, telopLocked, trackNum, vcLen, idCounter,
     setDragTip, setMarquee, setSnapLineX, snapClipStart, snapTime,
-    scrubFromClientX, reserveTrackPairForVideo, pendingLaneRef, setMenu
+    scrubFromClientX, reserveTrackPairForVideo, addVideoTrack, pendingLaneRef, setMenu
   })
 
   // プレビューの上でテロップを掴む・拡げる・枠内に寄せるのは state/useTelopBox

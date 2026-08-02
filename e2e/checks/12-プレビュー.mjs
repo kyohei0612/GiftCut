@@ -205,6 +205,41 @@ export default async function (C) {
     await page.waitForTimeout(300)
   })
 
+  await check('打ち直しの欄は、左右のパネルを押しても消えない（タイムラインでは消える）', async () => {
+    // **打ちながら色やフォントを直しに行くのは、同じ一続きの作業。**
+    // そこで閉じると、打ちかけの文字と「変えたかった選択そのもの」が消える
+    // （左パネルの「その文字だけ変える」は、まさにその選択を見ている）。
+    //
+    // ただし**閉じる方も一緒に見る。** 片方だけ見ると「どこを押しても消えない」
+    // ようにしてしまっても気づけない（＝Enter を押すまで終われない状態に戻る）。
+    await resetProject()
+    await seekTo(2)
+    const tel = page.locator('.telop-overlay > *').first()
+    assert(await tel.count(), 'プレビューに文字が出ていない')
+    const editor = page.locator('.telop-editor')
+    const open = async () => {
+      await tel.dblclick()
+      await page.waitForTimeout(400)
+      assert(await editor.count(), '打ち直しの欄が出ない')
+    }
+
+    await open()
+    // 右パネル → 消えない
+    await page.locator('[data-editor-safe]').last().click({ position: { x: 8, y: 60 } })
+    await page.waitForTimeout(400)
+    assert(await editor.count(), '右パネルを押しただけで打ち直しの欄が消えた')
+    // 左パネル → 消えない
+    await page.locator('[data-editor-safe]').first().click({ position: { x: 8, y: 60 } })
+    await page.waitForTimeout(400)
+    assert(await editor.count(), '左パネルを押しただけで打ち直しの欄が消えた')
+
+    // タイムラインのクリップ → 消える（ここは今までどおり「外」）
+    await v1Clips().nth(0).click()
+    await page.waitForTimeout(400)
+    assert((await editor.count()) === 0, 'タイムラインを押しても打ち直しの欄が消えない')
+    await resetProject()
+  })
+
   await check('拡大の中心を決めると、そこへ向かって寄る', async () => {
     // **基準点は画面だけの道具で、絵に残るのは今までどおりの位置（x/y）だけ。**
     // だから確かめるのは「基準点を置いて拡大したら、位置が計算どおりに入るか」。

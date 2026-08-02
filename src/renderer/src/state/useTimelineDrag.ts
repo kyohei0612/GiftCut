@@ -73,6 +73,8 @@ export interface UseTimelineDragDeps {
   scrubFromClientX: (clientX: number) => void
   /** 段を用意する／落とし先を覚えておく */
   reserveTrackPairForVideo: (vTrack: string) => string
+  /** 一番上より更に上へテロップを運んだときに、映像の段を1本足す */
+  addVideoTrack: () => void
   pendingLaneRef: React.MutableRefObject<string | null>
   /** 右クリックの品書きを出す */
   setMenu: any
@@ -86,7 +88,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     segLayout, segLayoutRef, v1Index, a1Index,
     cueTrack, telopLocked, trackNum, vcLen, idCounter,
     setDragTip, setMarquee, setSnapLineX, snapClipStart, snapTime,
-    scrubFromClientX, reserveTrackPairForVideo, pendingLaneRef, setMenu
+    scrubFromClientX, reserveTrackPairForVideo, addVideoTrack, pendingLaneRef, setMenu
   } = deps
   const { cues, setCues,  seClips, imgClips, vClips } = useDoc()
   const {
@@ -100,7 +102,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     // 一度も成立しないまま気づかれなかった。
     isSelected, clearAll
   } = useSel()
-  const { tracks } = useTracksCtx()
+  const { tracks, tracksRef } = useTracksCtx()
 
   function startScrub(e: React.PointerEvent): void {
     blurActiveInput()
@@ -359,14 +361,21 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     const alreadySel = selectedIds.includes(cue.id)
     const dragIds = alreadySel ? [...selectedIds] : [cue.id]
     if (!alreadySel) setSelectedIds([cue.id])
-    // テロップ配置可能トラック（上→下）。上下ドラッグでこの間を移動できる
-    // テロップは V1 以外の全映像トラックに置ける（V4以降へ退避したテロップも扱えるように）
-    const TELOP_ORDER = tracks
-      .filter((t) => t.kind === 'video' && t.id !== 'V1')
-      .map((t) => t.id)
-      .reverse()
-    // 各テロップ行の実際の行番号（V4等の追加レーンで行がずれても正しく対応させる）
-    const TELOP_ROWS = TELOP_ORDER.map((id) => tracks.findIndex((t) => t.id === id))
+    // テロップ配置可能トラック（下→上）。上下ドラッグでこの間を移動できる。
+    // テロップは V1 以外の全映像トラックに置ける（V4以降へ退避したテロップも扱えるように）。
+    //
+    // **掴んでいる最中に読み直す。** 一番上より更に上へ持っていくと段を1本足すので、
+    // 掴んだ時の並びのままでは、足した段が使えない（＝足しても行けない）。
+    // 足しても**既にある段の番号は動かない**（足した段は reverse で末尾に付く）ので、
+    // 掴んだ物の位置 grabbedIdx はそのまま使える。動くのは行番号（下へ1つずれる）だけ。
+    const telopOrder = (): string[] =>
+      tracksRef.current
+        .filter((t) => t.kind === 'video' && t.id !== 'V1')
+        .map((t) => t.id)
+        .reverse()
+    /** 各テロップ行の実際の行番号（V4等の追加レーンで行がずれても正しく対応させる） */
+    const telopRows = (order: string[]): number[] =>
+      order.map((id) => tracksRef.current.findIndex((t) => t.id === id))
     const startMap = new Map(
       cues
         .filter((c) => dragIds.includes(c.id))
@@ -374,30 +383,56 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     )
     const grabbed = startMap.get(cue.id)
     if (!grabbed) return
-    const grabbedIdx = Math.max(0, TELOP_ORDER.indexOf(grabbed.tr))
+    const grabbedIdx = Math.max(0, telopOrder().indexOf(grabbed.tr))
     const minStart = Math.min(...[...startMap.values()].map((v) => v.s))
+    // **動かしている束の全体**（左端〜右端）で吸い付ける。掴んだ1つの頭だけを
+    // 見ていると、束の左端も右端もどこにも合わない。1つだけ選んでいるときも
+    // 同じ道を通る＝そのテロップのケツにも効く（前は頭しか見ていなかった）。
+    const maxEnd = Math.max(...[...startMap.values()].map((v) => v.e))
+    const spanLen = maxEnd - minStart
     const innerRect = trackInnerRef.current?.getBoundingClientRect()
     const sx = e.clientX
     const sy = e.clientY
     let moved = false
+    let addedLane = false
     const onMove = (ev: PointerEvent): void => {
       const dxPx = ev.clientX - sx
       const dyPx = ev.clientY - sy
       // 横=時間, 縦=トラック移動。どちらかがしきい値を超えたらドラッグ開始
       if (!moved && Math.abs(dxPx) + Math.abs(dyPx) < 3) return
       moved = true
-      let delta = dxPx / zoomRef.current
-      delta = snapTime(grabbed.s + delta, dragIds) - grabbed.s
+      // 束の左端を基準に寄せる。**元の位置（左端・右端）も寄せ先に足す**——
+      // 上下の段へ移すだけのつもりでも、横に少し動くと近くの端に吸い付いて
+      // 横位置がずれる。元の位置があれば、そこへ戻ってくる。
+      const raw = minStart + dxPx / zoomRef.current
+      let delta = snapClipStart(raw, spanLen, [], [], [], {
+        cues: dragIds,
+        extra: [minStart, maxEnd]
+      }) - minStart
       if (minStart + delta < 0) delta = -minStart
       // 掴んだクリップがどのテロップ行に来たか → 相対トラックシフト量
       // （追加レーンでテロップ行の位置がずれても、実際の行番号に最も近いテロップ行へ吸着）
+      const order = telopOrder()
+      const rows = telopRows(order)
       let trackShift = 0
       if (innerRect) {
         const yRel = ev.clientY - innerRect.top - rulerH - padTop
         const row = Math.floor(yRel / videoTrackHRef.current)
+        // **一番上より更に上へ持っていったら、段を1本足す。**
+        // 無い段へは動かせないので、それまでは一番上で頭打ちになり、
+        // 「上へ運びたいのに行けない」状態だった。
+        //
+        // 足すのは**1回の掴みにつき1本まで**。足した瞬間に行が1つ下へずれて
+        // 「もう一番上ではない」状態になるので普通は止まるが、掴み損ねて画面の外まで
+        // 走らせたときに段が増え続けるのだけは避ける（増えた段は手で消すしかない）。
+        if (!addedLane && row < Math.min(...rows)) {
+          addedLane = true
+          addVideoTrack()
+          return // 次の pointermove で、増えた段を入れて並べ直す
+        }
         let ti = grabbedIdx
         let best = Infinity
-        TELOP_ROWS.forEach((r, i) => {
+        rows.forEach((r, i) => {
           const d = Math.abs(r - row)
           if (d < best) {
             best = d
@@ -410,8 +445,8 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
         prev.map((c) => {
           const st = startMap.get(c.id)
           if (!st) return c
-          const idx = Math.max(0, TELOP_ORDER.indexOf(st.tr))
-          const ntr = TELOP_ORDER[clamp(idx + trackShift, 0, TELOP_ORDER.length - 1)]
+          const idx = Math.max(0, order.indexOf(st.tr))
+          const ntr = order[clamp(idx + trackShift, 0, order.length - 1)]
           return { ...c, start: st.s + delta, end: st.e + delta, track: ntr }
         })
       )

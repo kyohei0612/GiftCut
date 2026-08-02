@@ -11,6 +11,18 @@
 // 置きたい所に置けず、寄っているときは弱すぎて効かない。
 // 拡大率は**掴んでいる最中にも変わる**ので ref から読む。
 //
+// ## 寄せるのは「掴んだ物」ではなく「動かしている束の全体」
+//
+// テロップをまとめて選んで動かすとき、掴んだ1つの頭だけを見ていると、
+// 束の左端・右端はどこにも合わない。**束の頭とケツ**を寄せ先に照らす。
+// 1つだけ選んでいるときも同じ道を通る（＝そのテロップの頭とケツ。
+// 前は頭しか見ていなかったので「ケツに吸着が効かない」状態だった）。
+//
+// ## 元の位置も寄せ先にする
+//
+// 上下の段へ動かすだけのつもりでも、横に少し動けば近くの端に吸い付いて
+// **横位置がずれる**。動かす前の位置を寄せ先に足しておけば、そこへ戻ってくる。
+//
 // ## どこへ寄せるかの判定そのものは shared/snap
 //
 // 画面を起動せずに確かめられるように分けてある。こちら側の仕事は
@@ -68,7 +80,13 @@ export interface Snap {
     dur: number,
     excludeSeIds?: number[],
     excludeImgIds?: number[],
-    excludeVcIds?: number[]
+    excludeVcIds?: number[],
+    /**
+     * テロップをまとめて動かすときに使う。
+     * `cues`＝動かしている物を寄せ先から外す（自分に吸い付かないように）、
+     * `extra`＝元の位置など、その場かぎりの寄せ先を足す。
+     */
+    more?: { cues?: number[]; extra?: number[] }
   ) => number
 }
 
@@ -132,7 +150,8 @@ export function useSnap(deps: UseSnapDeps): Snap {
     dur: number,
     excludeSeIds: number[] = [],
     excludeImgIds: number[] = [],
-    excludeVcIds: number[] = []
+    excludeVcIds: number[] = [],
+    more?: { cues?: number[]; extra?: number[] }
   ): number {
     if (!snap) {
       setSnapLineX(null)
@@ -140,7 +159,8 @@ export function useSnap(deps: UseSnapDeps): Snap {
     }
     // どこへ寄せるかの判定は shared/snap（画面を起動せずに確かめられる）。
     // 画面側の仕事は「当て先を集めて、縦線を出す」ところまで。
-    const targets = snapTargets([], excludeSeIds, excludeImgIds, excludeVcIds)
+    const targets = snapTargets(more?.cues ?? [], excludeSeIds, excludeImgIds, excludeVcIds)
+    if (more?.extra) targets.push(...more.extra)
     const r = nearestSnap(tStart, dur, targets, SNAP_PX / zoomRef.current)
     setSnapLineX(r.line != null ? r.line * zoomRef.current : null)
     return r.start
