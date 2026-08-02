@@ -7,7 +7,7 @@
 //
 //   そのまま … 上書きで移動
 //   Alt      … 複製（元はその場に残る）
-//   Ctrl     … 割り込み（後ろがずれる）
+//   Ctrl / Shift … 割り込み（後ろがずれる。上書きせず、置いてある物が後ろへ動く）
 //
 // ## 何px から「動かした」とみなすか
 //
@@ -34,9 +34,12 @@ export function dragModeOf(ev: {
   altKey: boolean
   ctrlKey: boolean
   metaKey: boolean
+  shiftKey?: boolean
 }): SegDropMode {
   if (ev.altKey) return 'copy'
-  if (ev.ctrlKey || ev.metaKey) return 'insert'
+  // **Shift だけでも割り込みにする。** 一番よく使う動きなのに
+  // Ctrl+Shift の2つ押しが要り、片手で置けなかった。Ctrl も残す（今までの手が効く）
+  if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return 'insert'
   return 'move'
 }
 

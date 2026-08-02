@@ -50,3 +50,20 @@ describe('押しただけの震えを弾く', () => {
     expect(movedEnough(3, 4)).toBe(false)
   })
 })
+
+describe('Shift だけでも割り込みになる', () => {
+  // 一番よく使う動きなのに Ctrl+Shift の2つ押しが要り、片手で置けなかった。
+  it('Shift だけで割り込み（後ろがずれる）', () => {
+    expect(dragModeOf({ altKey: false, ctrlKey: false, metaKey: false, shiftKey: true })).toBe(
+      'insert'
+    )
+  })
+  it('Ctrl は今までどおり効く（慣れている手を壊さない）', () => {
+    expect(dragModeOf({ altKey: false, ctrlKey: true, metaKey: false, shiftKey: false })).toBe(
+      'insert'
+    )
+  })
+  it('Alt が勝つ（複製しながら割り込む、という動きは無い）', () => {
+    expect(dragModeOf({ altKey: true, ctrlKey: false, metaKey: false, shiftKey: true })).toBe('copy')
+  })
+})

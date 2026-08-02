@@ -21,6 +21,18 @@
 // 消さずに戻ると、線だけが残って「まだ効いている」ように見える。
 
 import { nearestSnap } from '../../../shared/snap'
+
+/**
+ * 吸い付く距離（画面px）。
+ *
+ * **画面pxで持つ。** 秒で持つと、拡大するほど吸い付きが強くなって
+ * 「近づけただけで勝手に付く」ようになり、細かく置けなくなる。
+ * 見た目の距離で決めれば、どの拡大率でも手応えが同じになる。
+ *
+ * 8px では弱く「合わせたいのに付かない」と言われたので 18px にした。
+ * これ以上広げると、隣の端まで巻き込んで**狙っていない所へ付く**。
+ */
+const SNAP_PX = 18
 import type { SegLayout } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
 import { usePlaybackCtx } from './playbackContext'
@@ -99,7 +111,7 @@ export function useSnap(deps: UseSnapDeps): Snap {
       return Math.max(0, t)
     }
     const targets = snapTargets(excludeCueIds, excludeSeIds, excludeImgIds, excludeVcIds)
-    const thr = 8 / zoomRef.current // ドラッグ中のズーム変更にも追従するよう ref を参照
+    const thr = SNAP_PX / zoomRef.current // ドラッグ中のズーム変更にも追従するよう ref を参照
     let best = t
     let bestD = thr
     let snapped = false
@@ -129,7 +141,7 @@ export function useSnap(deps: UseSnapDeps): Snap {
     // どこへ寄せるかの判定は shared/snap（画面を起動せずに確かめられる）。
     // 画面側の仕事は「当て先を集めて、縦線を出す」ところまで。
     const targets = snapTargets([], excludeSeIds, excludeImgIds, excludeVcIds)
-    const r = nearestSnap(tStart, dur, targets, 8 / zoomRef.current)
+    const r = nearestSnap(tStart, dur, targets, SNAP_PX / zoomRef.current)
     setSnapLineX(r.line != null ? r.line * zoomRef.current : null)
     return r.start
   }
