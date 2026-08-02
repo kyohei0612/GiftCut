@@ -116,6 +116,46 @@ export default async function (C) {
 
   await check('付けた動きは、保存して開き直しても残っている', async () => {
     // 保存の拾い忘れで動きだけ静かに消える、という事故を防ぐ
+    //
+    // ※ 動きは自分で付ける。前の項目に寄りかかっていたので、絞って回すと
+    //    「動きが無い状態で保存して、保存に動きが入っていない」と赤くなり、
+    //    **本物の保存漏れと見分けが付かなかった**（実際に一度、
+    //    `やること.md` へ「保存する側で拾えていない」と誤って控えられた）。
+    //    すぐ下の「書き出した動画でも…」は同じ理由で既に自分で付けている。
+    if (!(await page.locator('.telop-clip .kf-mark').count())) {
+      await page.locator('.telop-clip').first().click()
+      await page.waitForTimeout(300)
+      await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+      await page.waitForTimeout(300)
+      const trow = page.locator('.mo-row').filter({ hasText: '位置 X' }).first()
+      assert(await trow.count(), 'テロップのモーションに「位置 X」が無い')
+      await seekTo(1.2)
+      await page.waitForTimeout(300)
+      if (!(await trow.locator('.mo-watch.on').count())) await trow.locator('.mo-watch').click()
+      await page.waitForTimeout(300)
+      assert(
+        (await trow.locator('.mo-watch.on').count()) === 1,
+        '⏱ を押しても動きが付いた状態にならない'
+      )
+      await seekTo(2.6)
+      await page.waitForTimeout(300)
+      await trow.locator('.mo-val').fill('300')
+      await trow.locator('.mo-val').press('Enter')
+      await page.waitForTimeout(500)
+      // 数値欄にカーソルが残っていると Ctrl+S が欄に吸われる（保存が始まらない）。
+      // **手を離すのに「どこかを押す」をしない。** `.mo-head` を押すと、そこは
+      // 「動きを消す」ボタンを抱えた入れ物なので真ん中がボタンに当たり、
+      // **いま打った印が全部消える**（打った→消した→保存 で「保存に動きが
+      // 入っていない」と出て、本物の保存漏れと見分けが付かない。実際にそれで
+      // `やること.md` へ誤った原因が控えられた）。blur なら当たり所が無い。
+      await trow.locator('.mo-val').evaluate((el) => el.blur())
+      await page.waitForTimeout(200)
+      assert(
+        (await page.locator('.telop-clip .kf-mark').count()) > 0,
+        '準備の段階で印が付いていない（この確認は保存を見る前に印が要る）'
+      )
+      touchedRef.dirty = true
+    }
     await page.keyboard.press('Control+s')
     await page.waitForTimeout(1600)
     const data = JSON.parse(readFileSync(fx.gcproj, 'utf-8'))
@@ -147,8 +187,11 @@ export default async function (C) {
       await trow.locator('.mo-val').fill('1400')
       await trow.locator('.mo-val').press('Enter')
       await page.waitForTimeout(400)
-      // 数値欄にカーソルが残っていると Ctrl+M が欄に吸われる（書き出しが始まらない）
-      await page.locator('.mo-head').first().click()
+      // 数値欄にカーソルが残っていると Ctrl+M が欄に吸われる（書き出しが始まらない）。
+      // **`.mo-head` を押して抜けない**（「動きを消す」ボタンに当たり、打った印が
+      // 全部消える）。このまとまりは通しでは通らない道なので、当たっても
+      // 気づけなかった。上の「保存して開き直しても残っている」と同じ理由。
+      await trow.locator('.mo-val').evaluate((el) => el.blur())
       await page.waitForTimeout(200)
       touchedRef.dirty = true
     }
