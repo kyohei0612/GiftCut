@@ -33,16 +33,10 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
     if (!win.isDestroyed()) win.webContents.send('update:state', s)
   }
 
-  // 「あとで」を押されたら、この起動中はもう再起動しない（次に閉じたときに当たる）
-  let restartTimer: NodeJS.Timeout | null = null
-  ipcMain.on('update:later', () => {
-    if (restartTimer) clearTimeout(restartTimer)
-    restartTimer = null
-  })
-  ipcMain.on('update:now', () => {
-    if (restartTimer) clearTimeout(restartTimer)
-    void restartWithUpdate()
-  })
+  // 帯を閉じるだけ（こちらから再起動を仕掛けていないので、止める物が無い）。
+  // 受け口は残す——無いと画面側が送った先で握りつぶされたか分からなくなる。
+  ipcMain.on('update:later', () => {})
+  ipcMain.on('update:now', () => void restartWithUpdate())
 
   // 再起動する前に、必ず今の状態を書かせる。
   //
@@ -68,7 +62,12 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
       if (!win.isDestroyed()) win.webContents.send('update:flush')
       else done()
     })
-    autoUpdater.quitAndInstall(false, true)
+    // **第1引数（黙って当てるか）を true にすること。**
+    // false だと NSIS のインストーラが対話モードで立ち上がり、
+    // **更新のたびにセットアップの画面（置き場所の選択まで）が出る**。
+    // 初回の導入では選ばせたいので oneClick は false のままにしてあり、
+    // 更新のときだけここで黙らせる。第2引数は「当て終わったら開き直す」。
+    autoUpdater.quitAndInstall(true, true)
   }
 
   if (!app.isPackaged) {
@@ -96,12 +95,10 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
     })
   })
   autoUpdater.on('update-downloaded', (info) => {
-    const plan = planUpdate(deps.busy(), info.version)
-    send({ phase: 'ready', version: info.version, ...plan })
-    if (plan.when === 'now') {
-      // すぐ落とさず、少し待つ。何が起きるのか読む間も無く画面が消えるのは怖い
-      restartTimer = setTimeout(() => void restartWithUpdate(), plan.countdownSec * 1000)
-    }
+    // **ここで再起動を仕掛けない。** 落とし終わったことを細い帯で伝えるだけ。
+    // 当てるのは本人が閉じたとき（autoInstallOnAppQuit が黙って当てる）。
+    // 待てない人のために「今すぐ再起動」は帯に残してあるが、押されたときだけ動く。
+    send({ phase: 'ready', version: info.version, ...planUpdate(deps.busy(), info.version) })
   })
   autoUpdater.on('error', (err) => {
     // 更新に失敗しても、アプリは普通に使えなければならない。

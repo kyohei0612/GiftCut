@@ -68,17 +68,21 @@ export function outputBaseName(projectPath?: string | null, videoPath?: string |
 }
 
 /**
- * 同じ名前が既にあるなら `(2)` `(3)` … を付けて避ける。
+ * 同じ名前が既にあるなら `(1)` `(2)` … を付けて避ける。
  *
  * **黙って上書きしない。** 書き出しは何分もかかるうえ、消えるのは
  * 「前に何分もかけて作った物」なので、取り返しがつかない。
+ * しかも消えたことに気づくのは、探しに行ったときになる。
+ *
+ * `(1)` から始めるのは本人の指定。Windows の「(2) から」とは違うが、
+ * **1本目に番号が付いていない**のは同じなので、並べたときに読み違えない。
  *
  * @param taken その名前（拡張子込み）が既にあるか
  */
 export function uniqueName(base: string, ext: string, taken: (name: string) => boolean): string {
   const first = `${base}.${ext}`
   if (!taken(first)) return first
-  for (let i = 2; i < 1000; i++) {
+  for (let i = 1; i < 1000; i++) {
     const n = `${base}(${i}).${ext}`
     if (!taken(n)) return n
   }

@@ -51,6 +51,7 @@ import { hasClipMotion, zoomPanChain, zoompanFilter, type ClipMotion } from '../
 import { colorAdjustFilter } from '../shared/colorAdjust'
 // 書き出し先が素材と同じだと ffmpeg は必ず失敗する。始める前に気づいて日本語で言う
 import { clashingSource } from '../shared/exportTarget'
+import { uniqueName } from '../shared/exportDefaults'
 import { ENCODERS, crfToBitrateK } from './encoders'
 import {
   FFMPEG,
@@ -232,6 +233,23 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   // ffmpeg に任せると英語のパスエラーになり、何分か待たされた末に理由が読めない
   if (!existsSync(dirname(save.filePath)))
     return { ok: false, error: '書き出し先のフォルダが見つかりません:\n' + dirname(save.filePath) }
+  // **同じ名前があっても上書きしない。** 消えるのは「前に何分もかけて作った物」で、
+  // しかも消えたことに気づくのは探しに行ったとき。名前の後ろに (1) を付けて避ける。
+  //
+  // ここ（始める直前）で決めるのは、窓を開けてから押すまでの間に
+  // 同じ名前のファイルが増えていることがあるため。名前の作り方は
+  // shared/exportDefaults（画面を起動せずに確かめられる）。
+  //
+  // ※ 選択の窓を通ったときは、その窓が既に「上書きしますか」を聞いている。
+  //   そこで「はい」と答えた人の意思まで覆すと、狙って上書きできなくなる。
+  if (payload.outPath) {
+    const dir = dirname(save.filePath)
+    const file = save.filePath.slice(dir.length + 1)
+    const dot = file.lastIndexOf('.')
+    const base = dot > 0 ? file.slice(0, dot) : file
+    const ext = dot > 0 ? file.slice(dot + 1) : 'mp4'
+    save.filePath = join(dir, uniqueName(base, ext, (n) => existsSync(join(dir, n))))
+  }
 
   // **書き出し先が、いま素材として使っているファイルだと ffmpeg は必ず失敗する。**
   // 「前に書き出した物をタイムラインに読み込んで、また同じ名前へ書き出す」で起きる。

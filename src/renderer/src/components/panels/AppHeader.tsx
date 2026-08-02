@@ -44,7 +44,9 @@ export function AppHeader(): JSX.Element {
   return (
     <>
   {/* アプリの更新。作業の邪魔をしない細い帯で出す。
-      再起動は勝手にやるが、必ず「何が起きるか」を先に出してから。 */}
+      **こちらから再起動を促さない**（2026-08-02 に変更）。落とし終わったことを
+      伝えるだけで、当てるのは本人が閉じたとき。待てない人のために
+      「今すぐ更新して再起動」は置くが、押されたときだけ動く。 */}
   {(updateState?.phase === 'downloading' || updateState?.phase === 'ready') && (
     <div className="update-bar">
       {updateState.phase === 'downloading' ? (
@@ -52,22 +54,20 @@ export function AppHeader(): JSX.Element {
       ) : (
         <>
           <span>✨ {updateState.message}</span>
-          {updateState.when === 'now' && (
-            <>
-              <button className="update-btn" onClick={() => window.giftcut.updateNow()}>
-                今すぐ再起動
-              </button>
-              <button
-                className="update-btn update-btn-ghost"
-                onClick={() => {
-                  window.giftcut.updateLater()
-                  setUpdateState(null)
-                }}
-              >
-                あとで
-              </button>
-            </>
-          )}
+          {/* 待てない人のための道。**押されたときだけ動く**ので、
+              放っておけば作業は一切邪魔されない */}
+          <button className="update-btn" onClick={() => window.giftcut.updateNow()}>
+            今すぐ更新して再起動
+          </button>
+          <button
+            className="update-btn update-btn-ghost"
+            onClick={() => {
+              window.giftcut.updateLater()
+              setUpdateState(null)
+            }}
+          >
+            閉じる
+          </button>
         </>
       )}
     </div>

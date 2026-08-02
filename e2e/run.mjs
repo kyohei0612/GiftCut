@@ -404,6 +404,16 @@ try {
    * main 側が今までどおり窓を出すため）。
    */
   const setExportTarget = async (out) => {
+    // **先に消す。** アプリは同じ名前があると上書きせず `(1)` を付けて避けるので、
+    // 前の確認が同じ名前で出していると、新しい方は `out(1).mp4` に行く。
+    // それでも `existsSync(out)` は前のファイルで通ってしまい、
+    // **中身は前の書き出しのまま**で合格する（実際に fps-same.mp4 と
+    // audio-check.mp4 が同じ名前を使い回していた）。
+    try {
+      rmSync(out, { force: true })
+    } catch {
+      /* 無ければそれでよい */
+    }
     await setDialogFiles(null, out)
     const dir = out.replace(/[\\/][^\\/]*$/, '')
     await page.evaluate((d) => localStorage.setItem('giftcut.exportDir', d), dir)

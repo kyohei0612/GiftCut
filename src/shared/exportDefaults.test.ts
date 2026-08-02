@@ -69,8 +69,13 @@ describe('同じ名前を黙って上書きしない', () => {
     expect(uniqueName('out', 'mp4', () => false)).toBe('out.mp4')
   })
 
-  it('埋まっていれば (2) から順に空きを探す', () => {
-    const has = new Set(['out.mp4', 'out(2).mp4'])
+  it('埋まっていれば (1) を付ける', () => {
+    const has = new Set(['out.mp4'])
+    expect(uniqueName('out', 'mp4', (n) => has.has(n))).toBe('out(1).mp4')
+  })
+
+  it('(1) も埋まっていれば、空くまで順に上げる', () => {
+    const has = new Set(['out.mp4', 'out(1).mp4', 'out(2).mp4'])
     expect(uniqueName('out', 'mp4', (n) => has.has(n))).toBe('out(3).mp4')
   })
 
