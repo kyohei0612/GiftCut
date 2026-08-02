@@ -621,6 +621,29 @@ export default async function (C) {
     await page.waitForTimeout(300)
   })
 
+  // **既定を黙って書き換えない代わりの口。** 段の高さは1つずつ覚えているので、
+  // 既定を変えても前に触った人の画面は前のまま。戻すかどうかは本人に決めてもらう
+  //（`やること.md` の「段」で決めた形）。押す口が無いと、その決め方が成立しない。
+  // ※ 上の「境目を掴んで高さを変えられる」と同じ手を使うので、
+  //   あちらが順番の都合で赤いときは、こちらも同じ理由で赤くなる
+  await check('段の高さは「既定へ戻す」で戻せる', async () => {
+    const rowH = () =>
+      page.evaluate(() =>
+        Math.round(document.querySelector('.track-video')?.getBoundingClientRect().height ?? 0)
+      )
+    const base = await rowH()
+    await dragBy(page.locator('.th-video .th-divider').first(), 0, 80)
+    await page.waitForTimeout(300)
+    const fat = await rowH()
+    assert(fat > base + 4, `準備が成立していない（太くできていない ${base} → ${fat}）`)
+    const reset = page.locator('button[title="段の高さを既定へ戻す"]').first()
+    assert(await reset.count(), '「段の高さを既定へ戻す」の口が無い')
+    await reset.click()
+    await page.waitForTimeout(400)
+    const back = await rowH()
+    assert(back < fat - 4, `戻っていない（${fat} → ${back}）`)
+  })
+
   await check('縦に送っても、秒数の目盛りは残る', async () => {
     const st = await timelineVScroll.tops('V1')
     const rulerAtTop = await page.evaluate(() => {

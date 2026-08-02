@@ -59,5 +59,45 @@ export default async function (C) {
     await page.waitForTimeout(300)
   })
 
+  // 節を開いたら、その節の頭から出る。
+  //
+  // ※ **本人から上がった「1からではなく途中から表示される」は、これでは捕まらない。**
+  //   わざと前の形（開いた2コマ後に1回だけ合わせる）へ戻しても、この確認は緑のまま
+  //   ——素材が少なくて一覧が短いか、症状が出ているのが別の場所（右パネルの節では
+  //   なく、字幕の一覧やタイムラインの段）かのどちらか。**再現できていない。**
+  //   ここに残してあるのは「節を開いたのに頭から出ない」を丸ごと落とさないため。
+  await check('下まで見てから次の節を開くと、その節の頭から出る', async () => {
+    // **テロップのタブで見る。** ここは「1つだけ開く」作りなので、次を開くと
+    // 前の節が畳まれて一覧が一気に縮む＝送っていた位置が行き場を失う。
+    // SE のタブ（複数同時に開ける）では起きない
+    const strip = page.locator('.panel-tabs-strip').last()
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(300)
+    await strip.locator('.tab', { hasText: 'テロップ' }).first().click()
+    await page.waitForTimeout(500)
+    const secs = page.locator('.tpl-acc')
+    const n = await secs.count()
+    assert(n >= 2, `節が2つ以上ないと確かめられない（${n}）`)
+    // 1つ目を開いて、一覧を一番下まで送る
+    await secs.first().click()
+    await page.waitForTimeout(600)
+    const body = page.locator('.panel-body').last()
+    await body.evaluate((el) => el.scrollTo({ top: el.scrollHeight }))
+    await page.waitForTimeout(400)
+    const sent = await body.evaluate((el) => Math.round(el.scrollTop))
+    assert(sent > 20, `準備が成立していない（下まで送れていない: ${sent}）`)
+    // 別の節を開く
+    await secs.nth(1).click()
+    await page.waitForTimeout(1200) // 高さが落ち着くまで待つ
+    // 開いた節の見出しが、一覧の上端あたりに来ているか。
+    // **`.tpl-acc.open` の先頭を見てはいけない**——SE のタブは複数同時に開けるので、
+    // 先に開けた方が引っかかる（それで -40px と出た）。押した物そのものを見る
+    const box = await body.boundingBox()
+    const head = await secs.nth(1).boundingBox()
+    assert(box && head, '節または一覧が見つからない')
+    const gap = Math.round(head.y - box.y)
+    assert(gap >= -4 && gap < 60, `節の頭が上端に来ていない（上端から ${gap}px）`)
+  })
+
   // =========================================================================
 }

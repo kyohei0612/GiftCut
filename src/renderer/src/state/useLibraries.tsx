@@ -277,14 +277,42 @@ export function useLibraries(deps: UseLibrariesDeps) {
       // 全部開けておくタブは複数同時に開ける。それ以外は従来どおり1つだけ。
       // 決まりは shared/accordion に置いてある（画面を作らずに試せるように）
       const next = nextOpenSecs(cur, k, ALWAYS_OPEN_TABS.includes(tab))
-      if (!isOpen)
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() =>
-            accSecRefs.current[`${tab}:${k}`]?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-          )
-        )
+      if (!isOpen) alignSecTop(`${tab}:${k}`)
       return { ...p, [tab]: next }
     })
+
+  /**
+   * 開いた節を、一覧の一番上へ合わせる。
+   *
+   * **1回では合わない。** 中身は見えている分だけ描く作りなので、開いた直後は
+   * まだ高さが決まっておらず、そのあと伸び縮みして位置がずれる。
+   * 前は2コマ待って1回だけ合わせていたので、**下まで見てから次を開くと
+   * 1つ目からではなく途中から出る**（本人から上がった症状）。
+   *
+   * 位置が落ち着くまで合わせ直す。落ち着かなくても 40コマ で諦める
+   *（読み込み中の一覧に張り付いて、指で送っても引き戻されるのを避ける）。
+   *
+   * ※ 滑らかに送る（smooth）のはやめた。毎コマ呼び直すと、そのたびに
+   *   滑りが最初からやり直しになって、いつまでも着かない。
+   */
+  const alignSecTop = (id: string): void => {
+    let left = 40
+    let prev = Number.NaN
+    let same = 0
+    const tick = (): void => {
+      const el = accSecRefs.current[id]
+      if (!el) return
+      el.scrollIntoView({ block: 'start' })
+      const top = el.offsetTop
+      if (top === prev) {
+        if (++same >= 2) return // 2コマ続けて動かない＝落ち着いた
+      } else same = 0
+      prev = top
+      if (left-- <= 0) return
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  }
   // テロップタブと同じ見た目のセクション見出し＋開閉ボディ
   const accSec = (
     tab: string,
