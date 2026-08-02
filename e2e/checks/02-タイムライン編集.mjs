@@ -600,6 +600,13 @@ export default async function (C) {
     await page.waitForTimeout(500)
     const after = await page.locator('[data-tid="V2"] .img-clip:not(.se-ghost)').count()
     assert(after === before + 1, `下の段へ移っていない（V2 が ${before} → ${after}）`)
+    // **元の段へ戻す。** 戻さないと、この確認のあと画像が V2 に居座ったままになり、
+    // 画面を見た人に「V2 に見覚えのない枠がある」と映る（実際そう言われた）。
+    // 戻せること自体も確かめたい（片道だけ動く状態に気づけない）
+    await dragBy(page.locator('[data-tid="V2"] .img-clip:not(.se-ghost)').first(), 0, -dy)
+    await page.waitForTimeout(500)
+    const back = await page.locator('[data-tid="V3"] .img-clip:not(.se-ghost)').count()
+    assert(back >= 1, '元の段へ戻せない')
   })
 
   await check('段見出しの境目を掴んで、レーンの高さを変えられる', async () => {
@@ -619,7 +626,11 @@ export default async function (C) {
     assert(after > before + 4, `境目を下へ引いても太くならない（${before} → ${after}）`)
     await dragBy(page.locator('.th-video .th-divider').first(), 0, -200) // 元の細さへ戻す
     await page.waitForTimeout(300)
-  })
+  },
+  // **タイムラインの高さが、手前の項目の残した状態で決まる。**
+  // 低いままだと境目を掴んでも広げる余地が無く、`26 → 26` で必ず赤くなる
+  //（通しでは緑。実際に stash して変更前と比べ、同じ数値で落ちるのを確かめた）。
+  { orderDependent: true })
 
   // **既定を黙って書き換えない代わりの口。** 段の高さは1つずつ覚えているので、
   // 既定を変えても前に触った人の画面は前のまま。戻すかどうかは本人に決めてもらう
@@ -642,7 +653,9 @@ export default async function (C) {
     await page.waitForTimeout(400)
     const back = await rowH()
     assert(back < fat - 4, `戻っていない（${fat} → ${back}）`)
-  })
+  },
+  // 上と同じ手（境目を掴んで太くする）を使うので、同じ理由で順番に依存する
+  { orderDependent: true })
 
   await check('縦に送っても、秒数の目盛りは残る', async () => {
     const st = await timelineVScroll.tops('V1')

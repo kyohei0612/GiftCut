@@ -21,6 +21,15 @@
 //   npm run e2e -- --changed    いま直している所に関わる確認だけ（普段はこれ）
 //                               対応表に無いファイルは「見ていない」と出る
 //   （項目名の一覧は `grep "await check(" e2e/run.mjs` で見られる）
+//
+// ## 絞ったときに見ない項目（orderDependent）
+//
+// 手前の項目が作った状態に寄りかかっている確認は、`{ orderDependent: true }` を
+// 付けておくと **--only のときだけ飛ばす**。絞ると必ず赤くなるが通しでは緑、という
+// **嘘の赤**を消すため（見るたびに stash して変更前と比べる羽目になっていた）。
+//
+// **無条件に全部を緑にはしない。** それをやると絞った確認が何も見ていないことになる。
+// 印を付けるときは、なぜ順番に依存するのかを必ずその場に書くこと。
 // ============================================================================
 import { _electron as electron } from 'playwright'
 import { spawn, execSync } from 'node:child_process'
@@ -205,6 +214,20 @@ async function check(name, fn, opts = {}) {
   }
   if (ONLY.length && !opts.setup && !ONLY.some((w) => name.includes(w) || curSection.includes(w))) {
     results.push({ name, skipped: true })
+    return
+  }
+  // **絞ったときは「順番に依存する項目」を見ない。**
+  //
+  // 手前の項目が作った状態に寄りかかっている確認がいくつかある。絞って回すと
+  // その状態が無いので必ず赤くなるが、それは**通しでは緑になる嘘の赤**で、
+  // 見るたびに「自分が壊したのか」を stash して確かめる羽目になる（実際に何度もやった）。
+  //
+  // **無条件に全部を緑にはしない。** それをやると、絞った確認そのものが
+  // 何も見ていないことになる。印を付けた物だけ、絞ったときに飛ばす。
+  // 印を付けるときは**なぜ順番に依存するのか**を必ず一緒に書くこと。
+  if (ONLY.length && opts.orderDependent) {
+    results.push({ name, skipped: true })
+    console.log(`  \x1b[2m− ${name}（順番に依存するので、絞ったときは見ない）\x1b[0m`)
     return
   }
   const total = Math.max(TOTAL_HINT, results.length + 1)

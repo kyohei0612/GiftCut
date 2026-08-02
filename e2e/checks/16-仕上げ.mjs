@@ -75,7 +75,10 @@ export default async function (C) {
     await page.waitForTimeout(1000)
     const n = await v1Clips().count()
     assert(n === 7, `1つ前の内容が戻っていない（クリップ ${n} 個。7個のはず）`)
-  })
+  },
+  // **下書きの世代交代が、手前の項目が残した状態に寄りかかっている。**
+  // 絞って回すと「1つ前」が育っておらず、必ず赤くなる（通しでは緑）。
+  { orderDependent: true })
 
   await check('未保存で「プロジェクトを開く」→「中止して保存する」で何も変わらない', async () => {
     await resetProject()
