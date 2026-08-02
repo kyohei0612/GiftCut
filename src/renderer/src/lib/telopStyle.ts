@@ -1,5 +1,7 @@
 // テロップのスタイル定義（プレミアのエッセンシャルグラフィックス相当）
 
+import { makeLru } from './lru'
+
 // コラボアイコンの基準サイズ（動画1080px高さ基準）。文字サイズとは独立させ、
 // アイコンサイズ倍率(iconScale)だけで大小を決める。従来の既定(fontSize90×1.6=144)に合わせた値。
 export const ICON_BASE_PX = 144
@@ -304,8 +306,19 @@ export const SHADOW_DIST_COEF = 1.0 // 距離: 一旦そのまま（15-20へ寄�
  */
 let inkCtx: CanvasRenderingContext2D | null = null
 let measHost: HTMLDivElement | null = null
+// フォント名が鍵なので増えない（種類の数で頭打ち）
 const baselineCache = new Map<string, number>()
-const inkCache = new Map<string, { top: number; bottom: number }>()
+/**
+ * 測ったインクの範囲の控え。**上限を付けてある。**
+ *
+ * 鍵に**文字の中身**が入っている（下の key を見ること）ので、
+ * 上限が無いと**1文字打つたびに新しい鍵ができ、古い物は一度も捨てられない**。
+ * ＝編集した分だけ増え続ける。実際に「編集すればするほど重くなる」と言われていた。
+ *
+ * 2000件は、実物のプロジェクト（テロップ242個）の8倍。1本ぶん編集しても
+ * 測り直しは起きず、打ち続けても増えない。
+ */
+const inkCache = makeLru<{ top: number; bottom: number }>(2000)
 
 /**
  * 文字を測るための canvas。**1枚を使い回す。**

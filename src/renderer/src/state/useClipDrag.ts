@@ -27,6 +27,23 @@ import { clamp } from '../../../shared/timeline'
 import { formatTime } from '../lib/srt'
 import type { ImgClip, SEClip, VClip } from '../lib/projectTypes'
 
+/**
+ * まとめて動かす束の、左端と右端。
+ *
+ * **吸い付ける相手は「掴んだ1つ」ではなく、この範囲。**
+ * 掴んだ物の端だけを見ていると、束の左端も右端もどこにも合わない
+ * （テロップが実際にそうなっていて「ケツに効かない」と言われた）。
+ * 1つだけ掴んでいるときも同じ道を通る＝そのクリップの頭と尻の両方に効く。
+ */
+function spanOf<T extends { tStart: number }>(
+  items: readonly T[],
+  lenOf: (c: T) => number
+): { start: number; end: number; len: number } {
+  const start = Math.min(...items.map((c) => c.tStart))
+  const end = Math.max(...items.map((c) => c.tStart + lenOf(c)))
+  return { start, end, len: end - start }
+}
+
 export interface ClipDragDeps {
   /** タイムラインの中身（座標の基準） */
   trackInnerRef: React.MutableRefObject<HTMLElement | null>
@@ -42,13 +59,14 @@ export interface ClipDragDeps {
   setDragTip: (v: { x: number; y: number; text: string } | null) => void
   /** 吸い付いた位置に出す縦線 */
   setSnapLineX: (v: number | null) => void
-  /** 端を吸い付ける（頭・尻の両方を見る） */
+  /** 端を吸い付ける（頭・尻の両方を見る）。`more` は state/useSnap を見ること */
   snapClipStart: (
     tStart: number,
     dur: number,
     excludeSeIds?: number[],
     excludeImgIds?: number[],
-    excludeVcIds?: number[]
+    excludeVcIds?: number[],
+    more?: { cues?: number[]; extra?: number[] }
   ) => number
   /** 時刻を吸い付ける */
   snapTime: (
@@ -135,6 +153,9 @@ export function useClipDrag(deps: ClipDragDeps) {
     const grpBase = new Map(
       seClips.filter((c) => grpIds.includes(c.id)).map((c) => [c.id, c.tStart])
     )
+    // 吸い付けるのは**束の全体**（左端〜右端）。掴んだ1つだけを見ていると
+    // 束の端がどこにも合わない。テロップと同じ決まりにしてある（state/useSnap）
+    const grpSpan = spanOf(seClips.filter((c) => grpIds.includes(c.id)), (c) => c.duration)
     setSelectedSeIds(grpIds)
     const inner = trackInnerRef.current
     const sx = e.clientX
@@ -160,8 +181,16 @@ export function useClipDrag(deps: ClipDragDeps) {
         setSeClips((prev) => prev.map((c) => (c.id === clip.id ? { ...c, ...t2 } : c)))
         setDragTip({ x: ev.clientX, y: ev.clientY, text: `開始 ${formatTime(t2.tStart)}` })
       } else {
-        const raw = Math.max(0, s0 + dt)
-        const nt = snapClipStart(raw, clip.duration, [clip.id]) // マグネット（左右端）
+        // マグネット。**束の全体で寄せ、束の仲間は寄せ先から外す**
+        //（外さないと、一緒に動いている隣に吸い付いて動けない）。
+        // 元の位置も寄せ先に足すので、段だけ変えるときに横へずれない。
+        const raw = Math.max(0, grpSpan.start + dt)
+        const nt =
+          snapClipStart(raw, grpSpan.len, grpIds, [], [], {
+            extra: [grpSpan.start, grpSpan.end]
+          }) -
+          grpSpan.start +
+          s0
         // 縦方向で別の音声トラックへ移動（テロップの上下移動と同じ操作感）
         const irect = inner.getBoundingClientRect()
         const lane = laneAtY(ev.clientY - irect.top)
@@ -242,6 +271,8 @@ export function useClipDrag(deps: ClipDragDeps) {
     const grpBase = new Map(
       imgClips.filter((c) => grpIds.includes(c.id)).map((c) => [c.id, c.tStart])
     )
+    // 吸い付ける相手は束の全体（上の spanOf）
+    const grpSpan = spanOf(imgClips.filter((c) => grpIds.includes(c.id)), (c) => c.duration)
     const sx = e.clientX
     const s0 = clip.tStart
     const d0 = clip.duration
@@ -264,8 +295,14 @@ export function useClipDrag(deps: ClipDragDeps) {
         )
         setDragTip({ x: ev.clientX, y: ev.clientY, text: `開始 ${formatTime(ns)}` })
       } else {
-        const raw = Math.max(0, s0 + dt)
-        const nt = snapClipStart(raw, clip.duration, [], [clip.id])
+        // 束の全体で寄せ、束の仲間は寄せ先から外す（効果音と同じ決まり）
+        const raw = Math.max(0, grpSpan.start + dt)
+        const nt =
+          snapClipStart(raw, grpSpan.len, [], grpIds, [], {
+            extra: [grpSpan.start, grpSpan.end]
+          }) -
+          grpSpan.start +
+          s0
         // 縦方向に動かしたら別の映像トラックへ移動（テロップの上下移動と同じ操作感）
         const irect = trackInnerRef.current?.getBoundingClientRect()
         const lane = irect ? laneAtY(ev.clientY - irect.top) : null
@@ -346,6 +383,11 @@ export function useClipDrag(deps: ClipDragDeps) {
     const grpBase = new Map(
       vClips.filter((c) => grpIds.includes(c.id)).map((c) => [c.id, c.tStart])
     )
+    // 吸い付ける相手は束の全体（上の spanOf）。長さは「イン点〜アウト点」
+    const grpSpan = spanOf(
+      vClips.filter((c) => grpIds.includes(c.id)),
+      (c) => Math.max(0.05, c.srcEnd - c.srcStart)
+    )
     setSelectedVClipIds(grpIds)
     const sx = e.clientX
     const t0 = clip.tStart
@@ -380,7 +422,13 @@ export function useClipDrag(deps: ClipDragDeps) {
         )
         setDragTip({ x: ev.clientX, y: ev.clientY, text: '開始 ' + formatTime(t2.tStart) })
       } else {
-        const nt = snapClipStart(Math.max(0, t0 + dt), e0 - s0, [], [], [clip.id])
+        // 束の全体で寄せ、束の仲間は寄せ先から外す（効果音・画像と同じ決まり）
+        const nt =
+          snapClipStart(Math.max(0, grpSpan.start + dt), grpSpan.len, [], [], grpIds, {
+            extra: [grpSpan.start, grpSpan.end]
+          }) -
+          grpSpan.start +
+          t0
         // 縦方向で別の映像トラックへ移動（V1は切片専用なので不可）
         const irect = trackInnerRef.current?.getBoundingClientRect()
         const lane = irect ? laneAtY(ev.clientY - irect.top) : null
