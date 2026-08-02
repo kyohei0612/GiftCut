@@ -57,6 +57,11 @@ export interface UseTimelineEditDeps {
   mainLocked: () => boolean
   makeGapSeg: any
   seekTo: (t: number) => void
+  /**
+   * 再生ヘッドが枠の外なら、見える所へ連れてくる（見えているときは何もしない）。
+   * リップル削除で詰めたあと、ヘッドだけ画面の外へ飛ぶことがある。
+   */
+  revealPlayhead: () => void
   segLayoutRef: React.MutableRefObject<{ seg: VSeg; tStart: number; tEnd: number; len: number; index: number }[]>
   segOps: any
   /** 無音カットの下ごしらえの状態（探している最中か・見つかった所） */
@@ -78,7 +83,7 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
   const {
     cleanupOrphanTrans, commitPending, copySelected, cueTrack, cutRangeFromSegs,
     deleteSelectedImg, deleteSelectedVClip, idCounter, mainLocked, makeGapSeg,
-    seekTo, segLayoutRef, segOps, setSilenceCut, setSilenceOpen, setTime,
+    seekTo, revealPlayhead, segLayoutRef, segOps, setSilenceCut, setSilenceOpen, setTime,
     shiftAfter, silenceCut, silenceCuts, stopPlayback, telopLocked, vcLen, videoRef
   } = deps
   const {
@@ -185,6 +190,11 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     if (holes.length) {
       const to = Math.min(...holes.map((h) => h.start))
       setTime(clamp(to, 0, durationRef.current))
+      // **詰めた先が枠の外なら、そこを見せる。** ヘッドは動いているのに画面が
+      // 前のままだと、消したあとどこに居るのか分からない。
+      // 見えているときは何もしない（押すたびに画面が揺れる方が読みにくい）。
+      // 立たせるのは次の描き直しのあと（setTime の結果を待つ）
+      requestAnimationFrame(revealPlayhead)
     }
     setSelectedIds([])
     setSelectedSeIds([])
@@ -341,7 +351,11 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     // 除去区間の中に居た物は、区間の頭へ寄せる（映像との同期を保つ）
     mapContentTimes(clampT)
     // 消した所へ再生ヘッドを寄せる（Q/W のリップルトリムと同じ扱いに揃える）
-    if (holeStart != null) setTime(clamp(holeStart, 0, durationRef.current))
+    if (holeStart != null) {
+      setTime(clamp(holeStart, 0, durationRef.current))
+      // 上と同じ（詰めた先が枠の外なら見せる）
+      requestAnimationFrame(revealPlayhead)
+    }
     clearSegSel()
   }
   // 選択中の動画切片を「黒ブランク」にトグル（長さ維持＝詰めない。Deleteの既定動作）

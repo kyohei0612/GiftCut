@@ -919,7 +919,7 @@ export function useAppWiring() {
   } = useTimelineEdit({
     cleanupOrphanTrans, commitPending, copySelected, cueTrack, cutRangeFromSegs,
     deleteSelectedImg, deleteSelectedVClip, idCounter, mainLocked, makeGapSeg,
-    seekTo, segLayoutRef, segOps, silenceCut, setSilenceCut, setSilenceOpen, setTime,
+    seekTo, revealPlayhead, segLayoutRef, segOps, silenceCut, setSilenceCut, setSilenceOpen, setTime,
     shiftAfter, silenceCuts, stopPlayback, telopLocked, vcLen, videoRef
   })
 
