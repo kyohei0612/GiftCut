@@ -44,17 +44,21 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 export const MAX_LINES = 1250
 
 /**
- * すでに超えている物。**この数字を増やす変更は通さない。**
+ * 上限を超えている物を、**今の行数のまま据え置く**ための逃げ道。
  *
- * 減らしたらここも減らすこと。0 になったら行ごと消す。
+ * ## いまは空（2026-08-02 に全部返した）
+ *
+ * | ファイル | 前 | 後 | 出した先 |
+ * |---|---|---|---|
+ * | `src/main/index.ts` | 3,352 | 758 | exportRun / assetLibrary / mediaProbe / projectFiles / ffmpegRun / assetRoots / allowList |
+ * | `lib/telopStyle.ts` | 1,730 | 659 | telopSvg / telopAnim / telopMotion |
+ * | `e2e/bench.mjs` | 1,641 | 977 | bench-limits / lib/fixture / lib/measure / lib/shell / lib/fmt |
+ * | `e2e/run.mjs` | 1,457 | 1,261 | lib/e2eFixture |
+ *
+ * **空のまま保つのが理想。** 足すのは「いま直せないが、増やすのは止めたい」ときだけ。
+ * 足したら必ず理由も書くこと（なぜ今は返せないのか）。減らしたらこの数字も直す。
  */
-export const DEBT: Record<string, number> = {
-  // 返した物（記録として残す。同じ手が次にも効く）:
-  //   src/main/index.ts            3,352 → 1,238（exportRun / mediaProbe / projectFiles / ffmpegRun / assetRoots / allowList へ）
-  //   src/renderer/src/lib/telopStyle.ts  1,730 → 659（telopSvg / telopAnim / telopMotion へ）
-  'e2e/bench.mjs': 1641,
-  'e2e/run.mjs': 1457
-}
+export const DEBT: Record<string, number> = {}
 
 const WATCH_DIRS = ['src', 'e2e', 'scripts']
 const SKIP_DIRS = new Set(['node_modules', 'out', 'dist', '.git', 'shots'])
