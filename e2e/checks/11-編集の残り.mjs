@@ -473,4 +473,79 @@ export default async function (C) {
   })
 
   // =========================================================================
+  section('ネスト（組）')
+
+  // 「組」は**種類をまたいで**効くのが売り（動画・テロップ・音をまとめて1つ）。
+  // ここで見たいのは3つだけ:
+  //
+  //   組にすると、片方を掴んだだけでもう片方も動く
+  //   解くと、動かなくなる          ← これが無いと「常に一緒に動くだけ」でも通る
+  //   保存して開き直しても残っている  ← 読み込む側の書き忘れは静かに消える
+  //
+  // 計算そのもの（番号の振り方・選択の広げ方）は src/shared/group.test.ts。
+  // ここは**画面の配線が繋がっているか**だけを見る。
+
+  /** テロップと効果音を1つの組にする。返すのは組にする前の効果音の x */
+  async function makeNest() {
+    await resetProject()
+    await page.locator('.telop-clip').nth(0).click()
+    await page.locator('.se-clip').first().click({ modifiers: ['Control'] })
+    await page.waitForTimeout(200)
+    await page.locator('.telop-clip').nth(0).click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const item = page.locator('.ctx-item', { hasText: 'ネストする' })
+    assert(await item.count(), 'メニューに「ネストする」が無い')
+    await item.first().click()
+    await page.waitForTimeout(400)
+  }
+
+  const seX = async () => Math.round((await page.locator('.se-clip').first().boundingBox()).x)
+
+  await check('組にすると、テロップを掴んだだけで効果音も一緒に動く', async () => {
+    await makeNest()
+    // 印が出ていないと「掴んだ物ではない帯が動いた」としか見えない
+    assert((await page.locator('.clip-nested').count()) >= 2, '組の印（🔗）が出ていない')
+    const x0 = await seX()
+    await dragBy(page.locator('.telop-clip').nth(0), 80)
+    await page.waitForTimeout(400)
+    const x1 = await seX()
+    assert(x1 > x0 + 40, `効果音が付いてこない（${x0} → ${x1}）`)
+  })
+
+  await check('組を解くと、一緒に動かなくなる', async () => {
+    await makeNest()
+    await page.locator('.telop-clip').nth(0).click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const item = page.locator('.ctx-item', { hasText: '組を解く' })
+    assert(await item.count(), 'メニューに「組を解く」が無い')
+    await item.first().click()
+    await page.waitForTimeout(400)
+    assert((await page.locator('.clip-nested').count()) === 0, '印が残っている')
+    const x0 = await seX()
+    await dragBy(page.locator('.telop-clip').nth(0), 80)
+    await page.waitForTimeout(400)
+    const x1 = await seX()
+    // ここが緑にならないと、上の確認は「常に一緒に動くだけ」でも通ってしまう
+    assert(Math.abs(x1 - x0) < 5, `解いたのに付いてくる（${x0} → ${x1}）`)
+  })
+
+  await check('組は、保存して開き直しても残っている', async () => {
+    await makeNest()
+    const n0 = await page.locator('.clip-nested').count()
+    const saved = join(outDir, 'nested.gcproj')
+    await setDialogFiles([saved], saved)
+    await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
+    await page.locator('.menu-drop-item', { hasText: '別名で保存' }).first().click()
+    await page.waitForTimeout(1500)
+    await page.keyboard.press('Control+o')
+    await page.waitForTimeout(500)
+    const cont = page.locator('.modal-btn', { hasText: 'このまま続ける' })
+    if (await cont.count()) await cont.click()
+    await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 15000 })
+    await page.waitForTimeout(800)
+    const n1 = await page.locator('.clip-nested').count()
+    assert(n1 === n0, `開き直したら組が消えた（${n0} → ${n1}）`)
+  })
+
+  // =========================================================================
 }
