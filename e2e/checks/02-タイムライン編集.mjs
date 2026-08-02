@@ -563,6 +563,45 @@ export default async function (C) {
     )
   })
 
+  // **段に置いた物は、段に固定されない。**
+  // 置いたら最後その段から動かせない、という状態が長く続いていた（本人から
+  // 「レーン固定で他レーンに動かせなかった」）。掴んで縦に振れば移せる。
+  // 上下の動きは種類ごとに別々の仕掛け（テロップ＝state/useTimelineDrag、
+  // 画像＝state/useClipDrag）なので、**両方見る**。片方だけ直っても気づけない。
+  await check('テロップを縦に振ると、別の段へ移せる（往復とも）', async () => {
+    await resetProject()
+    const rowY = async (id) => (await page.locator(`[data-tid="${id}"]`).boundingBox()).y
+    const dy = (await rowY('V3')) - (await rowY('V2')) // 上へ（負）
+    assert(Math.abs(dy) > 5, `段の高さが取れない（${dy}）`)
+    const n2 = await page.locator('[data-tid="V2"] .telop-clip').count()
+    const n3 = await page.locator('[data-tid="V3"] .telop-clip').count()
+    assert(n2 > 0, 'V2 に文字が無い状態から始まっている')
+
+    await dragBy(page.locator('[data-tid="V2"] .telop-clip').first(), 0, dy)
+    await page.waitForTimeout(500)
+    const up3 = await page.locator('[data-tid="V3"] .telop-clip').count()
+    assert(up3 === n3 + 1, `上の段へ移っていない（V3 が ${n3} → ${up3}）`)
+
+    // 戻せないと「片道だけ動く」状態に気づけない
+    await dragBy(page.locator('[data-tid="V3"] .telop-clip').first(), 0, -dy)
+    await page.waitForTimeout(500)
+    const back2 = await page.locator('[data-tid="V2"] .telop-clip').count()
+    assert(back2 === n2, `元の段へ戻せない（V2 が ${n2} → ${back2}）`)
+  })
+
+  await check('画像も別の段へ移せる', async () => {
+    await resetProject()
+    const rowY = async (id) => (await page.locator(`[data-tid="${id}"]`).boundingBox()).y
+    const dy = (await rowY('V2')) - (await rowY('V3')) // 下へ（正）
+    const img = page.locator('[data-tid="V3"] .img-clip:not(.se-ghost)')
+    assert(await img.count(), 'V3 に画像が無い状態から始まっている')
+    const before = await page.locator('[data-tid="V2"] .img-clip:not(.se-ghost)').count()
+    await dragBy(img.first(), 0, dy)
+    await page.waitForTimeout(500)
+    const after = await page.locator('[data-tid="V2"] .img-clip:not(.se-ghost)').count()
+    assert(after === before + 1, `下の段へ移っていない（V2 が ${before} → ${after}）`)
+  })
+
   await check('段見出しの境目を掴んで、レーンの高さを変えられる', async () => {
     // 高さを変える所は、左端の丸の列から**段見出しの境目**へ移した（プレミアと同じ）。
     // 境目は見出しと一緒に動くので、縦に送っても見えている段の境目は必ず掴める。

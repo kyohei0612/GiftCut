@@ -172,6 +172,10 @@ export function useClipDrag(deps: ClipDragDeps) {
     // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
     // 指は止まったままでも物は進むべきなので、そのぶん戻す）
     let sx = e.clientX
+    // **縦の動き出しも見る。** 横だけを見ていたので、真上・真下へ振っても
+    // 「まだ動いていない」と判定され、段を変える所まで一度も進まなかった
+    //（＝置いた段から動かせない。テロップだけは元から縦も見ていた）
+    const sy = e.clientY
     let lastEv: PointerEvent | null = null
     const es = startEdgeScroll(scrollRef.current, (dv) => {
       sx -= dv
@@ -184,7 +188,7 @@ export function useClipDrag(deps: ClipDragDeps) {
     const onMove = (ev: PointerEvent): void => {
       lastEv = ev
       es.track(ev.clientX)
-      if (!moved && Math.abs(ev.clientX - sx) < 3) return
+      if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 3) return
       moved = true
       if (!inner) return
       const dt = (ev.clientX - sx) / zoomRef.current
@@ -299,6 +303,10 @@ export function useClipDrag(deps: ClipDragDeps) {
     // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
     // 指は止まったままでも物は進むべきなので、そのぶん戻す）
     let sx = e.clientX
+    // **縦の動き出しも見る。** 横だけを見ていたので、真上・真下へ振っても
+    // 「まだ動いていない」と判定され、段を変える所まで一度も進まなかった
+    //（＝置いた段から動かせない。テロップだけは元から縦も見ていた）
+    const sy = e.clientY
     let lastEv: PointerEvent | null = null
     const es = startEdgeScroll(scrollRef.current, (dv) => {
       sx -= dv
@@ -310,7 +318,7 @@ export function useClipDrag(deps: ClipDragDeps) {
     const onMove = (ev: PointerEvent): void => {
       lastEv = ev
       es.track(ev.clientX)
-      if (!moved && Math.abs(ev.clientX - sx) < 3) return
+      if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 3) return
       moved = true
       const dt = (ev.clientX - sx) / zoomRef.current
       if (edge === 'r') {
@@ -427,6 +435,10 @@ export function useClipDrag(deps: ClipDragDeps) {
     // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
     // 指は止まったままでも物は進むべきなので、そのぶん戻す）
     let sx = e.clientX
+    // **縦の動き出しも見る。** 横だけを見ていたので、真上・真下へ振っても
+    // 「まだ動いていない」と判定され、段を変える所まで一度も進まなかった
+    //（＝置いた段から動かせない。テロップだけは元から縦も見ていた）
+    const sy = e.clientY
     let lastEv: PointerEvent | null = null
     const es = startEdgeScroll(scrollRef.current, (dv) => {
       sx -= dv
@@ -439,7 +451,7 @@ export function useClipDrag(deps: ClipDragDeps) {
     const onMove = (ev: PointerEvent): void => {
       lastEv = ev
       es.track(ev.clientX)
-      if (!moved && Math.abs(ev.clientX - sx) < 3) return
+      if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 3) return
       moved = true
       const dt = (ev.clientX - sx) / zoomRef.current
       // 端の計算は効果音と同じ規則（shared/clipEdit）。
