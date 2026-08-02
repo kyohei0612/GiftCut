@@ -392,45 +392,70 @@ export default async function (C) {
     assert(got === want, `色が残っていない（${got} / 期待 ${want}）`)
   })
 
-  await check('タイムラインを拡大縮小しても、クリップの位置がずれない', async () => {
+  await check('下の拡大バーで、拡大縮小と移動ができる', async () => {
+    // **拡大のつまみと横スクロールを1本にまとめた。**
+    // 真ん中を掴めば移動、左右の●で拡大・縮小（プレミアと同じ形）。
+    //
+    // 見るのは3つ: 寄れる／戻せる（位置がずれない）／掴んで動かすと見る所が変わる。
     await resetProject()
-    const zoom = page.locator('.tl-zoom input[type="range"]').first()
-    assert(await zoom.count(), '拡大のつまみが無い')
-    // range のつまみは fill が効かないので、値を直接入れて React に伝える
-    const setRange = (loc, v) =>
-      loc.evaluate((el, val) => {
-        const setter = Object.getOwnPropertyDescriptor(
-          window.HTMLInputElement.prototype,
-          'value'
-        ).set
-        setter.call(el, String(val))
-        el.dispatchEvent(new Event('input', { bubbles: true }))
-      }, v)
-    // **測る前に、拡大率を切りのいい値に決める。**
-    // ここへ来るまでの拡大率は前の項目次第で、全体表示（フィット）のあとだと
-    // 小数になっている。つまみは1刻みなので、読み取った値へ戻しても
-    // 元の小数には戻らず、比べると必ず数pxずれる。
-    await setRange(zoom, 30)
-    await page.waitForTimeout(500)
-    const inner = await page.locator('.track-inner').boundingBox()
-    const before = (await clipLayout()).map((c) => c.x - inner.x)
-    const v0 = await zoom.inputValue()
-    await setRange(zoom, Math.round(Number(v0) * 1.6))
-    await page.waitForTimeout(500)
-    const mid = await page.locator('.track-inner').boundingBox()
-    const zoomed = (await clipLayout()).map((c) => c.x - mid.x)
-    // 拡大したぶん、位置も比例して広がっているはず（順序と相対比が保たれる）
+    const bar = page.locator('.zoom-bar').first()
+    const thumb = page.locator('.zoom-bar-thumb').first()
+    assert(await bar.count(), '下の拡大バーが無い')
+    assert((await page.locator('.tl-zoom input[type="range"]').count()) === 0,
+      '古い拡大のつまみが残っている（2か所で操れる状態）')
+
+    const innerX = async () => (await page.locator('.track-inner').boundingBox()).x
+    const xs = async () => {
+      const ix = await innerX()
+      return (await clipLayout()).map((c) => Math.round(c.x - ix))
+    }
+    const before = await xs()
+    const w0 = (await thumb.boundingBox()).width
+
+    // 右の●を左へ引く＝見える範囲が狭まる＝寄る。
+    // **いまの幅から相対で狭める。** ここへ来るまでの拡大率は前の項目次第なので、
+    // 「バーの40%」のような決め打ちだと、元の方が狭いときに逆に広げてしまう
+    // （実際にそれで赤くなった）。
+    const tb0 = await thumb.boundingBox()
+    const knob = page.locator('.zbk-r').first()
+    const kb = await knob.boundingBox()
+    const target = tb0.x + tb0.width * 0.5 // いまの半分の幅にする
+    await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(target, kb.y + kb.height / 2, { steps: 10 })
+    await page.mouse.up()
+    await page.waitForTimeout(600)
+    const w1 = (await thumb.boundingBox()).width
+    assert(w1 < w0 - 2, `寄れていない（つまみ ${Math.round(w0)} → ${Math.round(w1)}px）`)
+    const zoomed = await xs()
     assert(
       zoomed.every((x, i) => i === 0 || x > zoomed[i - 1]),
       '拡大したら順序が崩れた'
     )
-    await setRange(zoom, Number(v0))
-    await page.waitForTimeout(500)
-    const back = await page.locator('.track-inner').boundingBox()
-    const after = (await clipLayout()).map((c) => c.x - back.x)
+
+    // 真ん中を掴んで右へ＝見る所が動く（拡大率は変わらない）
+    const tb = await thumb.boundingBox()
+    const wBefore = tb.width
+    await page.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(tb.x + tb.width / 2 + 60, tb.y + tb.height / 2, { steps: 8 })
+    await page.mouse.up()
+    await page.waitForTimeout(600)
+    const moved = await page.locator('.zoom-bar-thumb').first().boundingBox()
+    assert(moved.x > tb.x + 10, `掴んで動かしても見る所が変わらない（${Math.round(tb.x)} → ${Math.round(moved.x)}）`)
     assert(
-      after.every((x, i) => Math.abs(x - before[i]) < 3),
-      `戻したら位置がずれた（${before.map(Math.round)} → ${after.map(Math.round)}）`
+      Math.abs(moved.width - wBefore) < 3,
+      `移動なのに拡大率まで変わった（${Math.round(wBefore)} → ${Math.round(moved.width)}px）`
+    )
+
+    // 全体表示へ戻すと、元の位置関係に戻る
+    await page.locator('.tool', { hasText: '↔' }).first().click()
+    await page.waitForTimeout(600)
+    const after = await xs()
+    assert(after.length === before.length, 'クリップの数が変わった')
+    assert(
+      after.every((x, i) => i === 0 || x > after[i - 1]),
+      `戻したら順序が崩れた（${after}）`
     )
   })
 

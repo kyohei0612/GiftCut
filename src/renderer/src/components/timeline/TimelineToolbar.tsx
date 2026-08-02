@@ -8,7 +8,6 @@
 // 「Alt=複製 / Ctrl=割り込み」のように、その場で使える物だけを出す。
 
 import type { JSX } from 'react'
-import { ZOOM_MAX, ZOOM_MIN } from '../../state/useView'
 
 export type TimelineTool = 'select' | 'razor' | 'trackFwd' | 'trackBack'
 
@@ -23,8 +22,6 @@ export function TimelineToolbar({
   onRedo,
   onSplit,
   onSilenceCut,
-  zoom,
-  onZoom,
   onFit,
   hint,
   keyHint
@@ -39,8 +36,6 @@ export function TimelineToolbar({
   onRedo: () => void
   onSplit: () => void
   onSilenceCut: () => void
-  zoom: number
-  onZoom: (v: number) => void
   onFit: () => void
   /** 右端に出す説明 */
   hint: string
@@ -105,22 +100,15 @@ export function TimelineToolbar({
       <button className="tool tool-wide" title="喋っていない所をまとめて切る" onClick={onSilenceCut}>
         🔇 無音カット
       </button>
+      {/* **拡大のつまみはここから外した。** 下の拡大バー
+          （components/timeline/ZoomBar.tsx）が拡大と移動の両方をやる。
+          2か所で操れると「どこを見ているか」と「どれだけ寄っているか」が
+          別々の道具になり、片方だけ動かして迷子になる。
+          「↔（フィット）」だけは押す物なので残す。 */}
       <div className="tl-zoom">
         <button className="tool tool-sm" title="タイムライン全体を表示（フィット）" onClick={onFit}>
           ↔
         </button>
-        <span>拡大</span>
-        {/* 範囲は state/useView.ts の ZOOM_MIN / ZOOM_MAX。
-            バーとホイールとフィットで同じ限界を使う（別々に書くと、
-            バーは端まで行ったのにホイールではまだ寄れる、が起きる） */}
-        <input
-          type="range"
-          min={ZOOM_MIN}
-          max={ZOOM_MAX}
-          value={zoom}
-          onChange={(e) => onZoom(Number(e.target.value))}
-          title="タイムラインの拡大率（Ctrl+ホイールでも操作可）"
-        />
       </div>
       <span className="tl-hint">{hint}</span>
     </div>

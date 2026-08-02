@@ -12,7 +12,6 @@
 
 import { clamp } from '../../../shared/timeline'
 import { ZOOM_MAX, ZOOM_MIN } from './useView'
-import { usePlaybackCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
 
 export interface UseViewNavDeps {
@@ -27,7 +26,6 @@ export interface UseViewNavDeps {
 
 export interface ViewNav {
   /** 再生ヘッドを軸にして寄る／引く */
-  zoomAroundPlayhead: (nz: number) => void
   /** 中身がちょうど収まる拡大率に合わせる */
   fitTimelineZoom: () => void
   /** 目盛りを擦った位置へ飛ぶ */
@@ -36,37 +34,8 @@ export interface ViewNav {
 
 export function useViewNav(deps: UseViewNavDeps): ViewNav {
   const { scrollRef, trackInnerRef, contentEndRef, seekTo } = deps
-  const { currentTimeRef } = usePlaybackCtx()
   const { setZoom, zoomRef } = useViewCtx()
 
-  /**
-   * 拡大率を変える。**再生ヘッドが画面から逃げないように**、
-   * 再生ヘッドのある所を軸にして寄る／引く。
-   *
-   * 素で拡大率だけ変えると、左端(0秒)を軸に伸び縮みするので、
-   * 拡大するほど再生ヘッドが右へ吹き飛んでいく。**いま見ている場所を見失う**ので、
-   * 拡大のたびに横スクロールで探し直すことになっていた。
-   *
-   * 再生ヘッドが枠の外にいるときは真ん中へ連れてくる
-   * （見えていない物を軸にしても、結局どこへ飛ぶか分からない）。
-   */
-  function zoomAroundPlayhead(nz: number): void {
-    const el = scrollRef.current
-    const z0 = zoomRef.current
-    const t = currentTimeRef.current
-    if (!el || !(z0 > 0)) {
-      setZoom(nz)
-      return
-    }
-    const w = el.clientWidth
-    let px = t * z0 - el.scrollLeft // 枠の左端から再生ヘッドまで(px)
-    if (px < 0 || px > w) px = w / 2
-    setZoom(nz)
-    // 幅が新しい拡大率で決まってから寄せる（先に動かすと切り詰められる）
-    requestAnimationFrame(() => {
-      el.scrollLeft = Math.max(0, t * nz - px)
-    })
-  }
 
   // 「連れてくる」（revealPlayhead）と「飛ばして見せる」（seekAndReveal）は
   // ここには無い。**飛ばす側と輪になっていた**ので、
@@ -92,5 +61,5 @@ export function useViewNav(deps: UseViewNavDeps): ViewNav {
     seekTo((cx - rect.left) / zoomRef.current)
   }
 
-  return { zoomAroundPlayhead, fitTimelineZoom, scrubFromClientX }
+  return { fitTimelineZoom, scrubFromClientX }
 }

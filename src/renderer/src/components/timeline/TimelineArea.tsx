@@ -24,6 +24,7 @@
 
 import type { JSX } from 'react'
 import { TimelineToolbar } from './TimelineToolbar'
+import { ZoomBar } from './ZoomBar'
 import { TrackHeaders } from './TrackHeaders'
 import { TimeRuler, Marquee, MarkerFlags, Playhead } from './Ruler'
 import { TelopBands, TelopDropGhost } from './TelopBands'
@@ -46,6 +47,7 @@ import { useDoc } from '../../state/contentContext'
 import { useSel } from '../../state/selectionContext'
 import { useTracksCtx } from '../../state/tracksContext'
 import { useViewCtx } from '../../state/viewContext'
+import { ZOOM_MAX, ZOOM_MIN } from '../../state/useView'
 import { usePlaybackCtx } from '../../state/playbackContext'
 import { useMediaCtx } from '../../state/mediaContext'
 import { useLayout } from '../../state/layoutContext'
@@ -77,7 +79,7 @@ export function TimelineArea(): JSX.Element {
     silenceCut, shortcuts, duration,
     tool, setTool, snap, hoverX, setHoverX, lastHoverPaintRef, telopDrop, setTelopDrop,
     transDrop, setTransDrop, segLayout, rulerTicks, padTop, padBottom, trackHOf, inView,
-    scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll, zoomAroundPlayhead,
+    scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll,
     fitTimelineZoom
   } = useTimelineView()
   const { markers, setMarkers, vClips, imgClips } = useDoc()
@@ -86,7 +88,7 @@ export function TimelineArea(): JSX.Element {
      editingMarkerId, setEditingMarkerId
   } = useSel()
   const { tracks, trackStates } = useTracksCtx()
-  const { zoom, zoomRef } = useViewCtx()
+  const { zoom, setZoom, zoomRef } = useViewCtx()
   const { currentTime, fps } = usePlaybackCtx()
   const { videoSrc, mediaItems } = useMediaCtx()
   const { timelineH } = useLayout()
@@ -111,8 +113,6 @@ export function TimelineArea(): JSX.Element {
           setSilenceOpen(true)
           if (!silenceCut.found && !silenceCut.busy) void findSilences()
         }}
-        zoom={zoom}
-        onZoom={zoomAroundPlayhead}
         onFit={fitTimelineZoom}
         hint={
           tool === 'razor'
@@ -459,6 +459,25 @@ export function TimelineArea(): JSX.Element {
           </div>
         </div>
       </div>
+      {/* 下の拡大バー（components/timeline/ZoomBar.tsx）。
+          真ん中を掴めば移動、左右の●で拡大・縮小——**1本で両方**やる。
+          前は「拡大のつまみ」と「横スクロール」が別々にあった。 */}
+      <ZoomBar
+        totalSec={Math.max(1, duration)}
+        zoom={zoom}
+        limits={{ min: ZOOM_MIN, max: ZOOM_MAX }}
+        scrollRef={scrollRef}
+        onApply={(z, left) => {
+          setZoom(z)
+          // **幅が新しい拡大率で決まってから位置を当てる。**
+          // 先に当てると、まだ古い（狭い）中身の幅で切り詰められて、
+          // 掴んでいない側の端まで動く。Ctrl+ホイール側も同じ理由で1コマ待っている
+          requestAnimationFrame(() => {
+            const el = scrollRef.current
+            if (el) el.scrollLeft = left
+          })
+        }}
+      />
     </section>
   )
 }

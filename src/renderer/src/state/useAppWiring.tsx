@@ -752,7 +752,7 @@ export function useAppWiring() {
   })
 
   // 見ている場所を動かす（寄る・引く・連れてくる）は state/useViewNav
-  const { zoomAroundPlayhead, fitTimelineZoom, scrubFromClientX } =
+  const { fitTimelineZoom, scrubFromClientX } =
     useViewNav({ scrollRef, trackInnerRef, contentEndRef, seekTo })
 
   // タイムライン上の目印（頭出し・メモ）は state/useMarkers
@@ -1142,7 +1142,7 @@ export function useAppWiring() {
     telopDrop, setTelopDrop, transDrop, setTransDrop,
     segLayout, rulerTicks, padTop, padBottom, trackHOf, inView,
     scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll,
-    zoomAroundPlayhead, fitTimelineZoom
+    fitTimelineZoom
   }
 
   // プレビュー（中央の映像）まわり。中身は state/previewContext.tsx

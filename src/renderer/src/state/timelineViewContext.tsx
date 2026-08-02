@@ -80,7 +80,6 @@ export interface TimelineView {
   syncTimelineVScroll: any
 
   // ---- 寄る・引く ----
-  zoomAroundPlayhead: any
   fitTimelineZoom: any
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
