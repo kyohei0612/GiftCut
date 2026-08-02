@@ -61,6 +61,7 @@
 | 止めている失敗 | 検査 |
 |---|---|
 | ファイルが気づいたら1万行 | `src/shared/fileSize.test.ts`（上限1,250行＋借金の据え置き） |
+| **上限に当たってから慌てる** | 同上。**1,200行を超えたら名前を出して知らせる**（止めない）。<br>出たファイルは**次に触るときに、まず出す物を決める** |
 | 同じ物を別の場所に二重に書く | `src/shared/noDuplicate.test.ts`（shared の作り直し／12行そっくり） |
 | 使っていない物がたまる | tsconfig の `noUnusedLocals` |
 | 時間計算がバラバラになる | `src/shared/timeline.test.ts` |

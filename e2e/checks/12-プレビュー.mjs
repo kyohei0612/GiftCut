@@ -265,6 +265,37 @@ export default async function (C) {
     await page.waitForTimeout(300)
   })
 
+  // **映像の枠の縦横比は、モニタ区画の形に関わらず保たれること。**
+  // 崩れると、中の映像だけ小さくなって（object-fit: contain）枠の中に余白ができる。
+  // テロップは**枠の高さ**を基準に置いているので、そのぶん大きく・外側に出る
+  //（本人「プレビューの枠を大きくし過ぎるとテロップがズレる／右へはみ出して切れる」）。
+  await check('モニタを細くしても、映像の枠の縦横比は保たれる', async () => {
+    await resetProject()
+    const got = await page.evaluate(() => {
+      const st = document.querySelector('.monitor-stage')
+      const sc = document.querySelector('.screen')
+      if (!st || !sc) return null
+      const keep = st.style.width
+      const out = []
+      for (const w of ['1200px', '600px', '320px']) {
+        st.style.width = w
+        const b = sc.getBoundingClientRect()
+        out.push({ w, r: b.height > 0 ? +(b.width / b.height).toFixed(3) : null })
+      }
+      st.style.width = keep
+      return out
+    })
+    assert(got, 'モニタ区画が見つからない')
+    const want = 16 / 9
+    const bad = got.filter((g) => g.r == null || Math.abs(g.r - want) > 0.02)
+    assert(
+      bad.length === 0,
+      `縦横比が崩れている（欲しい ${want.toFixed(3)}／` +
+        got.map((g) => `${g.w}→${g.r}`).join('、') +
+        '）'
+    )
+  })
+
   await check('テロップを重ねて置くと、重なった分が消える（上書き）', async () => {
     // **動画クリップは元から上書きされるのに、テロップだけ重なったまま残っていた。**
     // 画面では前後に重なって見えるだけで、どちらが出ているのか分からない。

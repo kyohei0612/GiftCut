@@ -68,6 +68,19 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 export const MAX_LINES = 1250
 
 /**
+ * **「もうすぐ壁」を先に知らせる線。**
+ *
+ * 上限は超えた瞬間に赤くなるが、それだと**直したい変更の途中で壁にぶつかる**。
+ * 実際 2026-08-03 に2回起きた（`useAppWiring.tsx` と `e2e/run.mjs`)。
+ * どちらも本題と関係ない所で説明を削る羽目になり、削るべきでない「なぜ」まで
+ * 削りかけた。
+ *
+ * ここを超えた物は**次にそこを触るときに、まず出す物を決める**。
+ * 止めはしない（止めると、関係ない変更が全部そこで詰まる）。
+ */
+export const WARN_LINES = 1200
+
+/**
  * 上限を超えている物を、**今の行数のまま据え置く**ための逃げ道。
  *
  * ## いまは空（2026-08-02 に全部返した）
@@ -116,6 +129,23 @@ describe('1回で読み切れる大きさを保つ', () => {
       .filter((f) => !(f.path in DEBT) && f.lines > MAX_LINES)
       .map((f) => `${f.path} … ${f.lines}行`)
     expect(over, '\n' + over.join('\n') + '\n\n上の説明「赤くなったときに」を読むこと').toEqual([])
+  })
+
+  // **止めない見張り。** 上限に当たってから慌てるのを避けるためだけにある。
+  // 赤くしないのは、関係ない変更まで「先にリファクタしてから」で詰まらせないため。
+  it(`上限まで残りわずかなファイルを知らせる（${WARN_LINES}行〜）`, () => {
+    const near = files
+      .filter((f) => !(f.path in DEBT) && f.lines > WARN_LINES && f.lines <= MAX_LINES)
+      .sort((a, b) => b.lines - a.lines)
+    if (near.length)
+      console.warn(
+        '\n※ 上限（' +
+          MAX_LINES +
+          '行）が近い。**次にここを触るときは、まず出す物を決めること**:\n' +
+          near.map((f) => `   ${f.path} … ${f.lines}行（残り ${MAX_LINES - f.lines}）`).join('\n') +
+          '\n'
+      )
+    expect(true).toBe(true) // 知らせるだけ。止めない
   })
 
   it('借金のファイルが、いまより太っていない', () => {

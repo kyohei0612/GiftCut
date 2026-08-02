@@ -123,7 +123,16 @@ export function PreviewArea(): JSX.Element {
           <div
             ref={screenRef}
             className="screen"
-            style={{ aspectRatio: monitorAspect }}
+            // `--ar` は縦横比を**数**で渡す物。CSS 側で「幅いっぱいに収まる高さ」を
+            // 出すのに要る（`aspect-ratio` の文字列では割り算できない）。styles.css の .screen を見ること
+            style={
+              {
+                aspectRatio: monitorAspect,
+                '--ar': String(
+                  Number(monitorAspect.split('/')[0]) / Number(monitorAspect.split('/')[1])
+                )
+              } as React.CSSProperties
+            }
             onPointerDown={(e) => {
               // プレビューの空きエリア（テロップ以外）をクリック＝テロップ選択解除＋動画リフレーム。
               // テロップ本体/リサイズハンドル/編集エディタは stopPropagation 済みでここへ来ない。
