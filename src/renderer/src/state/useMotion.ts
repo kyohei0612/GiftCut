@@ -18,9 +18,9 @@
 // 数が多いときは聞く（確認なしで全部消えると、何を失ったのかも分からない）。
 
 import { clamp } from '../../../shared/timeline'
-import { hasKeys, putKey, valueAt, type Keys } from '../../../shared/keyframes'
+import { hasKeys, putKey, removeKey, valueAt, type Keys } from '../../../shared/keyframes'
 import { hasClipMotion, type ClipMotion } from '../../../shared/clipMotion'
-import { hasMotion, type Motion, type TelopAnim } from '../lib/telopStyle'
+import { hasMotion, sanitizeMotion, type Motion, type TelopAnim } from '../lib/telopStyle'
 import { DEFAULT_ZOOM, isNeutralZoom } from '../lib/clipLook'
 import type { MotionPresetFile } from '../../../shared/telopMotion'
 import { useDoc } from './contentContext'
@@ -60,6 +60,49 @@ export function useMotion(deps: UseMotionDeps) {
     setCues((prev) =>
       prev.map((c) => (c.id === cueId ? { ...c, motion: hasMotion(motion) ? motion : undefined } : c))
     )
+  }
+
+  /**
+   * タイムラインの◆を1つ消す。
+   *
+   * **消す手段が無かった。** 打つのは ⏱ と値の打ち込みでできるのに、
+   * 消すのは「その項目ごと捨てる」しか無く、1つだけ打ち間違えたときに
+   * 全部やり直しになっていた。
+   *
+   * ◆は**その時刻に印がある項目を1つにまとめて**出しているので、
+   * 消すときも同じ時刻の印を全項目から外す（見えている◆と一致させる）。
+   * 印が1つも残らなくなった項目は、動き自体を外す（空の入れ物を残さない）。
+   */
+  function removeKeyAtTime(
+    target: { kind: 'telop'; id: number } | { kind: 'video' | 'img' | 'vclip'; id: number },
+    t: number
+  ): void {
+    if (target.kind === 'telop') {
+      setCues((prev) =>
+        prev.map((c) => {
+          if (c.id !== target.id || !c.motion) return c
+          const next: Record<string, unknown> = { ...c.motion }
+          for (const k of Object.keys(next)) next[k] = removeKey(next[k] as Keys, t)
+          const m = sanitizeMotion(next as Motion)
+          return { ...c, motion: hasMotion(m) ? m : undefined }
+        })
+      )
+      return
+    }
+    const strip = <T extends { motion?: ClipMotion }>(c: T): T => {
+      if (!c.motion) return c
+      const next: ClipMotion = {
+        sc: removeKey(c.motion.sc, t),
+        x: removeKey(c.motion.x, t),
+        y: removeKey(c.motion.y, t)
+      }
+      return { ...c, motion: hasClipMotion(next) ? next : undefined }
+    }
+    if (target.kind === 'video')
+      setSegments((prev) => prev.map((s) => (s.id === target.id ? strip(s) : s)))
+    else if (target.kind === 'img')
+      setImgClips((prev) => prev.map((c) => (c.id === target.id ? strip(c) : c)))
+    else setVClips((prev) => prev.map((c) => (c.id === target.id ? strip(c) : c)))
   }
 
   /** 選んでいる映像全部から、その項目の印を捨てる（固定値も既定へ戻す） */
@@ -283,5 +326,5 @@ export function useMotion(deps: UseMotionDeps) {
     return [...set].filter((t) => t < dur - 1e-4).sort((a, b) => a - b)
   }
 
-  return { setMotion, resetClipChannel, clearClipMotions, toggleKeys, nudgeClips, applyMotionPreset, animBreakpoints }
+  return { setMotion, removeKeyAtTime, resetClipChannel, clearClipMotions, toggleKeys, nudgeClips, applyMotionPreset, animBreakpoints }
 }

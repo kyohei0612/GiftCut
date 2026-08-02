@@ -32,6 +32,7 @@ import { clipMotionKeyTimes } from '../../../../shared/clipMotion'
 import type { SegLayout, Source, VSeg } from '../../lib/projectTypes'
 import { useSel } from '../../state/selectionContext'
 import { useMediaCtx } from '../../state/mediaContext'
+import { useTimelineOps } from '../../state/timelineOpsContext'
 
 /** V1。カットして並べた映像の切片 */
 export function MainVideoBands({
@@ -57,6 +58,8 @@ export function MainVideoBands({
 }): JSX.Element {
   const { isVideoSel } = useSel()
   const { videoName, mediaItems, thumbnailSrc } = useMediaCtx()
+  // ◆を右クリックで消す（心臓は state/useMotion の removeKeyAtTime）
+  const { removeKeyAtTime } = useTimelineOps()
   return (
     <>
       {segLayout.filter((L) => inView(L.tStart, L.tEnd)).map((L) =>
@@ -126,6 +129,7 @@ export function MainVideoBands({
             times={clipMotionKeyTimes(L.seg.motion)}
             zoom={zoom}
             clipStart={L.tStart}
+            onRemove={(t) => removeKeyAtTime({ kind: 'video', id: L.seg.id }, t)}
           />
         </ClipBand>
         )

@@ -4457,3 +4457,16 @@ input[type="range"] {
   pointer-events: none;
   z-index: 5;
 }
+/* 消せる印だけがマウスを受け取る。**形を変えて「触れる」と分かるようにする**
+   （触れるのに見た目が同じだと、右クリックできることに気づけない）。
+   当たり判定は少し広げたいが、印そのものを大きくすると帯が見づらくなるので、
+   透明な輪郭で外側だけ広げている。 */
+.kf-mark-hot {
+  pointer-events: auto;
+  cursor: pointer;
+  outline: 3px solid transparent;
+}
+.kf-mark-hot:hover {
+  background: #fff;
+  border-color: var(--playhead);
+}

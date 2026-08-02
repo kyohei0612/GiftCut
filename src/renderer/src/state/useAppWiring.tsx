@@ -643,7 +643,7 @@ export function useAppWiring() {
 
   // 動き（キーフレーム）を付ける・消す・配るのは state/useMotion
   const {
-     resetClipChannel, clearClipMotions, toggleKeys, nudgeClips,
+     removeKeyAtTime, resetClipChannel, clearClipMotions, toggleKeys, nudgeClips,
     applyMotionPreset, animBreakpoints
   } = useMotion({
     reframeTargetRef, askConfirm, showToast, segLayout,
@@ -1110,6 +1110,7 @@ export function useAppWiring() {
   //（1つにまとめると、掴んで影が動くたびに操作の入口も「変わった」ことになる）。
   // 中身は state/timelineOpsContext.tsx / state/timelineViewContext.tsx
   const timelineOps: TimelineOps = {
+    removeKeyAtTime,
     onClipPointerDown, onClipContextMenu, onTrimStart, onSegPointerDown, onSegTrimStart,
     onSePointerDown, onImgPointerDown, onVClipPointerDown, onMarkerPointerDown,
     onTrackAreaPointerDown, startScrub, startGroupResize, startTransResize, openClipMenu,

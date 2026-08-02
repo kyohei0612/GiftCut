@@ -75,6 +75,11 @@ export interface TimelineOps {
   applyTelopTransDrop: any
   selectTelopTrans: any
   patchCueAnim: any
+  /** タイムラインの◆を1つ消す（右クリック） */
+  removeKeyAtTime: (
+    target: { kind: 'telop' | 'video' | 'img' | 'vclip'; id: number },
+    t: number
+  ) => void
 
   // ---- 道具立て（ツールバー）----
   undo: any

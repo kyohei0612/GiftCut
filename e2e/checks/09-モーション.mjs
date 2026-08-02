@@ -116,6 +116,48 @@ export default async function (C) {
     assert(w2 != null && Math.abs(w2 - w0) < 4, `⏱ を消しても元に戻らない（${w0} → ${w2}）`)
   })
 
+  await check('タイムラインの印を右クリックすると、その印だけ消える', async () => {
+    // **消す手段が無かった。** 打つのは ⏱ と打ち込みでできるのに、消すのは
+    // 「その項目ごと捨てる」しか無く、1つ打ち間違えると全部やり直しだった。
+    if (!(await page.locator('.telop-clip .kf-mark').count())) {
+      await page.locator('.telop-clip').first().click()
+      await page.waitForTimeout(300)
+      await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+      await page.waitForTimeout(300)
+      const trow = page.locator('.mo-row').filter({ hasText: '位置 X' }).first()
+      assert(await trow.count(), 'テロップのモーションに「位置 X」が無い')
+      await seekTo(1.2)
+      await page.waitForTimeout(300)
+      if (!(await trow.locator('.mo-watch.on').count())) await trow.locator('.mo-watch').click()
+      await page.waitForTimeout(300)
+      await seekTo(2.6)
+      await page.waitForTimeout(300)
+      await trow.locator('.mo-val').fill('300')
+      await trow.locator('.mo-val').press('Enter')
+      await page.waitForTimeout(500)
+      await trow.locator('.mo-val').evaluate((el) => el.blur())
+      await page.waitForTimeout(200)
+      touchedRef.dirty = true
+    }
+    const marks = page.locator('.telop-clip .kf-mark')
+    const before = await marks.count()
+    assert(before >= 2, `印が2つ以上ないと消す確認にならない（${before}個）`)
+    await marks.first().click({ button: 'right' })
+    await page.waitForTimeout(400)
+    const after = await marks.count()
+    assert(after === before - 1, `印が1つだけ減っていない（${before} → ${after}）`)
+    // **全部消えていないこと**まで見る（「その項目ごと捨てる」と区別が付かないため）
+    assert(after > 0, '押した印だけでなく、全部消えている')
+    // **消したぶんを戻す。** ここは章の途中で、後ろの項目はこの印が
+    // 2つ揃っている前提で動く（消したままだと次が「印が1つしかない」で落ちる）
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+    assert(
+      (await marks.count()) === before,
+      `戻していない（${before} → ${await marks.count()}）。後ろの項目が巻き添えになる`
+    )
+  })
+
   await check('付けた動きは、保存して開き直しても残っている', async () => {
     // 保存の拾い忘れで動きだけ静かに消える、という事故を防ぐ
     //

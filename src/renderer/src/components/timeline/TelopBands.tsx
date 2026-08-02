@@ -28,6 +28,7 @@ import type { AnimIn, TelopAnim } from '../../lib/telopStyle'
 import type { Cue } from '../../lib/srt'
 import { clamp } from '../../../../shared/timeline'
 import { useDoc } from '../../state/contentContext'
+import { useTimelineOps } from '../../state/timelineOpsContext'
 import { useSel } from '../../state/selectionContext'
 import { usePlaybackCtx } from '../../state/playbackContext'
 
@@ -91,6 +92,8 @@ export function TelopBands({
 }): JSX.Element {
   const { cues } = useDoc()
   const { isSelected, setSelectedIds, setEditingId, selectedTelopTrans } = useSel()
+  // ◆を右クリックで消す（心臓は state/useMotion の removeKeyAtTime）
+  const { removeKeyAtTime } = useTimelineOps()
   const { currentTimeRef } = usePlaybackCtx()
   return (
     <>
@@ -152,6 +155,7 @@ export function TelopBands({
             times={motionKeyTimes(cue.motion)}
             zoom={zoom}
             clipStart={cue.start}
+            onRemove={(t) => removeKeyAtTime({ kind: 'telop', id: cue.id }, t)}
           />
           {/* 出入りの動きの帯（components/timeline/TelopAnimBand.tsx）。
               動画のトランジションと同じ流儀: 範囲表示＋クリック選択。 */}
