@@ -32,6 +32,7 @@
 | 止めている失敗 | 検査 |
 |---|---|
 | ファイルが気づいたら1万行 | `src/shared/fileSize.test.ts`（上限1,250行＋借金の据え置き） |
+| 同じ物を別の場所に二重に書く | `src/shared/noDuplicate.test.ts`（shared の作り直し／12行そっくり） |
 | 使っていない物がたまる | tsconfig の `noUnusedLocals` |
 | 時間計算がバラバラになる | `src/shared/timeline.test.ts` |
 | 画面と書き出しで絵がズレる | `shared/clipMotion`・`shared/filterGraph` の試験 |

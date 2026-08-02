@@ -36,12 +36,10 @@ export interface Adjust {
   s: number
 }
 
-/** 実質「無調整」か（無調整ならフィルタを1段挟むだけ無駄なので付けない） */
-export function isNeutralAdjust(a?: Adjust): boolean {
-  return (
-    !a || (Math.abs(a.b - 1) <= 1e-3 && Math.abs(a.c - 1) <= 1e-3 && Math.abs(a.s - 1) <= 1e-3)
-  )
-}
+// 実質「無調整」かの判定は ./neutral に1つだけ置いてある。
+// **画面と書き出しで別々に持たない**（別々にすると、見た絵と出来た絵が違う）。
+export { isNeutralAdjust } from './neutral'
+import { isNeutralAdjust } from './neutral'
 
 /**
  * 色調整のフィルタ文字列。無調整なら空文字（呼ぶ側はそのまま繋げてよい）。

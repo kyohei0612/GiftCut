@@ -144,9 +144,10 @@ export interface BuildInput {
   tailEnds: number[]
 }
 
-const isNeutralZoom = (z?: Zoom): boolean => !z || (z.scale === 1 && z.x === 0 && z.y === 0)
-const isNeutralAdjust = (a?: Adjust): boolean => !a || (a.b === 1 && a.c === 1 && a.s === 1)
-const isNeutralCrop = (c?: Crop): boolean => !c || (c.l === 0 && c.r === 0 && c.t === 0 && c.b === 0)
+// ※ ここは 2026-08-02 まで**ぴったり比較**（=== 1）で、画面側だけが誤差を許していた。
+//   つまみで戻して 1.0000001 になると、画面は何も出さないのに書き出しは
+//   zoompan を1段掛ける（見えない差のために書き出しが 35% 遅くなる）。
+import { isNeutralAdjust, isNeutralCrop, isNeutralZoom } from './neutral'
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
 
 /** 数字の入る所だけを渡す（等倍・無調整は渡さない） */

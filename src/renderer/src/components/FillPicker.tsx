@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FillGradient } from '../lib/telopStyle'
+import { clamp } from '../../../shared/timeline'
 
 // ===== 色変換 =====
-const clamp = (v: number, a: number, b: number): number => Math.max(a, Math.min(b, v))
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
   let h = (hex || '#000000').replace('#', '')
   if (h.length === 3) h = h.split('').map((c) => c + c).join('')
