@@ -15,6 +15,7 @@
 // 無理に当てると壊れるので、**持っている物だけ**を写す。
 import { useRef } from 'react'
 import type { ClipMotion } from '../../../shared/clipMotion'
+import { nextGroupId, remapGroups } from '../../../shared/group'
 import type { Keys } from '../../../shared/keyframes'
 import { sanitizeMotion, type Motion } from '../lib/telopStyle'
 import type { MotionRow } from '../components/panels/MotionTab'
@@ -474,12 +475,22 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
       ...clipVc.map((c) => c.tStart)
     ]
     const offset = currentTimeRef.current - Math.min(...starts) // 貼り付けは再生ヘッド位置基準
+    // 「組」は**写しごとに新しい番号を振る。** 元の番号のまま貼ると、
+    // 貼った物と元が同じ組になり、貼った方を動かしたつもりで元まで動く。
+    // 元が2つの組に分かれていたら、貼った側でも2つのまま保つ（shared/group）
+    const gmap = remapGroups(
+      [...clip, ...clipSe, ...clipImg, ...clipVc].map((c) => c.group),
+      nextGroupId({ cue: cues, se: seClips, img: imgClips, vclip: vClips })
+    )
+    const regroup = (g: number | undefined): number | undefined =>
+      g == null ? undefined : gmap.get(g)
     if (clip.length) {
       const pasted = clip.map((c) => ({
         ...structuredClone(c),
         id: idCounter.current++,
         start: Math.max(0, c.start + offset),
-        end: Math.max(0, c.end + offset)
+        end: Math.max(0, c.end + offset),
+        group: regroup(c.group)
       }))
       setCues((prev) => [...prev, ...pasted].sort((a, b) => a.start - b.start))
       setSelectedIds(pasted.map((p) => p.id))
@@ -491,7 +502,8 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
           ...c,
           id: seIdCounter.current++,
           tStart: Math.max(0, c.tStart + offset),
-          track: fallbackTrack(c.track, 'audio')
+          track: fallbackTrack(c.track, 'audio'),
+          group: regroup(c.group)
         }))
       setSeClips((prev) => [...prev, ...pasted])
       setSelectedSeIds(pasted.map((p) => p.id))
@@ -503,7 +515,8 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
           ...c,
           id: imgIdCounter.current++,
           tStart: Math.max(0, c.tStart + offset),
-          track: fallbackTrack(c.track, 'video')
+          track: fallbackTrack(c.track, 'video'),
+          group: regroup(c.group)
         }))
       setImgClips((prev) => [...prev, ...pasted])
       setSelectedImgIds(pasted.map((p) => p.id))
@@ -515,7 +528,8 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
           ...c,
           id: vClipIdCounter.current++,
           tStart: Math.max(0, c.tStart + offset),
-          track: fallbackTrack(c.track, 'video')
+          track: fallbackTrack(c.track, 'video'),
+          group: regroup(c.group)
         }))
       setVClips((prev) => [...prev, ...pasted])
       setSelectedVClipIds(pasted.map((p) => p.id))

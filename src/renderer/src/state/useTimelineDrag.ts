@@ -27,6 +27,7 @@ import { formatTime, type Cue } from '../lib/srt'
 import { type SegLayout } from '../lib/projectTypes'
 import { useClipDrag } from './useClipDrag'
 import { useDoc } from './contentContext'
+import { useNest } from './useNest'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 
@@ -93,6 +94,8 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     scrubFromClientX, reserveTrackPairForVideo, addVideoTrack, pendingLaneRef, setMenu
   } = deps
   const { cues, cuesRef, setCues,  seClips, imgClips, vClips } = useDoc()
+  // 「組」の相手（効果音・画像・映像レイヤー）。掴んだ時に控えて、動いた分だけ一緒にずらす
+  const { partnersOf, shiftPartners } = useNest()
   const {
     selectedIds, setSelectedIds, setSelectedVideoIds, setSelectedAudioIds,
     setSelectedSeIds, setSelectedImgIds, setSelectedVClipIds,
@@ -356,6 +359,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     const alreadySel = selectedIds.includes(cue.id)
     const dragIds = alreadySel ? [...selectedIds] : [cue.id]
     if (!alreadySel) setSelectedIds([cue.id])
+    const partners = partnersOf('cue', dragIds)
     // テロップ配置可能トラック（下→上）。上下ドラッグでこの間を移動できる。
     // テロップは V1 以外の全映像トラックに置ける（V4以降へ退避したテロップも扱えるように）。
     //
@@ -446,6 +450,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
         })
         trackShift = ti - grabbedIdx
       }
+      shiftPartners(partners, delta) // 組の相手（効果音・画像・映像レイヤー）も一緒に
       setCues((prev) =>
         prev.map((c) => {
           const st = startMap.get(c.id)

@@ -117,3 +117,38 @@ describe('画像・映像クリップを読み直す', () => {
     expect(r[0].motion?.sc).toHaveLength(2)
   })
 })
+
+// 「組」の番号は id と違って**振り直さない**（振り直すと種類をまたいだ番号が
+// バラバラになって組がちぎれる）。壊れた値だけ捨てる。
+describe('組の番号を読み直す', () => {
+  it('id は振り直すが、組の番号はそのまま残る', () => {
+    const r = loadCues([{ start: 0, end: 1, text: 'あ', group: 7 }])
+    expect(r[0].id).toBe(1) // id は振り直す
+    expect(r[0].group).toBe(7) // 組は触らない
+  })
+
+  it('種類をまたいで同じ番号が残る（段をまたぐ組が壊れない）', () => {
+    const cue = loadCues([{ start: 0, end: 1, text: 'あ', group: 3 }])[0]
+    const se = loadSeClips([{ path: 'a.wav', tStart: 0, duration: 1, group: 3 }])[0]
+    const img = loadImgClips([{ path: 'a.png', tStart: 0, group: 3 }], asIs)[0]
+    const vc = loadVClips([{ path: 'a.mp4', tStart: 0, srcStart: 0, srcEnd: 1, group: 3 }], asIs)[0]
+    expect([cue.group, se.group, img.group, vc.group]).toEqual([3, 3, 3, 3])
+  })
+
+  it('壊れた値は捨てる', () => {
+    const broken = [
+      { start: 0, end: 1, text: 'あ', group: '7' },
+      { start: 0, end: 1, text: 'い', group: 0 },
+      { start: 0, end: 1, text: 'う', group: -1 },
+      { start: 0, end: 1, text: 'え', group: 1.5 },
+      { start: 0, end: 1, text: 'お' }
+    ]
+    expect(loadCues(broken).map((c) => c.group)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    ])
+  })
+})

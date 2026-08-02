@@ -108,6 +108,7 @@ export function TelopBands({
           left={cue.start * zoom}
           width={bandWidth(cue.end - cue.start, zoom, 12)}
           selected={isSelected(cue.id)}
+          group={cue.group}
           title={cue.text}
           onPointerDown={(e) => onPointerDown(cue, e)}
           onContextMenu={(e) => onContextMenu(cue, e)}

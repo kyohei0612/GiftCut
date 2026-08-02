@@ -16,6 +16,8 @@ export interface Cue {
   scale?: number // テロップ全体の拡縮倍率（Premiere式：リサイズはこれを変え、fontSize/縁/影の数値は固定）。既定1
   /** 自分で打った動き（キーフレーム）。プレミアの「モーション」に当たる */
   motion?: Motion
+  /** 「組」の番号（`shared/group.ts`）。未指定＝どの組にも入っていない */
+  group?: number
 }
 
 function toSeconds(t: string): number {

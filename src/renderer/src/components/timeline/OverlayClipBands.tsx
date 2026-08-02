@@ -64,6 +64,7 @@ export function VideoLayerBand({
           left={clip.tStart * zoom}
           width={bandW(vcLen(clip), zoom)}
           selected={selectedVClipIds.includes(clip.id)}
+          group={clip.group}
           title={`${clip.name}（音声は ${pairedAudioOf(clip.track)} に連動）`}
           onPointerDown={(e) => onPointerDown(clip, e)}
           onTrimLeft={(e) => onPointerDown(clip, e, 'l')}
@@ -118,6 +119,7 @@ export function VideoLayerAudioBand({
             left={clip.tStart * zoom}
             width={bandW(vcLen(clip), zoom)}
             selected={selectedVClipIds.includes(clip.id)}
+          group={clip.group}
             title={`${clip.name} の音声（${clip.track} の映像とリンク）`}
             onPointerDown={(e) => onPointerDown(clip, e)}
             onTrimLeft={(e) => onPointerDown(clip, e, 'l')}
@@ -173,6 +175,7 @@ export function ImageBand({
           left={clip.tStart * zoom}
           width={bandW(clip.duration, zoom)}
           selected={selectedImgIds.includes(clip.id)}
+          group={clip.group}
           title={`${clip.name}（ドラッグで移動・左右端で長さ変更・Deleteで削除）`}
           onPointerDown={(e) => onPointerDown(clip, e)}
           onTrimLeft={(e) => onPointerDown(clip, e, 'l')}

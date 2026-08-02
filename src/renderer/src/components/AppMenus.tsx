@@ -17,13 +17,14 @@
 
 import { useMenus } from '../state/menusContext'
 import type { JSX } from 'react'
-import { ContextMenu } from './ContextMenu'
+import { ContextMenu, type MenuEntries } from './ContextMenu'
 import { TabSortList } from './PanelChrome'
 import { LABEL_COLORS } from '../lib/labels'
 import { formatCombo } from '../../../shared/shortcuts'
 import type { PaneId } from '../state/usePanelLayout'
 import { useDoc } from '../state/contentContext'
 import { useSel } from '../state/selectionContext'
+import { useNest } from '../state/useNest'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface AppMenusProps {
@@ -103,6 +104,34 @@ export function AppMenus(): JSX.Element {
   } = useMenus()
   const { cues, seClips, setSeClips } = useDoc()
   const { isSelected, selectedIds } = useSel()
+  // 「組」（ネスト）。**受け取らず自分で見に行く**——品書きに出すのは
+  // 「いま組にできるか／解けるか」だけなので、心臓の配線を1本増やす価値が無い
+  const { canNest, canUnnest, nest, unnest } = useNest()
+  /**
+   * 品書きに出す「ネストする」「組を解く」。
+   *
+   * **テロップの品書きにも、それ以外の品書きにも同じ物を出す。**
+   * 別々に書くと、片方だけ増えて「テロップからは組めるのに音からは組めない」になる。
+   */
+  const nestEntries = (close: () => void): MenuEntries => [
+    canNest && {
+      kind: 'item',
+      label: '🔗 ネストする（組にしてまとめて動かす）',
+      onClick: () => {
+        nest()
+        close()
+      }
+    },
+    canUnnest && {
+      kind: 'item',
+      label: '⛓️‍💥 組を解く',
+      onClick: () => {
+        unnest()
+        close()
+      }
+    },
+    (canNest || canUnnest) && { kind: 'sep' }
+  ]
   return (
     <>
   {tabMenu &&
@@ -239,6 +268,7 @@ export function AppMenus(): JSX.Element {
           }
         },
         { kind: 'sep' },
+        ...nestEntries(() => setMenu(null)),
         {
           kind: 'item',
           label: 'リップル削除（詰める）',
@@ -353,6 +383,8 @@ export function AppMenus(): JSX.Element {
           }
         },
         { kind: 'sep' },
+        // 本編の切片（seg）は組に入れない（shared/group.ts の頭）ので、そこには出さない
+        ...(clipMenu.kind === 'seg' ? [] : nestEntries(() => setClipMenu(null))),
         // 本編以外は「消して同じトラックの後続を詰める」も選べる
         // （本編の削除は元から詰める動作なので出さない）
         clipMenu.kind !== 'seg' && {
@@ -378,7 +410,15 @@ export function AppMenus(): JSX.Element {
           danger: true,
           label: `${clipMenu.kind === 'seg' ? '削除（詰めない）' : '削除'}（${formatCombo(shortcuts.del)}）`,
           onClick: () => {
-            if (clipMenu.kind === 'vclip') deleteSelectedVClip()
+            // **組に入っている物は、種類をまたいで全部消す。**
+            // 押した種類だけ消すと、組の片割れが取り残されて
+            // 「消したのに音だけ残る」になる（キーの Delete は元から全種類を消す）
+            if (canUnnest) {
+              deleteSelected()
+              deleteSelectedSE()
+              deleteSelectedImg()
+              deleteSelectedVClip()
+            } else if (clipMenu.kind === 'vclip') deleteSelectedVClip()
             else if (clipMenu.kind === 'seg') deleteVideoSegmentsLeavingGap()
             else if (clipMenu.kind === 'se') deleteSelectedSE()
             else deleteSelectedImg()

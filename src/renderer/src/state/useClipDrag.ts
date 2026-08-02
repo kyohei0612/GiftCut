@@ -23,6 +23,7 @@ import { startEdgeScroll } from '../lib/edgeScroller'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
+import { useNest } from './useNest'
 import { useViewCtx } from './viewContext'
 import { clamp } from '../../../shared/timeline'
 import { formatTime } from '../lib/srt'
@@ -118,6 +119,10 @@ export function useClipDrag(deps: ClipDragDeps) {
   } = useSel()
   const { tracks, trackStates } = useTracksCtx()
   const { zoomRef } = useViewCtx()
+  // 「組」の相手（別の種類）。掴んだ時に控えて、動いた分だけ一緒にずらす。
+  // **控えるのは掴んだ時だけ**——動かしている最中に読み直すと、
+  // 自分がずらした後の位置を新しい起点にしてしまい、じわじわ流れていく
+  const { partnersOf, shiftPartners } = useNest()
 
   // SE クリップ: クリック選択 / ドラッグで時間移動
   function onSePointerDown(clip: SEClip, e: React.PointerEvent, edge?: 'l' | 'r'): void {
@@ -162,6 +167,7 @@ export function useClipDrag(deps: ClipDragDeps) {
     // 束の端がどこにも合わない。テロップと同じ決まりにしてある（state/useSnap）
     const grpSpan = spanOf(seClips.filter((c) => grpIds.includes(c.id)), (c) => c.duration)
     setSelectedSeIds(grpIds)
+    const partners = partnersOf('se', grpIds)
     const inner = trackInnerRef.current
     // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
     // 指は止まったままでも物は進むべきなので、そのぶん戻す）
@@ -215,6 +221,7 @@ export function useClipDrag(deps: ClipDragDeps) {
           tracks.some((t) => t.id === lane && t.kind === 'audio') &&
           !trackStates[lane]?.locked
         const shift = nt - s0
+        shiftPartners(partners, shift) // 組の相手（テロップ・画像・映像レイヤー）も一緒に
         setSeClips((prev) =>
           prev.map((c) => {
             if (!grpIds.includes(c.id)) return c
@@ -283,6 +290,7 @@ export function useClipDrag(deps: ClipDragDeps) {
     const grpIds =
       selectedImgIds.includes(clip.id) && selectedImgIds.length > 1 ? selectedImgIds : [clip.id]
     setSelectedImgIds(grpIds)
+    const partners = partnersOf('img', grpIds)
     const grpBase = new Map(
       imgClips.filter((c) => grpIds.includes(c.id)).map((c) => [c.id, c.tStart])
     )
@@ -338,6 +346,7 @@ export function useClipDrag(deps: ClipDragDeps) {
           !trackStates[lane]?.locked
         // 掴んだクリップのずれ量を選択全体に同じだけ適用する
         const shift = nt - s0
+        shiftPartners(partners, shift) // 組の相手（テロップ・効果音・映像レイヤー）も一緒に
         setImgClips((prev) =>
           prev.map((c) => {
             if (!grpIds.includes(c.id)) return c
@@ -414,6 +423,7 @@ export function useClipDrag(deps: ClipDragDeps) {
       (c) => Math.max(0.05, c.srcEnd - c.srcStart)
     )
     setSelectedVClipIds(grpIds)
+    const partners = partnersOf('vclip', grpIds)
     // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
     // 指は止まったままでも物は進むべきなので、そのぶん戻す）
     let sx = e.clientX
@@ -476,6 +486,7 @@ export function useClipDrag(deps: ClipDragDeps) {
         // 実際に移す時（指を離した時）にまとめて確保する。
         if (laneOk && lane !== clip.track) pendingLaneRef.current = lane
         const shift = nt - t0
+        shiftPartners(partners, shift) // 組の相手（テロップ・効果音・画像）も一緒に
         setVClips((prev) =>
           prev.map((c) => {
             if (!grpIds.includes(c.id)) return c

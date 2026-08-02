@@ -52,7 +52,8 @@ describe('保存できる項目は、ぜんぶ読み直せる', () => {
       pos: { x: 0.3, y: 0.7 },
       track: 'V3',
       scale: 1.4,
-      motion: { tx: [{ t: 0, v: 0 }, { t: 1, v: 50 }] }
+      motion: { tx: [{ t: 0, v: 0 }, { t: 1, v: 50 }] },
+      group: 2
     }
     expect(落ちた項目(見本, loadCues([見本])[0])).toEqual([])
   })
@@ -99,7 +100,8 @@ describe('保存できる項目は、ぜんぶ読み直せる', () => {
       track: 'A3',
       srcOffset: 0.5,
       srcDur: 4,
-      duck: true
+      duck: true,
+      group: 2
     }
     expect(落ちた項目(見本, loadSeClips([見本])[0])).toEqual([])
   })
@@ -120,7 +122,8 @@ describe('保存できる項目は、ぜんぶ読み直せる', () => {
       flipV: true,
       opacity: 0.5,
       adjust,
-      crop
+      crop,
+      group: 2
     }
     expect(落ちた項目(見本, loadImgClips([見本], asIs)[0])).toEqual([])
   })
@@ -147,7 +150,8 @@ describe('保存できる項目は、ぜんぶ読み直せる', () => {
       muted: true,
       vol: 0.3,
       afadeIn: 0.2,
-      afadeOut: 0.2
+      afadeOut: 0.2,
+      group: 2
     }
     expect(落ちた項目(見本, loadVClips([見本], asIs)[0])).toEqual([])
   })

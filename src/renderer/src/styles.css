@@ -2865,6 +2865,21 @@ span.pq-select {
   outline-offset: -1px;
   z-index: 5;
 }
+/* 「組」（ネスト）に入っている帯。**掴むと仲間も動く**ので、見て分かるようにする。
+   印が無いと「押していない物が動いた」としか見えない。
+   場所を取らないよう、帯の左上に小さく重ねるだけにしてある（中身は押し出さない） */
+.clip-nested::before {
+  content: '🔗';
+  position: absolute;
+  left: 1px;
+  top: 0;
+  font-size: 9px;
+  line-height: 11px;
+  opacity: 0.85;
+  pointer-events: none;
+  z-index: 7;
+  text-shadow: 0 1px 2px #000;
+}
 .clip-trim {
   position: absolute;
   top: 0;

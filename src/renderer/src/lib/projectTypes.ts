@@ -38,6 +38,9 @@ export interface VSeg {
   crop?: { l: number; t: number; r: number; b: number } // クロップ（各辺の切り抜き率 0..1。切った領域は黒）
   label?: string // ラベルカラー（テロップと同じ。素材の見分け用）
   gap?: boolean // タイムラインの空白（映像なし・無音）。「位置を指定して配置」した際の隙間埋め。
+  // ※ ここに「組」（group）は持たせない。**切片は常に隙間なく連続する**（リップル前提）ので、
+  //    単独では動かせない＝組でまとめて動かす意味が無い。動画を組に入れたいときは
+  //    映像レイヤー（V2以降の VClip）に置く。決めた経緯は shared/group.ts の頭。
 }
 
 /** 元動画（マルチソース）。1タイムラインに複数の動画を連結できる */
@@ -91,6 +94,8 @@ export interface SEClip {
   srcDur?: number // 音源の全長（右端トリムの上限）。未取得なら undefined
   /** 声が入っている間だけ音量を下げる（ダッキング）。BGM に付ける */
   duck?: boolean
+  /** 「組」の番号（shared/group.ts）。未指定＝どの組にも入っていない */
+  group?: number
 }
 
 export interface ImgClip {
@@ -110,6 +115,7 @@ export interface ImgClip {
   opacity?: number // 0..1（未指定=1）
   adjust?: { b: number; c: number; s: number }
   crop?: { l: number; t: number; r: number; b: number }
+  group?: number // 「組」の番号（shared/group.ts）。未指定＝どの組にも入っていない
 }
 
 export interface VClip {
@@ -134,6 +140,7 @@ export interface VClip {
   vol?: number
   afadeIn?: number
   afadeOut?: number
+  group?: number // 「組」の番号（shared/group.ts）。未指定＝どの組にも入っていない
 }
 
 export type SegLayout = Layout<VSeg>

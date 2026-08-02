@@ -21,6 +21,7 @@ import { defaultTelopStyle, sanitizeMotion } from './telopStyle'
 import { loadSegTrans } from './transitions'
 import { isNeutralZoom, isNeutralCrop, isNeutralAdjust } from './clipLook'
 import { sanitizeClipMotion } from '../../../shared/clipMotion'
+import { sanitizeGroupId } from '../../../shared/group'
 import { clamp } from '../../../shared/timeline'
 import type { Cue } from './srt'
 import type { Marker, VSeg, SEClip, ImgClip, VClip } from './projectTypes'
@@ -82,7 +83,10 @@ export function loadCues(raw: any): Cue[] {
             : undefined,
         // 自分で打った動き（モーション）。ここで拾い忘れると、保存して開き直した
         // 瞬間に動きだけ静かに消える（クリップの色で同じ事故があった）
-        motion: sanitizeMotion(c.motion)
+        motion: sanitizeMotion(c.motion),
+        // 「組」の番号。**id と違って振り直さない**——振り直すと、
+        // 種類をまたいで揃えてある番号がバラバラになって組がちぎれる
+        group: sanitizeGroupId(c.group)
       }))
     : []
 }
@@ -164,7 +168,8 @@ export function loadSeClips(raw: any): SEClip[] {
         srcDur: typeof s.srcDur === 'number' && s.srcDur > 0 ? s.srcDur : undefined,
         // ここに足し忘れると、保存して開き直したときに設定だけ消える
         // （クリップの色で実際にやらかしている）
-        duck: s.duck === true ? true : undefined
+        duck: s.duck === true ? true : undefined,
+        group: sanitizeGroupId(s.group)
       }))
     : []
 }
@@ -230,7 +235,8 @@ export function loadImgClips(raw: any, fallbackTrack: TrackFix): ImgClip[] {
             typeof c.crop.b === 'number' &&
             !isNeutralCrop(c.crop)
               ? { l: c.crop.l, t: c.crop.t, r: c.crop.r, b: c.crop.b }
-              : undefined
+              : undefined,
+          group: sanitizeGroupId(c.group)
         }))
     : []
 }
@@ -284,7 +290,8 @@ export function loadVClips(raw: any, fallbackTrack: TrackFix): VClip[] {
           muted: c.muted === true ? true : undefined,
           vol: typeof c.vol === 'number' && c.vol !== 1 ? c.vol : undefined,
           afadeIn: typeof c.afadeIn === 'number' && c.afadeIn > 0 ? c.afadeIn : undefined,
-          afadeOut: typeof c.afadeOut === 'number' && c.afadeOut > 0 ? c.afadeOut : undefined
+          afadeOut: typeof c.afadeOut === 'number' && c.afadeOut > 0 ? c.afadeOut : undefined,
+          group: sanitizeGroupId(c.group)
         }))
     : []
 }

@@ -35,6 +35,7 @@ export function ClipBand({
   top,
   title,
   selected,
+  group,
   onPointerDown,
   onContextMenu,
   onDoubleClick,
@@ -58,6 +59,13 @@ export function ClipBand({
   top?: number
   title?: string
   selected?: boolean
+  /**
+   * 「組」（ネスト）の番号。付いていれば帯に印を出す。
+   *
+   * **印が無いと、掴んだ物ではない帯が動いた理由が分からない。**
+   * 中身を押し出さないよう、CSS の ::before で左上に小さく重ねるだけにしてある。
+   */
+  group?: number
   onPointerDown?: (e: React.PointerEvent) => void
   onContextMenu?: (e: React.MouseEvent) => void
   onDoubleClick?: (e: React.MouseEvent) => void
@@ -76,7 +84,7 @@ export function ClipBand({
 }): JSX.Element {
   return (
     <div
-      className={`clip ${className} ${selected ? 'clip-selected' : ''}`}
+      className={`clip ${className} ${selected ? 'clip-selected' : ''} ${group ? 'clip-nested' : ''}`}
       style={{
         background: label || undefined,
         left,

@@ -100,6 +100,7 @@ import { usePreviewFrame } from './usePreviewFrame'
 import { useVideoSync } from './useVideoSync'
 import { useSessionMemory } from './useSessionMemory'
 import { useSelectionCleanup } from './useSelectionCleanup'
+import { useNestSelectSync } from './useNest'
 import { useDiagnostics } from './useDiagnostics'
 import { useAppLayout } from './useAppLayout'
 import { useLibraries } from './useLibraries'
@@ -545,6 +546,8 @@ export function useAppWiring() {
 
   // 選んだ物が「もう無い物」を指し続けないよう掃除するのは state/useSelectionCleanup
   useSelectionCleanup()
+  // **「組」で選ぶ唯一の入口。** 選び方が何通りあっても、最後にここで組ごとに広げる
+  useNestSelectSync()
 
   /** 本編の段が隠されているか（隠していたら書き出しにも出さない） */
   const v1Hidden = trackStates['V1']?.hidden ?? false
@@ -1098,19 +1101,24 @@ export function useAppWiring() {
     openExportDialog,
   })
 
-  // 帯を右クリックしたとき。**押した1つだけを選び直してから**品書きを出す。
-  // 複数選んだまま右クリックすると、押した物ではない方へ操作が飛ぶ。
+  // 帯を右クリック。**選んでいない物を押したときだけ**選び直す（前の選択が残っていると、
+  // 押した物ではない方へ操作が飛ぶ）。**既に選ばれている物なら選択はそのまま残す**——
+  // 常に1つへ潰していたので「まとめて選ぶ → 右クリック → ネストする」が成立しなかった。
+  // テロップ側（useTimelineDrag の onClipContextMenu）は元からこの形。
   const openClipMenu: OpenClipMenu = (e, kind, clip) => {
     e.preventDefault()
     e.stopPropagation()
-    if (kind === 'vclip') setSelectedVClipIds([clip.id])
-    else if (kind === 'se') setSelectedSeIds([clip.id])
-    else if (kind === 'seg') {
-      // 本編の切片は「映像だけ選ぶ」。画像の選択は必ず落とす
-      // （両方選んだまま品書きを出すと、削除が画像まで巻き込む）
-      setSelectedVideoIds([clip.id])
-      setSelectedImgIds([])
-    } else setSelectedImgIds([clip.id])
+    const cur = { vclip: selectedVClipIds, se: selectedSeIds, seg: selectedVideoIds, img: selectedImgIds }[kind]
+    if (!cur?.includes(clip.id)) {
+      if (kind === 'vclip') setSelectedVClipIds([clip.id])
+      else if (kind === 'se') setSelectedSeIds([clip.id])
+      else if (kind === 'seg') {
+        // 本編の切片は「映像だけ選ぶ」。画像の選択は必ず落とす
+        // （両方選んだまま品書きを出すと、削除が画像まで巻き込む）
+        setSelectedVideoIds([clip.id])
+        setSelectedImgIds([])
+      } else setSelectedImgIds([clip.id])
+    }
     setMenu(null)
     setClipMenu({ x: e.clientX, y: e.clientY, kind, id: clip.id, name: clip.name })
   }

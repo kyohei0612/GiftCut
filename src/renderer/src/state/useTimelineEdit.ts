@@ -28,6 +28,7 @@ import {
   clamp, layoutSegs, qFrame, rippleEnd, rippleShifted, rippleStart,
   segSpeed, segTLen, tidyGaps, tToSource
 } from '../../../shared/timeline'
+import { nextGroupId, remapGroups } from '../../../shared/group'
 import { collapseAt } from '../../../shared/ripple'
 import { shouldCut, spansCut } from '../../../shared/cutScope'
 import { totalCutLen } from '../../../shared/silenceCut'
@@ -224,15 +225,36 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     deleteSelectedImg()
     deleteSelectedVClip()
   }
+  /**
+   * 複製した物に、新しい「組」の番号を振る道具を作る。
+   *
+   * **元の番号のまま複製してはいけない。** 複製と元が同じ組になり、
+   * 複製を動かしたつもりで元まで動く（見た目には理由が分からない）。
+   * 元が2つの組に分かれていたら、複製の側でも2つのまま保つ（shared/group）。
+   */
+  function regroupCopies(src: readonly { group?: number }[]): (g?: number) => number | undefined {
+    const m = remapGroups(
+      src.map((c) => c.group),
+      nextGroupId({ cue: cues, se: seClips, img: imgClips, vclip: vClips })
+    )
+    return (g) => (g == null ? undefined : m.get(g))
+  }
+
   function duplicateSelected(): void {
     if (!selectedIds.length) return
     if (cues.some((c) => isSelected(c.id) && telopLocked(c))) return
-    const dupes = cues
-      .filter((c) => isSelected(c.id))
-      .map((c) => {
-        const len = c.end - c.start
-        return { ...structuredClone(c), id: idCounter.current++, start: c.end, end: c.end + len }
-      })
+    const picked = cues.filter((c) => isSelected(c.id))
+    const rg = regroupCopies(picked)
+    const dupes = picked.map((c) => {
+      const len = c.end - c.start
+      return {
+        ...structuredClone(c),
+        id: idCounter.current++,
+        start: c.end,
+        end: c.end + len,
+        group: rg(c.group)
+      }
+    })
     setCues((prev) => [...prev, ...dupes].sort((a, b) => a.start - b.start))
     setSelectedIds(dupes.map((d) => d.id))
   }
@@ -378,28 +400,39 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
       return
     }
     if (kind === 'vclip') {
-      const dupes = vClips
-        .filter((c) => selectedVClipIds.includes(c.id))
-        .map((c) => ({
-          ...c,
-          id: vClipIdCounter.current++,
-          tStart: c.tStart + Math.max(0.05, c.srcEnd - c.srcStart)
-        }))
+      const picked = vClips.filter((c) => selectedVClipIds.includes(c.id))
+      const rg = regroupCopies(picked)
+      const dupes = picked.map((c) => ({
+        ...c,
+        id: vClipIdCounter.current++,
+        tStart: c.tStart + Math.max(0.05, c.srcEnd - c.srcStart),
+        group: rg(c.group)
+      }))
       setVClips((prev) => [...prev, ...dupes])
       setSelectedVClipIds(dupes.map((d) => d.id))
       return
     }
     if (kind === 'se') {
-      const dupes = seClips
-        .filter((c) => selectedSeIds.includes(c.id))
-        .map((c) => ({ ...c, id: seIdCounter.current++, tStart: c.tStart + c.duration }))
+      const picked = seClips.filter((c) => selectedSeIds.includes(c.id))
+      const rg = regroupCopies(picked)
+      const dupes = picked.map((c) => ({
+        ...c,
+        id: seIdCounter.current++,
+        tStart: c.tStart + c.duration,
+        group: rg(c.group)
+      }))
       setSeClips((prev) => [...prev, ...dupes])
       setSelectedSeIds(dupes.map((d) => d.id))
       return
     }
-    const dupes = imgClips
-      .filter((c) => selectedImgIds.includes(c.id))
-      .map((c) => ({ ...c, id: imgIdCounter.current++, tStart: c.tStart + c.duration }))
+    const pickedImg = imgClips.filter((c) => selectedImgIds.includes(c.id))
+    const rgImg = regroupCopies(pickedImg)
+    const dupes = pickedImg.map((c) => ({
+      ...c,
+      id: imgIdCounter.current++,
+      tStart: c.tStart + c.duration,
+      group: rgImg(c.group)
+    }))
     setImgClips((prev) => [...prev, ...dupes])
     setSelectedImgIds(dupes.map((d) => d.id))
   }

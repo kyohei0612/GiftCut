@@ -51,6 +51,7 @@ export function SeBands({
             // 短い効果音でも掴めるだけの幅を必ず残す（上の説明のとおり）
             width={bandWidth(clip.duration, zoom, 16)}
             selected={selectedSeIds.includes(clip.id)}
+            group={clip.group}
             title={`${clip.name}（ドラッグで移動・Deleteで削除／短くするなら分割してから）`}
             onPointerDown={(e) => onPointerDown(clip, e)}
             onContextMenu={(e) => openClipMenu(e, 'se', clip)}
