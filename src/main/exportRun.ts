@@ -156,6 +156,17 @@ interface ExportPayload {
   fps?: number // 書き出しフレームレート（既定30）
   crf?: number // 画質（x264 CRF。小さいほど高画質。既定23）
   /**
+   * 連番でまとめて受け取るテロップ。**書き出しの速さはここで決まる。**
+   *
+   * 1枚＝入力1つ＋重ね1段だと、枚数に比例して遅くなる（1080p60秒の実測で
+   * 0枚 5.1秒 / 200枚 10.7秒 / 600枚 23.3秒）。同じ600枚を連番1入力＋重ね1段に
+   * すると 5.2秒＝重ねないのとほぼ同じになる。
+   *
+   * ここへ来るのは**等間隔で全区間を刻んでいる物だけ**（画面側が並びを見て決める）。
+   * 頭と尻の演出だけのテロップは真ん中に長い静止区間があるので `frames` の方へ来る。
+   */
+  telopSeqs?: { start: number; end: number; fps: number; pngs: string[] }[]
+  /**
    * 出す先（フルパス）。**画面側で決まっているなら、ここで聞き直さない。**
    *
    * 書き出しの窓で「どこへ・どの名前で」を決めてから押す作りにしたので、
@@ -286,10 +297,22 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   // PNG は tmp 直下に置き、ffmpeg には「相対パス」で渡す（cwd=tmp で spawn する）。
   // 絶対パスだと 1 枚あたり約63字を消費し、テロップが数百枚でコマンドライン長が
   // Windows の上限(32767字)を超えて spawn ENAMETOOLONG になるため。
+  const toPng = (dataUrl: string): Buffer =>
+    Buffer.from(dataUrl.replace(/^data:image\/png;base64,/, ''), 'base64')
   frames.forEach((f, i) => {
-    const b64 = f.png.replace(/^data:image\/png;base64,/, '')
-    writeFileSync(join(tmp, `t${i}.png`), Buffer.from(b64, 'base64'))
+    writeFileSync(join(tmp, `t${i}.png`), toPng(f.png))
     pngPaths.push(`t${i}.png`)
+  })
+  // 連番でまとめて渡すテロップ。**重ねる段が1本で済むので、枚数が増えても重くならない**
+  // （1080p60秒の実測で、1枚ずつ重ねると600枚 23.3秒 / 連番なら 5.2秒）。
+  // 画像は `q<何本目>_00000.png` の形で並べ、ffmpeg には `q<何本目>_%05d.png` で渡す。
+  const seqs = (payload.telopSeqs ?? []).filter((s) => s.pngs.length > 0)
+  const seqPatterns: string[] = []
+  seqs.forEach((sq, k) => {
+    sq.pngs.forEach((p, i) => {
+      writeFileSync(join(tmp, `q${k}_${String(i).padStart(5, '0')}.png`), toPng(p))
+    })
+    seqPatterns.push(`q${k}_%05d.png`)
   })
 
   // FFmpeg 引数を組み立て
@@ -310,14 +333,15 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   // クリップ数ぶん開かれ、デコーダも同数走った（絶対パスぶんコマンドライン長も膨らむ）。
   // パス→入力index のマップで同一パスは -i 1本にまとめる。入力は
   // 元動画 → テロップPNG → SE → 画像 → 映像レイヤー の順に登録する（従来の並びを踏襲）。
-  const inputSpecs: { path: string; ss: number }[] = [] // ss>0 のときだけ -ss を付けて渡す
+  // pre は -i の前に置く引数（連番の -framerate など）。入力ごとに違うので持たせる
+  const inputSpecs: { path: string; ss: number; pre?: string[] }[] = []
   const inputIdx = new Map<string, number>()
-  const addInput = (p: string): number => {
+  const addInput = (p: string, pre?: string[]): number => {
     const key = normalize(p)
     const found = inputIdx.get(key)
     if (found !== undefined) return found
     inputIdx.set(key, inputSpecs.length)
-    inputSpecs.push({ path: p, ss: 0 })
+    inputSpecs.push({ path: p, ss: 0, pre })
     return inputSpecs.length - 1
   }
   // 各パスを使うクリップ数。1つだけなら入力 -ss でデコード開始位置を飛ばせる（下記）。
@@ -333,6 +357,12 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   vcs?.forEach((vc) => addUser(vc.path))
   const srcInput = inputPaths.map((ip) => addInput(ip)) // 元動画の srcIdx → 入力index
   const pngInput = pngPaths.map((p) => addInput(p))
+  // 連番は1本＝入力1つ。**-framerate は -i より前**でないと効かない（画像の並びの
+  // 「1枚あたり何秒か」を決める指定なので、入力の解釈に関わる）。
+  // -start_number は 0 始まりを明示（既定は1で、こちらは0から書いている）。
+  const seqInput = seqs.map((sq, k) =>
+    addInput(seqPatterns[k], ['-framerate', String(sq.fps), '-start_number', '0'])
+  )
   const seInput = ses ? ses.map((se) => addInput(se.path)) : []
   const imgInput = imgs ? imgs.map((im) => addInput(im.path)) : []
   const vcInput = vcs ? vcs.map((vc) => addInput(vc.path)) : []
@@ -897,6 +927,24 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
       last = out
     })
   }
+  // ---- 連番でまとめて重ねるテロップ ----
+  //
+  // **1本につき重ねるのは1段だけ。** 中身が何百枚あっても段は増えないので、
+  // 枚数に比例して遅くなることが無い（1枚ずつ重ねる作りが遅さの正体だった）。
+  //
+  // 連番はそれ自身の時間軸を 0 から持っているので、置きたい時刻ぶん後ろへずらす。
+  // ずらしてから重ねる窓（enable）を掛けると、窓の中では必ず「そのテロップの
+  // 経過時間ぶん進んだ絵」が当たる。
+  seqs.forEach((sq, k) => {
+    const lb = `[sq${k}]`
+    // fps= で出力の刻みに合わせてから PTS をずらす。合わせずにずらすと、
+    // 連番の刻み（例 30枚/秒）のまま出力（例 60fps）へ入って、
+    // **1枚が2コマぶん居座る／足りない**が起きる。
+    filter += `${useV(seqInput[k])}fps=${outFps},setpts=PTS+${sq.start.toFixed(3)}/TB${lb};`
+    const out = `[qo${k}]`
+    filter += `${last}${lb}overlay=0:0:enable=${overlayEnableExpr(sq.start, sq.end)}${out};`
+    last = out
+  })
   if (frames.length) {
     // 窓の作り方（なぜ半開区間か）は shared/filterGraph の overlayEnableExpr に書いてある。
     // 動きの付いたテロップは短い窓を延々と並べるので、ここの取り違えが直接
@@ -977,6 +1025,7 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   }
   // 入力を並べる（重複排除済み。-ss はフィルタ組み立て中に確定するのでここで反映する）
   for (const sp of inputSpecs) {
+    if (sp.pre) args.push(...sp.pre)
     if (sp.ss > 0) args.push('-ss', sp.ss.toFixed(3))
     args.push('-i', sp.path)
   }

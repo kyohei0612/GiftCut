@@ -135,16 +135,20 @@ export function useExport(deps: UseExportDeps) {
       // 動きの刻みは書き出しの fps に合わせる（出力の1フレームに1枚ずつ当てる）。
       // ただし**枚数の上限だけは要る**。
       //
-      // テロップ1枚が ffmpeg の入力1つになり、その入力はコマンドラインに並ぶ。
-      // Windows のコマンドライン長は 32767字。実測すると 2500枚で 31479字なので、
-      // **その少し先に、絶対に越えられない崖がある**（越えると起動すらできない）。
-      // 刻みを fps に合わせた結果、枚数は fps に比例して増えるようになった
-      // （実測: 43本のテロップで 15fps=585枚 → 60fps=2253枚）ので、
-      // 素材が長ければ誰でも崖に届く。
+      // **上限の理由は 2026-08-02 に変わった。**
+      //
+      // 以前は「1枚＝ffmpeg の入力1つ」で、入力はコマンドラインに並んでいた。
+      // Windows の上限 32767字に対し 2500枚で 31479字＝**すぐそこに崖があった**。
+      // いまは等間隔の物を連番1入力にまとめるので、**コマンドラインは枚数で伸びない**。
+      //
+      // 残っている理由は**画面側が抱える量**の方。作った PNG は base64 の文字列として
+      // 配列に貯まり、まとめて main へ渡る（1枚が原寸の RGBA なので数百KB になる）。
+      // ここが尽きると、崖ではなく**じわじわ重くなって落ちる**。
+      // 数字は据え置き（2000枚）。増やすなら、貯めずに1枚ずつ書き出す形へ変えてから。
       //
       // ※ 2026-08-01 の「書き出しが失敗する」は**これが原因ではなかった**
       //   （2253枚のままでも通ることを再現で確かめた。原因は素通しの pad）。
-      //   ここは崖への安全網であって、あの不具合の直しではない。混同しないこと。
+      //   ここは安全網であって、あの不具合の直しではない。混同しないこと。
       const expFps = resolveExportFps()
       const MAX_TELOP_PNGS = 2000
       const animSec = exportCues
@@ -168,6 +172,28 @@ export function useExport(deps: UseExportDeps) {
       // 出来上がりの知らせに両方を載せるので、聞くだけで切り分けられる。
       const tPng0 = performance.now()
       const frames: { png: string; start: number; end: number }[] = []
+      /**
+       * 連番でまとめて渡すぶん。**書き出しの速さはここで決まる。**
+       *
+       * 1枚ずつ「入力1つ＋重ね1段」で渡すと、枚数に比例して遅くなる
+       * （実測 600枚で 23.3秒。連番1本なら 5.2秒＝重ねないのとほぼ同じ）。
+       */
+      const telopSeqs: { start: number; end: number; fps: number; pngs: string[] }[] = []
+      /**
+       * その刻みの並びが「等間隔で、頭から終わりまで」か。
+       *
+       * **animBreakpoints の中の条件を書き写さない。** 書き写すと同じ規則が
+       * 2か所になり、片方だけ直したときに気づけない。**出てきた並びを見て決める。**
+       * 頭と尻の演出だけのテロップは真ん中に長い静止区間があるので、ここで false になる。
+       */
+      const evenlySpaced = (bps: number[], step: number, dur: number): boolean => {
+        if (bps.length < 2 || Math.abs(bps[0]) > 1e-6) return false
+        for (let k = 1; k < bps.length; k++) {
+          if (Math.abs(bps[k] - bps[k - 1] - step) > 1e-4) return false
+        }
+        // 最後の刻みから終わりまでが1コマぶん以内＝終わりまで刻めている
+        return dur - bps[bps.length - 1] <= step + 1e-4
+      }
       for (let i = 0; i < exportCues.length; i++) {
         const c = exportCues[i]
         const avatar = iconForCue(c)
@@ -198,6 +224,9 @@ export function useExport(deps: UseExportDeps) {
           // 渡すのは expFps ではなく **stepFps**（上で枚数の上限に収めた刻み）。
           // ここを間違えると上限が一度も効かない＝安全網が死んだまま気づけない。
           const bps = animBreakpoints(c.style.anim, c.motion, dur, stepFps)
+          // **等間隔なら連番で1本にまとめる。** 重ねる段が1つで済むので、
+          // 枚数が増えても書き出しは重くならない（実測 600枚 23.3秒 → 5.2秒）。
+          const seq = evenlySpaced(bps, 1 / stepFps, dur) ? { pngs: [] as string[] } : null
           for (let k = 0; k < bps.length; k++) {
             const t0 = bps[k]
             const t1 = k + 1 < bps.length ? bps[k + 1] : dur
@@ -214,8 +243,10 @@ export function useExport(deps: UseExportDeps) {
               iconOffset.y,
               iconAuto
             )
-            frames.push({ png, start: c.start + t0, end: c.start + t1 })
+            if (seq) seq.pngs.push(png)
+            else frames.push({ png, start: c.start + t0, end: c.start + t1 })
           }
+          if (seq) telopSeqs.push({ start: c.start, end: c.end, fps: stepFps, pngs: seq.pngs })
         }
         setExportStatus(`テロップを画像化中… (${i + 1}/${exportCues.length})`)
       }
@@ -247,6 +278,7 @@ export function useExport(deps: UseExportDeps) {
         sources: srcList,
         size,
         frames,
+        telopSeqs,
         segments,
         seClips,
         vClips,
@@ -281,7 +313,7 @@ export function useExport(deps: UseExportDeps) {
       setExportPct(null)
       // 内訳を1行で残す（どちらが重いかは、これを見れば一目で決まる）
       const breakdown =
-        `テロップ ${frames.length}枚の画像化 ${pngSec.toFixed(1)}秒 ／ ` +
+        `テロップ ${frames.length + telopSeqs.reduce((a, s2) => a + s2.pngs.length, 0)}枚の画像化 ${pngSec.toFixed(1)}秒 ／ ` +
         `ffmpeg ${ffSec.toFixed(1)}秒`
       console.log('[書き出し] ' + breakdown)
       if (res?.ok) showToast('書き出しが完了しました\n' + res.outPath + '\n' + breakdown, 'success')

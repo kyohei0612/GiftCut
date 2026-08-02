@@ -140,6 +140,19 @@ export interface BuildInput {
   loudnormLUFS: number | null
   fps: number
   crf: number
+  /**
+   * 連番でまとめて渡せるテロップ。**書き出しの速さはここで決まる。**
+   *
+   * 動きの付いたテロップは刻みごとに1枚ずつ画像を作るが、それを
+   * 「1枚＝ffmpeg の入力1つ＋重ね1段」で渡すと、**重ねる枚数に比例して遅くなる**
+   * （1080p60秒の実測で、0枚 5.1秒 / 200枚 10.7秒 / 600枚 23.3秒）。
+   * 同じ600枚を**連番1入力＋重ね1段**で渡すと 5.2秒＝重ねないのとほぼ同じ。
+   *
+   * まとめられるのは**等間隔で全区間を刻んでいる物だけ**。頭と尻の演出だけの
+   * テロップは真ん中に長い静止区間があるので、連番にすると尺が合わない。
+   * 判定は「刻みの並びが本当に等間隔か」を見て決める（規則を2か所に書かない）。
+   */
+  telopSeqs?: { start: number; end: number; fps: number; pngs: string[] }[]
   /** テロップの終わり・効果音の終わりなど、本編より後ろに伸びる物の終端 */
   tailEnds: number[]
   /**
@@ -211,6 +224,7 @@ export function buildExportPayload(input: BuildInput): Record<string, unknown> {
   return {
     videoPath: input.videoPath,
     outPath: input.outPath,
+    telopSeqs: input.telopSeqs?.length ? input.telopSeqs : undefined,
     sources: input.sources.map((s) => ({ path: s.path })),
     width: input.size.width,
     height: input.size.height,
