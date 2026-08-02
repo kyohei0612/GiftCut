@@ -518,9 +518,36 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
     window.addEventListener('pointercancel', onUp)
   }
 
+  /**
+   * スクショ。**途中でこけても、必ず理由を画面に出す。**
+   *
+   * ここは「絵を作る」「保存の窓を出す」の2段で、前半でこけると
+   * **窓すら出ないまま何も起きない**（押しても無反応に見える）。
+   * 実際に「撮っても保存されない」と言われたが、こちらでは再現できていない
+   * ——原因を1つに決め打ちして直すのではなく、**次に起きたときに
+   * 何が起きたかが分かる**ようにしてある。
+   *
+   * 何を捕まえるか:
+   *   ・映像を写せない（配り方によっては canvas が「汚れた」扱いになる）
+   *   ・テロップの絵づくり（renderCueToPng）でこける
+   *   ・保存そのものが失敗する（こちらは元から出していた）
+   */
+  async function captureScreenshot(): Promise<void> {
+    try {
+      await captureScreenshotInner()
+    } catch (e) {
+      showToast(
+        'スクショを作れませんでした。\n' +
+          'この文言ごと知らせてください:\n' +
+          String((e as Error)?.message ?? e),
+        'error'
+      )
+    }
+  }
+
   // 現在のプレビュー画面（動画フレーム＋テロップ＋ズーム）を PNG で保存。
   // 表示中と同じプロキシ映像を出力解像度で描き、テロップは書き出しと同じ rasterize を再利用。
-  async function captureScreenshot(): Promise<void> {
+  async function captureScreenshotInner(): Promise<void> {
     const v = videoRef.current
     if (!videoSrc || !v) {
       showToast('先に動画を読み込んでください。\n右の「プロジェクト」タブ →「＋ファイル追加」から追加できます。')
@@ -577,7 +604,16 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
         img.src = png
       })
     }
-    const dataUrl = canvas.toDataURL('image/png')
+    // **ここは一番こけやすい所。** 映像を描いたキャンバスは、配り方によっては
+    // 「汚れた」扱いになり `toDataURL()` が例外を投げる。捕まえないと
+    // **保存の窓すら出ないまま何も起きない**（押しても無反応に見える）。
+    // 上の包みでも拾えるが、原因が読める言い方にしたいのでここでも見る。
+    let dataUrl: string
+    try {
+      dataUrl = canvas.toDataURL('image/png')
+    } catch (e) {
+      throw new Error('映像を画像に写せませんでした（' + String(e) + '）')
+    }
     const r = await window.giftcut.saveImage(dataUrl)
     if (r?.ok && r.path) showToast('スクショを保存しました:\n' + r.path, 'success')
     else if (r?.error && r.error !== 'キャンセル') showToast('保存失敗: ' + r.error, 'error')

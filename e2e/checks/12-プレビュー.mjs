@@ -7,15 +7,21 @@
 // 「仕上げ」に流れ込んでいた。道具（check・assert・素材づくり）は
 // run.mjs 側に置いたままで、まとめて受け取る。
 
+import { existsSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+
 export default async function (C) {
   const {
     placePiP,
     assert,
+    avgColor,
     check,
+    outDir,
     page,
     resetProject,
     section,
     seekTo,
+    setDialogFiles,
     touchedRef,
     v1Clips,
   } = C
@@ -203,6 +209,32 @@ export default async function (C) {
     assert(await editor.count(), 'その場で打ち直す欄が出ない')
     await page.keyboard.press('Escape')
     await page.waitForTimeout(300)
+  })
+
+  await check('スクショが保存でき、映像がちゃんと写っている', async () => {
+    // **保存されない、が実際に起きていた。** しかも例外なので保存の窓すら出ず、
+    // 押しても何も起きないように見える（映像を描いた回だけ、キャンバスが
+    // 「汚れた」扱いになって toDataURL() が投げていた）。
+    //
+    // **「ファイルができた」だけでは足りない。** 映像を描き損ねて真っ黒でも
+    // ファイルはできるので、**中身が黒一色でないこと**まで見る。
+    await resetProject()
+    await seekTo(1)
+    await page.waitForTimeout(600)
+    const out = join(outDir, 'shot-check.png')
+    if (existsSync(out)) rmSync(out)
+    await setDialogFiles(null, out)
+    const btn = page.locator('button', { hasText: '📷' }).first()
+    assert(await btn.count(), 'スクショのボタンが見つからない')
+    await btn.click()
+    await page.waitForTimeout(2500)
+    assert(existsSync(out), 'スクショのファイルができていない（黙って失敗している）')
+    // **明るさ（YAVG）と明暗の幅（range）の両方を見る。**
+    // 真っ黒なら明るさが出ないし、テロップだけ写って映像が抜けていても
+    // 平均は上がりうるので、模様があること（range）まで確かめる
+    const c = await avgColor(out)
+    assert(c.y != null && c.y > 8, `スクショが真っ黒（映像が写っていない）: 明るさ ${c.y}`)
+    assert(c.range != null && c.range > 40, `スクショに模様が無い: 明暗の幅 ${c.range}`)
   })
 
   await check('テロップを重ねて置くと、重なった分が消える（上書き）', async () => {
