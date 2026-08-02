@@ -1,19 +1,43 @@
 // 画面の部品どうしの「配線」。
 //
-// ## なぜ1つの大きなフックなのか
-//
-// ここに並んでいるのは**話題ではなく、つなぎ方**。どのフックにどれを渡すか、
-// という組み立てそのもので、話題ごとの切り出しは state/use*.ts へ出し切ってある。
-//
-// 1ファイルにまとまっているのは、**フックどうしが互いを必要としているため**。
-// 例えばプロジェクトを開く側と保存する側は互いの関数を要り、片方を「呼ぶときに
-// 見に行く」形にして輪を解いている。この絡まりをほどけば、ここも話題ごとに
-// 割れる。逆に、ほどく前に無理やり割ると、渡す物が増えて読みにくくなるだけ。
-//
 // ## App.tsx との分け方
 //
 // App.tsx は「画面は何でできているか」だけを持つ。ここは「それらをどうつなぐか」。
 // 画面を直したい人が配線を読まずに済み、配線を直したい人が JSX を読まずに済む。
+//
+// ここに並んでいるのは**話題ではなく、つなぎ方**。どのフックにどれを渡すか、
+// という組み立てそのもので、話題ごとの切り出しは state/use*.ts へ出し切ってある。
+//
+// ## 長いが、割らないこと（2026-08-02 に測って確定）
+//
+// 「話題ごとに割れるはず」と何度か言われてきたが、**割れない**。
+// どこで境目を引いても、前半で生まれて後半で使われる名前が **106〜413個**
+// またぐ（このプロジェクトの目安は40個）。末尾の8つの束を各グループへ
+// 配ったと仮定しても 55〜204個。
+//
+// 理由は、配線が**最後に一点へ集まる形**をしているため。宣言される579個の
+// 名前のほとんどが、末尾の束（timelineOps / previewCtx / rightPanel …）へ
+// 流れ込む。フック単位で見ても、戻り値が他のフックへ渡らない「葉」は
+// 65個中6個だけ。絡まりは輪ではなく**網**。
+//
+// 割ると 106個超の導管ができるだけで、「この値どこから来た？」が
+// 1ホップ遠くなる。**読みやすさは下がる。**
+//
+// 短くしたいなら、先に**画面側の受け取り方**を変えること。束が小さくなれば
+// 集める先が分かれて、配線も自然に分かれる。順序と実測は
+// 引き継ぎ-App分割.md の「段階4・5」を読む。
+//
+// ## 呼ぶ順が全て
+//
+// 上から順に、下は上しか参照していない。**前方参照を逃げるための
+// `(...a) => X(...a)` は 0 か所**（2026-08-02 に21か所すべて外した）。
+// 増やす前にまず疑うこと——相手は本当にこちらを要るか、
+// 輪の結び目が「置き場所を間違えた小さな物」ではないか。
+// 4つの輪を解いて、4つともそれだった。
+//
+// ## 大きさは state/wiringSize.test.ts が見張っている
+//
+// 1回で読み切れる大きさ（1,250行）を超えると赤くなる。理由はそちらに書いてある。
 import { useEffect, useRef, useState } from 'react'
 import { type Cue } from '../lib/srt'
 import { type TelopStyle } from '../lib/telopStyle'
@@ -1158,7 +1182,7 @@ export function useAppWiring() {
     copySelected, copyAttributes, pasteAttributes, copiedAttrs, attrSummary, shortcuts
   }
 
-const dialogs: DialogsValue = {
+  const dialogs: DialogsValue = {
     silenceCut, perfStopped, templatePicker, setTemplatePicker, cropSrc, setShowExportDialog,
     exportStatus, restorePrompt, setRestorePrompt, silenceCuts, findSilences, shortcuts,
     capturingId, setCapturingId, setCropSrc, promptState, setPromptState, confirmState,
@@ -1168,7 +1192,7 @@ const dialogs: DialogsValue = {
     silenceOpen, setSilenceCut, applySilenceCut, setSilenceOpen, duckOpen, duckOpts,
     setDuckOpts, duckEnv, setDuckOpen, seRefCb, prefsOpen, resetShortcuts,
     setPrefsOpen, setIconForColor, setIconForLane, perfOpen, setPerfOpen, setPerfStopped,
-    toasts, closeConfirm , iconAssign, laneIconAssign, iconLibrary
+    toasts, closeConfirm, iconAssign, laneIconAssign, iconLibrary
   }
 
   return {
