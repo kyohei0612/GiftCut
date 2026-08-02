@@ -48,9 +48,9 @@ export function ExportSettingsDialog({
   sourceFpsLabel: string
   dir: string
   name: string
-  ext: 'mp4' | 'mov'
+  ext: 'mp4' | 'mov' | 'mp3'
   onName: (v: string) => void
-  onExt: (v: 'mp4' | 'mov') => void
+  onExt: (v: 'mp4' | 'mov' | 'mp3') => void
   onPickDir: () => void
   onExport: () => void
   onClose: () => void
@@ -76,10 +76,11 @@ export function ExportSettingsDialog({
             className="pq-select"
             style={{ width: 84 }}
             value={ext}
-            onChange={(e) => onExt(e.target.value as 'mp4' | 'mov')}
+            onChange={(e) => onExt(e.target.value as 'mp4' | 'mov' | 'mp3')}
           >
             <option value="mp4">.mp4</option>
             <option value="mov">.mov</option>
+            <option value="mp3">.mp3（音だけ）</option>
           </select>
         </div>
         <div className="sp-row">
@@ -101,7 +102,9 @@ export function ExportSettingsDialog({
           <div className="restore-warn">※ 保存先を選んでください（「参照…」から）。</div>
         )}
         <div className="tpl-hint" style={{ marginTop: 4 }}>
-          素材と同じ設定で書き出します: {resLabel} / {sourceFpsLabel}fps / H.264・AAC
+          {ext === 'mp3'
+            ? '音だけを書き出します: MP3・192kbps・48kHz（映像とテロップは焼きません）'
+            : `素材と同じ設定で書き出します: ${resLabel} / ${sourceFpsLabel}fps / H.264・AAC`}
         </div>
         <div className="restore-btns">
           <button className="btn small" onClick={onClose}>

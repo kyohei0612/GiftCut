@@ -130,8 +130,12 @@ export function useExport(deps: UseExportDeps) {
     const size = { width: even(base.width), height: even(base.height) }
     const crf = exportOpts.quality === 'high' ? 18 : exportOpts.quality === 'low' ? 28 : 23
     try {
+      // **音だけ出すときは、テロップの画像を1枚も作らない。**
+      // 焼かない物のために何百枚も作るのは、待ち時間がまるごと無駄になる
+      // （この機械で1枚 約16ms。動きの付いたテロップが多いと分単位で効く）。
+      const audioOnly = exportExt === 'mp3'
       // 非表示（👁OFF）トラックのテロップは書き出しに含めない（プレビューと一致させる）
-      const exportCues = cues.filter((c) => !trackStates[cueTrack(c)]?.hidden)
+      const exportCues = audioOnly ? [] : cues.filter((c) => !trackStates[cueTrack(c)]?.hidden)
       // 動きの刻みは書き出しの fps に合わせる（出力の1フレームに1枚ずつ当てる）。
       // ただし**枚数の上限だけは要る**。
       //

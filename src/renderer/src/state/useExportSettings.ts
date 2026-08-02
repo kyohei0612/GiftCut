@@ -46,9 +46,9 @@ export interface ExportSettings {
   /** 出すファイルの名前（拡張子なし） */
   exportName: string
   setExportName: React.Dispatch<React.SetStateAction<string>>
-  /** 入れ物（mp4 / mov） */
-  exportExt: 'mp4' | 'mov'
-  setExportExt: React.Dispatch<React.SetStateAction<'mp4' | 'mov'>>
+  /** 入れ物（mp4 / mov / mp3）。mp3 は音だけ出す */
+  exportExt: 'mp4' | 'mov' | 'mp3'
+  setExportExt: React.Dispatch<React.SetStateAction<'mp4' | 'mov' | 'mp3'>>
   /** 設定の窓を出しているか。**押してすぐ始めない**（やり直しが利かないので） */
   showExportDialog: boolean
   setShowExportDialog: React.Dispatch<React.SetStateAction<boolean>>
@@ -77,7 +77,7 @@ export function useExportSettings(): ExportSettings {
     () => localStorage.getItem(EXPORT_DIR_KEY) ?? ''
   )
   const [exportName, setExportName] = useState('')
-  const [exportExt, setExportExt] = useState<'mp4' | 'mov'>('mp4')
+  const [exportExt, setExportExt] = useState<'mp4' | 'mov' | 'mp3'>('mp4')
 
   // **一度も選んでいないときだけ「ダウンロード」から始める**（プレミアと同じ）。
   // 二度目からは上の localStorage が勝つので、ここは何もしない。

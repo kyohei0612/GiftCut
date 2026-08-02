@@ -1029,20 +1029,52 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
     if (sp.ss > 0) args.push('-ss', sp.ss.toFixed(3))
     args.push('-i', sp.path)
   }
+  // **音だけ出す（.mp3）。** 出す先の拡張子で決める。
+  //
+  // 映像を1コマも焼かないので、絵の指定（-map [v] / -r / エンコーダ / -pix_fmt）は
+  // 全部渡さない。渡すと ffmpeg は「mp3 に映像を入れようとした」と言って止まる。
+  // 音の道すじ（切片の並び・効果音・BGM・声に合わせて下げる・音量を揃える）は
+  // 映像のときと同じ物をそのまま使う＝**聴いた音と書き出した音が必ず一致する。**
+  const audioOnly = /\.mp3$/i.test(save.filePath)
+  if (audioOnly && !audioMap.length) {
+    return { ok: false, error: '音が1つも入っていないので、mp3 は作れません。' }
+  }
   args.push(
     // 渡し方は ffmpeg の版で違う（8系で -filter_complex_script が消えた）
     ...(await filterScriptArgs(join(tmp, 'filter.txt'))),
     'filter.txt', // cwd=tmp なので相対でよい（コマンドライン長の節約）
-    '-map',
-    '[v]',
-    ...audioMap,
-    '-r',
-    fpsArg,
-    ...(await videoEncoder()).args(crf, { w: width, h: height, fps: outFps }),
-    '-pix_fmt',
-    'yuv420p',
-    '-c:a',
-    'aac',
+    ...(audioOnly
+      ? [
+          // **`-map [v]` は残して `-vn` で捨てる。**
+          // 映像の枝を map しないと ffmpeg が
+          // 「Filter has output (v) unconnected」で止まる（実際に確かめた）。
+          // 枝ごと組み立てない形にもできるが、組み立ては映像・音が絡み合って
+          // いるので、そこを分けると**音の道すじまで別物になる**危険がある。
+          // map してから捨てる方が、音は映像のときと1バイトも変わらない。
+          '-map',
+          '[v]',
+          '-vn',
+          ...audioMap,
+          // 192kbps／48kHz。切り抜きの声と BGM には十分で、配るのに重くない
+          '-c:a',
+          'libmp3lame',
+          '-b:a',
+          '192k',
+          '-ar',
+          '48000'
+        ]
+      : [
+          '-map',
+          '[v]',
+          ...audioMap,
+          '-r',
+          fpsArg,
+          ...(await videoEncoder()).args(crf, { w: width, h: height, fps: outFps }),
+          '-pix_fmt',
+          'yuv420p',
+          '-c:a',
+          'aac'
+        ]),
     save.filePath
   )
 

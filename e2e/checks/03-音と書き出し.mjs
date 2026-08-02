@@ -11,6 +11,13 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 
+/**
+ * mp3（音だけ）の書き出し。
+ *
+ * **映像を1コマも焼かない道**なので、動画の書き出しが通っていても
+ * こちらだけ壊れうる（ffmpeg は「mp3 に映像を入れようとした」で止まる）。
+ * 出来上がったファイルが**本当に音として読めるか**まで見る。
+ */
 export default async function (C) {
   const {
     setSlider,
@@ -30,6 +37,35 @@ export default async function (C) {
     sh,
   } = C
   section('9・13. 音と書き出し（一番損害の大きい事故を機械で見る）')
+
+  await check('音だけを mp3 で書き出せる', async () => {
+    // **映像を1コマも焼かない道**なので、動画の書き出しが通っていても
+    // こちらだけ壊れうる（映像の枝を繋がないと ffmpeg が
+    // 「Filter has output (v) unconnected」で止まる）。
+    await resetProject()
+    const out = join(outDir, 'audio-only.mp3')
+    await setExportTarget(out)
+    await page.keyboard.press('Control+m')
+    await page.waitForSelector('.export-overlay', { timeout: 8000 })
+    await fillExportName(out)
+    // 入れ物を mp3 に切り替える（この選択が音だけの道を決める）
+    const ext = page.locator('.restore-box select').first()
+    await ext.selectOption('mp3')
+    await page.waitForTimeout(200)
+    const txt = await page.locator('.export-overlay').textContent()
+    assert(/音だけ/.test(txt), `mp3 を選んでも説明が変わらない: ${txt.slice(0, 80)}`)
+    await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
+    await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
+    assert(existsSync(out), 'mp3 ができていない')
+    // **本当に音として読めるか**まで見る（0バイトでも existsSync は通る）
+    const probe = await sh('ffprobe', [
+      '-v', 'error', '-show_entries', 'stream=codec_type,codec_name:format=duration',
+      '-of', 'default=nw=1', out
+    ])
+    assert(probe.code === 0, `mp3 が読めない: ${probe.err.slice(0, 120)}`)
+    const v = await meanVolume(out)
+    assert(v != null && v > -60, `音が入っていない（平均 ${v} dB）`)
+  })
 
   await check('ソロにしたまま書き出しても、他のトラックの音が消えない', async () => {
     // ソロは「自分で聞くためだけ」の機能。書き出しに効いてしまうと、

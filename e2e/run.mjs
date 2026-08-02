@@ -44,6 +44,8 @@ import { clearModals, watchdog } from './dismiss.mjs'
 import { cleanLeftovers, makeFixture } from './lib/e2eFixture.mjs'
 // --changed（変更から確認を引く対応表）は ./lib/changedArea
 import { changedKeywords } from './lib/changedArea.mjs'
+// 書き出し先の指定（置き場・名前・入れ物）は ./lib/exportTarget
+import { makeExportTools } from './lib/exportTarget.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
@@ -393,37 +395,8 @@ try {
       { open, save }
     )
 
-  /**
-   * 動画の書き出し先を指定する。
-   *
-   * **書き出しの窓で「どこへ・どの名前で」を決める作りになったので、
-   * 保存の窓を差し替えるだけでは効かない。** 置き場は本人が覚えさせる物
-   * （localStorage）なのでそこへ、名前は窓の欄なので窓が開いてから入れる。
-   *
-   * 保存の窓も一応差し替えておく（置き場か名前が決まらなかったときの逃げ道で
-   * main 側が今までどおり窓を出すため）。
-   */
-  const setExportTarget = async (out) => {
-    // **先に消す。** アプリは同じ名前があると上書きせず `(1)` を付けて避けるので、
-    // 前の確認が同じ名前で出していると、新しい方は `out(1).mp4` に行く。
-    // それでも `existsSync(out)` は前のファイルで通ってしまい、
-    // **中身は前の書き出しのまま**で合格する（実際に fps-same.mp4 と
-    // audio-check.mp4 が同じ名前を使い回していた）。
-    try {
-      rmSync(out, { force: true })
-    } catch {
-      /* 無ければそれでよい */
-    }
-    await setDialogFiles(null, out)
-    const dir = out.replace(/[\\/][^\\/]*$/, '')
-    await page.evaluate((d) => localStorage.setItem('giftcut.exportDir', d), dir)
-  }
-  /** 書き出しの窓で、出すファイル名を入れる（窓が開いている前提） */
-  const fillExportName = async (out) => {
-    const name = (out.split(/[\\/]/).pop() ?? out).replace(/\.[^.]+$/, '')
-    const f = page.locator('.restore-box input').first()
-    if (await f.count()) await f.fill(name)
-  }
+  // 書き出し先の指定は ./lib/exportTarget（置き場・名前・入れ物をまとめて合わせる）
+  const { setExportTarget, fillExportName } = makeExportTools(page, setDialogFiles)
 
   // -------------------------------------------------------------------------
   // 目で見る確認（スクリーンショットを撮って ffmpeg で中身を測る）
