@@ -82,6 +82,7 @@ import { type LeftPanelValue } from './leftPanelContext'
 import { type MenusValue } from './menusContext'
 import { type HeaderValue } from './headerContext'
 import { useTimelineWheel } from './useTimelineWheel'
+import { audioLaneFor } from '../../../shared/lanes'
 import { useDismissOnOutside } from './useDismissOnOutside'
 import { FPS, RECENT_KEY, RECENT_MAX, RULER_H, TRACK_PAD_ROWS } from '../lib/appConst'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
@@ -735,7 +736,10 @@ export function useAppWiring() {
     // 「いまこの瞬間」を見る（再生中は state の描き直しが遅れてずれる）
     const t = currentTimeRef.current
     if (m.kind === 'video') void placeVideoAtDrop(m.path, t, false)
-    else if (m.kind === 'audio') void placeSE(m, t, 'A2')
+    // **音の置き先を A2 に固定しない**（判定は shared/lanes の audioLaneFor）。
+    // 掴んで落とすときは狙った段へ行くのに、ここだけ固定だった
+    else if (m.kind === 'audio')
+      void placeSE(m, t, audioLaneFor(tracks, seClips, t, sel.selectedTrackId))
     else placeImage(m, t, fallbackTrack('V3', 'video'))
   }
 

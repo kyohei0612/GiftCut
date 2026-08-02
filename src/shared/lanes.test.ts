@@ -4,7 +4,7 @@
 // 特に「外したときに本編へ落とさない」は、間違えると元の映像が消える。
 
 import { describe, expect, it } from 'vitest'
-import { dropLaneAt, laneAtY, laneRows } from './lanes'
+import { dropLaneAt, laneAtY, laneRows, pickAudioLane } from './lanes'
 
 /** V1 V2 V3 / A1 A2 の5段。映像40px・音声30px・目盛り24px */
 const TRACKS = [
@@ -84,5 +84,30 @@ describe('落とし先を決める', () => {
   it('本編しか候補が無いときは、やむを得ず本編へ寄せる', () => {
     const only = laneRows([{ id: 'A1', kind: 'audio' }], 40, 30, 0)
     expect(dropLaneAt(only, 9999, 'audio')).toBe('A1')
+  })
+})
+
+describe('音を置く段を選ぶ', () => {
+  const lanes = ['A2', 'A3', 'A4']
+  const busy = [{ track: 'A2', tStart: 0, duration: 5 }]
+
+  it('段を選んであるなら、そこへ置く（空いていなくても）', () => {
+    expect(pickAudioLane(lanes, busy, 1, 'A2', 'A3')).toBe('A3')
+    expect(pickAudioLane(lanes, busy, 1, 'A2', 'A2')).toBe('A2')
+  })
+
+  // **「いつも A2」をやめるのがこの関数の目的。** 埋まっていたら次の段へ
+  it('選んでいなければ、その時刻が空いている一番上の段', () => {
+    expect(pickAudioLane(lanes, busy, 1, 'A2')).toBe('A3')
+    expect(pickAudioLane(lanes, busy, 9, 'A2')).toBe('A2') // 5秒より後は空いている
+  })
+
+  it('どこも埋まっていれば既定へ（置かないより分かりやすい）', () => {
+    const full = lanes.map((track) => ({ track, tStart: 0, duration: 5 }))
+    expect(pickAudioLane(lanes, full, 1, 'A2')).toBe('A2')
+  })
+
+  it('無い段を選んであっても、そこには置かない', () => {
+    expect(pickAudioLane(lanes, busy, 1, 'A2', 'A1')).toBe('A3')
   })
 })

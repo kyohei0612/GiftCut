@@ -80,3 +80,55 @@ export function dropLaneAt(
   const dist = (r: LaneRow): number => Math.abs(y - (r.top + r.h / 2))
   return pool.reduce((a, b) => (dist(b) < dist(a) ? b : a)).id
 }
+
+/** 置いてある物（どの段の、いつからいつまで） */
+export interface LaneBusy {
+  track: string
+  tStart: number
+  duration: number
+}
+
+/**
+ * 音を置く段を選ぶ。**「いつも A2」をやめるための判定。**
+ *
+ * 素材をダブルクリックして置くとき、置き先が A2 固定だった。
+ * 掴んで落とすときは狙った段へ行くのに、こちらだけ固定なのは食い違っている
+ *（本人から「レーンまで固定しないでほしい」と出ていた）。
+ *
+ * 決め方は3段構え:
+ *   1. 段を選んであるなら、そこ（狙って選んだ物を勝手に無視しない）
+ *   2. 選んでいなければ、**その時刻が空いている一番上の段**
+ *   3. どこも埋まっていれば既定へ（重なるが、置かないより分かりやすい）
+ *
+ * **本編の音（lanes に入れない）は呼ぶ側で外すこと。** ここへ渡すと
+ * 元の音の上に置いてしまう。
+ */
+export function pickAudioLane(
+  lanes: readonly string[],
+  busy: readonly LaneBusy[],
+  t: number,
+  fallback: string,
+  prefer?: string | null
+): string {
+  const free = (id: string): boolean =>
+    !busy.some((c) => c.track === id && t >= c.tStart && t < c.tStart + c.duration)
+  if (prefer && lanes.includes(prefer)) return prefer
+  const open = lanes.find(free)
+  return open ?? fallback
+}
+
+/**
+ * 段の一覧から「音を置く段」を決める（呼ぶ側を1行で済ませるための包み）。
+ *
+ * **本編の音（A1）はここで外す。** 呼ぶ側ごとに外し忘れると、
+ * 元の音の上に置いてしまう。
+ */
+export function audioLaneFor(
+  tracks: readonly { id: string; kind: string }[],
+  busy: readonly LaneBusy[],
+  t: number,
+  prefer?: string | null
+): string {
+  const lanes = tracks.filter((tr) => tr.kind === 'audio' && tr.id !== 'A1').map((tr) => tr.id)
+  return pickAudioLane(lanes, busy, t, lanes[0] ?? 'A2', prefer)
+}
