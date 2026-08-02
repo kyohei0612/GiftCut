@@ -3442,6 +3442,20 @@ body {
   z-index: 5;
 }
 /* タイムラインのトランジション枠（クリップより前面・クリックで選択できる範囲表示） */
+/* 付いているのに効いていないトランジション。
+   **色ではなく形で分かるようにする**（斜線＝機能していない、の合図）。
+   細い印なので、効いている帯と見間違えない。 */
+.ttrans-dead {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255, 180, 60, 0.85) 0 3px,
+    rgba(90, 60, 10, 0.85) 3px 6px
+  );
+  border: 1px solid rgba(255, 200, 100, 0.9);
+}
+.ttrans-dead .ttrans-lb {
+  font-size: 9px;
+}
 .ttrans {
   position: absolute;
   top: 2px;

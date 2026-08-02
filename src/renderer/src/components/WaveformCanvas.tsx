@@ -47,6 +47,16 @@ export default function WaveformCanvas({
     const mid = H / 2
     // 写像は shared/timeline に集約（ここで書き直すとまたズレる）
     const toIdxF = (t: number): number => waveIndexAt(t, audioDuration, P)
+
+    // **波形の色は変えない。下に暗い敷きを1枚置く。**
+    //
+    // 帯の背景はクリップに付けた色（ラベル）がそのまま出る。波形は決まった色なので、
+    // **近い色を付けると波形が消える**（青いラベルに青い波形）。
+    // 色の方を背景に合わせて変える手もあるが、それだと
+    // 「どの音がどの波形か」を色で覚えられなくなる——**波形の色は固定が正しい。**
+    // 敷きは半透明なので、付けた色は暗くなって残る＝色分けは効いたまま。
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.42)'
+    ctx.fillRect(0, 0, W, H)
     ctx.fillStyle = color
 
     for (let x = 0; x < W; x++) {

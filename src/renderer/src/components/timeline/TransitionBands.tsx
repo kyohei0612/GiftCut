@@ -153,6 +153,34 @@ export function TransitionBands({
               />
             </div>
           )
+        } else if (L.seg.xfade && L.index < segLayout.length - 1) {
+          // **付いているのに効かない状態を、見えないままにしない。**
+          //
+          // 間のクロスは「次のクリップの頭より前」の素材を重ねて切り替える。
+          // 次のクリップが素材の先頭から始まっている（頭を切っていない）と
+          // 重ねる余地がゼロで、長さが 0 になる＝**帯も出ず、何も起きない。**
+          // 「付かない」と見えるのはこれ。知らせを1回出すだけでは流れて消える。
+          //
+          // 消さずに残すのは、**あとで頭をトリムすれば効き出す**から
+          // （消すと置き直しが要る）。効いていないことだけ、その場に出しておく。
+          boxes.push(
+            <div
+              key={`xf-dead-${L.seg.id}`}
+              className="ttrans ttrans-dead"
+              style={{ left: L.tEnd * zoom - 6, width: 12 }}
+              title={
+                `${transLabel(L.seg.xfade.type)}：いまは効きません。\n` +
+                '次のクリップが素材の先頭から始まっているため、重ねる余地がありません。\n' +
+                '次のクリップの頭を少しトリムすると効き出します（Delete で外せます）。'
+              }
+              onPointerDown={(e) => {
+                e.stopPropagation()
+                if (e.button === 0) onSelect(L.seg.id, 'xfade')
+              }}
+            >
+              <span className="ttrans-lb">⚠</span>
+            </div>
+          )
         }
         return boxes
       })}
