@@ -22,7 +22,7 @@
 // 起動は必ず ./ffmpegRun 経由。直に spawn すると、
 // アプリを閉じた後も変換が走り続ける（追跡から漏れるため）。
 import { app, dialog, ipcMain, shell } from 'electron'
-import { join, normalize, resolve } from 'path'
+import { dirname, join, normalize, resolve } from 'path'
 import {
   existsSync,
   mkdirSync,
@@ -154,6 +154,14 @@ interface ExportPayload {
   totalDurationSec?: number // 進捗%算出用の出力尺
   fps?: number // 書き出しフレームレート（既定30）
   crf?: number // 画質（x264 CRF。小さいほど高画質。既定23）
+  /**
+   * 出す先（フルパス）。**画面側で決まっているなら、ここで聞き直さない。**
+   *
+   * 書き出しの窓で「どこへ・どの名前で」を決めてから押す作りにしたので、
+   * そのあとにもう一度ファイル選択が出ると二度手間になる。
+   * 無いときだけ今までどおり選択の窓を出す（画面側が決められなかった場合の逃げ道）。
+   */
+  outPath?: string
 }
 
 /**
@@ -207,15 +215,23 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   const srcHasAudio = await Promise.all(inputPaths.map(async (ip) => (await hasAudioStream(ip)) !== false))
   // 全体として音声を扱うか（どれか1つでも音声があれば音声トラックを作る）
   const audioPresent = srcHasAudio.some(Boolean)
-  const save = await dialog.showSaveDialog({
-    title: '書き出し先を選択',
-    defaultPath: 'giftcut_output.mp4',
-    filters: [
-      { name: 'MP4', extensions: ['mp4'] },
-      { name: 'MOV', extensions: ['mov'] }
-    ]
-  })
+  // 出す先。**画面側で決まっていれば聞かない**（窓で決めてから押す作りなので、
+  // ここでもう一度選択が出ると二度手間になる）。決まっていなければ今までどおり選ばせる。
+  const save = payload.outPath
+    ? { canceled: false, filePath: payload.outPath }
+    : await dialog.showSaveDialog({
+        title: '書き出し先を選択',
+        defaultPath: 'giftcut_output.mp4',
+        filters: [
+          { name: 'MP4', extensions: ['mp4'] },
+          { name: 'MOV', extensions: ['mov'] }
+        ]
+      })
   if (save.canceled || !save.filePath) return { ok: false, error: 'キャンセルされました' }
+  // **置き場が無いときは、始める前に日本語で言う。**
+  // ffmpeg に任せると英語のパスエラーになり、何分か待たされた末に理由が読めない
+  if (!existsSync(dirname(save.filePath)))
+    return { ok: false, error: '書き出し先のフォルダが見つかりません:\n' + dirname(save.filePath) }
 
   // **書き出し先が、いま素材として使っているファイルだと ffmpeg は必ず失敗する。**
   // 「前に書き出した物をタイムラインに読み込んで、また同じ名前へ書き出す」で起きる。

@@ -64,7 +64,9 @@ const {
   const { tracks } = useTracksCtx()
   const { currentTime } = usePlaybackCtx()
   const { showToast } = useToastCtx()
-  const { exportOpts, setExportOpts } = useExportCtx()
+  const {
+    exportOpts, exportDir, setExportDir, exportName, setExportName, exportExt, setExportExt
+  } = useExportCtx()
   const { iconSettingsOpen, setIconSettingsOpen } = useIconsCtx()
   return (
     <>
@@ -73,8 +75,17 @@ const {
   {showExportDialog && (
     <ExportSettingsDialog
       opts={exportOpts}
-      onChange={(patch) => setExportOpts((o) => ({ ...o, ...patch }))}
       sourceFpsLabel={fpsLabel(srcFpsForExport())}
+      dir={exportDir}
+      name={exportName}
+      ext={exportExt}
+      onName={setExportName}
+      onExt={setExportExt}
+      onPickDir={() => {
+        void window.giftcut.chooseExportDir(exportDir || undefined).then((r) => {
+          if (r?.path) setExportDir(r.path)
+        })
+      }}
       onExport={() => {
         setShowExportDialog(false)
         void exportProject()

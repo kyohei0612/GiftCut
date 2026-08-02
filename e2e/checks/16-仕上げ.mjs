@@ -20,6 +20,8 @@ export default async function (C) {
     assert,
     avgColor,
     check,
+    fillExportName,
+    setExportTarget,
     clipLayout,
     clipW,
     dragBy,
@@ -244,9 +246,10 @@ export default async function (C) {
     await dragBy(v1Clips().nth(0), W2 * 0.8)
     await page.waitForTimeout(500)
     const out = join(outDir, 'with-gap.mp4')
-    await setDialogFiles(null, out)
+    await setExportTarget(out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
+    await fillExportName(out)
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
     assert(existsSync(out), '書き出しファイルができていない')

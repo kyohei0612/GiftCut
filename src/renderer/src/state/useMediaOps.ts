@@ -55,14 +55,29 @@ export function useMediaOps(deps: UseMediaOpsDeps) {
     setSources((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
   }
 
+  /**
+   * ffprobe が返した「素材そのものの姿」を控える。
+   *
+   * **fps と大きさを1か所で受ける。** 呼ぶ所が3つあり、それぞれで書くと
+   * 片方だけ拾い忘れる（大きさを拾い忘れても画面には何も出ず、
+   * **書き出しの既定が黙って 1080p に落ちる**という気づけない壊れ方をする）。
+   */
+  function applyProbe(id: number, r: { ok: boolean; fps?: number; w?: number; h?: number }): void {
+    const patch: { fps?: number; w?: number; h?: number } = {}
+    if (r?.ok && r.fps && r.fps > 0) patch.fps = Math.round(r.fps * 1000) / 1000
+    if (r?.w && r?.h) {
+      patch.w = r.w
+      patch.h = r.h
+    }
+    if (Object.keys(patch).length) updateSource(id, patch)
+  }
+
   // ソースの付随データ（長さ/fps/プロキシ/波形）を非同期取得して反映（プロジェクト読込の追加ソース用）
   function hydrateSource(id: number, path: string): void {
     void window.giftcut.getDuration(path).then((r) => {
       if (r?.ok && r.duration && r.duration > 0) updateSource(id, { duration: r.duration })
     })
-    void window.giftcut.getFps(path).then((r) => {
-      if (r?.ok && r.fps && r.fps > 0) updateSource(id, { fps: Math.round(r.fps * 1000) / 1000 })
-    })
+    void window.giftcut.getFps(path).then((r) => applyProbe(id, r))
     // プロキシは「プレビュー解像度」の effect が sources を見て一括で用意する（ここでは作らない）
     void window.giftcut.generateWaveform(path).then((r) => {
       if (r?.ok && r.min && r.max)
@@ -120,11 +135,9 @@ export function useMediaOps(deps: UseMediaOpsDeps) {
     // 素材の実fpsを取得（フレームステップ/タイムコード/カット量子化に反映）。失敗時は既定30。
     setFps(FPS)
     void window.giftcut.getFps(path).then((r) => {
-      if (proxyForPathRef.current === path && r?.ok && r.fps && r.fps > 0) {
-        const f = Math.round(r.fps * 1000) / 1000
-        setFps(f)
-        updateSource(srcId, { fps: f })
-      }
+      if (proxyForPathRef.current !== path) return // 解析中に別動画へ切替えた
+      applyProbe(srcId, r)
+      if (r?.ok && r.fps && r.fps > 0) setFps(Math.round(r.fps * 1000) / 1000)
     })
     // ライブラリに無ければ追加（File メニューからの読み込み等）
     setMediaItems((prev) =>
@@ -182,9 +195,7 @@ export function useMediaOps(deps: UseMediaOpsDeps) {
         : [...prev, { id: mediaIdCounter.current++, path, name, kind: 'video' as const }]
     )
     // 後追い: fps / 波形 / サムネ（プロキシは「プレビュー解像度」の effect が用意する）
-    void window.giftcut.getFps(path).then((r) => {
-      if (r?.ok && r.fps && r.fps > 0) updateSource(id, { fps: Math.round(r.fps * 1000) / 1000 })
-    })
+    void window.giftcut.getFps(path).then((r) => applyProbe(id, r))
     void window.giftcut.generateWaveform(path).then((r) => {
       if (r?.ok && r.min && r.max)
         updateSource(id, { waveform: { min: r.min, max: r.max, dur: r.duration ?? 0 } })

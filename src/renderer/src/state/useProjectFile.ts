@@ -614,11 +614,13 @@ export function useProjectFile(deps: UseProjectFileDeps) {
       setMissingMedia(null) // 正常に読み込めたので欠損情報は不要
       setFps(FPS)
       void window.giftcut.getFps(primary.path).then((r) => {
-        if (proxyForPathRef.current === primary.path && r?.ok && r.fps && r.fps > 0) {
+        if (proxyForPathRef.current !== primary.path) return
+        // fps だけでなく素材の大きさも控える（書き出しの既定がここから決まる）
+        if (r?.ok && r.fps && r.fps > 0) {
           const f = Math.round(r.fps * 1000) / 1000
           setFps(f)
-          updateSource(primary.id, { fps: f })
-        }
+          updateSource(primary.id, { fps: f, ...(r.w && r.h ? { w: r.w, h: r.h } : {}) })
+        } else if (r?.w && r?.h) updateSource(primary.id, { w: r.w, h: r.h })
       })
       // 追加ソースは背景でプロキシ/波形/長さ/fpsを生成
       loadedSources.filter((s) => s.id !== primary.id).forEach((s) => hydrateSource(s.id, s.path))

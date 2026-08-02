@@ -17,6 +17,8 @@ export default async function (C) {
     trackHead,
     assert,
     check,
+    fillExportName,
+    setExportTarget,
     fx,
     meanVolume,
     near,
@@ -37,9 +39,10 @@ export default async function (C) {
 
     const exportOnce = async (label) => {
       const out = join(outDir, `${label}.mp4`)
-      await setDialogFiles(null, out)
+      await setExportTarget(out)
       await page.keyboard.press('Control+m') // 書き出しの設定画面を開く
       await page.waitForSelector('.export-overlay', { timeout: 8000 })
+      await fillExportName(out)
       await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
       // 完了まで待つ（進捗のオーバーレイが消えるまで）
       await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
@@ -74,9 +77,10 @@ export default async function (C) {
     await resetProject()
     const exportOnce = async (label) => {
       const out = join(outDir, `${label}.mp4`)
-      await setDialogFiles(null, out)
+      await setExportTarget(out)
       await page.keyboard.press('Control+m')
       await page.waitForSelector('.export-overlay', { timeout: 8000 })
+      await fillExportName(out)
       await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
       await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
       assert(existsSync(out), `書き出しファイルができていない: ${out}`)

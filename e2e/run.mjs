@@ -393,6 +393,28 @@ try {
       { open, save }
     )
 
+  /**
+   * 動画の書き出し先を指定する。
+   *
+   * **書き出しの窓で「どこへ・どの名前で」を決める作りになったので、
+   * 保存の窓を差し替えるだけでは効かない。** 置き場は本人が覚えさせる物
+   * （localStorage）なのでそこへ、名前は窓の欄なので窓が開いてから入れる。
+   *
+   * 保存の窓も一応差し替えておく（置き場か名前が決まらなかったときの逃げ道で
+   * main 側が今までどおり窓を出すため）。
+   */
+  const setExportTarget = async (out) => {
+    await setDialogFiles(null, out)
+    const dir = out.replace(/[\\/][^\\/]*$/, '')
+    await page.evaluate((d) => localStorage.setItem('giftcut.exportDir', d), dir)
+  }
+  /** 書き出しの窓で、出すファイル名を入れる（窓が開いている前提） */
+  const fillExportName = async (out) => {
+    const name = (out.split(/[\\/]/).pop() ?? out).replace(/\.[^.]+$/, '')
+    const f = page.locator('.restore-box input').first()
+    if (await f.count()) await f.fill(name)
+  }
+
   // -------------------------------------------------------------------------
   // 目で見る確認（スクリーンショットを撮って ffmpeg で中身を測る）
   // -------------------------------------------------------------------------
@@ -1093,6 +1115,8 @@ try {
     section,
     seekTo,
     setDialogFiles,
+    setExportTarget,
+    fillExportName,
     sh,
     shot,
     shotDir,

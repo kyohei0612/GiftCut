@@ -48,6 +48,14 @@ export interface Source {
   origUrl: string // 原本の gcfile URL（プレビュー用プロキシは path をキーに proxyMap で持つ）
   duration: number
   fps: number
+  /**
+   * 素材そのものの大きさ（画素）。**書き出しの既定をここから決める。**
+   *
+   * 画面の <video> から取ってはいけない（焼き直し＝プロキシの大きさを拾い、
+   * 4K の素材を 360p だと誤解する）。ffprobe が返した値だけを入れる。
+   */
+  w?: number
+  h?: number
   // 波形は自分が解析した音声の長さ(dur)も持つ。動画の尺で位置を計算すると
   // 音声ストリームとの尺差ぶん、後ろに行くほど再生ヘッドとズレる。
   waveform?: { min: number[]; max: number[]; dur: number } | null

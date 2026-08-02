@@ -10,6 +10,7 @@
 //
 // 何分もかかり、途中でやめると中途半端なファイルが残る。必ず設定の窓を挟む。
 import { buildExportPayload } from '../../../shared/exportPayload'
+import { joinOut, outputBaseName, resPFromHeight } from '../../../shared/exportDefaults'
 import { clamp, layoutSegs, segSpeed, totalSegLen, xfadeDurAt } from '../../../shared/timeline'
 import { envToFfmpegExpr } from '../../../shared/ducking'
 import { buildSrt } from '../lib/srt'
@@ -18,6 +19,7 @@ import { renderCueToPng } from '../lib/rasterize'
 import type { VSeg } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
+import { EXPORT_DIR_KEY } from './useExportSettings'
 import { useExportCtx } from './exportContext'
 import { useMediaCtx } from './mediaContext'
 import { useIconsCtx } from './iconsContext'
@@ -50,7 +52,11 @@ export interface UseExportDeps {
 export function useExport(deps: UseExportDeps) {
   const { stopPlayback, srcOfSeg, cueTrack, iconForCue, resolveExportFps, animBreakpoints, duckEnv, seEnd, v1Hidden } = deps
   const { cues, segments, seClips, imgClips, vClips } = useDoc()  const { tracks, trackStates } = useTracksCtx()
-  const { ratio, exportOpts, masterVolume, loudnormLUFS, setShowExportDialog, setExportStatus, setExportPct, exportStatus } = useExportCtx()
+  const {
+    ratio, exportOpts, setExportOpts, masterVolume, loudnormLUFS, setShowExportDialog,
+    setExportStatus, setExportPct, exportStatus,
+    exportDir, setExportDir, exportName, setExportName, exportExt
+  } = useExportCtx()
   const { videoPath,  sourcesRef } = useMediaCtx()
   const { iconSide, iconOffset, iconScale, iconAuto } = useIconsCtx()
   const { showToast } = useToastCtx()
@@ -89,6 +95,15 @@ export function useExport(deps: UseExportDeps) {
       return
     }
     if (exportStatus) return // 書き出し中は受け付けない
+    // **開くたびに素材へ合わせ直す。** 素材を差し替えたのに前の素材の大きさで
+    // 出る、が起きない（決め方と理由は shared/exportDefaults）。
+    const primary = sourcesRef.current.find((s) => s.path === videoPath) ?? sourcesRef.current[0]
+    setExportOpts((o) => ({ ...o, resP: resPFromHeight(primary?.h) }))
+    // 覚えている置き場も読み直す（別の窓で選び直していても、開いた方が新しい）
+    const remembered = localStorage.getItem(EXPORT_DIR_KEY)
+    if (remembered) setExportDir(remembered)
+    // 名前は一度決めたら触らない（打ち替えた名前を、開くたびに戻されると腹が立つ）
+    if (!exportName) setExportName(outputBaseName(null, videoPath))
     setShowExportDialog(true)
   }
 
@@ -249,7 +264,13 @@ export function useExport(deps: UseExportDeps) {
         fps: resolveExportFps(),
         crf,
         // 本編より後ろに置かれている物（ここまで伸ばして黒＋無音で埋める）
-        tailEnds: [cueEnd, seEnd, expImgEnd, expVcEnd]
+        tailEnds: [cueEnd, seEnd, expImgEnd, expVcEnd],
+        // 出す先は窓で決まっている。**ここで渡せば、あとでもう一度聞かれない。**
+        // 決まっていないときだけ渡さない（main 側が今までどおり選択の窓を出す）
+        outPath:
+          exportDir && exportName.trim()
+            ? joinOut(exportDir, `${exportName.trim()}.${exportExt}`)
+            : undefined
       })
       const tFf0 = performance.now()
       const res = await window.giftcut.exportVideo(

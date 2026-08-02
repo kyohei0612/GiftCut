@@ -142,6 +142,11 @@ export interface BuildInput {
   crf: number
   /** テロップの終わり・効果音の終わりなど、本編より後ろに伸びる物の終端 */
   tailEnds: number[]
+  /**
+   * 出す先（フルパス）。**書き出しの窓で決まっているならそのまま通す。**
+   * 無ければ main 側が今までどおりファイル選択の窓を出す。
+   */
+  outPath?: string
 }
 
 // ※ ここは 2026-08-02 まで**ぴったり比較**（=== 1）で、画面側だけが誤差を許していた。
@@ -205,6 +210,7 @@ export function buildExportPayload(input: BuildInput): Record<string, unknown> {
 
   return {
     videoPath: input.videoPath,
+    outPath: input.outPath,
     sources: input.sources.map((s) => ({ path: s.path })),
     width: input.size.width,
     height: input.size.height,

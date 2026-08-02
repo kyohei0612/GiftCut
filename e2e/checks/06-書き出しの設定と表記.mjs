@@ -17,6 +17,9 @@ export default async function (C) {
     avgColor,
     avgColorAt,
     check,
+    fillExportName,
+    setExportTarget,
+    fx,
     outDir,
     page,
     resetProject,
@@ -27,28 +30,45 @@ export default async function (C) {
   } = C
   section('13. 書き出しの設定が効いているか')
 
-  await check('解像度の設定が、できあがりの動画に反映される', async () => {
-    const out = join(outDir, 'res720.mp4')
-    await setDialogFiles(null, out)
+  await check('書き出す大きさが素材に合う（上へ伸ばさない）', async () => {
+    // **解像度は選ばせない作りにした。** 素材から決める（決め方と理由は
+    // shared/exportDefaults。試験もそちらに14件ある）。
+    // ここで見るのは「その決め方が、できあがりのファイルまで届いているか」。
+    //
+    // 段そのもの（480/720/1080/2160 のどれになるか）はここで書き直さない。
+    // 書き直すと**同じ規則が2か所**になり、片方だけ直したときに気づけない。
+    // 代わりに、規則から必ず言えることだけを見る:
+    //   ・素材より大きくしない（大きくしても絵は良くならず、時間だけ増える）
+    //   ・決められた段のどれかになっている
+    const sizeOf = async (f) => {
+      const probe = spawn('ffprobe', [
+        '-v', 'error', '-select_streams', 'v:0',
+        '-show_entries', 'stream=width,height', '-of', 'csv=p=0', f
+      ])
+      let o = ''
+      probe.stdout.on('data', (d) => (o += d))
+      await new Promise((res) => probe.on('close', res))
+      return o.trim().split(',').map(Number)
+    }
+    const [, srcH] = await sizeOf(fx.video)
+    const out = join(outDir, 'res-src.mp4')
+    await setExportTarget(out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
-    // .pq-select はプレビュー解像度の選択にも使われているので、
-    // 書き出しダイアログの中に限定して選ぶ
-    await page.locator('.pq-export').first().selectOption('720')
+    await fillExportName(out)
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
     assert(existsSync(out), '書き出しファイルができていない')
-    const probe = spawn('ffprobe', [
-      '-v', 'error', '-select_streams', 'v:0',
-      '-show_entries', 'stream=width,height', '-of', 'csv=p=0', out
-    ])
-    let o = ''
-    probe.stdout.on('data', (d) => (o += d))
-    await new Promise((res) => probe.on('close', res))
-    const [w, h] = o.trim().split(',').map(Number)
-    // **見るのは「短い辺」。** 縦長（9:16）では 720x1280 になるのが正しく、
-    // 高さで見ていると縦長で必ず落ちる（720p＝短い辺が720、という意味なので）
-    assert(Math.min(w, h) === 720, `短い辺が720になっていない（${w}x${h}）`)
+    const [w, h] = await sizeOf(out)
+    // **見るのは「短い辺」。** 縦長（9:16）では 480x854 になるのが正しく、
+    // 高さで見ていると縦長で必ず落ちる（480p＝短い辺が480、という意味なので）
+    const short = Math.min(w, h)
+    assert([480, 720, 1080, 2160].includes(short), `決められた段になっていない（${w}x${h}）`)
+    // 一番下の段（480）より低い素材だけは、そこまで上げる決まり
+    assert(
+      short <= Math.max(srcH, 480),
+      `素材（高さ${srcH}）より大きく書き出している（${w}x${h}）`
+    )
   })
 
   await check('ショート（9:16）でも、縦長のまま中身が入って書き出せる', async () => {
@@ -63,12 +83,10 @@ export default async function (C) {
       '9:16 に切り替わっていない'
     )
     const out = join(outDir, 'short916.mp4')
-    await setDialogFiles(null, out)
+    await setExportTarget(out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
-    // **解像度は自分で決める。** 書き出しの設定は残るので、前の項目が 720 に
-    // していると 720x1280 で出て「縦長になっていない」と誤検知する（通しで踏んだ）
-    await page.locator('.pq-export').first().selectOption('1080')
+    await fillExportName(out)
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
     assert(existsSync(out), '書き出しファイルができていない')
@@ -83,7 +101,10 @@ export default async function (C) {
     const w = Number(/width=(\d+)/.exec(o)?.[1] ?? 0)
     const h = Number(/height=(\d+)/.exec(o)?.[1] ?? 0)
     const dur = Number(/duration=([\d.]+)/.exec(o)?.[1] ?? 0)
-    assert(w === 1080 && h === 1920, `縦長になっていない（${w}x${h}。1080x1920 のはず）`)
+    // 大きさは素材から決まる（選ばせない作りにした）ので、**数字を決め打ちしない。**
+    // 見るのは「縦長になっていること」と「9:16 になっていること」。
+    assert(h > w, `縦長になっていない（${w}x${h}）`)
+    assert(Math.abs(w / h - 9 / 16) < 0.02, `9:16 になっていない（${w}x${h}）`)
     assert(dur > 1, `尺が入っていない（${dur}秒）`)
 
     // **中身が入っていること。** 寸法だけ合っていて真っ黒、が一番たちが悪い。
@@ -97,9 +118,12 @@ export default async function (C) {
     // **収まり方まで見る。** 横長の素材を縦長の枠に入れるので、
     // 上下は黒帯・真ん中に映像、が正しい形。
     // ここを見ないと「引き伸ばして潰れている」「横に倒れている」を見逃す。
-    const top = await avgColorAt(f, 0, 0, 1080, 380)
-    const middle = await avgColorAt(f, 0, 770, 1080, 380)
-    const bottom = await avgColorAt(f, 0, 1540, 1080, 380)
+    // **測る場所は割合で出す。** 大きさは素材から決まるので、画素数を
+    // 決め打ちすると素材を替えた瞬間に枠の外を測って落ちる
+    const band = Math.round(h * 0.2)
+    const top = await avgColorAt(f, 0, 0, w, band)
+    const middle = await avgColorAt(f, 0, Math.round(h * 0.4), w, band)
+    const bottom = await avgColorAt(f, 0, h - band, w, band)
     assert(
       middle.y != null && top.y != null && bottom.y != null,
       '縦長のコマを場所ごとに測れない'
@@ -117,7 +141,7 @@ export default async function (C) {
     const gt = spawn('ffmpeg', ['-y', '-ss', '2.0', '-i', out, '-frames:v', '1', ft])
     await new Promise((res) => gt.on('close', res))
     assert(existsSync(ft), 'テロップ確認用のコマを取り出せない')
-    const tArea = await avgColorAt(ft, 0, 1150, 1080, 500) // 下寄り＝既定のテロップ位置
+    const tArea = await avgColorAt(ft, 0, Math.round(h * 0.6), w, Math.round(h * 0.26)) // 下寄り＝既定のテロップ位置
     assert(
       tArea.range != null && tArea.range > 40,
       `縦長だとテロップが焼けていない/枠の外に出ている（明暗の幅 ${tArea.range}）`

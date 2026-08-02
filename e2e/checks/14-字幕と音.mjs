@@ -17,6 +17,8 @@ export default async function (C) {
     dndFromBin,
     assert,
     check,
+    fillExportName,
+    setExportTarget,
     clipW,
     fx,
     near,
@@ -137,29 +139,27 @@ export default async function (C) {
     await page.locator('.mode-tab', { hasText: '書き出し' }).first().click()
     await page.waitForSelector('.export-overlay', { timeout: 8000 })
     const txt = await page.locator('.export-overlay').textContent()
-    assert(txt.includes('書き出し設定'), `設定画面が出ていない: ${txt.slice(0, 80)}`)
+    // 窓が出ただけでは足りない。**押した瞬間に始まっていない**ことを見たいので、
+    // 「まだ始まっていない窓」にしか無い物（タイトル欄・書き出し先）で確かめる
+    assert(
+      txt.includes('タイトル') && txt.includes('書き出し先'),
+      `設定画面が出ていない: ${txt.slice(0, 80)}`
+    )
     await page.locator('.export-overlay').click({ position: { x: 5, y: 5 } })
     await page.waitForTimeout(400)
   })
 
   await check('フレームレート「素材と同じ」で、素材と同じなめらかさになる', async () => {
     const out = join(outDir, 'fps-same.mp4')
-    await setDialogFiles(null, out)
+    await setExportTarget(out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
-    // 「素材と同じ」の選択肢を持つプルダウンを、文言から探して選ぶ
-    const sels = page.locator('.export-overlay .pq-select')
-    const n = await sels.count()
-    let picked = false
-    for (let i = 0; i < n; i++) {
-      const opts = await sels.nth(i).locator('option').allTextContents()
-      const hit = opts.find((t) => t.includes('素材'))
-      if (!hit) continue
-      await sels.nth(i).selectOption({ label: hit })
-      picked = true
-      break
-    }
-    assert(picked, '「素材と同じ」の選択肢が見つからない')
+    // **fps は選ばせない作りにした**（素材と同じで固定）。
+    // 選ぶ代わりに、窓が「素材と同じ」であることを言っているかを見る。
+    // ここを見ないと、黙って 30fps に落ちていても気づけない
+    const txt = await page.locator('.export-overlay').textContent()
+    assert(/素材と同じ設定で書き出します/.test(txt), `窓に書き出す中身の説明が無い: ${txt.slice(0, 80)}`)
+    await fillExportName(out)
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
     assert(existsSync(out), '書き出しファイルができていない')
@@ -185,9 +185,10 @@ export default async function (C) {
     // 前の項目が書き出したファイルに頼っていたので、絞って回すと
     // 「コマを抜き出せなかった」で落ちていた。無ければ自分で書き出す。
     if (!existsSync(out)) {
-      await setDialogFiles(null, out)
+      await setExportTarget(out)
       await page.keyboard.press('Control+m')
       await page.waitForSelector('.export-overlay', { timeout: 8000 })
+      await fillExportName(out)
       await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
       await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
       assert(existsSync(out), '書き出しファイルができていない')
@@ -211,14 +212,13 @@ export default async function (C) {
     // 一番重い設定（4K）にして、途中で止められる時間を作る。
     await resetProject()
     const out = join(outDir, 'cancelled.mp4')
-    await setDialogFiles(null, out)
+    await setExportTarget(out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
-    const res4k = page.locator('.export-overlay select').first()
-    if (await res4k.count()) {
-      await res4k.selectOption({ label: /2160|4K/ }).catch(() => {})
-      await page.waitForTimeout(300)
-    }
+    // ※ 以前はここで 4K を選んで重くしていたが、**解像度は選ばせない作りにした**
+    //   （素材から決まる）。重くする手が無くなったので、出た瞬間に掴む方だけが頼り。
+    //   ここが不安定になったら、重くするのではなく**尺を伸ばす**方で作ること
+    await fillExportName(out)
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     // **待ってから探してはいけない。** 書き出しが速いと、探す前に終わってしまい
     // 「中止ボタンが無い」と誤って報告する（GPU で焼くようになって実際に起きた）。

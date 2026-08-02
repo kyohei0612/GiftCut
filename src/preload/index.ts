@@ -150,8 +150,16 @@ const api = {
     ipcRenderer.invoke('folder:open', key),
   getDuration: (path: string): Promise<{ ok: boolean; duration?: number }> =>
     ipcRenderer.invoke('media:duration', path),
-  getFps: (path: string): Promise<{ ok: boolean; fps?: number }> =>
+  // fps と一緒に素材の大きさも返る（書き出しの既定を素材に合わせるため）。
+  // **画面の <video> から取らない**（焼き直しの大きさを拾ってしまう）
+  getFps: (path: string): Promise<{ ok: boolean; fps?: number; w?: number; h?: number }> =>
     ipcRenderer.invoke('media:fps', path),
+  /** 書き出し先の既定（初回だけ使う。プレミアと同じで「ダウンロード」） */
+  defaultExportDir: (): Promise<{ ok: boolean; path?: string }> =>
+    ipcRenderer.invoke('path:downloads'),
+  /** 書き出し先のフォルダを選ぶ */
+  chooseExportDir: (current?: string): Promise<{ path: string } | null> =>
+    ipcRenderer.invoke('dialog:chooseDir', current),
   generateWaveform: (
     videoPath: string
   ): Promise<{ ok: boolean; min?: number[]; max?: number[]; duration?: number; error?: string }> =>

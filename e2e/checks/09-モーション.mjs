@@ -16,6 +16,8 @@ export default async function (C) {
     assert,
     avgColor,
     check,
+    fillExportName,
+    setExportTarget,
     closeTransAccs,
     exactFrame,
     fx,
@@ -196,9 +198,10 @@ export default async function (C) {
       touchedRef.dirty = true
     }
     const out = join(outDir, 'motion.mp4')
-    await setDialogFiles(null, out)
+    await setExportTarget(out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
+    await fillExportName(out)
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
     assert(existsSync(out), '書き出しファイルができていない')
@@ -850,9 +853,10 @@ export default async function (C) {
     await page.waitForTimeout(200)
 
     const out = join(outDir, 'clip-motion.mp4')
-    await setDialogFiles(null, out)
+    await setExportTarget(out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
+    await fillExportName(out)
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
     assert(existsSync(out), '書き出しファイルができていない（zoompan の式が通っていない可能性）')
@@ -893,9 +897,10 @@ export default async function (C) {
     await page.waitForTimeout(500)
 
     const out = join(outDir, 'adjust.mp4')
-    await setDialogFiles(null, out)
+    await setExportTarget(out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
+    await fillExportName(out)
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
     assert(existsSync(out), '書き出しファイルができていない（色調整のフィルタが通っていない）')
@@ -938,9 +943,10 @@ export default async function (C) {
     await page.waitForTimeout(200)
 
     const out = join(outDir, 'img-motion.mp4')
-    await setDialogFiles(null, out)
+    await setExportTarget(out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
+    await fillExportName(out)
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
     assert(existsSync(out), '書き出しファイルができていない')

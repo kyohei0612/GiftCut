@@ -16,74 +16,98 @@ export interface ExportOpts {
   quality: 'high' | 'med' | 'low'
 }
 
+/**
+ * 書き出しの窓。**決めるのは「どこへ・どの名前で」だけ。**
+ *
+ * 絵の設定（解像度・fps・画質）は素材から自動で決める。理由:
+ *
+ * - 書き出しは「取り込んだ物と同じ物が出る」が当たり前で、そこを毎回選ばせるのは
+ *   **選び間違える機会を毎回作っている**のと同じ。4K を読み込んだのに既定の
+ *   1080p のまま出して、**出来上がってから気づく**（やり直しに何分もかかる）
+ * - 画質を落として得なのはファイルの大きさだけで、**速さはほとんど変わらない**
+ *   （実測: 焼く物を GPU→CPU に変えても 1080p60秒で 1〜2秒。遅さの原因は別）
+ *
+ * 素材から決めた中身は、いじれなくても**見えてはいる**ようにする
+ * （何が出るか分からないまま押させない）。
+ */
 export function ExportSettingsDialog({
+  /** 素材から決まった中身（表示だけ。いじらせない） */
   opts,
-  onChange,
-  /** 「素材と同じ」を選んだときに実際に使われる fps（表示用） */
+  /** 「素材と同じ」で実際に使われる fps（表示用） */
   sourceFpsLabel,
+  dir,
+  name,
+  ext,
+  onName,
+  onExt,
+  onPickDir,
   onExport,
   onClose
 }: {
   opts: ExportOpts
-  onChange: (patch: Partial<ExportOpts>) => void
   sourceFpsLabel: string
+  dir: string
+  name: string
+  ext: 'mp4' | 'mov'
+  onName: (v: string) => void
+  onExt: (v: 'mp4' | 'mov') => void
+  onPickDir: () => void
   onExport: () => void
   onClose: () => void
 }): React.JSX.Element {
+  const resLabel =
+    opts.resP === 2160 ? '4K（2160p）' : opts.resP === 720 ? 'HD（720p）' : opts.resP === 480 ? 'SD（480p）' : 'フルHD（1080p）'
+  // 名前が空でも押させない（名前の無いファイルは作れない）
+  const ready = !!dir && !!name.trim()
   return (
     <div className="export-overlay" onPointerDown={onClose}>
       <div className="restore-box" onPointerDown={(e) => e.stopPropagation()}>
-        <div className="restore-title">書き出し設定</div>
+        <div className="restore-title">書き出し</div>
         <div className="sp-row">
-          <span className="sp-label">📤 書き出す解像度</span>
-          <select
-            className="pq-select pq-export"
-            value={opts.resP}
-            onChange={(e) => onChange({ resP: Number(e.target.value) as ExportOpts['resP'] })}
-          >
-            <option value={2160}>4K（2160p）</option>
-            <option value={1080}>フルHD（1080p）</option>
-            <option value={720}>HD（720p）</option>
-            <option value={480}>SD（480p）</option>
-          </select>
-        </div>
-        <div className="sp-row">
-          <span className="sp-label">フレームレート</span>
+          <span className="sp-label">タイトル</span>
+          <input
+            className="pq-select"
+            style={{ flex: 1, minWidth: 0 }}
+            value={name}
+            placeholder="ファイル名"
+            onChange={(e) => onName(e.target.value)}
+          />
           <select
             className="pq-select"
-            value={String(opts.fps)}
-            onChange={(e) => {
-              const v = e.target.value
-              onChange({ fps: v === 'source' ? 'source' : (Number(v) as 24 | 30 | 60) })
-            }}
-            title="「素材と同じ」なら素材のフレームレートをそのまま保つ（60fps素材が30fpsに落ちない）"
+            style={{ width: 84 }}
+            value={ext}
+            onChange={(e) => onExt(e.target.value as 'mp4' | 'mov')}
           >
-            <option value="source">素材と同じ（{sourceFpsLabel}fps）</option>
-            <option value="24">24fps</option>
-            <option value="30">30fps</option>
-            <option value="60">60fps</option>
+            <option value="mp4">.mp4</option>
+            <option value="mov">.mov</option>
           </select>
         </div>
         <div className="sp-row">
-          <span className="sp-label">画質</span>
-          <select
+          <span className="sp-label">書き出し先</span>
+          <span
             className="pq-select"
-            value={opts.quality}
-            onChange={(e) => onChange({ quality: e.target.value as ExportOpts['quality'] })}
+            style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            title={dir || undefined}
           >
-            <option value="high">高画質（ファイル大）</option>
-            <option value="med">標準</option>
-            <option value="low">軽量（ファイル小）</option>
-          </select>
+            {dir || '（未選択）'}
+          </span>
+          <button className="btn small" onClick={onPickDir}>
+            参照…
+          </button>
         </div>
+        {/* **押せない理由は、押せない物のそばに書く。**
+            ボタンだけ灰色にして理由が無いと、壊れているのか自分のせいなのか分からない */}
+        {!dir && (
+          <div className="restore-warn">※ 保存先を選んでください（「参照…」から）。</div>
+        )}
         <div className="tpl-hint" style={{ marginTop: 4 }}>
-          形式は保存ダイアログの拡張子（.mp4 / .mov）で選べます。H.264 / AAC。
+          素材と同じ設定で書き出します: {resLabel} / {sourceFpsLabel}fps / H.264・AAC
         </div>
         <div className="restore-btns">
           <button className="btn small" onClick={onClose}>
             キャンセル
           </button>
-          <button className="btn small primary" onClick={onExport}>
+          <button className="btn small primary" disabled={!ready} onClick={onExport}>
             この設定で書き出す
           </button>
         </div>

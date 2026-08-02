@@ -141,7 +141,9 @@ export interface GiftcutApi {
     key: 'se' | 'telop' | 'motion' | 'template' | 'data'
   ) => Promise<{ ok: boolean; path?: string; error?: string }>
   getDuration: (path: string) => Promise<{ ok: boolean; duration?: number }>
-  getFps: (path: string) => Promise<{ ok: boolean; fps?: number }>
+  getFps: (path: string) => Promise<{ ok: boolean; fps?: number; w?: number; h?: number }>
+  defaultExportDir: () => Promise<{ ok: boolean; path?: string }>
+  chooseExportDir: (current?: string) => Promise<{ path: string } | null>
   generateWaveform: (
     videoPath: string
   ) => Promise<{ ok: boolean; min?: number[]; max?: number[]; duration?: number; error?: string }>

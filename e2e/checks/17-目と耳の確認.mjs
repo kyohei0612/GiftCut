@@ -19,6 +19,8 @@ export default async function (C) {
     avgColor,
     avgColorAt,
     check,
+    fillExportName,
+    setExportTarget,
     clipLayout,
     clipW,
     dragBy,
@@ -585,9 +587,10 @@ export default async function (C) {
   // 無ければその場で焼く。前の項目の結果に寄りかからせない。
   const exportForAudioCheck = async (out) => {
     if (existsSync(out)) return
-    await setDialogFiles(null, out)
+    await setExportTarget(out)
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
+    await fillExportName(out)
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 240000 })
   }

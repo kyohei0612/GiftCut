@@ -468,7 +468,15 @@ app.whenReady().then(() => {
     })
   })
 
-  // 動画の実フレームレート（ffprobe r_frame_rate = "30000/1001" 等）を返す。素材fps対応用。
+  // 動画の実フレームレートと大きさを返す。
+  //
+  // fps は素材fps対応用（ffprobe r_frame_rate = "30000/1001" 等）。
+  // **大きさも一緒に返す**のは、書き出しの既定を素材に合わせるため。
+  // ここで取らずに画面の <video> から取ると、**焼き直し（プロキシ）の
+  // 大きさを拾ってしまう**（360p のプロキシを見て「素材は360p」と誤解する）。
+  //
+  // `-of default=nw=1` は `key=value` を1行ずつ出す。csv だと並び順が
+  // 聞いた順ではなくストリームの順になり、どれがどれか分からなくなる。
   ipcMain.handle('media:fps', async (_e, path: string) => {
     if (!path || !isAllowed(path)) return { ok: false }
     return await new Promise((resolve) => {
@@ -478,9 +486,9 @@ app.whenReady().then(() => {
         '-select_streams',
         'v:0',
         '-show_entries',
-        'stream=r_frame_rate',
+        'stream=r_frame_rate,width,height',
         '-of',
-        'csv=p=0',
+        'default=nw=1',
         path
       ])
       let out = ''
@@ -489,12 +497,39 @@ app.whenReady().then(() => {
       })
       p.on('error', () => resolve({ ok: false }))
       p.on('close', () => {
-        const s = out.trim()
+        const pick = (k: string): string =>
+          new RegExp(`^${k}=(.*)$`, 'm').exec(out.trim())?.[1]?.trim() ?? ''
+        const s = pick('r_frame_rate')
         const m = /^(\d+)\/(\d+)$/.exec(s)
         const fps = m ? Number(m[1]) / Number(m[2]) : parseFloat(s)
-        resolve(fps > 0 && isFinite(fps) ? { ok: true, fps } : { ok: false })
+        const w = parseInt(pick('width'), 10)
+        const h = parseInt(pick('height'), 10)
+        const size = w > 0 && h > 0 ? { w, h } : {}
+        resolve(fps > 0 && isFinite(fps) ? { ok: true, fps, ...size } : { ok: false, ...size })
       })
     })
+  })
+
+  // 書き出し先の既定（まだ一度も選んでいないとき）。
+  // **プレミアと同じで「ダウンロード」から始める。** 二度目からは
+  // 前に選んだ場所を画面側が覚えているので、ここは初回だけ効く。
+  ipcMain.handle('path:downloads', () => {
+    try {
+      return { ok: true, path: app.getPath('downloads') }
+    } catch {
+      return { ok: false }
+    }
+  })
+
+  // 書き出し先のフォルダを選ぶ（ファイルではなくフォルダを選ばせる）
+  ipcMain.handle('dialog:chooseDir', async (_e, current?: string) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: '書き出し先のフォルダを選択',
+      defaultPath: current || undefined,
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (canceled || !filePaths.length) return null
+    return { path: filePaths[0] }
   })
 
   // メディア（動画/音声/画像）を複数追加。gcfile 配信を許可してパス一覧を返す
