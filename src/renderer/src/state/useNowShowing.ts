@@ -1,10 +1,12 @@
 // いま画面に出ている物（テロップと、映す素材の一覧）。
 //
-// ## 先頭のテロップだけ特別扱いする
+// ## 出す・出さないの判定は自分で持たない
 //
-// 聞き取りで作った字幕は 0.1秒 あたりから始まることが多い。素直に判定すると
-// 頭のわずかな間だけ字幕が出ず、**再生し始めた瞬間に一瞬なにも無い**という
-// 見え方になる。先頭が 0.5秒 以内から始まるときだけ、頭の隙間を埋める。
+// **`shared/cueWindow` の `isCueShowing` を通す。** ここに式を書き直すと、
+// 書き出し側（`overlayEnableExpr`）と食い違って
+// **プレビューには出ているのに書き出した動画には無い**が起きる。
+// 実際に起きた（先頭のテロップを画面側だけ 0秒 まで引き延ばしていた。
+// 経緯は `shared/cueWindow.ts` の頭）。
 //
 // ## 開始ちょうどから出す
 //
@@ -12,6 +14,7 @@
 // 重なり、「2枚ぬめっと重なる」見え方になっていた。隣り合う場合（前の終わり＝
 // 次の始まり）は判定が互いに補い合うので、先に出さなくても隙間はできない。
 import { useMemo } from 'react'
+import { isCueShowing } from '../../../shared/cueWindow'
 import type { Cue } from '../lib/srt'
 import type { Source, Track } from '../lib/projectTypes'
 
@@ -31,13 +34,8 @@ export function useNowShowing(deps: UseNowShowingDeps) {
 
   /** いま出ているテロップ。**下の段から順**に並べる（後ろに描いた物が手前） */
   const activeCues = useMemo(() => {
-    const firstStart = cues.reduce((m, c) => Math.min(m, c.start), Infinity)
-    const headFill = firstStart <= 0.5
     return cues
-      .filter((c) => {
-        const eff = headFill && c.start === firstStart ? 0 : c.start
-        return currentTime >= eff && currentTime < c.end
-      })
+      .filter((c) => isCueShowing(c.start, c.end, currentTime))
       .sort(
         (a, b) =>
           tracks.findIndex((t) => t.id === cueTrack(b)) -

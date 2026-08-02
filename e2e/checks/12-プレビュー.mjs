@@ -16,6 +16,9 @@ export default async function (C) {
     assert,
     avgColor,
     check,
+    clipLayout,
+    clipW,
+    dragBy,
     outDir,
     page,
     resetProject,
@@ -420,6 +423,32 @@ export default async function (C) {
     await page.waitForTimeout(500)
     const after = await page.locator('.screen-vclip').first().evaluate((el) => el.style.transform)
     assert(after !== moved, `リセットしても変形が残っている（${after}）`)
+  })
+
+  // **画面が先回りして出さない。** 前は「先頭が 0.5秒 以内から始まるなら
+  // 頭の隙間を埋める」ために画面側だけ 0秒 から出していた。書き出しは
+  // 引き延ばしていないので、**プレビューに出ている物が製品に無い**状態だった
+  //（本人から「まだ来ていないテロップが動画の頭で出ている」と上がった）。
+  // 判定を1つに寄せた経緯は src/shared/cueWindow.ts の頭。
+  await check('動画の頭で、まだ始まっていないテロップは出ない', async () => {
+    await resetProject()
+    // 文字は 1〜3秒。**0.5秒より手前**へ運ぶ（そこが引き延ばされていた範囲）
+    const pxPerSec = (await clipW()) / 5
+    await dragBy(page.locator('.telop-clip').nth(0), -0.7 * pxPerSec)
+    await page.waitForTimeout(400)
+    // 準備が成立しているか先に見る。0秒ちょうどへ吸い付いていたら
+    // 「出ないこと」を確かめても意味が無い（本当に出るのが正しいので）
+    const x0 = (await clipLayout())[0].x // V1 の1本目の左端＝時刻0
+    const bx = (await page.locator('.telop-clip').nth(0).boundingBox()).x
+    const startSec = (bx - x0) / pxPerSec
+    assert(
+      startSec > 0.05 && startSec < 0.5,
+      `準備が成立していない（文字の開始 ${startSec.toFixed(2)}秒。0.05〜0.5秒に置きたい）`
+    )
+    await seekTo(0)
+    await page.waitForTimeout(400)
+    const shown = await page.locator('.telop-overlay .telop-textmain').count()
+    assert(shown === 0, `始まる前なのに ${shown} 枚出ている（開始 ${startSec.toFixed(2)}秒）`)
   })
 
   await check('重ねた動画の音が、対の音声段に波形として並ぶ', async () => {
