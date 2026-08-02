@@ -30,7 +30,7 @@ import type { ImgClip, SEClip, VClip } from '../lib/projectTypes'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
-import { avoidBusyLane } from '../../../shared/lanes'
+import { audioLaneFor, avoidBusyLane } from '../../../shared/lanes'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { useMediaCtx } from './mediaContext'
@@ -101,7 +101,7 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
   } = useDoc()
   const {
     selectedImgIds, setSelectedImgIds, setSelectedSeIds, selectedVClipIds,
-    setSelectedVClipIds, setSelectedMediaIds
+    setSelectedVClipIds, selectedMediaIds, setSelectedMediaIds
   } = useSel()
   const { tracks, setTracks, trackStates, setTrackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
@@ -288,6 +288,62 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
     ]
     return avoidBusyLane(order, busy, t, picked)
   }
+
+  /**
+   * 掴んだ物といっしょに運ぶ一覧。**まとめて選んでいれば、その順のまま。**
+   *
+   * 掴んだ物が選択の中に居るときだけ束で運ぶ。選択と関係ない物を掴んだら
+   * それ1つ——選んであることを忘れて別の物を掴んだときに、
+   * 覚えのない素材まで置かれるのが一番困る。
+   */
+  function dragList(grabbed: MediaItem): MediaItem[] {
+    if (selectedMediaIds.length < 2 || !selectedMediaIds.includes(grabbed.id)) return [grabbed]
+    return selectedMediaIds
+      .map((id) => mediaItems.find((m) => m.id === id))
+      .filter((m): m is MediaItem => !!m)
+  }
+
+  /**
+   * その素材の長さ（秒）。**続けて並べるには、次の置き場所を知る必要がある。**
+   *
+   * 画像は決め打ち（置いたときの長さと同じ 5秒）。音と映像は測る。
+   * 測れなければ 2秒——**止まるより、短くても置いて手で直せる方がよい**。
+   */
+  async function durOf(m: MediaItem): Promise<number> {
+    if (m.kind === 'image') return 5
+    const known = mediaMetaRef.current[m.path]?.dur
+    if (known && known > 0) return known
+    const d = await window.giftcut.getDuration(m.path)
+    return d?.ok && d.duration ? d.duration : 2
+  }
+
+  /**
+   * 落とした物を置く。**まとめて選んでいれば、その順に続けて並べる。**
+   *
+   * 1つだけのときは今までと同じ道を通る（測り直しもしない）。
+   * 束のときだけ、1つ置くごとに次の置き場所を「置いた物の終わり」へ進める。
+   */
+  async function placeDropped(
+    grabbed: MediaItem,
+    t0: number,
+    yRel: number,
+    ev: { target: EventTarget | null; ctrlKey: boolean }
+  ): Promise<void> {
+    const list = dragList(grabbed)
+    let t = t0
+    for (const m of list) {
+      if (m.kind === 'video') {
+        const vt = videoDropLane(ev, yRel)
+        if (vt !== 'V1') await placeVClip(m, t, vt)
+        else await placeVideoAtDrop(m.path, t, ev.ctrlKey)
+      } else if (m.kind === 'audio') {
+        await placeSE(m, t, audioLaneFor(tracks, seClipsRef.current, t, null))
+      } else {
+        placeImage(m, t, imgLaneAt(yRel, t))
+      }
+      if (list.length > 1) t += await durOf(m)
+    }
+  }
   /** ドラッグが終わったら影を全部消す */
   function clearDropGhosts(): void {
     setSeGhost(null)
@@ -310,15 +366,8 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
     const raw = Math.max(0, (clamp(clientX, view.left, view.right) - rect.left) / zoomRef.current)
     const t = snapClipStart(raw, dragSeDurRef.current)
     const yRel = clamp(clientY, view.top, view.bottom) - rect.top
-    if (m.kind === 'video') {
-      const vt = dropLaneAt(yRel, 'video') ?? 'V1'
-      if (vt !== 'V1') void placeVClip(m, t, vt)
-      else void placeVideoAtDrop(m.path, t, false)
-    } else if (m.kind === 'audio') {
-      void placeSE(m, t, dropLaneAt(yRel, 'audio', true) ?? 'A2')
-    } else {
-      placeImage(m, t, imgLaneAt(yRel, t))
-    }
+    // 端で受けた分も同じ道を通す（まとめて選んでいればまとめて置く）
+    void placeDropped(m, t, yRel, { target: null, ctrlKey: false })
   }
   /**
    * 動画のドロップ先レーンを決める。
@@ -505,6 +554,6 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
     prepareMediaMeta, beginMediaDrag, placeImage, deleteSelectedImg, vcXform, imgXform,
     updateDropGhost, clearDropGhosts, dropMediaNearest, videoDropLane, placeVClip,
     deleteSelectedVClip, vcFadeGain, placeSE, trackForNewBgm, addBgm, seFadeGain, removeMedia,
-    imgLaneAt
+    imgLaneAt, placeDropped
   }
 }

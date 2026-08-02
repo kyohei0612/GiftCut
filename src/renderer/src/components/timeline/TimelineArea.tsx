@@ -64,8 +64,8 @@ export function TimelineArea(): JSX.Element {
     onClipPointerDown, onClipContextMenu, onTrimStart, onSegPointerDown, onSegTrimStart,
     onSePointerDown, onImgPointerDown, onVClipPointerDown, onMarkerPointerDown,
     onTrackAreaPointerDown, startScrub, startGroupResize, startTransResize, openClipMenu,
-    updateDropGhost, clearDropGhosts, dropLaneAt, videoDropLane, placeSE, placeImage, imgLaneAt,
-    placeVClip, placeVideoAtDrop, snapClipStart, draggingMediaRef, draggingTransRef,
+    updateDropGhost, clearDropGhosts, placeDropped,
+    snapClipStart, draggingMediaRef, draggingTransRef,
     draggingTelopAnimRef, dragSeDurRef, resolveTransDrop, applyTransDrop, selectTransition,
     setVideoTransDur, resolveTelopTransDrop, applyTelopTransDrop, selectTelopTrans,
     patchCueAnim, undo, redo, undoStackRef, redoStackRef, isDirty, cutAtPlayhead,
@@ -245,21 +245,11 @@ export function TimelineArea(): JSX.Element {
             const raw = rect ? Math.max(0, (e.clientX - rect.left) / zoomRef.current) : 0
             const yRel = rect ? e.clientY - rect.top : 0
             const t = snapClipStart(raw, dragSeDurRef.current)
-            if (m.kind === 'video') {
-              const vt = videoDropLane(e, yRel)
-              if (vt !== 'V1') {
-                // V2以降 = 映像レイヤー（重ねる/差し込む）。音声は対の音声トラックに連動。
-                // レーンがまだ無ければ placeVClip 側で作られる。
-                void placeVClip(m, t, vt)
-              } else {
-                // V1 = 本編のカット列。ドロップ位置に配置（通常=上書き / Ctrl=挿入）
-                void placeVideoAtDrop(m.path, t, e.ctrlKey)
-              }
-            } else if (m.kind === 'audio') {
-              void placeSE(m, t, dropLaneAt(yRel, 'audio', true) ?? 'A2')
-            } else if (m.kind === 'image') {
-              placeImage(m, t, imgLaneAt(yRel, t))
-            }
+            // 置き方は state/useMediaDrop の placeDropped に1つ。
+            // **まとめて選んでいれば、その順に続けて並べる**（1つだけなら今までと同じ）。
+            // V1 は本編のカット列（通常=上書き / Ctrl=挿入）、V2以降は映像レイヤー、
+            // 音は空いている段、画像は埋まっていない段——という振り分けもあちら側。
+            void placeDropped(m, t, yRel, { target: e.target, ctrlKey: e.ctrlKey })
           }}
         >
           <div

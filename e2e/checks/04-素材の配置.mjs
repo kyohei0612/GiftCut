@@ -68,6 +68,54 @@ export default async function (C) {
     assert((await sel()) === 1, `普通のクリックで1つに戻らない（${await sel()}個）`)
   })
 
+  await check('まとめて選んだ素材は、その順に続けて並ぶ', async () => {
+    // **1本ずつ運ぶしかなかった。** 何本もあるとき、選んでまとめて置けないと
+    // 置く→戻る→次を掴む、をひたすら繰り返すことになる。
+    //
+    // **続けて並ぶ（重ならない）ことまで見る。** 同じ所へ2つ落とすと
+    // 上に乗るだけで、置いたつもりが1つしか無いように見える。
+    await resetProject()
+    const before = await page.locator('.img-clip').count()
+    const cards = page.locator('.media-card')
+    // 画像は2枚ある。まとめて選ぶ
+    const imgs = page.locator('.media-card', { hasText: '.png' })
+    const n = await imgs.count()
+    assert(n >= 2, `画像が2枚ないと確かめられない（${n}枚）`)
+    await imgs.nth(0).click()
+    await imgs.nth(1).click({ modifiers: ['Control'] })
+    await page.waitForTimeout(300)
+    assert(
+      (await page.locator('.media-card.media-sel').count()) === 2,
+      'まとめて選べていない'
+    )
+    // 選んだうちの1枚を掴んで落とす → 2枚とも置かれるはず
+    const name = (await imgs.nth(0).innerText()).split('\n')[0].trim()
+    await dndFromBin(name, '[data-tid="V3"]', { x: 160, y: 10 })
+    await page.waitForTimeout(2500)
+    const after = await page.locator('.img-clip').count()
+    assert(
+      after - before === 2,
+      `まとめて置けていない（増えたのは ${after - before} 枚。2枚のはず）`
+    )
+    // 続けて並んでいる＝重なっていない。
+    // **元からあった画像まで数えない**（置く前から居る物と重なるのは当たり前）。
+    // 落とした先はいちばん右なので、右の2つだけを見る
+    const boxes = await page.locator('.img-clip').evaluateAll((els) =>
+      els
+        .map((e) => {
+          const r = e.getBoundingClientRect()
+          return { l: Math.round(r.left), r: Math.round(r.right) }
+        })
+        .sort((a, b) => a.l - b.l)
+    )
+    const [a, b] = boxes.slice(-2)
+    assert(
+      a && b && b.l >= a.r - 2,
+      `置いた2枚が重なっている（${JSON.stringify(boxes.slice(-2))}）`
+    )
+    void cards
+  })
+
   await check('タイムラインのどこに重ねても「置けません」にならない', async () => {
     for (const [where, sel, off] of [
       ['クリップの上', '[data-tid="V1"]', { x: 60, y: 10 }],

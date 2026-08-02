@@ -712,7 +712,7 @@ export function useAppWiring() {
   const {
     prepareMediaMeta, beginMediaDrag, placeImage, deleteSelectedImg, vcXform, imgXform,
     updateDropGhost, clearDropGhosts, dropMediaNearest, videoDropLane, placeVClip,
-    deleteSelectedVClip, vcFadeGain, placeSE, addBgm, seFadeGain, removeMedia, imgLaneAt
+    deleteSelectedVClip, vcFadeGain, placeSE, addBgm, seFadeGain, removeMedia, imgLaneAt, placeDropped
   } = useMediaDrop({
     EXTRA_AUDIO_TRACK, dragSeDurRef, draggingMediaRef, dropLaneAt,
     fallbackTrack, cueTrack, insertTrackOrdered, mediaInUse, mediaMetaRef, mediaQueue,
@@ -1124,7 +1124,7 @@ export function useAppWiring() {
     onClipPointerDown, onClipContextMenu, onTrimStart, onSegPointerDown, onSegTrimStart,
     onSePointerDown, onImgPointerDown, onVClipPointerDown, onMarkerPointerDown,
     onTrackAreaPointerDown, startScrub, startGroupResize, startTransResize, openClipMenu,
-    updateDropGhost, clearDropGhosts, dropLaneAt, videoDropLane, placeSE, placeImage, imgLaneAt,
+    updateDropGhost, clearDropGhosts, dropLaneAt, videoDropLane, placeSE, placeImage, imgLaneAt, placeDropped,
     placeVClip, placeVideoAtDrop, snapClipStart, draggingMediaRef, draggingTransRef,
     draggingTelopAnimRef, dragSeDurRef,
     resolveTransDrop, applyTransDrop, selectTransition, setVideoTransDur,

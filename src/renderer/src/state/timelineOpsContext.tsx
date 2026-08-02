@@ -57,6 +57,13 @@ export interface TimelineOps {
   placeSE: any
   /** 画像を置く段（影と置き先で同じ判定を通す。shared/lanes の avoidBusyLane） */
   imgLaneAt: (yRel: number, t: number) => string
+  /** 落とした物を置く（まとめて選んでいればその順に続けて並べる） */
+  placeDropped: (
+    grabbed: any,
+    t: number,
+    yRel: number,
+    ev: { target: EventTarget | null; ctrlKey: boolean }
+  ) => Promise<void>
   placeImage: any
   placeVClip: any
   placeVideoAtDrop: any
