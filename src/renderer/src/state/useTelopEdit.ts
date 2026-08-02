@@ -67,6 +67,8 @@ export function useTelopEdit(deps: UseTelopEditDeps) {
         targets.includes(c.id) ? { ...c, iconImage: image, personIcon: undefined } : c
       )
     )
+    // 落とした先を選んでおく（テンプレートを落としたときと同じ扱い）
+    setSelectedIds(targets)
   }
 
   // テロップを新規追加（再生ヘッド位置に2秒）
@@ -220,6 +222,11 @@ export function useTelopEdit(deps: UseTelopEditDeps) {
     } else {
       applyTelopAnimSide(cue.id, r.kind === 'between' ? 'in' : r.kind, drag.type)
     }
+    // 落とした先を選んでおく（テンプレート・アイコンを落としたときと同じ扱い）。
+    // 落とした直後は長さを詰めたくなるので、選ばれていないと押し直しが要る
+    setSelectedIds(
+      r.kind === 'between' && r.outId != null && r.inId != null ? [r.outId, r.inId] : [cue.id]
+    )
   }
 
   // 帯クリックでテロップアニメを選択（クリップ本体は選択しない）。

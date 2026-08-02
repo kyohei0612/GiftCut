@@ -16,6 +16,16 @@
 
 import type { JSX } from 'react'
 
+/**
+ * 1回のイベントで受け付ける最大の動き（px）。これを超えたら捨てる。
+ *
+ * **本命の対策は「ロック直後の1回を捨てる」方**（下の pendingLockSkip）。
+ * ここは最後の砦で、その道を通らずに桁違いの値が届いたときだけ効く。
+ * **低くしすぎてはいけない**——速く振った1回まで捨ててしまい、
+ * 上限まで一気に持っていく操作ができなくなる（実際に確認が落ちた）。
+ */
+const ABSURD_STEP_PX = 1200
+
 export function ScrubNumber({
   value,
   onChange,
@@ -55,14 +65,32 @@ export function ScrubNumber({
     // movementX を積算するので、画面端に当たってもポインタロック中は動き続ける
     let acc = 0
     let scrubbing = false
+    /** ロックを頼んだ直後か。効いた最初の1回は「飛び」なので捨てる */
+    let pendingLockSkip = false
     const onMove = (ev: PointerEvent): void => {
-      acc += ev.movementX || 0
+      const dx = ev.movementX || 0
+      // **ポインタをロックした直後の1回を捨てる。**
+      //
+      // ロックが効くと、その最初の1回だけ「元のカーソル位置から画面中央まで」の
+      // 距離が movementX として届くことがある。数百pxになるので、押した瞬間に
+      // 値がいきなり飛ぶ（「触った瞬間に数字が飛ぶ」の正体）。
+      //
+      // **「大きい値を全部捨てる」やり方にしてはいけない。** 速く振った1回まで
+      // 捨ててしまい、上限まで一気に持っていく操作ができなくなる。
+      // 捨てるのは「ロックが効いた直後の1回」だけにする。
+      if (pendingLockSkip && document.pointerLockElement === input) {
+        pendingLockSkip = false
+        return
+      }
+      if (Math.abs(dx) > ABSURD_STEP_PX) return // 最後の砦（上の道を通らなかったとき）
+      acc += dx
       if (!scrubbing) {
         if (Math.abs(acc) < 4) return // ここまではクリック扱い（打ち込みできる）
         scrubbing = true
         input.blur() // スクラブ中はキャレット/選択を出さない
         try {
           void input.requestPointerLock?.()
+          pendingLockSkip = true // 効いたら最初の1回は捨てる（下の onMove）
         } catch {
           /* 失敗しても端まではスクラブ可能 */
         }

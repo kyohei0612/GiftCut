@@ -35,7 +35,80 @@ function scrub(input: HTMLInputElement, dx: number): void {
   })
 }
 
+/** ポインタのロックが効く環境のふりをする（戻す関数を返す） */
+function withPointerLock(input: HTMLInputElement): () => void {
+  // jsdom には requestPointerLock が無いので、生やして「効いた」ことにする
+  const el = input as unknown as Record<string, unknown>
+  const had = el.requestPointerLock
+  el.requestPointerLock = (): void => {
+    Object.defineProperty(document, 'pointerLockElement', { value: input, configurable: true })
+  }
+  return () => {
+    if (had === undefined) delete el.requestPointerLock
+    else el.requestPointerLock = had
+    Object.defineProperty(document, 'pointerLockElement', { value: null, configurable: true })
+  }
+}
+
 describe('押して振ると増減する数値欄', () => {
+  // **ロックが効いた最初の1回は捨てる。**
+  // その1回だけ「元のカーソル位置から画面中央まで」の距離がまとめて届くことがあり、
+  // 押した瞬間に値が飛ぶ（「触った瞬間に数字が飛ぶ」の正体）。
+  it('ポインタをロックした直後の飛びで、値が動かない', () => {
+    const onChange = vi.fn()
+    const input = mount({ value: 10, onChange, step: 1 })
+    const restore = withPointerLock(input)
+    try {
+      act(() => {
+        input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+      })
+      const move = (dx: number): void => {
+        act(() => {
+          const ev = new PointerEvent('pointermove', { bubbles: true })
+          Object.defineProperty(ev, 'movementX', { value: dx })
+          window.dispatchEvent(ev)
+        })
+      }
+      move(6) // ここでしきい値を超えてロックを頼む
+      const afterStart = onChange.mock.lastCall?.[0]
+      move(700) // ロックが効いた直後の「飛び」。**これで値が動いてはいけない**
+      expect(onChange.mock.lastCall?.[0]).toBe(afterStart)
+      act(() => {
+        window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+      })
+    } finally {
+      restore()
+    }
+  })
+
+  it('飛びを捨てたあとは、続きの動きでちゃんと増える', () => {
+    const onChange = vi.fn()
+    const input = mount({ value: 10, onChange, step: 1 })
+    const restore = withPointerLock(input)
+    try {
+      act(() => {
+        input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+      })
+      const move = (dx: number): void => {
+        act(() => {
+          const ev = new PointerEvent('pointermove', { bubbles: true })
+          Object.defineProperty(ev, 'movementX', { value: dx })
+          window.dispatchEvent(ev)
+        })
+      }
+      move(6)
+      const afterStart = onChange.mock.lastCall?.[0] as number
+      move(700) // 捨てられる
+      move(30) // 本物の動き（3px で1ステップ＝10ふえる）
+      expect(onChange.mock.lastCall?.[0]).toBeGreaterThan(afterStart)
+      act(() => {
+        window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+      })
+    } finally {
+      restore()
+    }
+  })
+
   it('右へ振ると増える', () => {
     const onChange = vi.fn()
     const input = mount({ value: 10, onChange, step: 1 })

@@ -768,6 +768,10 @@ export function useProjectFile(deps: UseProjectFileDeps) {
           : c
       )
     )
+    // **落とした先を選んでおく。** 落としたということは、次に触るのはその文字。
+    // 選ばれていないと右パネルが別の物を出したままで、微調整に入るのに
+    // もう一度クリックが要る（このアプリは「クリックが多い」と言われている）。
+    setSelectedIds(targets)
     setEditingId(null)
   }
 
