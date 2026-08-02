@@ -16,6 +16,7 @@ export default async function (C) {
     assert,
     avgColor,
     check,
+    trackHead,
     clipLayout,
     clipW,
     dragBy,
@@ -238,6 +239,30 @@ export default async function (C) {
     const c = await avgColor(out)
     assert(c.y != null && c.y > 8, `スクショが真っ黒（映像が写っていない）: 明るさ ${c.y}`)
     assert(c.range != null && c.range > 40, `スクショに模様が無い: 明暗の幅 ${c.range}`)
+  })
+
+  // **スクショは「いま見えている物」を撮る。** 本編の映像だけを描いていたので、
+  // 画像や重ねた動画で作っている画面は真っ黒で保存されていた
+  //（本人から「画像のみだとスクショできない」）。
+  // ここでは本編を👁で隠して、**画像しか出ていない状態**で撮る。
+  await check('本編の映像を隠しても、画像はスクショに写る', async () => {
+    await resetProject()
+    await seekTo(4) // 画像は 1〜5秒。文字は 1〜3 と 6〜8 なので、ここには出ない
+    const eye = () => trackHead('V1').locator('button[title="表示/非表示"]').first()
+    await eye().click()
+    await page.waitForTimeout(600)
+    const out = join(outDir, 'shot-img.png')
+    if (existsSync(out)) rmSync(out)
+    await setDialogFiles(null, out)
+    await page.locator('button', { hasText: '📷' }).first().click()
+    await page.waitForTimeout(2500)
+    assert(existsSync(out), 'スクショのファイルができていない')
+    // 本編を隠しているので、画像を描けていなければ真っ黒になる
+    const c = await avgColor(out)
+    assert(c.y != null && c.y > 8, `真っ黒＝画像が写っていない: 明るさ ${c.y}`)
+    assert(c.range != null && c.range > 40, `模様が無い＝画像が写っていない: 明暗の幅 ${c.range}`)
+    await eye().click() // 元に戻す（次の項目が真っ黒から始まらないように）
+    await page.waitForTimeout(300)
   })
 
   await check('テロップを重ねて置くと、重なった分が消える（上書き）', async () => {

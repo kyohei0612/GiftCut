@@ -27,7 +27,8 @@ import {
   type ClipMotion,
   type Zoom
 } from '../../../shared/clipMotion'
-import { DEFAULT_ZOOM } from '../lib/clipLook'
+import { DEFAULT_ZOOM, adjustCss, cropInset } from '../lib/clipLook'
+import { toGcUrl } from '../lib/gcUrl'
 import { telopStateAt } from '../lib/telopStyle'
 import { renderCueToPng } from '../lib/rasterize'
 import type { Cue } from '../lib/srt'
@@ -78,7 +79,7 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
     selectedVideoIds, selectedImgIds, setSelectedImgIds, selectedVClipIds,
     setSelectedVClipIds, setVideoSelected
   } = useSel()
-  const { trackStates } = useTracksCtx()
+  const { tracks, trackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
   const { videoSrc } = useMediaCtx()
   const { currentTimeRef } = usePlaybackCtx()
@@ -545,12 +546,92 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
     }
   }
 
-  // 現在のプレビュー画面（動画フレーム＋テロップ＋ズーム）を PNG で保存。
+  /**
+   * 重ねる物（映像レイヤー・画像）を1枚、**プレビューと同じ変形で**描く。
+   *
+   * プレビューは CSS の `transform` でやっている:
+   *
+   *   rotate → scaleX(-1) → scaleY(-1) → translate(x%,y%) → scale(s)  ／ 原点は中心
+   *
+   * ここは**その並びをそのままなぞる**。順番を入れ替えると、回した物の
+   * 寄せ方向が変わって「撮った絵だけ位置が違う」になる。
+   * 明るさ等（`adjustCss`）と切り抜き（`cropInset` と同じ範囲）も同じ物を通す。
+   *
+   * ※ 切り抜きは**変形のあとに、その物の座標で**掛ける（CSS の clip-path と同じ順）。
+   */
+  function drawLayer(
+    ctx: CanvasRenderingContext2D,
+    el: CanvasImageSource,
+    natW: number,
+    natH: number,
+    W: number,
+    H: number,
+    c: {
+      rotate?: number
+      flipH?: boolean
+      flipV?: boolean
+      zoom?: Zoom
+      motion?: ClipMotion
+      opacity?: number
+      adjust?: { b: number; c: number; s: number }
+      crop?: { l: number; t: number; r: number; b: number }
+    },
+    localT: number
+  ): void {
+    if (natW <= 0 || natH <= 0) return
+    ctx.save()
+    ctx.globalAlpha = c.opacity ?? 1
+    const f = adjustCss(c.adjust)
+    if (f) ctx.filter = f
+    ctx.translate(W / 2, H / 2)
+    if (c.rotate) ctx.rotate((c.rotate * Math.PI) / 180)
+    if (c.flipH) ctx.scale(-1, 1)
+    if (c.flipV) ctx.scale(1, -1)
+    const z = zoomAt(c.zoom, c.motion, localT)
+    ctx.translate(z.x * W, z.y * H)
+    ctx.scale(z.scale, z.scale)
+    ctx.translate(-W / 2, -H / 2)
+    if (c.crop && cropInset(c.crop)) {
+      ctx.beginPath()
+      ctx.rect(c.crop.l * W, c.crop.t * H, W * (1 - c.crop.l - c.crop.r), H * (1 - c.crop.t - c.crop.b))
+      ctx.clip()
+    }
+    // object-fit: contain と同じ収め方
+    const r = Math.min(W / natW, H / natH)
+    ctx.drawImage(el, (W - natW * r) / 2, (H - natH * r) / 2, natW * r, natH * r)
+    ctx.restore()
+  }
+
+  /** 画像を1枚読み込む（読めなければ null。撮影ごと止めない） */
+  function loadImage(src: string): Promise<HTMLImageElement | null> {
+    return new Promise((res) => {
+      const img = new Image()
+      img.onload = () => res(img)
+      img.onerror = () => res(null)
+      img.src = src
+    })
+  }
+
+  // 現在のプレビュー画面（動画フレーム＋映像レイヤー＋画像＋テロップ）を PNG で保存。
   // 表示中と同じプロキシ映像を出力解像度で描き、テロップは書き出しと同じ rasterize を再利用。
   async function captureScreenshotInner(): Promise<void> {
     const v = videoRef.current
-    if (!videoSrc || !v) {
-      showToast('先に動画を読み込んでください。\n右の「プロジェクト」タブ →「＋ファイル追加」から追加できます。')
+    const t0 = currentTimeRef.current
+    // **動画が無くても撮る。** 画像だけ・文字だけで作っている所で撮れないのは
+    // 「保存されない」としか見えない（実際そう言われた）。
+    // 断るのは**本当に1つも出ていないとき**だけにする。
+    const anyImg = imgClips.some(
+      (c) => t0 >= c.tStart && t0 < c.tStart + c.duration && !trackStates[c.track]?.hidden
+    )
+    const anyVc = vClips.some((c) => {
+      const local = t0 - c.tStart
+      return local >= 0 && local < vcLen(c) && !trackStates[c.track]?.hidden
+    })
+    const anyCue = cues.some(
+      (c) => !trackStates[cueTrack(c)]?.hidden && t0 >= c.start && t0 < c.end
+    )
+    if (!videoSrc && !anyImg && !anyVc && !anyCue) {
+      showToast('いまの位置には、撮れる物が何もありません。\n動画・画像・文字のどれかを置いてから撮ってください。')
       return
     }
     const size =
@@ -570,7 +651,7 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
     // 動画フレームをズーム変換込みで contain 描画（プレビューの transform と一致）
     const blank = curBlank || v1Hidden || (videoTLen > 0 && currentTimeRef.current >= videoTLen - 1e-3)
     const shotZoom = curSegZoom
-    if (!blank && v.videoWidth > 0) {
+    if (v && !blank && v.videoWidth > 0) {
       ctx.save()
       ctx.translate(shotZoom.x * size.width, shotZoom.y * size.height)
       ctx.translate(size.width / 2, size.height / 2)
@@ -581,6 +662,29 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
       const dh = v.videoHeight * r
       ctx.drawImage(v, (size.width - dw) / 2, (size.height - dh) / 2, dw, dh)
       ctx.restore()
+    }
+    // 重ねている映像レイヤーを描く。**実物の <video> をそのまま使う**——
+    // 撮りたいのは「いま見えている絵」なので、読み直すと違うコマになる。
+    // 実物は画面側が data-vcid を付けて出している（components/panels/PreviewLayers）
+    for (const c of vClips) {
+      const local = t0 - c.tStart
+      if (local < 0 || local >= vcLen(c) || trackStates[c.track]?.hidden) continue
+      const el = document.querySelector<HTMLVideoElement>(`.screen-vclip[data-vcid="${c.id}"]`)
+      if (!el || el.videoWidth <= 0) continue
+      drawLayer(ctx, el, el.videoWidth, el.videoHeight, size.width, size.height, c, local)
+    }
+    // 画像を描く。**並べ替えはプレビューと同じ**（前後が入れ替わると重なりが変わる）
+    const imgShown = imgClips
+      .filter((c) => t0 >= c.tStart && t0 < c.tStart + c.duration && !trackStates[c.track]?.hidden)
+      .slice()
+      .sort(
+        (a, b) =>
+          tracks.findIndex((tr) => tr.id === b.track) - tracks.findIndex((tr) => tr.id === a.track)
+      )
+    for (const c of imgShown) {
+      const el = await loadImage(toGcUrl(c.path))
+      if (!el) continue
+      drawLayer(ctx, el, el.naturalWidth, el.naturalHeight, size.width, size.height, c, t0 - c.tStart)
     }
     // テロップ（👁表示中のみ）を書き出しと同じ描画で重ねる
     const t = currentTimeRef.current

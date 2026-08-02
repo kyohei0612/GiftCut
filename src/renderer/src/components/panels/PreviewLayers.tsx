@@ -57,6 +57,9 @@ export function VideoLayers({
             key={`vcv-${c.id}`}
             ref={vcRefCb(c.id)}
             className="screen-vclip"
+            // スクショが「いま出ている映像レイヤー」を拾うための札。
+            // 撮る側（usePreviewManip）は心臓を通らずここから実物を取る
+            data-vcid={c.id}
             // 本編映像と同じプレビュー解像度方針に従う（原本指定なら原本）
             src={previewUrl(c.path, toGcUrl(c.path))}
             preload="auto"
