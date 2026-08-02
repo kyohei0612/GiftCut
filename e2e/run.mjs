@@ -46,6 +46,8 @@ import { cleanLeftovers, makeFixture } from './lib/e2eFixture.mjs'
 import { changedKeywords } from './lib/changedArea.mjs'
 // 書き出し先の指定（置き場・名前・入れ物）は ./lib/exportTarget
 import { makeExportTools } from './lib/exportTarget.mjs'
+// 確認の窓をもう1枚のディスプレイへ寄せる
+import { placeOnOtherDisplay } from './lib/placeWindow.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
@@ -356,6 +358,8 @@ try {
     cwd: ROOT
   })
   page = await app.firstWindow()
+  // 窓の置き場所は ./lib/placeWindow（作業中の画面を占領しないため）
+  await placeOnOtherDisplay(app)
   // 黙って止まり続けないよう、頭打ちを決めておく（e2e/dismiss.mjs）
   watchdog(90, () => app.close())
   pageRef = page
