@@ -11,7 +11,8 @@
 // 何分もかかり、途中でやめると中途半端なファイルが残る。必ず設定の窓を挟む。
 import { buildExportPayload } from '../../../shared/exportPayload'
 import { joinOut, outputBaseName, resPFromHeight } from '../../../shared/exportDefaults'
-import { clamp, layoutSegs, segSpeed, totalSegLen, xfadeDurAt } from '../../../shared/timeline'
+import { layoutSegs, segSpeed, totalSegLen, xfadeDurAt } from '../../../shared/timeline'
+import { trackGainForExport } from '../../../shared/trackGain'
 import { envToFfmpegExpr } from '../../../shared/ducking'
 import { buildSrt } from '../lib/srt'
 import { hasAnim, hasMotion, telopStateAt } from '../lib/telopStyle'
@@ -61,14 +62,11 @@ export function useExport(deps: UseExportDeps) {
   const { iconSide, iconOffset, iconScale, iconAuto } = useIconsCtx()
   const { showToast } = useToastCtx()
 
-  // 書き出し用のゲイン。ソロはモニタリング専用（Premiere でも各DAWでも同じ約束）
-  // なので書き出しには効かせない。BGMだけ確認しようとソロにしたまま書き出して
-  // 本編音声もSEも全部無音の動画ができる事故を防ぐ。反映するのはミュートと音量のみ。
+  // 書き出し用のゲイン。**式は書かない**——聴くときと書き出すときで別々に書くと、
+  // 片方だけ直して食い違う（実際そうなって、画面でも書き出しでも無音になった）。
+  // ソロを効かせない理由も含めて、決まりは `shared/trackGain` にある
   function audioTrackGainForExport(id: string): number {
-    const st = trackStates[id]
-    // 上と同じ理由。**書き出しでも無音になっていた**ので、こちらの方が実害が大きい
-    if (st?.muted) return 0
-    return clamp((st?.volume ?? 1) * masterVolume, 0, 1)
+    return trackGainForExport(trackStates[id], masterVolume)
   }
 
   // SRT 書き出し（編集後のテロップを SRT に戻す）

@@ -22,6 +22,7 @@
 
 import { TRACK_PAD_ROWS } from '../lib/appConst'
 import { clamp } from '../../../shared/timeline'
+import { trackGain } from '../../../shared/trackGain'
 import { newTrackState } from '../lib/trackState'
 import { TRACK_H_MAX, TRACK_H_MIN } from './useLaneHeights'
 import type { Cue } from '../lib/srt'
@@ -298,15 +299,11 @@ export function useTracksAdmin(deps: UseTracksAdminDeps) {
     clearSegSel()
   }
 
+  // 聴くときの音量。**式は書かない。** 同じ式を書き直して画面でも書き出しでも
+  // 無音になった事故があり、それを1か所へ寄せたのが `shared/trackGain`
+  //（決まりと、なぜそうするかはそちらに書いてある）
   function audioTrackGain(id: string): number {
-    const st = trackStates[id]
-    // **状態が無い＝「既定」であって「消音」ではない。**
-    // 無い物を消音として扱っていたため、復元したプロジェクトで
-    // そのトラックの状態が入っていないと SE が1つも鳴らなかった。
-    // 音は「鳴らない」方に倒すと気づきにくいので、無ければ普通に鳴らす。
-    if (st?.muted) return 0
-    if (anyAudioSolo && !st?.solo) return 0
-    return clamp((st?.volume ?? 1) * masterVolume, 0, 1)
+    return trackGain(trackStates[id], masterVolume, anyAudioSolo)
   }
   function setTrackVolume(id: string, v: number): void {
     const vol = clamp(v, 0, 1)

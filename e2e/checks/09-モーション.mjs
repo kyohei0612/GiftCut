@@ -921,7 +921,11 @@ export default async function (C) {
     )
     touchedRef.dirty = true
     await resetProject()
-  })
+  },
+  // **手前の項目が残した拡大の状態に寄りかかっている。**
+  // 絞って回すと寄っていない絵を書き出すので、一致がひっくり返って必ず赤くなる
+  //（通しでは緑。stash して変更前と比べ、同じ数値 0.181423 / 0.190236 で落ちるのを確かめた）。
+  { orderDependent: true })
 
   await check('色調整を掛けたクリップが、書き出しでも明るくなる', async () => {
     // **配布物でだけ書き出しが止まっていた所。** 色調整に GPL 専用の eq を
