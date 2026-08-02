@@ -145,6 +145,13 @@ export function useExport(deps: UseExportDeps) {
         )
       }
       setExportStatus(`テロップを画像化中… (0/${exportCues.length})`)
+      // **書き出しの時間を、2つに分けて測る。**
+      //
+      // 「書き出しが遅い」と言われたとき、**GPU が効いていないのか、その手前の
+      // 画像作りが重いのか**が分からないと、直す先を間違える（GPU は焼く所しか
+      // 効かない。画像作りは画面側の Chromium で、GPU も ffmpeg も関係ない）。
+      // 出来上がりの知らせに両方を載せるので、聞くだけで切り分けられる。
+      const tPng0 = performance.now()
       const frames: { png: string; start: number; end: number }[] = []
       for (let i = 0; i < exportCues.length; i++) {
         const c = exportCues[i]
@@ -197,6 +204,7 @@ export function useExport(deps: UseExportDeps) {
         }
         setExportStatus(`テロップを画像化中… (${i + 1}/${exportCues.length})`)
       }
+      const pngSec = (performance.now() - tPng0) / 1000
       setExportPct(0)
       setExportStatus('FFmpegで書き出し中…（動画の長さによっては時間がかかります）')
       // 実際に焼き込む素材（非表示トラックは除外）だけで「動画尻より後ろ」を判定する。
@@ -243,12 +251,19 @@ export function useExport(deps: UseExportDeps) {
         // 本編より後ろに置かれている物（ここまで伸ばして黒＋無音で埋める）
         tailEnds: [cueEnd, seEnd, expImgEnd, expVcEnd]
       })
+      const tFf0 = performance.now()
       const res = await window.giftcut.exportVideo(
         payload as unknown as Parameters<typeof window.giftcut.exportVideo>[0]
       )
+      const ffSec = (performance.now() - tFf0) / 1000
       setExportStatus(null)
       setExportPct(null)
-      if (res?.ok) showToast('書き出しが完了しました\n' + res.outPath, 'success')
+      // 内訳を1行で残す（どちらが重いかは、これを見れば一目で決まる）
+      const breakdown =
+        `テロップ ${frames.length}枚の画像化 ${pngSec.toFixed(1)}秒 ／ ` +
+        `ffmpeg ${ffSec.toFixed(1)}秒`
+      console.log('[書き出し] ' + breakdown)
+      if (res?.ok) showToast('書き出しが完了しました\n' + res.outPath + '\n' + breakdown, 'success')
       else if (
         res?.canceled ||
         res?.error === 'キャンセルされました' ||
