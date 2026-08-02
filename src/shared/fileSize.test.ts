@@ -49,9 +49,9 @@ export const MAX_LINES = 1250
  * 減らしたらここも減らすこと。0 になったら行ごと消す。
  */
 export const DEBT: Record<string, number> = {
-  // src/main/index.ts は返した（3,352 → 1,238行。2026-08-02）。
-  // 出した先は ./exportRun ./mediaProbe ./projectFiles ./ffmpegRun ./assetRoots ./allowList
-  'src/renderer/src/lib/telopStyle.ts': 1730,
+  // 返した物（記録として残す。同じ手が次にも効く）:
+  //   src/main/index.ts            3,352 → 1,238（exportRun / mediaProbe / projectFiles / ffmpegRun / assetRoots / allowList へ）
+  //   src/renderer/src/lib/telopStyle.ts  1,730 → 659（telopSvg / telopAnim / telopMotion へ）
   'e2e/bench.mjs': 1641,
   'e2e/run.mjs': 1457
 }
