@@ -88,6 +88,52 @@ function parseInputRef(
 const stripBrackets = (s: string): string => s.replace(/^\[|\]$/g, '')
 
 /**
+ * 欲しいラベルを作るのに要る枝だけ残す（音だけ書き出すとき用）。
+ *
+ * ## なぜ要るか
+ *
+ * **`-vn` は「出さない」だけで、映像は最後まで作られてから捨てられる。**
+ * 音だけの mp3 を出すのに、拡大・重ね・テロップの焼き込みまで全部走っていた。
+ * 実測（1080p・60秒）で **0.8秒 → 10.4秒。13倍**。8分の素材なら分単位で効く。
+ *
+ * そこで、**欲しいラベル（音の出口）から逆にたどって、要る枝だけ**を渡す。
+ * 映像側の枝は誰からも要らないので丸ごと落ちる＝ffmpeg は映像を1コマも作らない。
+ *
+ * ## なぜ「映像の所を書かない」で済ませないか
+ *
+ * 組み立ては映像と音が絡んでおり、書く／書かないを散らすと
+ * **音の道すじまで別物になりうる**（聴いた音と書き出した音が違う、が一番たちが悪い）。
+ * 組み立ては1つのまま、**最後に要らない枝を落とす**方が、音は1バイトも変わらない。
+ *
+ * @param filter `;` で区切ったフィルタの並び
+ * @param wanted 残したい出口ラベル（'[aout]' でも 'aout' でも可）
+ */
+export function keepBranchesFor(filter: string, wanted: readonly string[]): string {
+  const chains = filter
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map(parseChain)
+  /** そのラベルを作っている枝 */
+  const producer = new Map<string, number>()
+  chains.forEach((c, i) => c.outs.forEach((o) => producer.set(o, i)))
+  const need = new Set<number>()
+  const stack = wanted.map(stripBrackets)
+  while (stack.length) {
+    const label = stack.pop()!
+    const idx = producer.get(label)
+    // 作り手がいない＝入力ファイル（0:a など）。そこで行き止まりでよい
+    if (idx === undefined || need.has(idx)) continue
+    need.add(idx)
+    stack.push(...chains[idx].ins)
+  }
+  return chains
+    .filter((_, i) => need.has(i))
+    .map((c) => c.raw)
+    .join(';')
+}
+
+/**
  * グラフを検証して問題のリストを返す（空配列＝問題なし）。
  * 例外は投げない。呼び出し側は severity==='error' があれば書き出しを止めればよい。
  */

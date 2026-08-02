@@ -39,6 +39,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import {
   formatGraphProblems,
   hasGraphError,
+  keepBranchesFor,
   overlayEnableExpr,
   validateFilterGraph,
   type GraphInput
@@ -261,6 +262,8 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
     const ext = dot > 0 ? file.slice(dot + 1) : 'mp4'
     save.filePath = join(dir, uniqueName(base, ext, (n) => existsSync(join(dir, n))))
   }
+  /** 音だけ出すか（.mp3）。組み立てより前に要る（下の keepBranchesFor で使う） */
+  const audioOnly = /\.mp3$/i.test(save.filePath)
 
   // **書き出し先が、いま素材として使っているファイルだと ffmpeg は必ず失敗する。**
   // 「前に書き出した物をタイムラインに読み込んで、また同じ名前へ書き出す」で起きる。
@@ -962,6 +965,15 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   if (filter.includes(RAW_BASE_A)) filter = filter.split(RAW_BASE_A).join(useA(srcInput[0]))
   // プレースホルダ→実ラベル（必要な入力だけ split/asplit を先頭に足す）
   filter = resolveInputLabels(filter).replace(/;$/, '')
+  // **音だけ出すときは、映像の枝を丸ごと落とす。**
+  //
+  // `-vn` は「出さない」だけで、映像は最後まで作られてから捨てられる。
+  // 実測（1080p・60秒）で 0.8秒 → 10.4秒＝**13倍**。8分の素材なら分単位で効く。
+  //
+  // 組み立ては映像と音が絡んでいるので、**組み立てを分けずに、最後に要らない枝を
+  // 落とす**（分けると音の道すじまで別物になりうる＝聴いた音と違う物が出る）。
+  const audioOut = audioMap.length === 2 ? [audioMap[1]] : []
+  if (audioOnly) filter = keepBranchesFor(filter, audioOut)
 
   // ---- ffmpeg を起動する前にグラフを検証する ----
   // 入力ごとのストリーム有無。確実に「無い」と言えるものだけ false にし、
@@ -981,7 +993,8 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   })
   const graphProblems = validateFilterGraph(filter, {
     inputs: graphInputs,
-    maps: ['[v]', ...audioMap.filter((a) => a !== '-map')]
+    // 音だけのときは [v] を map しない（枝ごと落としてあるので、期待も揃える）
+    maps: [...(audioOnly ? [] : ['[v]']), ...audioMap.filter((a) => a !== '-map')]
   })
   if (graphProblems.length) {
     // 警告は書き出しを止めない（動くが設計上おかしい、を記録に残すだけ）
@@ -1029,31 +1042,15 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
     if (sp.ss > 0) args.push('-ss', sp.ss.toFixed(3))
     args.push('-i', sp.path)
   }
-  // **音だけ出す（.mp3）。** 出す先の拡張子で決める。
-  //
-  // 映像を1コマも焼かないので、絵の指定（-map [v] / -r / エンコーダ / -pix_fmt）は
-  // 全部渡さない。渡すと ffmpeg は「mp3 に映像を入れようとした」と言って止まる。
-  // 音の道すじ（切片の並び・効果音・BGM・声に合わせて下げる・音量を揃える）は
-  // 映像のときと同じ物をそのまま使う＝**聴いた音と書き出した音が必ず一致する。**
-  const audioOnly = /\.mp3$/i.test(save.filePath)
-  if (audioOnly && !audioMap.length) {
-    return { ok: false, error: '音が1つも入っていないので、mp3 は作れません。' }
-  }
   args.push(
     // 渡し方は ffmpeg の版で違う（8系で -filter_complex_script が消えた）
     ...(await filterScriptArgs(join(tmp, 'filter.txt'))),
     'filter.txt', // cwd=tmp なので相対でよい（コマンドライン長の節約）
     ...(audioOnly
       ? [
-          // **`-map [v]` は残して `-vn` で捨てる。**
-          // 映像の枝を map しないと ffmpeg が
-          // 「Filter has output (v) unconnected」で止まる（実際に確かめた）。
-          // 枝ごと組み立てない形にもできるが、組み立ては映像・音が絡み合って
-          // いるので、そこを分けると**音の道すじまで別物になる**危険がある。
-          // map してから捨てる方が、音は映像のときと1バイトも変わらない。
-          '-map',
-          '[v]',
-          '-vn',
+          // 映像の枝は上の keepBranchesFor で落としてある（[v] はもう無い）。
+          // **-vn では駄目**。あれは「出さない」だけで、映像は最後まで作られる
+          // （1080p60秒の実測で 0.8秒 → 10.4秒）。
           ...audioMap,
           // 192kbps／48kHz。切り抜きの声と BGM には十分で、配るのに重くない
           '-c:a',

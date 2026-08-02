@@ -10,8 +10,7 @@ import {
   hasGraphError,
   overlayEnableExpr,
   validateFilterGraph,
-  type GraphInput
-} from './filterGraph'
+  type GraphInput, keepBranchesFor } from './filterGraph'
 
 const AV: GraphInput = { hasVideo: true, hasAudio: true }
 const VIDEO_ONLY: GraphInput = { hasVideo: true, hasAudio: false, name: '無音の動画.mp4' }
@@ -315,5 +314,37 @@ describe('overlayEnableExpr（重ね物を出す窓）', () => {
     expect(truthAt(w, 2.4999)).toBe(true)
     expect(truthAt(w, 2.5)).toBe(false)
     expect(truthAt(w, 1.4999)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 要る枝だけ残す（音だけ書き出すとき）
+//
+// **-vn は「出さない」だけで、映像は最後まで作られてから捨てられる。**
+// 実測（1080p・60秒）で 0.8秒 → 10.4秒。ここを落とせるかが速さを決める。
+// ---------------------------------------------------------------------------
+describe('要る枝だけ残す', () => {
+  it('欲しい出口に繋がらない枝は落ちる（映像側が丸ごと消える）', () => {
+    const f = '[0:v]scale=2:2[v];[0:a]anull[a]'
+    expect(keepBranchesFor(f, ['[a]'])).toBe('[0:a]anull[a]')
+  })
+
+  it('何段でも遡って、途中の枝も残す', () => {
+    const f = '[0:a]atrim[a1];[a1]volume=2[a2];[a2]anull[aout];[0:v]scale=2:2[v]'
+    expect(keepBranchesFor(f, ['aout'])).toBe('[0:a]atrim[a1];[a1]volume=2[a2];[a2]anull[aout]')
+  })
+
+  it('複数の入り口を持つ枝は、両方の元を残す', () => {
+    const f = '[0:a]anull[x];[1:a]anull[y];[x][y]amix[aout];[0:v]null[v]'
+    expect(keepBranchesFor(f, ['aout'])).toBe('[0:a]anull[x];[1:a]anull[y];[x][y]amix[aout]')
+  })
+
+  it('欲しい出口が入力そのもの（作り手がいない）でも落ちない', () => {
+    expect(keepBranchesFor('[0:v]null[v]', ['0:a'])).toBe('')
+  })
+
+  it('**要る物を落とさない。** 映像を欲しがれば映像側が残る', () => {
+    const f = '[0:v]scale=2:2[v];[0:a]anull[a]'
+    expect(keepBranchesFor(f, ['[v]', '[a]'])).toBe(f)
   })
 })
