@@ -130,6 +130,7 @@ import { useLaneHeights } from './useLaneHeights'
 import { usePlaybackCtx } from './playbackContext'
 import { shiftRange, shiftStart } from '../../../shared/ripple'
 import { useKeyboard } from './useKeyboard'
+import type { MotionRow } from '../components/panels/MotionTab'
 import { useTelopBox } from './useTelopBox'
 import { useLaneGeometry } from './useLaneGeometry'
 import { useTimelineDrag } from './useTimelineDrag'
@@ -698,6 +699,8 @@ export function useAppWiring() {
 
   /** 動きの表で選んでいる行（コピーする項目）。写す・貼るは state/useCopyPaste */
   const motionSelRef = useRef<string[]>([])
+  /** いま出ているモーションの行。コピーが「印の無い項目」も写せるように使う */
+  const motionRowsRef = useRef<MotionRow[]>([])
   // 色ラベルと見本の保存、出入りアニメの一覧は state/useLabelsPresets
   const { labelGroups, setLabelFor, selectByLabel, savePreset } = useLabelsPresets()
 
@@ -893,6 +896,7 @@ export function useAppWiring() {
     selected,
     idCounter,
     motionSelRef,
+    motionRowsRef,
     reframeTargetRef,
     srcOfSeg,
     leftTab
@@ -1155,7 +1159,7 @@ export function useAppWiring() {
   // 左パネルが要る物（右・プレビュー・タイムラインと同じ流儀）
   const leftPanel: LeftPanelValue = {
     alignTelop, applyTemplate, changeIconAuto, clearClipMotions, currentTime, duration,
-    motionSelRef, nudgeClips, pairedAudioOf, panelStyleFor, reframeTarget, resetClipChannel,
+    motionSelRef, motionRowsRef, nudgeClips, pairedAudioOf, panelStyleFor, reframeTarget, resetClipChannel,
     resetCount, saveMyMotion, savePreset, seekTo, setBoxAnchor, setPersonIconForSelected,
     setSelectedSegSpeed, toggleKeys, updateSelectedStyle, updateSelectedText, userTemplates,
     vcLen, iconForCue

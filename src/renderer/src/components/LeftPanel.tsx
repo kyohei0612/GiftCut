@@ -61,6 +61,8 @@ export interface LeftPanelProps {
   duration: number
   /** モーションで選んでいる項目（描き直しを待たずに読むので ref） */
   motionSelRef: React.MutableRefObject<string[]>
+  /** いま出ているモーションの行（コピーが印の無い項目も写せるように） */
+  motionRowsRef: React.MutableRefObject<MotionRow[]>
   nudgeClips: (
     from: { kind: 'video' | 'img' | 'vclip'; id: number },
     key: keyof ClipMotion,
@@ -107,7 +109,9 @@ export function LeftPanel(): React.JSX.Element {
     applyTemplate,
     changeIconAuto,
     clearClipMotions,
-    currentTime,    motionSelRef,
+    currentTime,
+    motionSelRef,
+    motionRowsRef,
     nudgeClips,
     pairedAudioOf,
     panelStyleFor,
@@ -412,6 +416,7 @@ export function LeftPanel(): React.JSX.Element {
                 onClearMotion={hasMotion(m) ? clearTelopMotions : undefined}
                 clearCount={selectedIds.length}
                 onSelectRows={(k) => (motionSelRef.current = k)}
+                onRows={(r) => (motionRowsRef.current = r)}
                 clipLen={selected.end - selected.start}
                 targetKey={`telop:${selected.id}`}
               />
@@ -552,6 +557,7 @@ export function LeftPanel(): React.JSX.Element {
                 onClearMotion={hasClipMotion(m) ? clearClipMotions : undefined}
                 clearCount={resetCount()}
                 onSelectRows={(k) => (motionSelRef.current = k)}
+                onRows={(r) => (motionRowsRef.current = r)}
                 clipLen={tgt.len}
                 targetKey={`${tgt.kind}:${tgt.id}`}
               />

@@ -17,6 +17,7 @@ import { useRef } from 'react'
 import type { ClipMotion } from '../../../shared/clipMotion'
 import type { Keys } from '../../../shared/keyframes'
 import { sanitizeMotion, type Motion } from '../lib/telopStyle'
+import type { MotionRow } from '../components/panels/MotionTab'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
@@ -35,6 +36,8 @@ export interface UseCopyPasteDeps {
   /* eslint-disable @typescript-eslint/no-explicit-any */
   /** モーションのどの行を選んでいるか（貼るときの当て先） */
   motionSelRef: any
+  /** いま出ているモーションの行。**印の無い項目の値**はここからしか取れない */
+  motionRowsRef: any
   /** プレビューの枠で今つまんでいる相手 */
   reframeTargetRef: any
   srcOfSeg: any
@@ -43,7 +46,7 @@ export interface UseCopyPasteDeps {
 }
 
 export function useCopyPaste(deps: UseCopyPasteDeps) {
-  const { cueTrack, fallbackTrack, mainLocked, telopLocked, selected, idCounter, motionSelRef, reframeTargetRef, srcOfSeg, leftTab } = deps
+  const { cueTrack, fallbackTrack, mainLocked, telopLocked, selected, idCounter, motionSelRef, motionRowsRef, reframeTargetRef, srcOfSeg, leftTab } = deps
   /**
    * 写し取った動きの控え。**貼り付けは種類を跨がない**ので、
    * どちらから写したか（テロップ／映像）も一緒に覚えておく。
@@ -51,6 +54,8 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
   const motionClipRef = useRef<{
     kind: 'telop' | 'clip'
     data: Record<string, Keys | undefined>
+    /** 印が無い項目の「いまの値」。貼るときは行の onValue で流し込む */
+    values: Record<string, number>
   } | null>(null)
   const { cues, setCues, segments, setSegments, seClips, setSeClips, imgClips, setImgClips, vClips, setVClips, seIdCounter, imgIdCounter, vClipIdCounter } = useDoc()
   const { selectedIds, setSelectedIds, selectedSeIds, setSelectedSeIds, selectedImgIds, setSelectedImgIds, selectedVClipIds, setSelectedVClipIds, selectedVideoIds,  isSelected } = useSel()
@@ -329,15 +334,29 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
         : null
     if (!src) return false
     const data = pick(src.motion)
-    const n = Object.keys(data).length
+    // **印が付いていない項目も写す。**
+    //
+    // 以前は印（キーフレーム）のある項目しか写せず、「ちょっと拡大しただけ」の
+    // 見た目を別のクリップへ配れなかった。**先に印を打たせるのは順番が逆。**
+    //
+    // 印が無い行の値は、テロップなら pos/scale、クリップなら zoom… と
+    // 持ち主がばらばらで、ここからは辿れない。**行そのものが読み書きを
+    // 持っている**ので、行から値をもらって「値だけ」として覚える。
+    const values: Record<string, number> = {}
+    for (const k of keys) {
+      if (data[k] !== undefined) continue // 印がある方が強い
+      const row = motionRowsRef.current.find((r: MotionRow) => r.key === k)
+      if (row) values[k] = row.value
+    }
+    const n = Object.keys(data).length + Object.keys(values).length
     if (!n) {
       // **写す物が無いのに「写した」ことにしない。**
       // 空のまま覚えると、次の貼り付けが素通りしてクリップの貼り付けに流れ、
       // テロップが増える＝黙って別の事が起きる。
-      showToast('選んだ項目には動きが付いていません。')
+      showToast('選んだ項目に写せる物がありません。')
       return true
     }
-    motionClipRef.current = { kind: src.kind, data }
+    motionClipRef.current = { kind: src.kind, data, values }
     lastCopyRef.current = 'motion'
     showToast(
       `動きを${n}項目コピーしました（${src.kind === 'telop' ? '別のテロップ' : '別のクリップ'}を選んで貼り付け）`
@@ -349,7 +368,33 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
     // 見ているタブではなく、**最後に写した物**で決める（上の lastCopyRef 参照）
     if (lastCopyRef.current !== 'motion') return false
     const clip = motionClipRef.current
-    if (!clip || !Object.keys(clip.data).length) return false
+    if (!clip) return false
+    const nKeys = Object.keys(clip.data).length
+    const nVals = Object.keys(clip.values).length
+    if (!nKeys && !nVals) return false
+    /**
+     * 印が無かった項目は「値だけ」で写す。
+     *
+     * **貼る先の行に流し込む。** 行は自分の書き込み先（テロップなら pos/scale、
+     * クリップなら zoom…）を知っているので、こちらが持ち主を知らなくてよい。
+     * 行が見つからない＝貼る先にその項目が無い（テロップ↔クリップで並びが違う）
+     * ときは黙って飛ばす。
+     */
+    const applyValues = (): number => {
+      let n = 0
+      for (const [k, v] of Object.entries(clip.values)) {
+        const row = motionRowsRef.current.find((r: MotionRow) => r.key === k)
+        if (!row) continue
+        row.onValue(v)
+        n++
+      }
+      return n
+    }
+    if (!nKeys) {
+      const n = applyValues()
+      showToast(n ? `動きを${n}項目 貼り付けました。` : '貼り付ける先にその項目がありません。')
+      return true
+    }
     const merge = (m: ClipMotion | Motion | undefined): Record<string, unknown> =>
       structuredClone({ ...(m ?? {}), ...clip.data })
     if (clip.kind === 'telop') {
@@ -367,7 +412,8 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
             : c
         )
       )
-      showToast(`${ids.length}個のテロップに貼り付けました。`)
+      const nv = applyValues()
+      showToast(`${ids.length}個のテロップに貼り付けました。` + (nv ? `（うち${nv}項目は値だけ）` : ''))
       return true
     }
     const tgt = reframeTargetRef.current
@@ -390,7 +436,11 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
       setVClips((prev) =>
         prev.map((c) => (vcs.includes(c.id) && !trackStates[c.track]?.locked ? put(c) : c))
       )
-    showToast(`${vids.length + imgs.length + vcs.length}個のクリップに貼り付けました。`)
+    const nv2 = applyValues()
+    showToast(
+      `${vids.length + imgs.length + vcs.length}個のクリップに貼り付けました。` +
+        (nv2 ? `（うち${nv2}項目は値だけ）` : '')
+    )
     return true
   }
 

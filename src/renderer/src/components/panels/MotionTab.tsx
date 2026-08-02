@@ -57,6 +57,7 @@ export function MotionTab({
   onClearMotion,
   clearCount,
   onSelectRows,
+  onRows,
   clipLen,
   targetKey
 }: {
@@ -83,6 +84,14 @@ export function MotionTab({
    * 実際にコピーするのは呼ぶ側。ここは「どれを選んでいるか」だけを持つ。
    */
   onSelectRows?: (keys: string[]) => void
+  /**
+   * いま出ている行そのものを外へ渡す。
+   *
+   * **コピーが「印の付いていない項目」も写せるようにするため。** 印が無い行の値は
+   * テロップなら pos/scale、クリップなら zoom… と持ち主がばらばらで、
+   * 写す側からは辿れない。行は既にその読み書きを持っているので、行ごと渡す。
+   */
+  onRows?: (rows: MotionRow[]) => void
   /** そのクリップの長さ（秒）。頭・尻へ飛ぶボタンに使う */
   clipLen?: number
   /**
@@ -128,7 +137,15 @@ export function MotionTab({
     return () => window.removeEventListener('pointerdown', h, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const order = [...rows, ...(moreRows ?? [])].map((r) => r.key)
+  const allRows = [...rows, ...(moreRows ?? [])]
+  // 行は描くたびに作り直されるが、渡すのは控えを差し替えるだけなので軽い。
+  // **中括弧で包むこと。** `() => onRows?.(...)` と書くと渡した関数の戻り値
+  // （行の配列）がそのまま effect の戻り値になり、React が「後片付けの関数では
+  // ない物を返した」と見なしてタブごと落ちる（実際にモーションタブが空になった）。
+  useEffect(() => {
+    onRows?.(allRows)
+  })
+  const order = allRows.map((r) => r.key)
   const lastRef = useRef<string | null>(null)
   /** 選び直す。Ctrl=足し引き / Shift=そこまでまとめて */
   const pick = (keys: string[], e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): void => {
