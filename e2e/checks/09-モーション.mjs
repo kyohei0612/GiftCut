@@ -114,7 +114,10 @@ export default async function (C) {
     await page.waitForTimeout(200)
     const w2 = await wAt()
     assert(w2 != null && Math.abs(w2 - w0) < 4, `⏱ を消しても元に戻らない（${w0} → ${w2}）`)
-  })
+  },
+  // **手前の項目が開いたモーションタブに寄りかかっている**（自分では選び直さない）。
+  // 絞って回すとタブが開いておらず「詳細設定が無い」で必ず赤くなる。
+  { orderDependent: true })
 
   await check('タイムラインの印を右クリックすると、その印だけ消える', async () => {
     // **消す手段が無かった。** 打つのは ⏱ と打ち込みでできるのに、消すのは
@@ -864,7 +867,10 @@ export default async function (C) {
     )
     touchedRef.dirty = true
     await resetProject()
-  })
+  },
+  // **手前の項目が残した状態（開いてあるプロジェクトと打った値）に寄りかかっている。**
+  // 自分では resetProject を呼ばないので、絞って回すと保存する中身が無い。
+  { orderDependent: true })
 
   await check('書き出した動画でも、クリップが本当に寄っている', async () => {
     // 縦長では**元動画（横長）と直接比べられない**（上下に黒帯が入るため）。
@@ -1012,7 +1018,10 @@ export default async function (C) {
     assert(during < 0.9, `画像が出ている最中なのに元動画と同じ（${during}）＝画像が写っていない`)
     touchedRef.dirty = true
     await resetProject()
-  })
+  },
+  // **手前の項目が付けた動きに寄りかかっている**（自分では付け直さない）。
+  // 絞って回すと動いていない絵を書き出すので、比べた結果がひっくり返る。
+  { orderDependent: true })
 
   // Premiere のプリセット取り込み（2件）は e2e/checks/09b-Premiere取り込み.mjs へ出した。
   // 末尾の塊なので、run.mjs の並びで直後に置けば実行順は変わらない。
