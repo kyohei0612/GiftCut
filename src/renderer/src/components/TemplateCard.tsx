@@ -7,6 +7,8 @@
 import type { JSX } from 'react'
 import { buildTelopSVG, hexToRgba } from '../lib/telopStyle'
 import { TELOP_CATS, type TelopTemplate } from '../lib/telopTemplates'
+// カーソルに何も握らせないための透明な1px。**消し方はここに1つだけ置いてある**
+import { EMPTY_DRAG_IMG } from '../lib/dragChip'
 
 const THUMB_TEXT = 'あア'
 export default function TemplateCard({
@@ -45,7 +47,15 @@ export default function TemplateCard({
       onContextMenu={onContextMenu}
       title="クリックで適用 / 右クリックでフォルダ移動 / ドラッグで適用"
       draggable
-      onDragStart={onDragStartTpl}
+      // **カーソルに見本を握らせない。**
+      // 既定のゴーストはカード全体＝「あア」の見本そのものを半透明で引きずる。
+      // 置き先はタイムラインの帯（useBandDrag の TelopDrop）で見せているので、
+      // カーソル側にも同じ絵があると二重になり、どちらが本当の置き先か分からない。
+      // 素材ビン（useMediaDrop.beginMediaDrag）は前からこうしている。
+      onDragStart={(e) => {
+        if (EMPTY_DRAG_IMG) e.dataTransfer.setDragImage(EMPTY_DRAG_IMG, 0, 0)
+        onDragStartTpl?.()
+      }}
       onDragEnd={onDragEndTpl}
     >
       {onDelete && (

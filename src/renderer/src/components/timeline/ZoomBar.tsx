@@ -10,7 +10,7 @@
 // こちらの仕事は、掴んだ場所を読んでそこへ渡すところまで。
 
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { barSpan, panFromSpan, zoomFromSpan } from '../../../../shared/zoomBar'
+import { barSpan, minZoom, panFromSpan, zoomFromSpan } from '../../../../shared/zoomBar'
 
 export function ZoomBar({
   totalSec,
@@ -73,7 +73,10 @@ export function ZoomBar({
       // 端のボッチ。掴んでいない側はそのまま残す（shared/zoomBar が面倒をみる）
       const p = Math.min(1, Math.max(0, at(ev.clientX)))
       const next = grab === 'l' ? { a: p, b: base.b } : { a: base.a, b: p }
-      const r = zoomFromSpan(next, totalSec, w, limits, grab)
+      // **目一杯引いたら全体が見える**（プレミアと同じ）。下限は中身の長さで決まるので
+      // ここで下げる。Ctrl+ホイールと「↔ 全体表示」も同じ shared/zoomBar を通る
+      const lo = minZoom(w, totalSec, limits.min)
+      const r = zoomFromSpan(next, totalSec, w, { min: lo, max: limits.max }, grab)
       onApply(r.zoom, r.scrollLeft)
     }
     const onUp = (): void => {

@@ -84,6 +84,45 @@ export function zoomFromSpan(
   return { zoom, scrollLeft: Math.max(0, startSec * zoom) }
 }
 
+/**
+ * 全体表示のときに空ける余白（px）。中身が画面の端にぴったり付かないようにする。
+ */
+export const FIT_MARGIN_PX = 40
+
+/**
+ * 中身がちょうど収まる拡大率（px / 秒）。**全体表示の式はここ1つ。**
+ *
+ * 「↔ 全体表示」も、拡大バーを目一杯引いたときの下限も、通しの後始末
+ *（e2e の restoreView）も、全部この率へ行き着く。式を別々に持つと、
+ * 「フィットを押した所」と「バーの左端」が微妙に違う場所になる。
+ */
+export function fitZoom(viewW: number, totalSec: number): number {
+  return (viewW - FIT_MARGIN_PX) / Math.max(totalSec, 10)
+}
+
+/**
+ * 引ける下限（px / 秒）。**全体が収まる所までは引ける。**
+ *
+ * ## なぜ固定値ではいけないか（2026-08-03 に変えた）
+ *
+ * 以前は 6 px/秒 の固定で、理由は「これより引くとクリップが線になって掴めない。
+ * 全体を見たいときは↔（フィット）がある」だった。**その逃げ道も塞がっていた**
+ * ——`fitTimelineZoom` も同じ 6 で頭打ちしていたので、**長い素材では
+ * ↔ を押しても全体が見えなかった**（451秒の実データで、6px/秒だと 2,706px 要る）。
+ *
+ * プレミアと同じく「目一杯引いたら全体が見える」に変える。
+ *
+ * ## ただし今までできた引きは1つも減らさない
+ *
+ * `floor` との**小さい方**を採る。短い素材では全体が収まる率の方が大きいので、
+ * 下限は今までどおり `floor`（＝全体より更に引けて、右に空白が出る）。
+ * 大きい方を採ると、短い素材で**今より引けなくなる**。
+ */
+export function minZoom(viewW: number, totalSec: number, floor: number): number {
+  const fit = fitZoom(viewW, totalSec)
+  return Number.isFinite(fit) && fit > 0 ? Math.min(floor, fit) : floor
+}
+
 /** つまみを丸ごと動かしたとき（移動だけ。拡大率は変えない） */
 export function panFromSpan(
   aNext: number,

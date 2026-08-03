@@ -80,8 +80,30 @@ export function useMedia(): Media {
   const [waveform, setWaveform] = useState<Waveform | null>(null)
   const [thumbnailSrc, setThumbnailSrc] = useState<string | null>(null)
 
-  const [sources, setSources] = useState<Source[]>([])
+  const [sources, setSourcesState] = useState<Source[]>([])
   const sourcesRef = useRef<Source[]>([])
+  /**
+   * 元動画の一覧を書き換える。**写し（sourcesRef）も同じ場で更新する。**
+   *
+   * 下の `srcOfSeg` が「**いまこの瞬間**の一覧を引く」と宣言しているとおり、
+   * 写しはその場で読めなければ意味がない。ところが以前は `useAppWiring` の
+   * effect で追随していて、**effect は次の描き直しまで走らない**——
+   * 宣言と実体が食い違っていた。
+   *
+   * 実害: **素材をまとめて落とすと1本しか入らなかった。**
+   * `placeVideoAtDrop` は「まだ1本も無いか」を写しで見て、無ければ
+   * `loadVideo`（＝切片を全部捨てて番号を1へ戻す）を通る。束は同じ一拍で
+   * 回るので、2本目もまだ空の写しを見て**1本目を捨てていた**（2026-08-03）。
+   *
+   * ※ 関数で渡された分も写しに当てる。中身は filter/map/spread だけなので
+   *   2回呼ばれても副作用は無い（**updater の中で採番しないこと**）。
+   */
+  const setSources: React.Dispatch<React.SetStateAction<Source[]>> = (v) => {
+    // ※ **この1行を消すと本当に赤くなることを確かめてある**（2026-08-03）。
+    //   useMedia.test.ts の3件が落ちる（写しが空のまま＝ここが唯一の更新経路）。
+    sourcesRef.current = typeof v === 'function' ? v(sourcesRef.current) : v
+    setSourcesState(v)
+  }
   const sourceIdCounter = useRef(1)
   const curSourceIdRef = useRef<number | null>(null)
   const [activeSrcId, setActiveSrcId] = useState<number | null>(null)

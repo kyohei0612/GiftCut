@@ -384,6 +384,49 @@ export default async function (C) {
     await resetProject()
   })
 
+  // **端を伸ばして重ねたときも、伸ばした側が勝つ。**
+  //
+  // 落として重ねる道は 2026-08-02 から上書きになっていたが、**端をつまんで
+  // 伸ばす道は同じ所を通っていなかった**ので、伸ばすと隣に重なったまま残っていた
+  //（`useTimelineDrag` の onTrimStart が overwriteOverlappedCues を呼んでいなかった。
+  //  2026-08-03 に本人から「今重なってる」と報告）。
+  //
+  // 判定そのものは shared/overwrite の試験で見ているので、ここは
+  // 「**端を伸ばしたときに、本当にその道を通るか**」だけを見る。
+  await check('テロップの端を伸ばして重ねても、伸ばした側が勝つ（上書き）', async () => {
+    await resetProject()
+    const bands = () => page.locator('.telop-clip')
+    assert((await bands().count()) >= 2, 'テロップが2つ以上ないと重ねられない')
+    const b = await bands().nth(1).boundingBox()
+    const wBefore = b.width
+    assert(wBefore > 20, `2つ目が細すぎて確かめられない（${wBefore}px）`)
+
+    // **先に成立を確かめる。** 端のつまみは帯が細いと出ない（v0.1.18 で
+    // 「出しても掴めない物は作らない」ことにした）。無いまま掴むと、
+    // 「上書きされない」ではなく「そもそも伸ばしていない」で赤くなる
+    const handle = bands().nth(0).locator('.clip-trim-r')
+    assert(await handle.count(), '1つ目の右端につまみが出ていない（この確認は成立していない）')
+    const h = await handle.boundingBox()
+
+    // 2つ目の頭へ3割ほど食い込ませる
+    const bite = Math.round(wBefore * 0.3)
+    const y = h.y + h.height / 2
+    await page.mouse.move(h.x + h.width / 2, y)
+    await page.mouse.down()
+    await page.mouse.move(b.x + bite, y, { steps: 12 })
+    await page.mouse.up()
+    await page.waitForTimeout(600)
+
+    const after = await bands().nth(1).boundingBox()
+    assert(after, '2つ目のテロップが消えてしまった（削りすぎ）')
+    assert(
+      after.width < wBefore - 4,
+      `伸ばしても2つ目が短くなっていない（${Math.round(wBefore)} → ${Math.round(after.width)}px）`
+    )
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
   await check('打ち直しの欄は、左右のパネルを押しても消えない（タイムラインでは消える）', async () => {
     // **打ちながら色やフォントを直しに行くのは、同じ一続きの作業。**
     // そこで閉じると、打ちかけの文字と「変えたかった選択そのもの」が消える

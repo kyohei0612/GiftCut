@@ -11,6 +11,9 @@
 // すでに枠の中にいるなら何もしない。押すたびに画面が揺れて逆に読みにくい。
 
 import { clamp } from '../../../shared/timeline'
+// 全体が収まる率と、引ける下限。**式はあちらに1つだけ**（フィット・拡大バー・
+// Ctrl+ホイールの3か所が同じ所へ行き着くようにするため）
+import { fitZoom, minZoom } from '../../../shared/zoomBar'
 import { ZOOM_MAX, ZOOM_MIN } from './useView'
 import { useViewCtx } from './viewContext'
 
@@ -44,10 +47,14 @@ export function useViewNav(deps: UseViewNavDeps): ViewNav {
   // へ移した。ここは飛ばす側を要るだけの片道になっている。
 
   // タイムラインの拡大率を「中身がちょうど収まる」ところに合わせる。
+  //
+  // **式は shared/zoomBar の fitZoom に1つだけ。** 下限も同じ所から取る
+  // ——2026-08-03 まで ZOOM_MIN（6px/秒）で頭打ちしていて、**長い素材では
+  // ↔ を押しても全体が見えなかった**（451秒だと 2,706px 要る）。
   function fitTimelineZoom(): void {
     const vw = scrollRef.current?.clientWidth ?? 800
     const end = Math.max(contentEndRef.current, 10)
-    setZoom(clamp((vw - 40) / end, ZOOM_MIN, ZOOM_MAX))
+    setZoom(clamp(fitZoom(vw, end), minZoom(vw, end, ZOOM_MIN), ZOOM_MAX))
     requestAnimationFrame(() => {
       if (scrollRef.current) scrollRef.current.scrollLeft = 0
     })

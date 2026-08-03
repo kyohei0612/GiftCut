@@ -165,6 +165,45 @@ export function PreviewScrub({
 }
 
 /**
+ * 音量のマーク。**絵文字ではなく SVG。**
+ *
+ * 絵文字（🔊 / 🔇）は OS のフォントがそのまま出るので、**CSS の color が効かない**
+ * ——Windows では白っぽいまま描かれて、周りのテーマ色から浮いていた。
+ * `currentColor` で描けば、他の文字と同じ色・同じ濃さになり、
+ * 触れたとき／消しているときの色分けも CSS 側だけで決められる。
+ */
+function VolumeIcon({ muted }: { muted: boolean }): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+      {/* スピーカー本体（左の四角＋広がる三角） */}
+      <path
+        d="M7.1 2.7 4.2 5.1H2.3a.6.6 0 0 0-.6.6v4.6c0 .33.27.6.6.6h1.9l2.9 2.4a.6.6 0 0 0 .98-.46V3.16a.6.6 0 0 0-.98-.46Z"
+        fill="currentColor"
+      />
+      {muted ? (
+        // 消しているときは×（音の波を出さない）
+        <path
+          d="M10.6 6.1 13.9 9.4M13.9 6.1l-3.3 3.3"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          fill="none"
+        />
+      ) : (
+        // 鳴っているときは音の波を2本
+        <path
+          d="M10.4 5.8a3.2 3.2 0 0 1 0 4.4M12.4 3.9a6 6 0 0 1 0 8.2"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+          fill="none"
+        />
+      )}
+    </svg>
+  )
+}
+
+/**
  * 全体の音量。**ミキサーを開かなくても触れる所に置く。**
  *
  * これまで音量はミキサーのタブの中にしか無く、聞こえ方を変えるだけのために
@@ -188,7 +227,7 @@ function MasterVolume({
   return (
     <span className="tc-vol" title={`全体の音量 ${gainToDb(value)} dB（Windows の音量とは別に、アプリの中で絞る量）`}>
       <button
-        className="pq-tag"
+        className={`pq-tag ${muted ? 'is-muted' : ''}`}
         onClick={() => {
           if (muted) onChange(last)
           else {
@@ -198,7 +237,7 @@ function MasterVolume({
         }}
         title={muted ? '音を戻す' : '音を消す'}
       >
-        {muted ? '🔇' : '🔊'}
+        <VolumeIcon muted={muted} />
       </button>
       <input
         type="range"

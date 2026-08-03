@@ -174,7 +174,7 @@ export function useAppWiring() {
   const {
     videoSrc, videoPath, videoName,
     videoDuration, proxyPct, setProxyPct,
-    sources, sourcesRef, srcOfSeg,
+    sources, srcOfSeg,
     activeSrcId, mediaItems
   } = useMediaCtx()
   // 書き出しの設定と進み具合（設定はプロジェクトの一部、進み具合は画面の一部）
@@ -280,9 +280,9 @@ export function useAppWiring() {
   const lastPaintRef = useRef(0)
   /** 元動画を登録した時刻。掃除が「置く直前の物」を消す競合を防ぐ猶予に使う */
   const srcAddedAtRef = useRef<Map<number, number>>(new Map())
-  useEffect(() => {
-    sourcesRef.current = sources
-  }, [sources])
+  // ※ sourcesRef の追随はここに無い。**setSources が同じ場で写しも更新する**
+  //   （state/useMedia）。effect で追随していた頃は、同じ一拍のうちに2回置くと
+  //   2回目がまだ空の写しを見て、1本目を捨てていた。
 
   /** 掴んでいる最中の素材（指を離した時に確定するので ref） */
   const draggingMediaRef = useRef<MediaItem | null>(null)
@@ -779,7 +779,7 @@ export function useAppWiring() {
 
   // ホイールの割り当てと、再生ヘッドの追いかけは state/useTimelineWheel
   useTimelineWheel({
-    scrollRef, zoomRef, setZoom, ZOOM_MIN, ZOOM_MAX, playing, currentTime, zoom
+    scrollRef, zoomRef, setZoom, ZOOM_MIN, ZOOM_MAX, contentEndRef, playing, currentTime, zoom
   })
 
   // 品書きは、外を押す・Escape で閉じる（閉じ方は state/useDismissOnOutside に1つ）

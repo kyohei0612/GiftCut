@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { barSpan, zoomFromSpan, panFromSpan } from './zoomBar'
+import { barSpan, zoomFromSpan, panFromSpan, fitZoom, minZoom } from './zoomBar'
 
 const TOTAL = 100 // 秒
 const VIEW = 800 // px
@@ -75,5 +75,40 @@ describe('つまみを丸ごと動かす（移動）', () => {
 
   it('左へも行き過ぎない', () => {
     expect(panFromSpan(-0.5, { a: 0.3, b: 0.5 }, TOTAL, 32)).toBe(0)
+  })
+})
+
+// **目一杯引いたら全体が見える**（2026-08-03。プレミアに揃えた）。
+//
+// 前は下限が 6px/秒 の固定で、しかも「↔ 全体表示」も同じ 6 で頭打ちだったので、
+// **長い素材では全体を見る手段が1つも無かった**。
+describe('引ける下限と、全体が収まる率', () => {
+  it('全体が収まる率は「見えている幅 ÷ 長さ」（余白ぶんだけ引く）', () => {
+    // 1,000px の窓に 100秒 → 余白40を引いて 960/100 = 9.6px/秒
+    expect(fitZoom(1000, 100)).toBeCloseTo(9.6, 6)
+  })
+
+  it('**短すぎる中身は 10秒として扱う**（0 除算と、寄りすぎで消えるのを防ぐ）', () => {
+    expect(fitZoom(1000, 2)).toBeCloseTo(96, 6)
+    expect(fitZoom(1000, 0)).toBeCloseTo(96, 6)
+  })
+
+  it('**長い素材では下限が下がる**（451秒の実データ。6px/秒では全体が入らない）', () => {
+    const z = minZoom(1000, 451, 6)
+    expect(z).toBeCloseTo(960 / 451, 6) // ≒ 2.13px/秒
+    expect(z).toBeLessThan(6)
+    // ここまで引ければ、451秒 × 2.13 ≒ 960px ＝ 窓に収まる
+    expect(451 * z).toBeLessThanOrEqual(1000)
+  })
+
+  it('**短い素材では今までどおり**（引ける範囲を狭めない）', () => {
+    // 20秒なら全体が収まる率は 48px/秒。そこを下限にすると**今より引けなくなる**ので、
+    // 小さい方（＝これまでの下限 6）を採る
+    expect(minZoom(1000, 20, 6)).toBe(6)
+  })
+
+  it('幅が測れないときは、これまでの下限のまま（起動直後に 0 で潰れない）', () => {
+    expect(minZoom(0, 451, 6)).toBe(6)
+    expect(minZoom(NaN, 451, 6)).toBe(6)
   })
 })

@@ -7,6 +7,8 @@
 // 移動先が消えていたら既定の置き場（アイコン画像）に戻して見せる。
 
 import type { JSX } from 'react'
+// カーソルに何も握らせないための透明な1px。**消し方はここに1つだけ置いてある**
+import { EMPTY_DRAG_IMG } from '../../lib/dragChip'
 
 export interface IconItem {
   id: number
@@ -78,7 +80,12 @@ export function IconLibraryTab({
           ' — テロップにドラッグ / クリックで選択テロップに適用 / 右クリックでフォルダ移動'
         }
         draggable
-        onDragStart={() => onDragStart(it.image)}
+        // 見本帳のカードと同じ理由でカーソルの絵を消す（置き先は帯で見せている）。
+        // 消し方は lib/dragChip の EMPTY_DRAG_IMG に1つだけ置いてある
+        onDragStart={(e) => {
+          if (EMPTY_DRAG_IMG) e.dataTransfer.setDragImage(EMPTY_DRAG_IMG, 0, 0)
+          onDragStart(it.image)
+        }}
         onDragEnd={onDragEnd}
         onClick={() => onApplyToSelection(it.image)}
         // 1クリックで付くが、**ダブルクリックでも同じ結果**にしておく。

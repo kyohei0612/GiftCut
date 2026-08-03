@@ -1581,6 +1581,22 @@ body {
   align-items: center;
   gap: 4px;
 }
+/* 音量のマークは SVG（currentColor）なので、色はここで決められる。
+   絵文字だった頃は OS のフォントが出ていて color が効かず、白いまま浮いていた。 */
+.tc-vol .pq-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+}
+.tc-vol .pq-tag:hover {
+  color: var(--accent);
+}
+/* 消しているときは沈んだ色にする。**形（×）だけでなく色でも分かるように**。
+   title ではなくクラスで持つ（文言を直した瞬間に黙って効かなくなるのを避ける）。 */
+.tc-vol .pq-tag.is-muted {
+  color: var(--muted);
+}
 .tc-vol input[type='range'] {
   width: 72px;
   height: 14px;

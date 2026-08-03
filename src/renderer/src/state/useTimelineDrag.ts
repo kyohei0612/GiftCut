@@ -531,6 +531,9 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     const rect = inner.getBoundingClientRect()
     const fixedStart = cue.start // 反対側の端はドラッグ開始時の値で固定
     const fixedEnd = cue.end
+    // 最後に置いた端。**離したときに「本当に長さが変わったか」を見るのに使う**
+    //（掴んだだけで離したときに上書きを走らせない）
+    let now = { start: cue.start, end: cue.end }
     const onMove = (ev: PointerEvent): void => {
       const t = (ev.clientX - rect.left) / zoomRef.current
       if (edge === 'l') {
@@ -540,6 +543,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
           y: ev.clientY,
           text: `イン ${formatTime(ns)} | 長さ ${formatTime(fixedEnd - ns)}`
         })
+        now = { start: ns, end: fixedEnd }
         setCues((prev) => prev.map((c) => (c.id === cue.id ? { ...c, start: ns } : c)))
       } else {
         const ne = Math.max(snapTime(t, [cue.id]), fixedStart + 0.1)
@@ -548,6 +552,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
           y: ev.clientY,
           text: `アウト ${formatTime(ne)} | 長さ ${formatTime(ne - fixedStart)}`
         })
+        now = { start: fixedStart, end: ne }
         setCues((prev) => prev.map((c) => (c.id === cue.id ? { ...c, end: ne } : c)))
       }
     }
@@ -557,6 +562,19 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
       window.removeEventListener('pointercancel', onUp)
       setSnapLineX(null)
       setDragTip(null)
+      // **端を伸ばして重なった分も、伸ばした側が勝つ。**
+      //
+      // 落として重ねたとき（上の onUp）は 2026-08-02 からそうなっていたが、
+      // **端をつまんで伸ばす道はここを通っていなかった**ので、伸ばすと
+      // 隣のテロップに重なったまま残っていた（同じ決まりが片方だけ、の型）。
+      // 判定も組み立ても shared/overwrite の overwriteCues をそのまま通すので、
+      // 「どう並ぶか」の式はここに1つも増えていない。
+      //
+      // 掴んだだけで離したときは走らせない（長さが変わっていなければ何もしない）。
+      // ※ **この呼び出しを外すと本当に赤くなることを確かめてある**（2026-08-03）。
+      //   e2e「テロップの端を伸ばして重ねても、伸ばした側が勝つ」が
+      //   `伸ばしても2つ目が短くなっていない（188 → 188px）` で落ちる。
+      if (now.start !== cue.start || now.end !== cue.end) overwriteOverlappedCues([cue.id])
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
