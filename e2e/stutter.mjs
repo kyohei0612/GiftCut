@@ -47,11 +47,17 @@ const AT = Number(argOf('at', '')) // 未指定なら頭から
 const RES_LIST = argOf('res', '') ? [argOf('res', '')] : ['1080', '720', '360']
 
 const REAL = join(process.env.APPDATA ?? join(homedir(), 'AppData/Roaming'), 'GiftCut')
-const draft = join(REAL, 'giftcut-autosave.json')
+// **プロジェクトファイルを直接渡せる**（--project=<path>）。
+// 下書き（自動保存）は「いま開いている物」なので、渡された .gcproj で測るには
+// 一度アプリで開き直す手間が要る。それを省く口（2026-08-03）。
+const PROJ = argOf('project', '')
+const draft = PROJ || join(REAL, 'giftcut-autosave.json')
 if (!existsSync(draft)) {
   console.error(
-    `編集中の下書きが見つかりません: ${draft}\n` +
-      'アプリで少し編集してから（下書きは自動で書かれます）もう一度実行してください。'
+    PROJ
+      ? `渡されたプロジェクトが見つかりません: ${draft}`
+      : `編集中の下書きが見つかりません: ${draft}\n` +
+          'アプリで少し編集してから（下書きは自動で書かれます）もう一度実行してください。'
   )
   process.exit(2)
 }

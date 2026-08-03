@@ -354,6 +354,17 @@ try {
 
   // ---- 3. 動作: 触ったときのもたつき -----------------------------------
   const inner = await page.locator('.track-inner').boundingBox()
+  const vis = await page.locator('.track-scroll').boundingBox()
+  /**
+   * ホイールを回す高さ。**`.track-inner` ではなく `.track-scroll` から取る。**
+   *
+   * `.track-inner` は中身そのものなので、段が多くて縦に送られていると
+   * **箱の上端が見える範囲より上へはみ出す**（実測: inner.y=379 / scroll.y=511）。
+   * そこへホイールを送ると狙いが外れ、拡大も横送りも起きないのに
+   * 「重くない」という数字だけが出る。実データ（段11本）で3項目が
+   * 黙って測れていなかった（2026-08-03 に気づいた）。
+   */
+  const visY = (dy) => (vis?.y ?? inner.y) + dy
   const clip = page.locator('[data-tid="V1"] .video-clip').first()
   /**
    * タイムラインを拡大する。
@@ -485,11 +496,11 @@ try {
 
   await measure('タイムラインを拡大・縮小する', async () => {
     const w0 = await timelineWidth()
-    await zoomIn(visMid, inner.y + 40, 10)
+    await zoomIn(visMid, visY(40), 10)
     const w1 = await timelineWidth()
     if (w1 <= w0 * 1.2) throw new Error(`拡大できていない（${w0} → ${w1}px）`)
     await page.keyboard.down('Control')
-    await page.mouse.move(visMid, inner.y + 40)
+    await page.mouse.move(visMid, visY(40))
     for (let i = 0; i < 10; i++) {
       await page.mouse.wheel(0, 120)
       await page.waitForTimeout(120)
@@ -502,7 +513,7 @@ try {
   // わざと間違える: Ctrl を押さずにホイールする（＝横スクロールするだけ）
   async () => {
     const w0 = await timelineWidth()
-    await page.mouse.move(visMid, inner.y + 40)
+    await page.mouse.move(visMid, visY(40))
     for (let i = 0; i < 10; i++) {
       await page.mouse.wheel(0, -120)
       await page.waitForTimeout(80)
@@ -553,7 +564,7 @@ try {
     'タイムラインを横にスクロールする',
     async () => {
       const x0 = await firstClipX()
-      await page.mouse.move(visMid, inner.y + 60)
+      await page.mouse.move(visMid, visY(60))
       for (let i = 0; i < 20; i++) {
         await page.mouse.wheel(160, 0)
         await page.waitForTimeout(25)
@@ -585,7 +596,7 @@ try {
     // 狙った帯ではなく手前の帯を掴んでしまう。まず拡大してから、
     // 「いま画面に見えていて掴める幅のもの」を選び直す。
     // （拡大すると狙った帯が画面外へ出るので、先に決めておくと空振りする）
-    await zoomIn(visMid, inner.y + 40, 10)
+    await zoomIn(visMid, visY(40), 10)
     const vw = (page.viewportSize() ?? { width: 1280 }).width
     const idx = await tel.evaluateAll((els, w) => {
       for (let i = 0; i < els.length; i++) {
@@ -656,19 +667,15 @@ try {
       return Number.isFinite(left) ? left : null
     })
     const rr = await page.locator('.ruler').boundingBox()
-    const inner = await page.locator('.track-inner').boundingBox()
-    const zoomV = await page
-      .locator('.tl-zoom input[type="range"]')
-      .first()
-      .inputValue()
-      .then(Number)
-    if (at !== null && zoomV > 0) {
-      // at は px（開始秒×拡大率）。0.2秒ぶん後ろへずらして、確実に表示される所を押す
-      await page.mouse.click(inner.x + at + 0.2 * zoomV, rr.y + rr.height / 2)
-    } else {
-      const bb = await band.boundingBox()
-      await page.mouse.click(bb.x + bb.width / 2, rr.y + rr.height / 2)
-    }
+    // **帯そのものの箱から押す所を決める。** 前は拡大スライダー
+    // （`.tl-zoom input[type=range]`）の値で秒→pxを換算していたが、
+    // 2026-08-03 に拡大UIが下のバーへ移ってスライダーが**消えた**ため、
+    // ここは20秒待って必ず落ちていた（＝この項目は測れていなかった）。
+    // 帯の真ん中は必ずその文字が出ている時刻なので、換算そのものが要らない。
+    void at
+    const bb = await band.boundingBox()
+    if (!bb) throw new Error('選んだ帯が画面に無い')
+    await page.mouse.click(bb.x + bb.width / 2, rr.y + rr.height / 2)
     await page.waitForTimeout(700)
     const tel = page.locator('.telop-overlay > *').first()
     if (!(await tel.count())) throw new Error('プレビューに文字が出ていない')
@@ -699,14 +706,29 @@ try {
   })
 
   await measure('全部選んでまとめて動かす', async () => {
+    // **決まった見え方から始める。** 手前の項目（拡大・横送り）が残した倍率と
+    // 位置のまま掴むと、同じ px を動かしても意味する秒数が毎回変わり、
+    // 磁石に吸い戻されたりはみ出したりして「動かせていない」と出る。
+    // 「↔ 全体表示」を押して基準へ戻す（2026-08-03）。
+    const fit = page.locator('.tl-zoom button').first()
+    if (await fit.count()) await fit.click().catch(() => {})
+    await page.waitForTimeout(500)
+    await page.keyboard.press('Escape')
     const all = page.locator('[data-tid="V1"] .video-clip')
     // 画面に見えていて掴める幅のものを選ぶ（拡大率は前の項目で変わっている）
     const vw2 = (page.viewportSize() ?? { width: 1280 }).width
     // 拡大していると1つが画面より広いこともある。画面に見えている部分があれば掴める。
+    //
+    // **縦も見る。** 横だけで選んでいたので、段が多い（実データは11本）と
+    // V1 が縦にはみ出していても「見えている」と数えてしまい、画面の外を掴んで
+    // 「まとめて動かせていない」と出ていた（2026-08-03。前の項目で拡大が
+    // 効くようになって初めて表に出た）。
     const i2 = await all.evaluateAll((els, w) => {
+      const sc = document.querySelector('.track-scroll')?.getBoundingClientRect()
       for (let i = 0; i < els.length; i++) {
         const r = els[i].getBoundingClientRect()
-        if (r.x < w - 200 && r.x + r.width > 200) return i
+        const yOk = !sc || (r.y + r.height / 2 > sc.top + 8 && r.y + r.height / 2 < sc.bottom - 8)
+        if (r.x < w - 200 && r.x + r.width > 200 && yOk) return i
       }
       return -1
     }, vw2)
@@ -719,10 +741,18 @@ try {
     const l0 = await all.evaluateAll((els) =>
       els.map((e) => Math.round(e.getBoundingClientRect().x)).join(',')
     )
+    // **動かす量は「秒」で決める。** 150px 固定にしていたので、拡大が効いた状態だと
+    // 1秒未満になり、**磁石で元の位置へ吸い戻されて「動かせていない」**と出ていた
+    // （2026-08-03。前の項目の拡大が直って初めて表に出た）。
+    const pps =
+      (await page.locator('.track-inner').evaluate((e) => parseFloat(e.style.width || '0'))) /
+      Math.max(1, totalSec)
+    const dist = Math.max(150, Math.round(2 * pps)) // 2秒ぶん（最低150px）
+    const stepN = 30
     await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
     await page.mouse.down()
-    for (let i = 1; i <= 30; i++) {
-      await page.mouse.move(b.x + b.width / 2 + i * 5, b.y + b.height / 2)
+    for (let i = 1; i <= stepN; i++) {
+      await page.mouse.move(b.x + b.width / 2 + (i * dist) / stepN, b.y + b.height / 2)
       await page.waitForTimeout(8)
     }
     await page.mouse.up()
@@ -946,7 +976,9 @@ try {
   // ---- まとめ ----------------------------------------------------------
   const ng = rows.filter((r) => r.verdict === 'ng').length
   const warn = rows.filter((r) => r.verdict === 'warn').length
-  const head = `${MINUTES}分・テロップ${TELOPS}枚・編集${EDITS}回`
+  // **本物のプロジェクトで測ったときに「60分・テロップ200枚」と出さない。**
+  // 見出しが嘘だと、あとで数字を読み返したときに何を測ったのか分からなくなる。
+  const head = REAL ? `本物のプロジェクト・編集${EDITS}回` : `${MINUTES}分・テロップ${TELOPS}枚・編集${EDITS}回`
   console.log(
     `\n\x1b[1m結果\x1b[0m: ${rows.length - ng - warn} 良好 / ${warn} 要注意 / ${ng} 問題あり（${head}）`
   )

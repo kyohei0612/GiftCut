@@ -96,10 +96,40 @@ async function note(action, expect, actual, verdict, why = '') {
   if (verdict !== 'ok') console.log(`   ${C.dim}期待: ${expect}${C.off}\n   実際: ${actual}`)
 }
 
+/**
+ * 拡大率（px/秒）を画面から割り出す。
+ *
+ * **スライダーの値を読まない。** 2026-08-03 に拡大UIが下のバーへ移って
+ * `.tl-zoom input[type=range]` は**消えた**（そのままだとここで必ず落ちる）。
+ * 中身の幅 ÷ 目盛りの終わりの秒＝px/秒 は、UI が変わっても崩れない。
+ */
+const pxPerSec = async () =>
+  await page.evaluate(() => {
+    const inner = document.querySelector('.track-inner')
+    if (!inner) return 0
+    const w = parseFloat(inner.style.width || '0') || inner.getBoundingClientRect().width
+    // 目盛りの一番後ろの札から全体の秒数を取る（"1:23" か "83" の形）
+    const labels = [...document.querySelectorAll('.ruler .tick-label, .ruler .ruler-label')]
+    const toSec = (t) => {
+      const m = /^(\d+):(\d+)/.exec(t)
+      return m ? Number(m[1]) * 60 + Number(m[2]) : Number(t)
+    }
+    const secs = labels.map((el) => toSec((el.textContent ?? '').trim())).filter((n) => n > 0)
+    const last = secs.length ? Math.max(...secs) : 0
+    // 札から取れないときは、帯の left と開始秒から割り出す
+    if (!last) {
+      const clip = document.querySelector('.telop-clip, .video-clip')
+      const left = clip ? parseFloat(clip.style.left || '0') : 0
+      return left > 0 ? 0 : 0
+    }
+    return w / last
+  })
+
 const seek = async (sec) => {
   const r = await page.locator('.ruler').boundingBox()
-  const zoom = Number(await page.locator('.tl-zoom input').inputValue())
-  await page.mouse.click(r.x + sec * zoom, r.y + r.height / 2)
+  const z = await pxPerSec()
+  const sl = await page.evaluate(() => document.querySelector('.track-scroll')?.scrollLeft ?? 0)
+  await page.mouse.click(r.x + sec * z - sl, r.y + r.height / 2)
   await page.waitForTimeout(400)
 }
 const telopX = () =>

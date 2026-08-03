@@ -616,22 +616,21 @@ try {
     {
       name: 'タイムラインの拡大率',
       // 積み上がると「クリップ1つぶんの幅」が変わり、同じ距離を動かしたつもりが
-      // 磁石に吸い戻される（負荷チェックでも同じ失敗をした）
+      // 磁石に吸い戻される（負荷チェックでも同じ失敗をした）。
+      //
+      // **スライダーの値は読まない。** 2026-08-03 に拡大UIが下のバー
+      // （components/timeline/ZoomBar）へ移って `.tl-zoom input[type=range]` は
+      // 消えた。`?? ''` で守っていたので落ちはしないが、**いつも空文字＝
+      // 「ずれていない」**になり、この戻しが丸ごと効かなくなっていた。
+      // 中身の幅（拡大すると必ず変わる）で見て、戻すのは「↔ 全体表示」を押す
+      // ——基準は起動直後＝全体表示なので、これで同じ所へ戻る。
       read: () =>
         page.evaluate(
-          () => document.querySelector('.tl-zoom input[type="range"]')?.value ?? ''
+          () => document.querySelector('.track-inner')?.style.width ?? ''
         ),
-      restore: async (base) => {
-        await page.evaluate((val) => {
-          const el = document.querySelector('.tl-zoom input[type="range"]')
-          if (!el) return
-          const setter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype,
-            'value'
-          ).set
-          setter.call(el, String(val))
-          el.dispatchEvent(new Event('input', { bubbles: true }))
-        }, base)
+      restore: async () => {
+        const fit = page.locator('.tl-zoom button').first()
+        if (await fit.count()) await fit.click().catch(() => {})
         await page.waitForTimeout(350)
       }
     }

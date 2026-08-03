@@ -256,11 +256,23 @@ const screen = page.locator('.screen').first()
 //
 // タイムラインは**目一杯まで拡大してから**撮る。既定の拡大率だと0.2秒の演出は
 // 帯の幅が数pxしかなく、印が重なって1つに見える。
-const zoom = page.locator('.tl-zoom input[type="range"], .timeline-toolbar input[type="range"]').first()
-if (await zoom.count()) {
-  const max = await zoom.getAttribute('max')
-  await zoom.fill(String(max ?? 100))
-  await page.waitForTimeout(400)
+// **スライダーを探さない。** 2026-08-03 に拡大UIが下のバーへ移って
+// `.tl-zoom input[type=range]` は消えた。`if (count())` で守っていたので
+// 落ちはしないが、**黙って拡大せずに撮り続けていた**（＝0.2秒の演出の印が
+// 数pxに潰れたまま撮れていた。この節が避けたかった当のもの）。
+// Ctrl+ホイールなら UI が変わっても効く。
+{
+  const scr = await page.locator('.track-scroll').boundingBox()
+  if (scr) {
+    await page.keyboard.down('Control')
+    await page.mouse.move(scr.x + scr.width / 2, scr.y + scr.height / 2)
+    for (let i = 0; i < 24; i++) {
+      await page.mouse.wheel(0, -120)
+      await page.waitForTimeout(30)
+    }
+    await page.keyboard.up('Control')
+    await page.waitForTimeout(400)
+  }
 }
 // 左パネルをモーションにして、隠れている項目も開いておく（ここは出しっぱなしで済む）
 await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
