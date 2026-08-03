@@ -29,6 +29,8 @@ import { registerMotionPresetHandlers } from './motionPresets'
 import { registerAssetPackHandlers } from './assetPacks'
 import { registerDialogHandlers } from './dialogs'
 import { registerMediaProbeHandlers } from './mediaProbe'
+import { registerMediaProxyHandlers } from './mediaProxy'
+import { registerMediaAudioHandlers } from './mediaAudio'
 import { isProjectDirty, registerProjectFileHandlers } from './projectFiles'
 
 // 自動実行（e2e・監査・計測）で動かしているかどうか。
@@ -429,7 +431,9 @@ app.whenReady().then(() => {
   registerSeHandlers() //        効果音（./seLibrary）
   registerMotionPresetHandlers() // 動きの見本帳（./motionPresets）
   registerAssetPackHandlers() // 素材パック・フォルダを開く（./assetPacks）
-  registerMediaProbeHandlers() // サムネ・焼き直し・波形（./mediaProbe）
+  registerMediaProbeHandlers() // 長さ・コマ数・サムネ（./mediaProbe）
+  registerMediaProxyHandlers() // 焼き直し（./mediaProxy）
+  registerMediaAudioHandlers() // 波形・喋っていない所（./mediaAudio）
   registerProjectFileHandlers() // 保存・下書き・持ち出し・雛形（./projectFiles）
 
   createWindow()
