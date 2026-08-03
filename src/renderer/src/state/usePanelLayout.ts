@@ -13,7 +13,7 @@
 
 import { useEffect, useState } from 'react'
 import { nextPanelSize, type PanelEdge } from './panelSize'
-import type { PaneGeom } from '../components/PanelChrome'
+import type { PaneGeom } from '../components/PaneWindow'
 
 /** 前に使っていた大きさを読む。無ければ既定値 */
 function loadSize(key: string, def: number): number {

@@ -26,7 +26,7 @@
 // 選べなかった。出したあとに測って、はみ出していたら内側へ寄せる。
 
 import { useEffect, useState } from 'react'
-import { readPaneGeometry } from '../components/PanelChrome'
+import { readPaneGeometry } from '../components/PaneWindow'
 import type { PaneId } from './usePanelLayout'
 import { useToastCtx } from './toastContext'
 

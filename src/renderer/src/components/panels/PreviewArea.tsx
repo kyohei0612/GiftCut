@@ -22,7 +22,7 @@
 // プレビュー固有の物は state/previewContext。**props で配ると100個を超える。**
 
 import { useState, type JSX } from 'react'
-import { PanelTabs } from '../PanelChrome'
+import { PanelTabs } from '../PanelTabs'
 import { AudioMixer, PreviewScrub, TransportBar } from './PreviewBars'
 import { ImageLayers, TelopLayer, VideoLayers } from './PreviewLayers'
 import {

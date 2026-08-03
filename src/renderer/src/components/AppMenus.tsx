@@ -18,7 +18,7 @@
 import { useMenus } from '../state/menusContext'
 import type { JSX } from 'react'
 import { ContextMenu, type MenuEntries } from './ContextMenu'
-import { TabSortList } from './PanelChrome'
+import { TabSortList } from './TabSortList'
 import { LABEL_COLORS } from '../lib/labels'
 import { formatCombo } from '../../../shared/shortcuts'
 import type { PaneId } from '../state/usePanelLayout'

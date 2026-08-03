@@ -5,7 +5,7 @@
 // 中身は4つの区画がそれぞれ心臓から自分で見に行くので、ここに残るのは
 // **どこに何を置くか・境目をどう掴むか**だけ。中身の受け渡しが混ざっていた
 // ときは、置き方を直したいのに300行を読む必要があった。
-import { PaneHost } from '../PanelChrome'
+import { PaneHost } from '../PaneWindow'
 import { LeftPanel } from '../LeftPanel'
 import { PreviewArea } from './PreviewArea'
 import { RightPanelArea } from './RightPanelArea'
