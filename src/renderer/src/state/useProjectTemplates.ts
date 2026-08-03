@@ -34,8 +34,10 @@
 // - `pickTemplate` … 一覧で選ばれた1つを読んで当てる
 import { toGcUrl } from '../lib/gcUrl'
 import { mergeAssignments, mergeFavorites, mergeFolders, mergeNamed } from '../../../shared/templateMerge'
-import { saveCatOverrides, saveCustomCats, saveFavorites, saveUserTemplates } from '../lib/telopTemplates'
-import { saveIconAssign } from '../lib/iconLibrary'
+// ※ ここでは lib/telopTemplates と lib/iconLibrary の save* を**呼ばない**。
+//   プロジェクトから来た物をアプリ側へ焼き付けないため（下の「混ぜるが保存しない」）。
+//   保存するのは、人が「保存」を押したとき（state/useLabelsPresets の savePreset）と
+//   整理を触ったとき（state/useLibraryOrganize）だけ。
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 import { useProjectStateCtx } from './projectStateContext'
 import { useToastCtx } from './toastContext'
@@ -145,33 +147,40 @@ export function useProjectTemplates(deps: UseProjectTemplatesDeps) {
     // **置き換えではなく混ぜる**。混ぜ方の決まりは shared/templateMerge にあり、
     // 「いまの設定が勝つ」向きも含めてテストで見張ってある。
     // 置き換えにしていた頃は、テンプレを1回開くだけで育てた設定が全部消えた（戻せない）。
+    //
+    // ## **混ぜるが、アプリ側へは保存しない**（2026-08-03 に変えた）
+    //
+    // 前はここで `saveFavorites` などを呼んでいて、**プロジェクトを1つ開くだけで
+    // その中身がアプリのライブラリへ焼き付いた**。新規で始めても前のプロジェクトの
+    // ★・分類・自作フォルダ・自作テロップが残り、
+    // **「デフォルトのテンプレートが意味をなさない」**（本人）状態になっていた。
+    //
+    // → 画面には出す（`setXxx` は残す＝人からもらったプロジェクトでも見た目が再現する）。
+    //   **保存はしない**ので、閉じれば消える。自分の物にしたいなら「保存」を押す
+    //   ——本人の言う「**登録とか保存した奴にしない限りはデフォルト**」がこれ。
+    //
+    // ※ 置き換えに戻したわけではない。**消すのではなく、書かないだけ**なので、
+    //   上に書いてある「育てた設定が全部消える」事故は起きない。
+    //
+    // ※ **残っている穴**: 開いている間に自分で★を押すと、そのとき画面に出ている
+    //   一覧（＝プロジェクト由来を含む）がまるごと保存される。切り分けるには
+    //   「アプリ側の物」と「このプロジェクト由来の物」を別々に持つ必要があり、
+    //   整理の心臓（useLibraryOrganize）まで手が入る。`やること.md` に控えてある。
     if (d.telop) {
       const favs = mergeFavorites(favorites, d.telop.favorites)
-      if (favs !== favorites) {
-        setFavorites(favs)
-        saveFavorites(favs)
-      }
+      // ※ ここに saveFavorites を戻すと本当に赤くなることを確かめてある（2026-08-03）。
+      //   useProjectTemplates.test.ts が「プロジェクトを開く道で saveFavorites( を
+      //   呼んでいる」で落ちる。**import も消してあるので型検査でも止まる**（二重の防波堤）
+      if (favs !== favorites) setFavorites(favs)
       const cats = mergeAssignments(catOverrides, d.telop.catOverrides)
-      if (cats !== catOverrides) {
-        setCatOverrides(cats)
-        saveCatOverrides(cats)
-      }
+      if (cats !== catOverrides) setCatOverrides(cats)
       const folders = mergeFolders(customCats, d.telop.customCats)
-      if (folders !== customCats) {
-        setCustomCats(folders)
-        saveCustomCats(folders)
-      }
+      if (folders !== customCats) setCustomCats(folders)
       const tpls = mergeNamed(userTemplates, d.telop.userTemplates)
-      if (tpls.length !== userTemplates.length) {
-        setUserTemplates(tpls)
-        saveUserTemplates(tpls)
-      }
+      if (tpls.length !== userTemplates.length) setUserTemplates(tpls)
     }
     const icons = mergeAssignments(iconAssign, d.iconAssign)
-    if (icons !== iconAssign) {
-      setIconAssignState(icons)
-      saveIconAssign(icons)
-    }
+    if (icons !== iconAssign) setIconAssignState(icons)
     const laneIcons = mergeAssignments(laneIconAssign, d.laneIconAssign)
     if (laneIcons !== laneIconAssign) {
       setLaneIconAssign(laneIcons)

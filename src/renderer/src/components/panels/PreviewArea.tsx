@@ -46,6 +46,7 @@ import { useExportCtx } from '../../state/exportContext'
 import { useIconsCtx } from '../../state/iconsContext'
 import { useToastCtx } from '../../state/toastContext'
 import { usePreviewCtx } from '../../state/previewContext'
+import { useTimelineOps } from '../../state/timelineOpsContext'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface PreviewAreaProps {
@@ -66,12 +67,16 @@ export function PreviewArea(): JSX.Element {
     resetSelectedTelops, telopResetCount,
     resetCount, selectPreviewOverlay, reframeTarget, onTelopPointerDown,
     onTelopResizeStart, editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
-    draggingTemplateRef, draggingIconRef, applyTemplateToCue, applyIconToCue,
+    draggingTemplateRef, draggingIconRef, draggingEmphasisRef,
+    applyTemplateToCue, applyIconToCue,
     togglePlay, skipSec, stepFrame, jumpMarker, addMarkerAtPlayhead, captureScreenshot,
     seekAndReveal, handleVideoEnded, startFader, setTrackVolume, setMasterVolume,
     transportInfo
   } = usePreviewCtx()
   const { cues, setSegments } = useDoc()
+  // 強調を文字の上へ落としたときの当て先。**timelineOps に既にある物を使う**
+  //（preview 側へ配り直すと、同じ物が2つの束に載る）
+  const { patchCueAnim } = useTimelineOps()
   const {
     selectedIds, setSelectedIds, setEditingId, editingId, setVideoSelected, videoSelected,
     selectedVideoIds, selectedImgIds, selectedVClipIds
@@ -322,6 +327,8 @@ export function PreviewArea(): JSX.Element {
               ratio={ratio}
               draggingTemplateRef={draggingTemplateRef}
               draggingIconRef={draggingIconRef}
+              draggingEmphasisRef={draggingEmphasisRef}
+              patchCueAnim={patchCueAnim}
               applyTemplateToCue={applyTemplateToCue}
               applyIconToCue={applyIconToCue}
               onResizeStart={onTelopResizeStart}

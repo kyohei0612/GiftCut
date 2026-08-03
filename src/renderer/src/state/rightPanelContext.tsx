@@ -52,6 +52,8 @@ export interface RightPanelValue {
   iconFavs: any
   toggleIconFav: any
   draggingIconRef: any
+  /** 強調（揺れ・脈打ち）を運んでいる最中。持ち物は state/useBandDrag */
+  draggingEmphasisRef: any
   seLibrary: any
   seFavs: any
   setSeFolderOf: any

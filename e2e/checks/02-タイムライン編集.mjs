@@ -698,6 +698,57 @@ export default async function (C) {
     assert(accepted.over, '帯が見本帳を受け付けない（落とし先になっていない）')
     assert(accepted.drop, '帯へ落としても何も起きない')
   })
+
+  // **エフェクト（揺れ・脈動）も掴んで置ける。**
+  //
+  // 見本帳・アイコン・出入りの演出は先に掴めるようにしてあり、**ここだけ
+  // クリック専用で取り残されていた**（本人の方針＝「クリックが多い。D&D でも
+  // 持ってこられるように」）。2026-08-03 に足した。
+  //
+  // ※ **見ているのは「帯が受け付けるか」まで。** 強調は再生したときの動きなので
+  //   DOM に印が出ず、付いたかどうかをここからは読めない。当てる先は既にある
+  //   `patchCueAnim`（クリックの道と同じ）を通しているので、そこは信じている。
+  //   **つまり「落としても何も起きない」は捕まえるが、「別の物が付いた」は
+  //   捕まえられない。** 付ける中身を変えるときは、この確認では守られない。
+  await check('エフェクトをタイムラインの帯へ落とせる（クリックは据え置き）', async () => {
+    await resetProject()
+    await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
+    await page.waitForTimeout(300)
+    // 節は畳んで始まるので自分で開く（開かないと .fx-item が1つも無い）
+    if (!(await page.locator('.tpl-acc.open', { hasText: '✨ エフェクト' }).count())) {
+      await page.locator('.tpl-acc', { hasText: '✨ エフェクト' }).first().click()
+      await page.waitForTimeout(400)
+    }
+    const accepted = await page.evaluate(() => {
+      // 強調のボタンは「エフェクト」の節の中。掴める印（fx-draggable）で選ぶ
+      const chip = document.querySelector('.fx-item.fx-draggable')
+      const band = document.querySelector('[data-tid="V2"] .telop-clip')
+      if (!chip || !band) return null
+      const dt = new DataTransfer()
+      chip.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }))
+      const b = band.getBoundingClientRect()
+      const at = { clientX: b.x + b.width / 2, clientY: b.y + b.height / 2 }
+      const over = new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: dt,
+        ...at
+      })
+      band.dispatchEvent(over)
+      const drop = new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: dt,
+        ...at
+      })
+      band.dispatchEvent(drop)
+      chip.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }))
+      return { over: over.defaultPrevented, drop: drop.defaultPrevented }
+    })
+    assert(accepted, 'エフェクトの札または帯が見つからない（節を開く手順が壊れている）')
+    assert(accepted.over, '帯がエフェクトを受け付けない（落とし先になっていない）')
+    assert(accepted.drop, '帯へ落としても何も起きない')
+  })
   // **細い帯には端のつまみを出さない。**
   //
   // つまみは片側 7px。帯が 14px 以下だと**左右のつまみで全部埋まり、本体を

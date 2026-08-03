@@ -49,6 +49,16 @@ export function useBandDrag() {
   /** 見た目の見本をテロップへ運んでいる最中 */
   const draggingTemplateRef = useRef<TelopStyle | null>(null)
 
+  /**
+   * 強調（揺れ・脈打ち）をテロップへ運んでいる最中。
+   *
+   * **クリックは据え置きで、掴んでも置けるようにする**（本人の方針）。
+   * クリックは「選んでいるテロップに付け外し（トグル）」、掴んで落とす方は
+   * 「**落とした先に付ける**」——落としたのに消えるのは意味が通らないので、
+   * こちらはトグルにしない。
+   */
+  const draggingEmphasisRef = useRef<'shake' | 'pulse' | null>(null)
+
   return {
     draggingIconRef,
     draggingTransRef,
@@ -57,6 +67,7 @@ export function useBandDrag() {
     draggingTelopAnimRef,
     telopDrop,
     setTelopDrop,
-    draggingTemplateRef
+    draggingTemplateRef,
+    draggingEmphasisRef
   }
 }

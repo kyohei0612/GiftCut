@@ -12,6 +12,18 @@ import type { JSX } from 'react'
 import type { MotionPresetFile } from '../../../../shared/telopMotion'
 import { MotionPresetList } from './MotionPresetList'
 
+/**
+ * 強調（クリップ全体にかかる動き）。**2種類だけなので、ここに直に持つ。**
+ *
+ * 出入りの演出（`telopKinds`）は数が多く増えるので外から渡しているが、
+ * こちらは増える予定が無い。外へ出すと「どこを見れば一覧が分かるか」が
+ * 1つ増えるだけになる。
+ */
+const EMPHASIS_KINDS: { type: 'shake' | 'pulse'; ico: string; label: string }[] = [
+  { type: 'shake', ico: '〰️', label: '揺れ' },
+  { type: 'pulse', ico: '❤️', label: '脈動' }
+]
+
 export interface TransKind {
   type: string
   label: string
@@ -97,6 +109,8 @@ export function TransitionsTab({
   onDragStartTelop,
   onDragEndTelop,
   onToggleEmphasis,
+  onDragStartEmphasis,
+  onDragEndEmphasis,
   builtinMotions,
   myMotions,
   motionPresets,
@@ -125,6 +139,9 @@ export function TransitionsTab({
   onDragStartTelop: (kind: TransKind, e: React.DragEvent) => void
   onDragEndTelop: () => void
   onToggleEmphasis: (kind: 'shake' | 'pulse') => void
+  /** 強調を掴んだ／離した（落とし先はタイムラインの帯とプレビューの文字） */
+  onDragStartEmphasis: (kind: 'shake' | 'pulse', e: React.DragEvent) => void
+  onDragEndEmphasis: () => void
   /**
    * 動きの一覧。3つに分けて並べる。
    *
@@ -233,17 +250,29 @@ export function TransitionsTab({
       {accSec('transition', 'effect', '✨ エフェクト（テロップ強調）', null, (
         <>
           <div className="tpl-hint">
-            選択中のテロップに<b>クリックでON/OFF</b>（クリップ全体にかかる動き）。
+            選択中のテロップに<b>クリックでON/OFF</b>。
+            <b>テロップへドラッグ</b>でも付きます（クリップ全体にかかる動き）。
           </div>
+          {/* **クリックは据え置きで、掴んでも置けるようにする**（本人の方針＝
+              「クリックが多い。D&D でも持ってこられるように」）。
+              見本帳・アイコン・出入りの演出は先にそうしてあり、ここだけ
+              クリック専用で取り残されていた。落とし先は
+              components/timeline/TelopBands と panels/PreviewLayers の両方。 */}
           <div className="fx-list">
-            <button className="fx-item" onClick={() => onToggleEmphasis('shake')}>
-              <span className="fx-ico">〰️</span>
-              <span className="fx-name">揺れ</span>
-            </button>
-            <button className="fx-item" onClick={() => onToggleEmphasis('pulse')}>
-              <span className="fx-ico">❤️</span>
-              <span className="fx-name">脈動</span>
-            </button>
+            {EMPHASIS_KINDS.map((em) => (
+              <button
+                key={em.type}
+                className="fx-item fx-draggable"
+                draggable
+                onDragStart={(e) => onDragStartEmphasis(em.type, e)}
+                onDragEnd={onDragEndEmphasis}
+                onClick={() => onToggleEmphasis(em.type)}
+                title={`${em.label} — クリックで選択中のテロップにON/OFF / テロップへドラッグで付ける`}
+              >
+                <span className="fx-ico">{em.ico}</span>
+                <span className="fx-name">{em.label}</span>
+              </button>
+            ))}
           </div>
         </>
       ))}

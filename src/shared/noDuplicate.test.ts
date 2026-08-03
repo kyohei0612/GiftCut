@@ -67,7 +67,13 @@ const SKIP = new Set(['node_modules', 'out', 'dist', '.git', 'shots'])
 const ALLOW = new Set([
   // 型の受け渡しは preload と main で必ず同じ形になる（片方だけ直せば型検査が捕まえる）
   'src/preload/index.ts',
-  'src/preload/index.d.ts'
+  'src/preload/index.d.ts',
+  // 心臓（useAppWiring）が **詰める** 並びと、区画が **取り出す** 並びは必ず同じ形になる。
+  // 省略記法で書くので字面まで一致するが、これは二重実装ではなく「包む／解く」の対で、
+  // 片方を消して import する、という直し方が存在しない。
+  // ズレたら RightPanelValue の型検査が必ず捕まえる（実際 draggingEmphasisRef を
+  // 足したとき TS2339 / TS2739 で止まった）ので、見張りは型側に任せる。
+  'src/renderer/src/components/panels/RightPanelArea.tsx'
 ])
 
 /**

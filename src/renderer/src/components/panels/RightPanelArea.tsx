@@ -9,7 +9,7 @@
 //
 // 右パネル固有の物は state/rightPanelContext。**props で配ると100個を超える。**
 
-import { setDragChip } from '../../lib/dragChip'
+import { EMPTY_DRAG_IMG, setDragChip } from '../../lib/dragChip'
 import { toggleSelect } from '../../../../shared/clipEdit'
 import type { JSX } from 'react'
 import { PaneHost } from '../PaneWindow'
@@ -46,7 +46,8 @@ export function RightPanelArea(): JSX.Element {
     PANE_LABEL, orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow, setTplMenu, setOrgMenu, rightTab, setTransDrop, draggingTransRef, draggingTelopAnimRef, setTelopDrop, toggleTelopEmphasis, myMotions, motionPresets, applyMotionPreset, deleteMyMotion,
     accSec, rightBodyRef, importSeInto, addMediaAtPlayhead, catOf, srtPath,
     labelGroups, removeMedia, beginMediaDrag, draggingMediaRef, localTemplates, isFav,
-    draggingTemplateRef, iconFavs, toggleIconFav, draggingIconRef, seLibrary, seFavs,
+    draggingTemplateRef, iconFavs, toggleIconFav, draggingIconRef, draggingEmphasisRef,
+    seLibrary, seFavs,
     setSeFolderOf, toggleSeFav, TELOP_MOTIONS, addFilesToProject, addFolderToProject, handleImportSrt,
     loadVideo, selectByLabel, genThumbFor, prepareMediaMeta, allCats, openTplSec,
     tplSecRefs, toggleTplSec, saveCurrentAsTemplate, addCustomCat, deleteCustomCat, refreshPresets,
@@ -387,6 +388,14 @@ export function RightPanelArea(): JSX.Element {
                   setTelopDrop(null)
                 }}
                 onToggleEmphasis={toggleTelopEmphasis}
+                onDragStartEmphasis={(kind, e) => {
+                  draggingEmphasisRef.current = kind
+                  e.dataTransfer.effectAllowed = 'copy'
+                  // 見本帳・アイコンと同じで、カーソルには何も握らせない
+                  //（置き先はタイムラインの帯とプレビューの文字で見せている）
+                  if (EMPTY_DRAG_IMG) e.dataTransfer.setDragImage(EMPTY_DRAG_IMG, 0, 0)
+                }}
+                onDragEndEmphasis={() => (draggingEmphasisRef.current = null)}
                 builtinMotions={BUILTIN_MOTIONS}
                 myMotions={myMotions}
                 motionPresets={motionPresets}

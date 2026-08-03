@@ -118,6 +118,8 @@ export interface PreviewCtxValue {
   /** 落として付ける（テンプレ・アイコン） */
   draggingTemplateRef: any
   draggingIconRef: any
+  /** 強調（揺れ・脈打ち）を運んでいる最中。持ち物は state/useBandDrag */
+  draggingEmphasisRef: any
   applyTemplateToCue: any
   applyIconToCue: any
   /** 再生の操作 */

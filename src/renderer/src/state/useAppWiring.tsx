@@ -398,7 +398,7 @@ export function useAppWiring() {
   // 持ち物は state/useBandDrag（ref と state に分ける理由も中にある）
   const {
     draggingIconRef, draggingTransRef, transDrop, setTransDrop,
-    draggingTelopAnimRef, telopDrop, setTelopDrop, draggingTemplateRef
+    draggingTelopAnimRef, telopDrop, setTelopDrop, draggingTemplateRef, draggingEmphasisRef
   } = useBandDrag()
 
   // ---- アイコン画像ライブラリ（単純な画像置き場。追加時にクロップ）----
@@ -1151,7 +1151,7 @@ export function useAppWiring() {
     resetSelectedTelops, telopResetCount,
     selectPreviewOverlay, reframeTarget, onTelopPointerDown, onTelopResizeStart,
     editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
-    draggingTemplateRef, draggingIconRef, applyTemplateToCue, applyIconToCue,
+    draggingTemplateRef, draggingIconRef, draggingEmphasisRef, applyTemplateToCue, applyIconToCue,
     togglePlay, skipSec, stepFrame, jumpMarker, addMarkerAtPlayhead, captureScreenshot,
     seekAndReveal, handleVideoEnded, startFader, setTrackVolume, setMasterVolume,
     transportInfo
@@ -1174,7 +1174,9 @@ export function useAppWiring() {
     deleteMyMotion,
     accSec, rightBodyRef, importSeInto, addMediaAtPlayhead, catOf, srtPath,
     labelGroups, removeMedia, beginMediaDrag, draggingMediaRef, localTemplates, isFav,
-    draggingTemplateRef, iconFavs, toggleIconFav, draggingIconRef, seLibrary, seFavs,
+    // 掴んで運ぶ物は並べて置く（見本帳・アイコン・強調。落とし先は帯と文字の上）
+    draggingTemplateRef, draggingIconRef, draggingEmphasisRef,
+    iconFavs, toggleIconFav, seLibrary, seFavs,
     setSeFolderOf, toggleSeFav, TELOP_MOTIONS, addFilesToProject, addFolderToProject, handleImportSrt,
     loadVideo, selectByLabel, genThumbFor, prepareMediaMeta, allCats, openTplSec,
     tplSecRefs, toggleTplSec, saveCurrentAsTemplate, addCustomCat, deleteCustomCat, refreshPresets,

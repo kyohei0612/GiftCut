@@ -150,8 +150,10 @@ export function TelopLayer({
   ratio,
   draggingTemplateRef,
   draggingIconRef,
+  draggingEmphasisRef,
   applyTemplateToCue,
   applyIconToCue,
+  patchCueAnim,
   onResizeStart,
   onPointerDown,
   onEdit
@@ -168,8 +170,11 @@ export function TelopLayer({
   /** 掴んで運んでいる最中の見本帳・アイコン（落とすと当たったテロップに付く） */
   draggingTemplateRef: React.MutableRefObject<any>
   draggingIconRef: React.MutableRefObject<string | null>
+  /** 強調（揺れ・脈打ち）。落とすと当たったテロップに付く（トグルではない） */
+  draggingEmphasisRef: React.MutableRefObject<'shake' | 'pulse' | null>
   applyTemplateToCue: (id: number, tpl: any) => void
   applyIconToCue: (id: number, color: string) => void
+  patchCueAnim: (id: number, patch: { emphasis: 'shake' | 'pulse' }) => void
   onResizeStart: (c: Cue, e: React.PointerEvent, corner: number) => void
   onPointerDown: (c: Cue, e: React.PointerEvent) => void
   /** ダブルクリックでその場の打ち替えへ */
@@ -207,16 +212,24 @@ export function TelopLayer({
             playing={playing}
             onResizeStart={(e, corner) => onResizeStart(c, e, corner)}
             onDragOver={(e) => {
-              if (draggingTemplateRef.current || draggingIconRef.current) e.preventDefault()
+              if (
+                draggingTemplateRef.current ||
+                draggingIconRef.current ||
+                draggingEmphasisRef.current
+              )
+                e.preventDefault()
             }}
             onDrop={(e) => {
               const tpl = draggingTemplateRef.current
               const iconColor = draggingIconRef.current
-              if (!tpl && !iconColor) return
+              const em = draggingEmphasisRef.current
+              if (!tpl && !iconColor && !em) return
               e.preventDefault()
               e.stopPropagation()
               if (tpl) applyTemplateToCue(c.id, tpl)
               else if (iconColor) applyIconToCue(c.id, iconColor)
+              // タイムラインの帯と同じ扱い（落とした先に付ける。トグルにしない）
+              else if (em) patchCueAnim(c.id, { emphasis: em })
             }}
             onPointerDown={(e) => onPointerDown(c, e)}
             onDoubleClick={() => onEdit(c)}

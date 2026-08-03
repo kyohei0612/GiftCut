@@ -96,8 +96,13 @@ export function TelopBands({
   const { isSelected, setSelectedIds, setEditingId, selectedTelopTrans } = useSel()
   // 見本帳・アイコンを帯へ落とすための物。**受け取らず自分で見に行く**
   //（プレビューの文字側と同じ物を使う＝落とし方が2通りにならない）
-  const { draggingTemplateRef, draggingIconRef, applyTemplateToCue, applyIconToCue } =
-    usePreviewCtx()
+  const {
+    draggingTemplateRef,
+    draggingIconRef,
+    draggingEmphasisRef,
+    applyTemplateToCue,
+    applyIconToCue
+  } = usePreviewCtx()
   // ◆を右クリックで消す（心臓は state/useMotion の removeKeyAtTime）
   const { removeKeyAtTime } = useTimelineOps()
   const { currentTimeRef } = usePlaybackCtx()
@@ -124,7 +129,11 @@ export function TelopBands({
             // タイムラインの帯には落とせなかった。同じ物を同じように扱えないと、
             // 「どこへ落とせるのか」を毎回思い出す羽目になる（本人の方針＝
             // クリックは据え置きで、D&D でも持ってこられるように）
-            if (draggingTemplateRef.current || draggingIconRef.current) {
+            if (
+              draggingTemplateRef.current ||
+              draggingIconRef.current ||
+              draggingEmphasisRef.current
+            ) {
               e.preventDefault()
               e.dataTransfer.dropEffect = 'copy'
               return
@@ -149,11 +158,16 @@ export function TelopBands({
           onDrop={(e) => {
             const tpl = draggingTemplateRef.current
             const iconColor = draggingIconRef.current
-            if (tpl || iconColor) {
+            const em = draggingEmphasisRef.current
+            if (tpl || iconColor || em) {
               e.preventDefault()
               e.stopPropagation()
               if (tpl) applyTemplateToCue(cue.id, tpl)
               else if (iconColor) applyIconToCue(cue.id, iconColor)
+              // **落とした先に付ける（トグルにしない）。** クリックの方は
+              // 「選んでいる物に付け外し」だが、落としたのに消えるのは意味が通らない。
+              // 当てる先は既にある patchCueAnim（新しい道は作らない）
+              else if (em) patchCueAnim(cue.id, { emphasis: em })
               return
             }
             if (!draggingTelopAnimRef.current) return
