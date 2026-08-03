@@ -17,7 +17,7 @@
 // 取り込む時点で切り抜いておけば、後から全部やり直さずに済む。
 
 import { clamp } from '../../../shared/timeline'
-import { fileToDataUrl } from '../lib/people'
+import { fileToDataUrl } from '../lib/iconLibrary'
 import { saveIconAssign, saveIconLibrary, type IconItem } from '../lib/iconLibrary'
 import { useIconsCtx } from './iconsContext'
 import { useDoc } from './contentContext'

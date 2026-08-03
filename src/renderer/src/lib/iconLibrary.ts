@@ -1,4 +1,22 @@
 // アイコン画像ライブラリ（単純な画像置き場）。ラベル色とは無関係に画像を貯める。
+
+/**
+ * 画像ファイルを dataURL にする。
+ *
+ * **`lib/people.ts` から持ってきた（2026-08-03）。** あちらは「ラベル色 → 人物アイコン」の
+ * 置き場だったが、**この関数以外すべて誰からも呼ばれていなかった**（作りが
+ * ライブラリ方式に変わったときに置き去りになった）。1つのために残しておくと、
+ * 次に読む人が「人物アイコンの仕組みがまだある」と誤解する。
+ */
+export function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = (): void => resolve(String(r.result))
+    r.onerror = (): void => reject(new Error('ファイル読み込み失敗'))
+    r.readAsDataURL(file)
+  })
+}
+
 export interface IconItem {
   id: number
   name: string
@@ -44,27 +62,7 @@ export function saveIconAssign(map: Record<string, string>): void {
   }
 }
 
-// アイコンのレイアウト（全体設定）: side=テキストの左/右, gap=隙間倍率
-export interface IconLayout {
-  side: 'left' | 'right'
-  gap: number // 隙間倍率（基準0.32）
-}
-const LAYOUT_KEY = 'giftcut.iconLayout'
-export function loadIconLayout(): IconLayout {
-  try {
-    const o = JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}')
-    return {
-      side: o?.side === 'right' ? 'right' : 'left',
-      gap: typeof o?.gap === 'number' && o.gap >= 0 && o.gap <= 3 ? o.gap : 1
-    }
-  } catch {
-    return { side: 'left', gap: 1 }
-  }
-}
-export function saveIconLayout(l: IconLayout): void {
-  try {
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify(l))
-  } catch {
-    /* 無視 */
-  }
-}
+// ※ 「アイコンのレイアウト（左右／隙間）」をここに覚える仕組みがあったが、
+//    **誰からも呼ばれていなかった**ので消した（2026-08-03）。
+//    いまの左右・隙間は `useIcons` が持っていて、プロジェクトに保存される。
+//    死んだコードを残すと、次に読む人が「2か所に置き場がある」と誤解する。
