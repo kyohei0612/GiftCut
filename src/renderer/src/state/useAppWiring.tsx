@@ -128,6 +128,7 @@ import { useDragPreviewCtx } from './dragPreviewContext'
 import { useCopyPaste } from './useCopyPaste'
 import { useTelopEdit } from './useTelopEdit'
 import { useTelopAnim } from './useTelopAnim'
+import { useAttrCopy } from './useAttrCopy'
 import { useClipboardCtx } from './clipboardContext'
 import { useLaneHeights } from './useLaneHeights'
 import { usePlaybackCtx } from './playbackContext'
@@ -882,36 +883,22 @@ export function useAppWiring() {
     />
   )
   // テロップの足し引きは state/useTelopEdit
-  const { applyIconToCue, addTelop, updateCueText, alignTelop } = useTelopEdit({
-    cueTrack,
-    idCounter,
-    trackNum,
-    insertTrackOrdered
-  })
+  const { applyIconToCue, addTelop, updateCueText, alignTelop } =
+    useTelopEdit({ cueTrack, idCounter, trackNum, insertTrackOrdered })
   // 出入りの演出（頭・尻・テロップ同士の間）は state/useTelopAnim
   const {
-    patchCueAnim, resolveTelopTransDrop, applyTelopTransDrop,
-    selectTelopTrans, updateTelopTransDur, setTelopTransType, deleteSelectedTelopTrans,
-    toggleTelopEmphasis
+    patchCueAnim, resolveTelopTransDrop, applyTelopTransDrop, selectTelopTrans,
+    updateTelopTransDur, setTelopTransType, deleteSelectedTelopTrans, toggleTelopEmphasis
   } = useTelopAnim({ cueTrack, telopLocked, motionLabel, draggingTelopAnimRef, setRightTab })
 
-  // コピーと貼り付け（クリップ／設定だけ／動きだけ）は state/useCopyPaste
-  const {
-    attrSummary, copyAttributes, pasteAttributes,
-    copySelected, pasteClipboard
-  } = useCopyPaste({
-    cueTrack,
-    fallbackTrack,
-    mainLocked,
-    telopLocked,
-    selected,
-    idCounter,
-    motionSelRef,
-    motionRowsRef,
-    reframeTargetRef,
-    srcOfSeg,
-    leftTab
+  // コピーと貼り付け（クリップと動きだけ）は state/useCopyPaste
+  const { copySelected, pasteClipboard } = useCopyPaste({
+    cueTrack, fallbackTrack, telopLocked, selected, idCounter,
+    motionSelRef, motionRowsRef, reframeTargetRef, leftTab
   })
+  // 「設定だけ」（属性のコピー・貼り付け）は state/useAttrCopy
+  const { attrSummary, copyAttributes, pasteAttributes } =
+    useAttrCopy({ mainLocked, telopLocked, srcOfSeg })
 
   // 消す・切る・複製する・詰める（タイムラインを縮める側）は state/useTimelineEdit
   const {
