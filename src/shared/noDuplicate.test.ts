@@ -55,6 +55,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+// **正典台帳は shared/canon.ts に1つだけ。** ここは式の見張りを回すだけ
+import { CANON } from './canon'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SKIP = new Set(['node_modules', 'out', 'dist', '.git', 'shots'])
@@ -77,7 +79,10 @@ const ALLOW = new Set([
 ])
 
 /**
- * 正典のある式。**ここに書いた形を、正典以外の場所で書いたら赤。**
+ * 正典のある式。**台帳は `shared/canon.ts` に1つだけ。ここで作り直さない。**
+ *
+ * 作り直したら、まさにこの検査が捕まえるべき「同じ物が2か所」になる
+ *（2026-08-03 に台帳をあちらへ移した。それまではここに直書きしていた）。
  *
  * ## なぜ「名前」ではなく「式」で見るか
  *
@@ -93,75 +98,14 @@ const ALLOW = new Set([
  * 知らない理由は「**props で配られていて import では取れない**」。
  * 決定的な証拠: `LeftPanel.tsx:166` は `vcLen` を props で受け取っておきながら、
  * **同じ名前のローカル定数に生の式を書いて影を作っている**（手に持っているのに書き直した）。
- * `TimelineArea` も `pairedAudioOf` を受け取って子へ渡しながら自分では手書きしている。
  *
  * → **検査（これ）と、正典を `shared/` へ移すことの両方が要る。**
  *    検査だけだと、赤くなったとき「何を import すればいいか」が分からない。
+ *    台帳の側（`canon.ts`）に `use`（どう使うか）が書いてあるのはそのため。
  */
-const CANON: {
-  what: string
-  home: string
-  use: string
-  re: RegExp
-  /** まだ生のまま書いてある場所（ファイル → 件数）。**減らす方向にだけ動かす** */
-  debt: Record<string, number>
-}[] = [
-  {
-    what: '重ねた動画クリップの長さ',
-    home: 'src/shared/timeline.ts',
-    use: 'vcLen(c) を shared/timeline から import する',
-    re: /Math\.max\(\s*0\.05\s*,\s*[\w.]+\.srcEnd\s*-\s*[\w.]+\.srcStart\s*\)/,
-    debt: {
-      // **書き出し側は返済済み**（2026-08-03）。この検査が「正典は shared/timeline だが
-      // 実体は useTrackGeom にあって props で配られている」と自分で書いていたので、
-      // **正典を本当に shared/timeline へ置いてから** import した（exportRun の2件）。
-      // 画面側の11か所は props で受け取れる場所なので、順次ここへ寄せる。
-      'src/renderer/src/components/LeftPanel.tsx': 1, // props で受けているのに影を作っている
-      'src/renderer/src/state/useClipDrag.ts': 1,
-      'src/renderer/src/state/useExport.ts': 1,
-      'src/renderer/src/state/useKeyboard.ts': 1,
-      'src/renderer/src/state/useMediaDrop.ts': 1,
-      'src/renderer/src/state/useSnap.ts': 1,
-      'src/renderer/src/state/useTimelineDrag.ts': 2,
-      'src/renderer/src/state/useTimelineEdit.ts': 1,
-      'src/renderer/src/state/useTimelineSpan.ts': 1,
-      'src/renderer/src/state/useTrackGeom.ts': 1, // ← いまの正典。shared へ移したら 0
-      'src/renderer/src/state/useVClipEls.ts': 1,
-      'src/renderer/src/state/useVideoSync.ts': 1
-    }
-  },
-  {
-    what: '切片の再生速度（0以下なら等速）',
-    home: 'src/shared/timeline.ts',
-    use: 'segSpeed(s) を import する',
-    re: /speed\s*&&\s*[\w.]*\.?speed\s*>\s*0\s*\?/,
-    // **返済済み**（2026-08-03。exportRun の写しを消して正典を import した）
-    debt: {}
-  },
-  {
-    what: '切片のタイムライン長（元の長さ ÷ 速度）',
-    home: 'src/shared/timeline.ts',
-    use: 'segTLen(s) を import する',
-    // **08-03 に見つかった実害**: 正典は Math.max(0, ...) で下を止めているが、
-    // exportRun の写しには**それが無い**。画面は0で止まるのに書き出しは負になる。
-    re: /\(\s*[\w.]+\.srcEnd\s*-\s*[\w.]+\.srcStart\s*\)\s*\//,
-    // exportRun の2件は**返済済み**（2026-08-03）。正典の Math.max(0, …) が
-    // 抜けていたのがそこで、画面は0で止まるのに書き出しだけ負の長さになっていた。
-    debt: { 'src/renderer/src/state/useSegmentDrag.ts': 1 }
-  },
-  {
-    what: 'ズーム（寄せ）の CSS transform 文字列',
-    home: 'src/renderer/src/lib/clipXform.ts',
-    use: 'clipXform(c, localT) を import する',
-    // 08-03 に clipXform の**並べる順**を直した（反転で左右が真逆になっていた）。
-    // 残る2か所は直していない。**同じ間違いが2つ残っている。**
-    re: /translate\(\$\{[^}]*\*\s*100\)\.toFixed\(3\)\}%/,
-    debt: {
-      'src/renderer/src/state/usePlaybackEngine.ts': 1,
-      'src/renderer/src/state/usePreviewFrame.ts': 1
-    }
-  }
-]
+const WITH_EXPR = CANON.filter(
+  (c): c is typeof c & { re: RegExp } => !!c.re
+).map((c) => ({ ...c, debt: c.debt ?? {} }))
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -239,7 +183,11 @@ describe('同じ物を2か所に書かない', () => {
   })
 
   // ここから ③。**式で見るので、読んでいなくても・忘れても止まる。**
-  for (const c of CANON) {
+  //
+  // 回すのは**式を持つ物だけ**。台帳には式の書けない正典も載っている
+  //（`EMPTY_DRAG_IMG` のような定数や、呼ぶだけの物）。そちらは
+  // `canon.test.ts` が「実在するか・誰かが使っているか」で見張っている。
+  for (const c of WITH_EXPR) {
     it(`**「${c.what}」を生の式で書いていない**（正典: ${c.home}）`, () => {
       const bad: string[] = []
       for (const f of files) {
@@ -266,7 +214,7 @@ describe('同じ物を2か所に書かない', () => {
   }
 
   it('**借金は減る方向にだけ動かす**（合計を増やしたら赤）', () => {
-    const total = CANON.reduce(
+    const total = WITH_EXPR.reduce(
       (n, c) => n + Object.values(c.debt).reduce((a, b) => a + b, 0),
       0
     )
