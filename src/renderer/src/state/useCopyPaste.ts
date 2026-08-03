@@ -19,6 +19,8 @@ import { nextGroupId, remapGroups } from '../../../shared/group'
 import type { Keys } from '../../../shared/keyframes'
 import { sanitizeMotion, type Motion } from '../lib/telopStyle'
 import type { MotionRow } from '../components/panels/MotionTab'
+// 重なりの解決。**呼び方は state/cueOverwrite に1つだけ**（掴む側も同じ所を通る）
+import { overwriteOverlapped } from './cueOverwrite'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
@@ -248,7 +250,26 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
         end: Math.max(0, c.end + offset),
         group: regroup(c.group)
       }))
-      setCues((prev) => [...prev, ...pasted].sort((a, b) => a.start - b.start))
+      // **貼った側が勝つ。** 同じ段で重なった分は削り取る（落として重ねたとき・
+      // 端を伸ばしたときと同じ扱い。呼び方は state/cueOverwrite に1つだけ）。
+      //
+      // ここは `cuesRef` を読まない——**まだ setCues していない**ので、
+      // 手元で組み立てた配列に対して掛ける（読むと貼る前の一覧を見てしまう）。
+      //
+      // 2026-08-03: 貼り付けだけ通っていなかった。再生ヘッドを基準に貼るので、
+      // 0秒で貼ると元より手前へずれて必ず重なる（e2e で再現してから直した）。
+      // ※ **これを外すと本当に赤くなることを確かめてある**（2026-08-03。
+      //   というより、**直す前に赤を見てから**直した）。e2e「貼り付けたテロップが
+      //   重なっても、貼った側が勝つ」が
+      //   `貼ったあとも重なったままの帯がある: 128+188 と 222` で落ちる。
+      const merged = [...cues, ...pasted].sort((a, b) => a.start - b.start)
+      const next = overwriteOverlapped(
+        merged,
+        pasted.map((p) => p.id),
+        cueTrack,
+        idCounter
+      )
+      setCues(next ?? merged)
       setSelectedIds(pasted.map((p) => p.id))
     }
     if (clipSe.length) {

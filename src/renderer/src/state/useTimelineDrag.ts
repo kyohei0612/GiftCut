@@ -21,7 +21,8 @@
 
 import { toggleSelect } from '../../../shared/clipEdit'
 import { startEdgeScroll } from '../lib/edgeScroller'
-import { overwriteCues } from '../../../shared/overwrite'
+// 重なりの解決。**呼び方は state/cueOverwrite に1つだけ**（貼り付けも同じ所を通る）
+import { overwriteOverlapped } from './cueOverwrite'
 import { clamp } from '../../../shared/timeline'
 import { formatTime, type Cue } from '../lib/srt'
 import { type SegLayout } from '../lib/projectTypes'
@@ -501,14 +502,9 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
    * 組み立てごと向こうへ移し、ここは採番を預けて呼ぶだけにした（2026-08-03）。
    */
   function overwriteOverlappedCues(winnerIds: number[]): void {
-    const next = overwriteCues(
-      cuesRef.current,
-      winnerIds,
-      cueTrack,
-      // **採番はここでやる。** setState の中で回すと StrictMode の2回走りで飛ぶ
-      () => idCounter.current++,
-      (c) => structuredClone(c)
-    )
+    // 呼び方（採番を updater の外でやる・structuredClone で写す）は
+    // state/cueOverwrite に1つだけ。**貼り付けも同じ所を通る**
+    const next = overwriteOverlapped(cuesRef.current, winnerIds, cueTrack, idCounter)
     if (next) setCues(next)
   }
 

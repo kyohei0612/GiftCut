@@ -74,6 +74,8 @@ import { nextGroupId, remapGroups } from '../../../shared/group'
 import { collapseAt } from '../../../shared/ripple'
 import { shouldCut, spansCut } from '../../../shared/cutScope'
 import { totalCutLen } from '../../../shared/silenceCut'
+// 重なりの解決。**呼び方は state/cueOverwrite に1つだけ**（掴む側・貼り付けも同じ）
+import { overwriteOverlapped } from './cueOverwrite'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, SEClip, VClip, VSeg } from '../lib/projectTypes'
 import type { SilenceCutState } from '../components/dialogs/AudioDialogs'
@@ -297,7 +299,24 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
         group: rg(c.group)
       }
     })
-    setCues((prev) => [...prev, ...dupes].sort((a, b) => a.start - b.start))
+    // **複製した側が勝つ。** 複製は「自分の直後」（`start: c.end`）に置くので、
+    // **同じ段に次のテロップが並んでいれば必ず食い込む**。落として重ねたとき・
+    // 端を伸ばしたとき・貼り付けたときと同じ扱いにする
+    //（呼び方は state/cueOverwrite に1つだけ）。
+    //
+    // ここも `cuesRef` を読まない——まだ setCues していないので、
+    // 手元で組み立てた配列に掛ける。
+    const merged = [...cues, ...dupes].sort((a, b) => a.start - b.start)
+    // ※ **これを外すと本当に赤くなることを確かめてある**（2026-08-03）。
+    //   e2e「複製したテロップが次の物に重なっても、複製した側が勝つ」が
+    //   `複製したあとも重なったままの帯がある: 600+188 と 694` で落ちる。
+    const next = overwriteOverlapped(
+      merged,
+      dupes.map((d) => d.id),
+      cueTrack,
+      idCounter
+    )
+    setCues(next ?? merged)
     setSelectedIds(dupes.map((d) => d.id))
   }
   // ---- 動画セグメント編集 ----
