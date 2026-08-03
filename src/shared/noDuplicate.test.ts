@@ -126,7 +126,8 @@ const CANON: {
     home: 'src/shared/timeline.ts',
     use: 'segSpeed(s) を import する',
     re: /speed\s*&&\s*[\w.]*\.?speed\s*>\s*0\s*\?/,
-    debt: { 'src/main/exportRun.ts': 1 }
+    // **返済済み**（2026-08-03。exportRun の写しを消して正典を import した）
+    debt: {}
   },
   {
     what: '切片のタイムライン長（元の長さ ÷ 速度）',
@@ -135,10 +136,9 @@ const CANON: {
     // **08-03 に見つかった実害**: 正典は Math.max(0, ...) で下を止めているが、
     // exportRun の写しには**それが無い**。画面は0で止まるのに書き出しは負になる。
     re: /\(\s*[\w.]+\.srcEnd\s*-\s*[\w.]+\.srcStart\s*\)\s*\//,
-    debt: {
-      'src/main/exportRun.ts': 2,
-      'src/renderer/src/state/useSegmentDrag.ts': 1
-    }
+    // exportRun の2件は**返済済み**（2026-08-03）。正典の Math.max(0, …) が
+    // 抜けていたのがそこで、画面は0で止まるのに書き出しだけ負の長さになっていた。
+    debt: { 'src/renderer/src/state/useSegmentDrag.ts': 1 }
   },
   {
     what: 'ズーム（寄せ）の CSS transform 文字列',
@@ -261,7 +261,8 @@ describe('同じ物を2か所に書かない', () => {
       (n, c) => n + Object.values(c.debt).reduce((a, b) => a + b, 0),
       0
     )
-    // 2026-08-03 時点で 21。ここを増やしてはいけない。
-    expect(total).toBeLessThanOrEqual(21)
+    // 2026-08-03 に 21 で始めて、その日のうちに exportRun の3件を返して 18。
+    // **ここを増やしてはいけない。減らしたら数字も一緒に下げること。**
+    expect(total).toBeLessThanOrEqual(18)
   })
 })

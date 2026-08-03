@@ -46,6 +46,10 @@ import { colorAdjustFilter } from '../shared/colorAdjust'
 // 書き出し先が素材と同じだと ffmpeg は必ず失敗する。始める前に気づいて日本語で言う
 import { clashingSource } from '../shared/exportTarget'
 import { uniqueName } from '../shared/exportDefaults'
+// 切片の速度と「タイムライン上の長さ」。**画面と同じ物を通す**（上の注意書きのとおり、
+// ここで別の式を書き起こすと必ずズレる）。2026-08-03 まで手書きの写しが3か所あり、
+// うち1つは正典の Math.max(0, …) が抜けていた。
+import { segSpeed, segTLen } from '../shared/timeline'
 import { ENCODERS } from './encoders'
 // 入力を何本にも分ける（split/asplit）決まり。文字列の置き換えだけなので shared に置いてある
 import {
@@ -434,8 +438,11 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
     // モデルは「カット位置で完了する d 秒クロスフェード」——B側をソースの srcStart より
     // d*速度 だけ手前から取り出して頭を d 秒延長し、Aの尻と xfade で重ねる。
     // 出力尺 = lenA + (lenB + d) - d = 不変（テロップ/SEの enable 時刻に影響しない）。
-    const spOf = (s: ExportSeg): number => (s.speed && s.speed > 0 ? s.speed : 1)
-    const tlenOf = (s: ExportSeg): number => (s.srcEnd - s.srcStart) / spOf(s)
+    // ※ 速度と「タイムライン上の長さ」は shared/timeline が正典。
+    //   2026-08-03 まで、ここに同じ式を手書きしていた（`spOf` / `tlenOf`）。
+    //   **正典には Math.max(0, …) が入っていて、こちらには無かった**——
+    //   `srcEnd < srcStart` の壊れた切片で、画面は0で止まるのに書き出しだけ
+    //   負の長さになる。片方だけ直した跡がそのまま残っていた形。
     // ペア (i, i+1) の実効ディゾルブ長（renderer でクランプ済み。最後の切片は次がないので0）
     const xfOf = (i: number): number =>
       i >= 0 && i < segs.length - 1 && segs[i].xfade && segs[i].xfade!.dur > 0.01
@@ -478,8 +485,8 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
     const needTb = hasX || segs.some((s, i) => motionIn(s, i) || motionOut(s, i))
     const tb = needTb ? ',settb=AVTB' : ''
     segs.forEach((s, i) => {
-      const sp = spOf(s)
-      const lenN = tlenOf(s)
+      const sp = segSpeed(s)
+      const lenN = segTLen(s)
       const headExt = xfOf(i - 1)
       const extLenN = lenN + headExt
       const trimStart = Math.max(0, s.srcStart - headExt * sp)
@@ -584,7 +591,7 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
       // 左から右へペアごとに連結: 間トランジションは xfade、それ以外は concat(n=2)。
       // offset は「出力時間の累計 - d」（速度込みのタイムライン尺で計算）。名前は betweenName で検証。
       let cur = '[sv0]'
-      let acc = tlenOf(segs[0])
+      let acc = segTLen(segs[0])
       for (let i = 1; i < segs.length; i++) {
         const d = xfOf(i - 1)
         const out = i === segs.length - 1 ? '[vcat]' : `[vx${i}]`
@@ -592,7 +599,7 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
           filter += `${cur}[sv${i}]xfade=transition=${betweenName(segs[i - 1]?.xfade?.type)}:duration=${d.toFixed(3)}:offset=${(acc - d).toFixed(3)}${out};`
         else filter += `${cur}[sv${i}]concat=n=2:v=1:a=0${out};`
         cur = out
-        acc += tlenOf(segs[i])
+        acc += segTLen(segs[i])
       }
       // hasX ⇒ 切片は2つ以上（xfOf が「次の切片あり」を要求）なので、ループは必ず [vcat] を出す
     }
@@ -606,9 +613,11 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
       const needAfmt = nSrc > 1 || segs.some(useSilence)
       const afmt = needAfmt ? ',aformat=sample_rates=48000:channel_layouts=stereo' : ''
       segs.forEach((s, i) => {
-        const sp = spOf(s)
+        const sp = segSpeed(s)
         const headExt = xfOf(i - 1)
-        const extLen = (s.srcEnd - s.srcStart) / sp + headExt // 映像 extLenN と一致（timeline秒）
+        // 映像側の extLenN と必ず一致させる。**同じ segTLen を通す**のがその保証で、
+        // 2026-08-03 まではここだけ手書きだった（コメントで一致を約束していただけ）。
+        const extLen = segTLen(s) + headExt
         if (useSilence(s)) {
           filter += `anullsrc=r=48000:cl=stereo,atrim=0:${Math.max(0.05, extLen).toFixed(3)},asetpts=PTS-STARTPTS${afmt}[sa${i}];`
           return
