@@ -21,7 +21,7 @@
 //
 // プレビュー固有の物は state/previewContext。**props で配ると100個を超える。**
 
-import type { JSX } from 'react'
+import { useState, type JSX } from 'react'
 import { PanelTabs } from '../PanelChrome'
 import { AudioMixer, PreviewScrub, TransportBar } from './PreviewBars'
 import { ImageLayers, TelopLayer, VideoLayers } from './PreviewLayers'
@@ -82,6 +82,14 @@ export function PreviewArea(): JSX.Element {
   const { ratio, masterVolume } = useExportCtx()
   const { iconAuto, iconOffset, iconScale, iconSide } = useIconsCtx()
   const { showToast } = useToastCtx()
+  /**
+   * プレビューだけの拡大（1＝全体表示）。
+   *
+   * **プロジェクトには入れない。** 見るためだけの物で、書き出しにも保存にも
+   * 関わらない（クリップの拡大＝リフレームとは別物。あちらは絵が変わる）。
+   * 覚えさせないのは、開き直したときに「なぜか寄っている」状態から始まらないため。
+   */
+  const [previewZoom, setPreviewZoom] = useState(1)
   return (
       <section
         className="panel monitor"
@@ -104,7 +112,29 @@ export function PreviewArea(): JSX.Element {
             setTabOverflow({ x: e.clientX, y: e.clientY, group: grp, hidden })
           }}
           onReorder={(ids) => setTabOrder((prev: Record<string, string[]>) => ({ ...prev, monitor: ids }))}
-          right={transportInfo}
+          right={
+            <>
+              {/* **プレビューの拡大。** 細かい所（縁の太さ・アイコンの縁）を見るための物で、
+                  書き出しには一切関わらない。等倍のときは何も足さない（＝いままでどおり）。
+                  枠ごと大きくするので、はみ出した分はモニタ区画を送って見る。 */}
+              <span className="pz-group" title="プレビューの拡大（書き出しには影響しません）">
+                <button className="chip" onClick={() => setPreviewZoom((z) => Math.max(1, z / 1.5))}>
+                  −
+                </button>
+                <button
+                  className="chip"
+                  title="全体表示に戻す"
+                  onClick={() => setPreviewZoom(1)}
+                >
+                  {Math.round(previewZoom * 100)}%
+                </button>
+                <button className="chip" onClick={() => setPreviewZoom((z) => Math.min(8, z * 1.5))}>
+                  ＋
+                </button>
+              </span>
+              {transportInfo}
+            </>
+          }
         />
         {/* ミキサー表示中も video は破棄せず隠すだけ（再生を止めないため） */}
         <div
@@ -130,7 +160,9 @@ export function PreviewArea(): JSX.Element {
                 aspectRatio: monitorAspect,
                 '--ar': String(
                   Number(monitorAspect.split('/')[0]) / Number(monitorAspect.split('/')[1])
-                )
+                ),
+                // プレビューだけの拡大。1 のときは何も足さない（＝いままでどおりの大きさ）
+                '--pz': String(previewZoom)
               } as React.CSSProperties
             }
             onPointerDown={(e) => {

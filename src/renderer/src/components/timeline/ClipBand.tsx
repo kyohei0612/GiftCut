@@ -86,7 +86,11 @@ export function ClipBand({
     <div
       className={`clip ${className} ${selected ? 'clip-selected' : ''} ${group ? 'clip-nested' : ''}`}
       style={{
-        background: label || undefined,
+        // **`'none'` は色ではない。** CSS の `background: none` は「塗らない」なので、
+        // そのまま渡すと帯が透明になって背景と同化する（古い保存に `'none'` が
+        // 入っている。作る側は `lib/labels` のラベンダー）。色でない値は無視して、
+        // CSS 側の既定の塗りに任せる
+        background: label && label !== 'none' ? label : undefined,
         left,
         width,
         ...(height != null ? { height } : null),

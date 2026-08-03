@@ -89,6 +89,14 @@ export function useWindowDrop(deps: UseWindowDropDeps) {
       if (!draggingMediaRef.current) clearDropGhosts()
     }
     window.addEventListener('pointerdown', stray, true)
+    // 押すまで待たない。**掴むのをやめた形は色々ある**——窓の外で離した、
+    // Escape で取り消した、別のアプリへ行った、掴んだ元が描き直しで消えた。
+    // どれも「掴んでいる物が無いのに影だけ残る」に行き着くので、
+    // 手がかりになる出来事は全部ここで拾う（影は掴んでいる間しか意味を持たない）
+    window.addEventListener('blur', stray)
+    window.addEventListener('mouseleave', stray)
+    document.addEventListener('visibilitychange', stray)
+    window.addEventListener('keyup', stray)
     const enter = (e: DragEvent): void => winDragRef.current.enter(e)
     const over = (e: DragEvent): void => winDragRef.current.over(e)
     const drop = (e: DragEvent): void => winDragRef.current.drop(e)
@@ -99,6 +107,10 @@ export function useWindowDrop(deps: UseWindowDropDeps) {
     window.addEventListener('dragend', end)
     return () => {
       window.removeEventListener('pointerdown', stray, true)
+      window.removeEventListener('blur', stray)
+      window.removeEventListener('mouseleave', stray)
+      document.removeEventListener('visibilitychange', stray)
+      window.removeEventListener('keyup', stray)
       window.removeEventListener('dragenter', enter)
       window.removeEventListener('dragover', over)
       window.removeEventListener('drop', drop)

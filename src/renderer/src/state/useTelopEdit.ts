@@ -123,7 +123,10 @@ export function useTelopEdit(deps: UseTelopEditDeps) {
       id,
       start: t,
       end: t + 2,
-      text: 'テロップ',
+      // **空で作る。** 前は「テロップ」と入れていたが、追加したら必ず消してから
+      // 打ち始めるので、消す手間が毎回増えるだけだった（本人の指定）。
+      // 帯は色（ラベンダー）で見えるので、空でも見失わない
+      text: '',
       style,
       label: DEFAULT_LABEL,
       pos: iconAuto && iconAnchorPos ? { ...iconAnchorPos } : { x: 0.5, y: 0.85 },

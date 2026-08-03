@@ -296,6 +296,28 @@ export default async function (C) {
     )
   })
 
+  // **プレビューだけの拡大。** 細かい所（縁の太さ・アイコンの縁）を見るための物で、
+  // 書き出しにも保存にも関わらない。等倍へ戻せることまで見る
+  //（片道だけ効くと、寄せたまま戻れなくなる）。
+  await check('プレビューを寄せられて、等倍に戻せる', async () => {
+    await resetProject()
+    const screenW = async () =>
+      Math.round((await page.locator('.screen').first().boundingBox()).width)
+    const base = await screenW()
+    assert(base > 0, '映像の枠が見つからない')
+    const group = page.locator('.pz-group')
+    assert(await group.count(), 'プレビューの拡大の口が無い')
+    await group.locator('.chip', { hasText: '＋' }).first().click()
+    await page.waitForTimeout(400)
+    const zoomed = await screenW()
+    assert(zoomed > base + 4, `寄せられていない（${base} → ${zoomed}）`)
+    // 真ん中の割合表示が「全体表示に戻す」を兼ねている
+    await group.locator('.chip', { hasText: '%' }).first().click()
+    await page.waitForTimeout(400)
+    const back = await screenW()
+    assert(Math.abs(back - base) <= 2, `等倍に戻せない（${zoomed} → ${back}／元 ${base}）`)
+  })
+
   // **縦書き。** プレビューも書き出しも同じ `buildTelopSVG` を通るので、
   // ここで縦になっていれば書き出しも縦になる（画面と書き出しで別々の式を持たない）。
   // 見るのは**実際に描かれた形**——縦に組めていれば、横長だった文字の箱が縦長になる。

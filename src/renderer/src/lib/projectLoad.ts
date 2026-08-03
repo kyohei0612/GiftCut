@@ -23,6 +23,7 @@ import { isNeutralZoom, isNeutralCrop, isNeutralAdjust } from './clipLook'
 import { sanitizeClipMotion } from '../../../shared/clipMotion'
 import { sanitizeGroupId } from '../../../shared/group'
 import { clamp } from '../../../shared/timeline'
+import { DEFAULT_LABEL } from './labels'
 import type { Cue } from './srt'
 import type { Marker, VSeg, SEClip, ImgClip, VClip } from './projectTypes'
 
@@ -51,8 +52,13 @@ function keepRuns(raw: any): any[] | undefined {
   return ok.length ? ok : undefined
 }
 
-/** テロップの既定のラベル色（付いていない物は、この色として扱う） */
-const DEFAULT_LABEL = 'none'
+// テロップの既定のラベル色。**ここで決め直さない。**
+//
+// 前はこのファイルの中だけ `'none'` という別の値を持っていた。作った直後は
+// `lib/labels` のラベンダーなのに、**保存して開き直すと `'none'` になり**、
+// それが帯の `background` にそのまま入って**透明＝背景と同化**していた
+//（本人から「テロップ追加したら背景と同化する。デフォはラベンダーのはず」）。
+// 同じ物を2か所に置くと、片方だけ違う値になっても誰も気づけない。
 
 export function loadCues(raw: any): Cue[] {
   return Array.isArray(raw)

@@ -620,7 +620,11 @@ body {
   cursor: help;
 }
 /* ステータスバーに出す「いま別ウィンドウにあるパネル」 */
-.status-pop {
+/* 下の帯に置くボタン。**役目ごとに名前を分けてある**——`.status-pop` は
+   「別ウィンドウへ出した区画を戻す」で数を数えている所があり、
+   見た目が同じだからと使い回すと、数えた側が壊れる（実際に壊した）。 */
+.status-pop,
+.status-perf {
   background: var(--panel-2);
   border: 1px solid var(--line);
   color: var(--text);
@@ -630,7 +634,8 @@ body {
   margin-right: 8px;
   cursor: pointer;
 }
-.status-pop:hover {
+.status-pop:hover,
+.status-perf:hover {
   background: #30353a;
 }
 /* 別ウィンドウへ出ている間、その場所に置く案内 */
@@ -791,6 +796,9 @@ body {
   background: #0d0d0f;
   /* 中の映像の枠が「この区画の幅」を見られるようにする（下の .screen の説明） */
   container-type: size;
+  /* 寄せたときに、はみ出した所を送って見られるようにする。
+     等倍ではぴったり収まるので、送り棒は出ない */
+  overflow: auto;
 }
 /* ===== オーディオトラックミキサー ===== */
 .mixer-stage {
@@ -933,8 +941,11 @@ body {
      大きく・外側にずれる＝「右へはみ出して切れる」の正体。
      100cqw はこの区画（.monitor-stage）の幅。幅いっぱいに収まる高さと
      100% の**小さい方**を採れば、どちらの向きでも比率が保たれる。 */
-  max-width: 100%;
-  height: min(100%, calc(100cqw / var(--ar, 1.7778)));
+  /* `--pz` はプレビューだけの拡大（1＝全体表示）。枠ごと大きくして、はみ出した分は
+     モニタ区画を送って見る。**max-width は掛けない**——掛けると寄せた瞬間に
+     幅で頭打ちになり、上でわざわざ直した「比率が崩れる」状態に戻る。 */
+  max-width: calc(100% * var(--pz, 1));
+  height: calc(min(100%, calc(100cqw / var(--ar, 1.7778))) * var(--pz, 1));
   width: auto;
   min-width: 0;
   min-height: 0;
