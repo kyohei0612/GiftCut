@@ -16,13 +16,35 @@
 //（クロップの押し戻し規則／トランジションの編集画面／テロップの出入りの帯／
 //  帯の色の塗り方／ミキサーのつまみ／comboFromEvent）。**放っておくと必ず増える。**
 //
-// ## 見るのは2つだけ（欲張ると使われなくなる）
+// ## 見るのは3つ（欲張ると使われなくなる）
 //
 //   ① shared/ に出してある名前を、他所で作り直していないか
 //   ② 同じ中身の塊が、別のファイルにそっくり入っていないか
+//   ③ **正典のある式を、他所で生のまま書いていないか**（下の CANON）
 //
 // 「同じ物」の完全な判定は無理なので、**実際に事故になった型だけ**を見る。
 // これで捕まらない二重実装はある。それは人が気づくしかない。
+//
+// ## ③ を足した理由（2026-08-03）
+//
+// ①②は**名前で見ている**。だから 08-03 に見つかった8件のうち**5件がすり抜けた**——
+// 名前が違い、式が関数の中に埋まっていたから。
+//
+// そして**「よく読めば気づく」では直らない。2個目は別のファイルにあるから。**
+// どれだけ丁寧に1ファイルを読んでも隣は見えない。実際に散っていた数:
+//
+//   重ねた動画の長さ    15か所
+//   時間の計算          shared/timeline を main/exportRun が手書き（3か所）
+//   ズーム変換の文字列  3か所（うち1つだけ 08-03 に直して、2つ残した）
+//
+// 一番たちが悪かったのはこれ:
+//
+//   shared/timeline.ts:95   Math.max(0, srcEnd - srcStart) / 速度
+//   main/exportRun.ts:438        (srcEnd - srcStart) / 速度   ← Math.max(0,) が無い
+//
+// **片方だけ直した跡がそのまま残っていた。** 画面は0で止まるのに書き出しは負になる。
+//
+// **③ は式で見るので、読んでいなくても止まる。忘れても止まる。**
 //
 // ## 赤くなったら
 //
@@ -47,6 +69,90 @@ const ALLOW = new Set([
   'src/preload/index.ts',
   'src/preload/index.d.ts'
 ])
+
+/**
+ * 正典のある式。**ここに書いた形を、正典以外の場所で書いたら赤。**
+ *
+ * ## なぜ「名前」ではなく「式」で見るか
+ *
+ * 足すときに起きるのはこれ:
+ *
+ *   1. 「動画の長さが要る」
+ *   2. **vcLen があることを知らない**
+ *   3. `Math.max(0.05, c.srcEnd - c.srcStart)` と書く
+ *   4. 動く。試験も緑。誰も気づかない
+ *
+ * **同じ関数は使われない。使われていたら重複にならない。**
+ *
+ * 知らない理由は「**props で配られていて import では取れない**」。
+ * 決定的な証拠: `LeftPanel.tsx:166` は `vcLen` を props で受け取っておきながら、
+ * **同じ名前のローカル定数に生の式を書いて影を作っている**（手に持っているのに書き直した）。
+ * `TimelineArea` も `pairedAudioOf` を受け取って子へ渡しながら自分では手書きしている。
+ *
+ * → **検査（これ）と、正典を `shared/` へ移すことの両方が要る。**
+ *    検査だけだと、赤くなったとき「何を import すればいいか」が分からない。
+ */
+const CANON: {
+  what: string
+  home: string
+  use: string
+  re: RegExp
+  /** まだ生のまま書いてある場所（ファイル → 件数）。**減らす方向にだけ動かす** */
+  debt: Record<string, number>
+}[] = [
+  {
+    what: '重ねた動画クリップの長さ',
+    home: 'src/shared/timeline.ts',
+    use: 'vcLen(c) を import する（いまは useTrackGeom にあり props で配っている＝書く瞬間に見えない）',
+    re: /Math\.max\(\s*0\.05\s*,\s*[\w.]+\.srcEnd\s*-\s*[\w.]+\.srcStart\s*\)/,
+    debt: {
+      'src/main/exportRun.ts': 2,
+      'src/renderer/src/components/LeftPanel.tsx': 1, // props で受けているのに影を作っている
+      'src/renderer/src/state/useClipDrag.ts': 1,
+      'src/renderer/src/state/useExport.ts': 1,
+      'src/renderer/src/state/useKeyboard.ts': 1,
+      'src/renderer/src/state/useMediaDrop.ts': 1,
+      'src/renderer/src/state/useSnap.ts': 1,
+      'src/renderer/src/state/useTimelineDrag.ts': 2,
+      'src/renderer/src/state/useTimelineEdit.ts': 1,
+      'src/renderer/src/state/useTimelineSpan.ts': 1,
+      'src/renderer/src/state/useTrackGeom.ts': 1, // ← いまの正典。shared へ移したら 0
+      'src/renderer/src/state/useVClipEls.ts': 1,
+      'src/renderer/src/state/useVideoSync.ts': 1
+    }
+  },
+  {
+    what: '切片の再生速度（0以下なら等速）',
+    home: 'src/shared/timeline.ts',
+    use: 'segSpeed(s) を import する',
+    re: /speed\s*&&\s*[\w.]*\.?speed\s*>\s*0\s*\?/,
+    debt: { 'src/main/exportRun.ts': 1 }
+  },
+  {
+    what: '切片のタイムライン長（元の長さ ÷ 速度）',
+    home: 'src/shared/timeline.ts',
+    use: 'segTLen(s) を import する',
+    // **08-03 に見つかった実害**: 正典は Math.max(0, ...) で下を止めているが、
+    // exportRun の写しには**それが無い**。画面は0で止まるのに書き出しは負になる。
+    re: /\(\s*[\w.]+\.srcEnd\s*-\s*[\w.]+\.srcStart\s*\)\s*\//,
+    debt: {
+      'src/main/exportRun.ts': 2,
+      'src/renderer/src/state/useSegmentDrag.ts': 1
+    }
+  },
+  {
+    what: 'ズーム（寄せ）の CSS transform 文字列',
+    home: 'src/renderer/src/lib/clipXform.ts',
+    use: 'clipXform(c, localT) を import する',
+    // 08-03 に clipXform の**並べる順**を直した（反転で左右が真逆になっていた）。
+    // 残る2か所は直していない。**同じ間違いが2つ残っている。**
+    re: /translate\(\$\{[^}]*\*\s*100\)\.toFixed\(3\)\}%/,
+    debt: {
+      'src/renderer/src/state/usePlaybackEngine.ts': 1,
+      'src/renderer/src/state/usePreviewFrame.ts': 1
+    }
+  }
+]
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -121,5 +227,41 @@ describe('同じ物を2か所に書かない', () => {
     }
     const bad = [...pairs.entries()].map(([k, v]) => `${k}\n      例: ${v}`)
     expect(bad, '\n' + bad.join('\n') + '\n\n上の説明「赤くなったら」を読むこと').toEqual([])
+  })
+
+  // ここから ③。**式で見るので、読んでいなくても・忘れても止まる。**
+  for (const c of CANON) {
+    it(`**「${c.what}」を生の式で書いていない**（正典: ${c.home}）`, () => {
+      const bad: string[] = []
+      for (const f of files) {
+        if (f.path === c.home || ALLOW.has(f.path)) continue
+        const hits: number[] = []
+        f.src.split(/\r?\n/).forEach((l, i) => {
+          if (c.re.test(l)) hits.push(i + 1)
+        })
+        if (!hits.length) continue
+        const owed = c.debt[f.path] ?? 0
+        if (hits.length > owed)
+          bad.push(
+            `${f.path}  ${hits.length}か所（借金は${owed}）  行: ${hits.join(', ')}`
+          )
+      }
+      expect(
+        bad,
+        '\n' +
+          bad.join('\n') +
+          `\n\n**${c.use}**\n` +
+          '（借金を増やさない。減らすときは debt の数も一緒に減らすこと）'
+      ).toEqual([])
+    })
+  }
+
+  it('**借金は減る方向にだけ動かす**（合計を増やしたら赤）', () => {
+    const total = CANON.reduce(
+      (n, c) => n + Object.values(c.debt).reduce((a, b) => a + b, 0),
+      0
+    )
+    // 2026-08-03 時点で 21。ここを増やしてはいけない。
+    expect(total).toBeLessThanOrEqual(21)
   })
 })

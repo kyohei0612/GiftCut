@@ -471,7 +471,10 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     const lay = layoutSegs(segsRef.current)
     const sel = lay.filter((L) => isVideoSel(L.seg.id))
     const before = sel.reduce((a, L) => a + L.len, 0)
-    const after = sel.reduce((a, L) => a + (L.seg.srcEnd - L.seg.srcStart) / speed, 0)
+    // **正典（segTLen）に通す。**ここは 2026-08-03 まで同じ式を手書きしていて、
+    // 正典にある `Math.max(0, ...)` と `速度が0以下なら等速` が両方抜けていた
+    //（速度0で Infinity になり、後ろの素材が消し飛ぶ）。
+    const after = sel.reduce((a, L) => a + segTLen({ ...L.seg, speed }), 0)
     setSegments((prev) => prev.map((s) => (isVideoSel(s.id) ? { ...s, speed } : s)))
     if (sel.length) shiftAfter(sel[sel.length - 1].tEnd, after - before)
   }
