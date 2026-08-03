@@ -159,9 +159,9 @@ export function TimelineArea(): JSX.Element {
             askText('トラック名を変更', current, (v: string) => {
               const name = v.trim()
               if (!name) return
-              setTracks((prev: { id: string; name: string }[]) =>
-                prev.map((t) => (t.id === id ? { ...t, name } : t))
-              )
+              // 型は書かない。**手で書いた注釈が実体とズレていた**（`kind` が抜けていて、
+              // `{ id, name }` と書き直した瞬間に段の種類が黙って消える形だった）
+              setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, name } : t)))
             })
           }
           onToggle={toggleTrack}

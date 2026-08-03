@@ -14,69 +14,71 @@
 // props を1つも受け取っていない（＝「Props」という名前が実体と合っていない）。
 // 品書きの中身を3つに割ったとき、借りる先が無くなるのでこちらへ移した。
 import { createContext, useContext } from 'react'
+import type { Wired } from './wiredValue'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// 型は手で書かず、詰めている実体から引く。**なぜ・どう腐らないかは state/wiredValue.ts**
+type W = Wired<'menus'>
+
 export interface MenusValue {
   /** いま開いている品書き（どれも「開いていなければ null」） */
-  menu: any
-  setMenu: any
-  clipMenu: any
-  setClipMenu: any
-  tabMenu: any
-  setTabMenu: any
-  tabOverflow: any
-  setTabOverflow: any
-  tplMenu: any
-  setTplMenu: any
-  orgMenu: any
-  setOrgMenu: any
+  menu: W['menu']
+  setMenu: W['setMenu']
+  clipMenu: W['clipMenu']
+  setClipMenu: W['setClipMenu']
+  tabMenu: W['tabMenu']
+  setTabMenu: W['setTabMenu']
+  tabOverflow: W['tabOverflow']
+  setTabOverflow: W['setTabOverflow']
+  tplMenu: W['tplMenu']
+  setTplMenu: W['setTplMenu']
+  orgMenu: W['orgMenu']
+  setOrgMenu: W['setOrgMenu']
   /** 画面の端からはみ出さない位置へ寄せる */
-  clampMenu: any
+  clampMenu: W['clampMenu']
   /** 区画（パネル）まわり */
-  PANE_LABEL: Record<string, string>
-  TAB_DEFS: any
-  orderedTabs: any
-  pickTab: any
-  setTabOrder: any
-  isPopped: (id: any) => boolean
-  popPane: any
-  unpopPane: any
-  monitorTab: string
-  rightTab: string
+  PANE_LABEL: W['PANE_LABEL']
+  TAB_DEFS: W['TAB_DEFS']
+  orderedTabs: W['orderedTabs']
+  pickTab: W['pickTab']
+  setTabOrder: W['setTabOrder']
+  isPopped: W['isPopped']
+  popPane: W['popPane']
+  unpopPane: W['unpopPane']
+  monitorTab: W['monitorTab']
+  rightTab: W['rightTab']
   /** テロップのフォルダ（カテゴリ）まわり */
-  allCats: any
-  customCats: any
-  setTplCat: any
-  isFav: any
-  toggleFav: any
+  allCats: W['allCats']
+  customCats: W['customCats']
+  setTplCat: W['setTplCat']
+  isFav: W['isFav']
+  toggleFav: W['toggleFav']
   /** ラベル色 */
-  setLabelFor: any
-  selectByLabel: any
-  setClipLabel: any
+  setLabelFor: W['setLabelFor']
+  selectByLabel: W['selectByLabel']
+  setClipLabel: W['setClipLabel']
   /** 編集の操作 */
-  deleteSelected: any
-  rippleDeleteSelected: any
-  deleteSelectedSE: any
-  deleteSelectedImg: any
-  deleteSelectedVClip: any
-  deleteVideoSegmentsLeavingGap: any
-  rippleDeleteVideoSegments: any
-  duplicateClipsFromMenu: any
-  splitVideoAtPlayhead: any
-  toggleBlankSelectedVideo: any
-  findSilences: any
-  silenceCut: any
-  setDuckOpen: any
+  deleteSelected: W['deleteSelected']
+  rippleDeleteSelected: W['rippleDeleteSelected']
+  deleteSelectedSE: W['deleteSelectedSE']
+  deleteSelectedImg: W['deleteSelectedImg']
+  deleteSelectedVClip: W['deleteSelectedVClip']
+  deleteVideoSegmentsLeavingGap: W['deleteVideoSegmentsLeavingGap']
+  rippleDeleteVideoSegments: W['rippleDeleteVideoSegments']
+  duplicateClipsFromMenu: W['duplicateClipsFromMenu']
+  splitVideoAtPlayhead: W['splitVideoAtPlayhead']
+  toggleBlankSelectedVideo: W['toggleBlankSelectedVideo']
+  findSilences: W['findSilences']
+  silenceCut: W['silenceCut']
+  setDuckOpen: W['setDuckOpen']
   /** コピーと貼り付け */
-  copySelected: any
-  copyAttributes: any
-  pasteAttributes: any
-  copiedAttrs: any
-  attrSummary: any
+  copySelected: W['copySelected']
+  copyAttributes: W['copyAttributes']
+  pasteAttributes: W['pasteAttributes']
+  copiedAttrs: W['copiedAttrs']
+  attrSummary: W['attrSummary']
   /** キーの割り当て（品書きに出す） */
-  shortcuts: any
+  shortcuts: W['shortcuts']
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 const Ctx = createContext<MenusValue | null>(null)
 

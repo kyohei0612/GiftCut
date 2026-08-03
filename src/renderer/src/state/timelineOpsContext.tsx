@@ -26,98 +26,92 @@
 // 囲いの中で作ると、描き直しのたびに作り直されて、掴んでいる途中の状態が消える。
 
 import { createContext, useContext, type ReactNode } from 'react'
+import type { Wired } from './wiredValue'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// 型は手で書かず、詰めている実体から引く。**なぜ・どう腐らないかは state/wiredValue.ts**
+type W = Wired<'timelineOps'>
+
 export interface TimelineOps {
   // ---- 掴む（クリップ・切片・目印・段の空き）----
-  onClipPointerDown: any
-  onClipContextMenu: any
-  onTrimStart: any
-  onSegPointerDown: any
-  onSegTrimStart: any
-  onSePointerDown: any
-  onImgPointerDown: any
-  onVClipPointerDown: any
-  onMarkerPointerDown: any
-  onTrackAreaPointerDown: any
+  onClipPointerDown: W['onClipPointerDown']
+  onClipContextMenu: W['onClipContextMenu']
+  onTrimStart: W['onTrimStart']
+  onSegPointerDown: W['onSegPointerDown']
+  onSegTrimStart: W['onSegTrimStart']
+  onSePointerDown: W['onSePointerDown']
+  onImgPointerDown: W['onImgPointerDown']
+  onVClipPointerDown: W['onVClipPointerDown']
+  onMarkerPointerDown: W['onMarkerPointerDown']
+  onTrackAreaPointerDown: W['onTrackAreaPointerDown']
   /** 目盛りを擦る */
-  startScrub: any
+  startScrub: W['startScrub']
   /** 段の高さをまとめて変える */
-  startGroupResize: any
+  startGroupResize: W['startGroupResize']
   /** つなぎ目の演出の端を掴む */
-  startTransResize: any
+  startTransResize: W['startTransResize']
   /** 右クリックの品書きを開く（押した1つを選び直してから） */
-  openClipMenu: any
+  openClipMenu: W['openClipMenu']
 
   // ---- 落とす（素材をタイムラインへ）----
-  updateDropGhost: any
-  clearDropGhosts: any
-  dropLaneAt: any
-  videoDropLane: any
-  placeSE: any
+  updateDropGhost: W['updateDropGhost']
+  clearDropGhosts: W['clearDropGhosts']
+  dropLaneAt: W['dropLaneAt']
+  videoDropLane: W['videoDropLane']
+  placeSE: W['placeSE']
   /** 画像を置く段（影と置き先で同じ判定を通す。shared/lanes の avoidBusyLane） */
-  imgLaneAt: (yRel: number, t: number) => string
+  imgLaneAt: W['imgLaneAt']
   /** 落とした物を置く（まとめて選んでいればその順に続けて並べる） */
-  placeDropped: (
-    grabbed: any,
-    t: number,
-    yRel: number,
-    ev: { target: EventTarget | null; ctrlKey: boolean }
-  ) => Promise<void>
-  placeImage: any
-  placeVClip: any
-  placeVideoAtDrop: any
-  snapClipStart: any
+  placeDropped: W['placeDropped']
+  placeImage: W['placeImage']
+  placeVClip: W['placeVClip']
+  placeVideoAtDrop: W['placeVideoAtDrop']
+  snapClipStart: W['snapClipStart']
   /** いま掴んで運んでいる物（種類ごと） */
-  draggingMediaRef: any
-  draggingTransRef: any
-  draggingTelopAnimRef: any
-  dragSeDurRef: any
+  draggingMediaRef: W['draggingMediaRef']
+  draggingTransRef: W['draggingTransRef']
+  draggingTelopAnimRef: W['draggingTelopAnimRef']
+  dragSeDurRef: W['dragSeDurRef']
 
   // ---- つなぎ目の演出 ----
-  resolveTransDrop: any
-  applyTransDrop: any
-  selectTransition: any
-  setVideoTransDur: any
+  resolveTransDrop: W['resolveTransDrop']
+  applyTransDrop: W['applyTransDrop']
+  selectTransition: W['selectTransition']
+  setVideoTransDur: W['setVideoTransDur']
   /** テロップの出入りの動き */
-  resolveTelopTransDrop: any
-  applyTelopTransDrop: any
-  selectTelopTrans: any
-  patchCueAnim: any
+  resolveTelopTransDrop: W['resolveTelopTransDrop']
+  applyTelopTransDrop: W['applyTelopTransDrop']
+  selectTelopTrans: W['selectTelopTrans']
+  patchCueAnim: W['patchCueAnim']
   /** タイムラインの◆を1つ消す（右クリック） */
-  removeKeyAtTime: (
-    target: { kind: 'telop' | 'video' | 'img' | 'vclip'; id: number },
-    t: number
-  ) => void
+  removeKeyAtTime: W['removeKeyAtTime']
 
   // ---- 道具立て（ツールバー）----
-  undo: any
-  redo: any
-  undoStackRef: any
-  redoStackRef: any
-  isDirty: any
-  cutAtPlayhead: any
-  findSilences: any
-  setSilenceOpen: any
-  toggleSnap: any
+  undo: W['undo']
+  redo: W['redo']
+  undoStackRef: W['undoStackRef']
+  redoStackRef: W['redoStackRef']
+  isDirty: W['isDirty']
+  cutAtPlayhead: W['cutAtPlayhead']
+  findSilences: W['findSilences']
+  setSilenceOpen: W['setSilenceOpen']
+  toggleSnap: W['toggleSnap']
 
   // ---- 段（トラック）----
-  selectTrack: any
-  toggleTrack: any
-  addVideoTrack: any
-  addAudioTrack: any
+  selectTrack: W['selectTrack']
+  toggleTrack: W['toggleTrack']
+  addVideoTrack: W['addVideoTrack']
+  addAudioTrack: W['addAudioTrack']
   /** 段の高さを既定へ戻す（保存してある物を捨てる） */
-  resetLaneH: () => void
-  addBgm: any
-  setTracks: any
-  askText: any
-  fallbackTrack: any
+  resetLaneH: W['resetLaneH']
+  addBgm: W['addBgm']
+  setTracks: W['setTracks']
+  askText: W['askText']
+  fallbackTrack: W['fallbackTrack']
 
   // ---- 再生ヘッド ----
-  stopPlayback: any
-  seekTo: any
+  stopPlayback: W['stopPlayback']
+  seekTo: W['seekTo']
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 const Ctx = createContext<TimelineOps | null>(null)
 

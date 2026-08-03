@@ -79,7 +79,6 @@ import { useSegLayout } from './useSegLayout'
 import { kindOf, useSegOps } from './useSegOps'
 import { useNowShowing } from './useNowShowing'
 import { type LeftPanelValue } from './leftPanelContext'
-import { type MenusValue } from './menusContext'
 import { type HeaderValue } from './headerContext'
 import { useTimelineWheel } from './useTimelineWheel'
 import { audioLaneFor } from '../../../shared/lanes'
@@ -109,11 +108,6 @@ import { useAppLayout } from './useAppLayout'
 import { useLibraries } from './useLibraries'
 import { useLibraryOrganize } from './useLibraryOrganize'
 import { useSegmentPlace } from './useSegmentPlace'
-import { type TimelineOps } from './timelineOpsContext'
-import { type TimelineView } from './timelineViewContext'
-import { type PreviewCtxValue } from './previewContext'
-import { type RightPanelValue } from './rightPanelContext'
-import { type DialogsValue } from './dialogsContext'
 import { ZOOM_MAX, ZOOM_MIN } from './useView'
 import { useToastCtx } from './toastContext'
 import { useEdit } from './useEdit'
@@ -1109,7 +1103,7 @@ export function useAppWiring() {
   // **操作の入口**と**見え方**を分けてあるのは、描き直しの理由を混ぜないため
   //（1つにまとめると、掴んで影が動くたびに操作の入口も「変わった」ことになる）。
   // 中身は state/timelineOpsContext.tsx / state/timelineViewContext.tsx
-  const timelineOps: TimelineOps = {
+  const timelineOps = {
     removeKeyAtTime,
     onClipPointerDown, onClipContextMenu, onTrimStart, onSegPointerDown, onSegTrimStart,
     onSePointerDown, onImgPointerDown, onVClipPointerDown, onMarkerPointerDown,
@@ -1124,7 +1118,7 @@ export function useAppWiring() {
     selectTrack, toggleTrack, addVideoTrack, addAudioTrack, addBgm, resetLaneH, setTracks, askText,
     fallbackTrack, stopPlayback, seekTo
   }
-  const timelineView: TimelineView = {
+  const timelineView = {
     cueTrack, vcLen, mediaMeta, srcOfSeg, pairedAudioOf, trackNum, motionLabel,
     silenceCut, shortcuts, duration,
     tool, setTool, snap,
@@ -1136,7 +1130,7 @@ export function useAppWiring() {
   }
 
   // プレビュー（中央の映像）まわり。中身は state/previewContext.tsx
-  const previewCtx: PreviewCtxValue = {
+  const previewCtx = {
     orderedTabs, TAB_DEFS, monitorTab, pickTab, setTabMenu, setTabOverflow, setTabOrder,
     shortcuts, cueTrack, srcOfSeg, loadVideo, updateSource, segLayoutRef, segsRef, segIdCounter,
     suppressHistoryRef, initializedForPathRef, stopPlayback, clearSegSel, toggleTrack, duration,
@@ -1167,7 +1161,7 @@ export function useAppWiring() {
     iconForCue
   }
 
-  const rightPanel: RightPanelValue = {
+  const rightPanel = {
     PANE_LABEL, orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow,
     setTplMenu, setOrgMenu, rightTab, setTransDrop, draggingTransRef, draggingTelopAnimRef,
     setTelopDrop, toggleTelopEmphasis, myMotions, motionPresets, applyMotionPreset,
@@ -1198,7 +1192,7 @@ export function useAppWiring() {
     openExportDialog, addTelop, changeRatio, projectPath
   }
 
-  const menus: MenusValue = {
+  const menus = {
     menu, setMenu, clipMenu, setClipMenu, tabMenu, setTabMenu, tabOverflow, setTabOverflow,
     tplMenu, setTplMenu, orgMenu, setOrgMenu, clampMenu, PANE_LABEL, TAB_DEFS, orderedTabs,
     pickTab, setTabOrder, isPopped, popPane, unpopPane, monitorTab, rightTab, allCats, customCats,
@@ -1209,7 +1203,7 @@ export function useAppWiring() {
     copySelected, copyAttributes, pasteAttributes, copiedAttrs, attrSummary, shortcuts
   }
 
-  const dialogs: DialogsValue = {
+  const dialogs = {
     silenceCut, perfStopped, templatePicker, setTemplatePicker, cropSrc, setShowExportDialog,
     exportStatus, restorePrompt, setRestorePrompt, silenceCuts, findSilences, shortcuts,
     capturingId, setCapturingId, setCropSrc, promptState, setPromptState, confirmState,

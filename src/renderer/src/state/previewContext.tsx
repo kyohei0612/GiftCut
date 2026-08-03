@@ -20,125 +20,127 @@
 //   （置き場を決めるためのもの）。
 
 import { createContext, useContext, type ReactNode } from 'react'
+import type { Wired } from './wiredValue'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// 型は手で書かず、詰めている実体から引く。**なぜ・どう腐らないかは state/wiredValue.ts**
+type W = Wired<'previewCtx'>
+
 export interface PreviewCtxValue {
   // 区画へ prop で渡していた物。**心臓を持っているのに prop も受ける**という
   // 二重の受け渡しになっていたので、こちらへ寄せた。
-  orderedTabs: any
-  TAB_DEFS: any
-  monitorTab: any
-  pickTab: any
-  setTabMenu: any
-  setTabOverflow: any
-  setTabOrder: any
-  shortcuts: any
-  cueTrack: any
-  srcOfSeg: any
-  loadVideo: any
-  updateSource: any
-  segLayoutRef: any
-  segsRef: any
-  segIdCounter: any
-  suppressHistoryRef: any
-  initializedForPathRef: any
-  stopPlayback: any
-  clearSegSel: any
-  toggleTrack: any
-  duration: any
-  draggingMediaRef: any
+  orderedTabs: W['orderedTabs']
+  TAB_DEFS: W['TAB_DEFS']
+  monitorTab: W['monitorTab']
+  pickTab: W['pickTab']
+  setTabMenu: W['setTabMenu']
+  setTabOverflow: W['setTabOverflow']
+  setTabOrder: W['setTabOrder']
+  shortcuts: W['shortcuts']
+  cueTrack: W['cueTrack']
+  srcOfSeg: W['srcOfSeg']
+  loadVideo: W['loadVideo']
+  updateSource: W['updateSource']
+  segLayoutRef: W['segLayoutRef']
+  segsRef: W['segsRef']
+  segIdCounter: W['segIdCounter']
+  suppressHistoryRef: W['suppressHistoryRef']
+  initializedForPathRef: W['initializedForPathRef']
+  stopPlayback: W['stopPlayback']
+  clearSegSel: W['clearSegSel']
+  toggleTrack: W['toggleTrack']
+  duration: W['duration']
+  draggingMediaRef: W['draggingMediaRef']
   // ---- 映像の入れ物 ----
   /** 映している枠。掴んだ位置はここを基準に測る */
-  screenRef: any
+  screenRef: W['screenRef']
   /** 本編の <video>。A面/B面の2本と、その一覧 */
-  videoRef: any
-  videoBRef: any
-  videoElsRef: any
-  elKey: any
-  activeHalf: any
+  videoRef: W['videoRef']
+  videoBRef: W['videoBRef']
+  videoElsRef: W['videoElsRef']
+  elKey: W['elKey']
+  activeHalf: W['activeHalf']
   /** いま出している元動画 */
-  effActiveSrcId: any
-  previewSources: any
-  previewUrl: any
+  effActiveSrcId: W['effActiveSrcId']
+  previewSources: W['previewSources']
+  previewUrl: W['previewUrl']
   /** 枠の縦横比（16:9 など） */
-  monitorAspect: any
+  monitorAspect: W['monitorAspect']
 
   // ---- いま出す絵 ----
   /** 重ね（クロスディゾルブ）の状態と、その見た目 */
-  xfPreview: any
-  xfBStyle: any
-  xfNextBUrl: any
-  xfDipOverlay: any
+  xfPreview: W['xfPreview']
+  xfBStyle: W['xfBStyle']
+  xfNextBUrl: W['xfNextBUrl']
+  xfDipOverlay: W['xfDipOverlay']
   /** 頭/尻の演出の色の覆い */
-  transOverlay: any
+  transOverlay: W['transOverlay']
   /** 本編の映像に掛ける CSS（回転・拡大・演出を合成した物） */
-  videoMainStyle: any
-  curAdjustCss: any
+  videoMainStyle: W['videoMainStyle']
+  curAdjustCss: W['curAdjustCss']
   /** 映像を消してある区間か */
-  curBlank: any
-  v1Hidden: any
-  videoTLen: any
+  curBlank: W['curBlank']
+  v1Hidden: W['v1Hidden']
+  videoTLen: W['videoTLen']
   /** いま出ているテロップ・重ねた動画 */
-  activeCues: any
-  windowVClips: any
+  activeCues: W['activeCues']
+  windowVClips: W['windowVClips']
   /** 重ねた動画・画像の置き方 */
-  vcRefCb: any
+  vcRefCb: W['vcRefCb']
   /** 回転・反転・ズームの CSS。**映像レイヤーと画像で同じ物**（lib/clipXform） */
-  clipXform: any
-  vcLen: any
+  clipXform: W['clipXform']
+  vcLen: W['vcLen']
   /** テロップに添える絵 */
-  iconForCue: any
+  iconForCue: W['iconForCue']
   /** 焼き直し・持ち出しの進み具合 */
-  proxyPct: any
-  packPct: any
+  proxyPct: W['proxyPct']
+  packPct: W['packPct']
 
   // ---- 掴む・押す ----
   /** 映像そのものを掴む（動かす・拡げる・回す） */
-  onVideoReframeStart: any
-  onVideoRotateStart: any
-  resetVideoZoom: any
+  onVideoReframeStart: W['onVideoReframeStart']
+  onVideoRotateStart: W['onVideoRotateStart']
+  resetVideoZoom: W['resetVideoZoom']
   /** 拡大の中心（マーカーを出していなければ null）。**画面だけの持ち物** */
-  zoomAnchor: { x: number; y: number } | null
-  toggleZoomAnchor: () => void
-  onZoomAnchorStart: (e: React.PointerEvent) => void
+  zoomAnchor: W['zoomAnchor']
+  toggleZoomAnchor: W['toggleZoomAnchor']
+  onZoomAnchorStart: W['onZoomAnchorStart']
   /** テロップの位置・大きさ・動きを戻す（プレビューのバーから） */
-  resetSelectedTelops: () => void
-  telopResetCount: () => number
-  resetCount: any
-  selectPreviewOverlay: any
-  reframeTarget: any
+  resetSelectedTelops: W['resetSelectedTelops']
+  telopResetCount: W['telopResetCount']
+  resetCount: W['resetCount']
+  selectPreviewOverlay: W['selectPreviewOverlay']
+  reframeTarget: W['reframeTarget']
   /** テロップを掴む */
-  onTelopPointerDown: any
-  onTelopResizeStart: any
+  onTelopPointerDown: W['onTelopPointerDown']
+  onTelopResizeStart: W['onTelopResizeStart']
   /** テロップの文字を打ち替える */
-  editorTextRef: any
-  updateCueText: any
-  setEditorSel: any
-  clearRunsInSelection: any
+  editorTextRef: W['editorTextRef']
+  updateCueText: W['updateCueText']
+  setEditorSel: W['setEditorSel']
+  clearRunsInSelection: W['clearRunsInSelection']
   /** 落として付ける（テンプレ・アイコン） */
-  draggingTemplateRef: any
-  draggingIconRef: any
+  draggingTemplateRef: W['draggingTemplateRef']
+  draggingIconRef: W['draggingIconRef']
   /** 強調（揺れ・脈打ち）を運んでいる最中。持ち物は state/useBandDrag */
-  draggingEmphasisRef: any
-  applyTemplateToCue: any
-  applyIconToCue: any
+  draggingEmphasisRef: W['draggingEmphasisRef']
+  applyTemplateToCue: W['applyTemplateToCue']
+  applyIconToCue: W['applyIconToCue']
   /** 再生の操作 */
-  togglePlay: any
-  skipSec: any
-  stepFrame: any
-  jumpMarker: any
-  addMarkerAtPlayhead: any
-  captureScreenshot: any
-  seekAndReveal: any
-  handleVideoEnded: any
+  togglePlay: W['togglePlay']
+  skipSec: W['skipSec']
+  stepFrame: W['stepFrame']
+  jumpMarker: W['jumpMarker']
+  addMarkerAtPlayhead: W['addMarkerAtPlayhead']
+  captureScreenshot: W['captureScreenshot']
+  seekAndReveal: W['seekAndReveal']
+  handleVideoEnded: W['handleVideoEnded']
   /** 音量（ミキサー） */
-  startFader: any
-  setTrackVolume: any
-  setMasterVolume: any
+  startFader: W['startFader']
+  setTrackVolume: W['setTrackVolume']
+  setMasterVolume: W['setMasterVolume']
   /** 操作バーの右に出す状態（画質・fps・尺） */
-  transportInfo: any
+  transportInfo: W['transportInfo']
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 const Ctx = createContext<PreviewCtxValue | null>(null)
 

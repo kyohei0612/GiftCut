@@ -17,70 +17,72 @@
 //   （置き場を決めるためのもの）。
 
 import { createContext, useContext, type ReactNode } from 'react'
+import type { Wired } from './wiredValue'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// 型は手で書かず、詰めている実体から引く。**なぜ・どう腐らないかは state/wiredValue.ts**
+type W = Wired<'dialogs'>
+
 export interface DialogsValue {
-  silenceCut: any
-  perfStopped: any
-  templatePicker: any
-  setTemplatePicker: any
-  cropSrc: any
-  setShowExportDialog: any
-  exportStatus: any
-  restorePrompt: any
-  setRestorePrompt: any
-  silenceCuts: any
-  findSilences: any
-  shortcuts: any
-  capturingId: any
-  setCapturingId: any
-  setCropSrc: any
-  promptState: any
-  setPromptState: any
-  confirmState: any
-  showExportDialog: any
-  fpsLabel: any
-  srcFpsForExport: any
-  exportProject: any
-  exportPct: any
-  setExportStatus: any
-  applyProjectData: any
-  subtitleOpen: any
-  subModel: any
-  subtitleState: any
-  subMaxChars: any
-  setSubMaxChars: any
-  saveLS: any
-  subReplace: any
-  setSubReplace: any
-  runSubtitles: any
-  setSubtitleOpen: any
-  pickTemplate: any
-  silenceOpen: any
-  setSilenceCut: any
-  applySilenceCut: any
-  setSilenceOpen: any
-  duckOpen: any
-  duckOpts: any
-  setDuckOpts: any
-  duckEnv: any
-  setDuckOpen: any
-  seRefCb: any
-  prefsOpen: any
-  resetShortcuts: any
-  setPrefsOpen: any
-  setIconForColor: any
-  setIconForLane: any
-  perfOpen: any
-  setPerfOpen: any
-  setPerfStopped: any
-  toasts: any
-  closeConfirm: any
-  iconAssign: any
-  laneIconAssign: any
-  iconLibrary: any
+  silenceCut: W['silenceCut']
+  perfStopped: W['perfStopped']
+  templatePicker: W['templatePicker']
+  setTemplatePicker: W['setTemplatePicker']
+  cropSrc: W['cropSrc']
+  setShowExportDialog: W['setShowExportDialog']
+  exportStatus: W['exportStatus']
+  restorePrompt: W['restorePrompt']
+  setRestorePrompt: W['setRestorePrompt']
+  silenceCuts: W['silenceCuts']
+  findSilences: W['findSilences']
+  shortcuts: W['shortcuts']
+  capturingId: W['capturingId']
+  setCapturingId: W['setCapturingId']
+  setCropSrc: W['setCropSrc']
+  promptState: W['promptState']
+  setPromptState: W['setPromptState']
+  confirmState: W['confirmState']
+  showExportDialog: W['showExportDialog']
+  fpsLabel: W['fpsLabel']
+  srcFpsForExport: W['srcFpsForExport']
+  exportProject: W['exportProject']
+  exportPct: W['exportPct']
+  setExportStatus: W['setExportStatus']
+  applyProjectData: W['applyProjectData']
+  subtitleOpen: W['subtitleOpen']
+  subModel: W['subModel']
+  subtitleState: W['subtitleState']
+  subMaxChars: W['subMaxChars']
+  setSubMaxChars: W['setSubMaxChars']
+  saveLS: W['saveLS']
+  subReplace: W['subReplace']
+  setSubReplace: W['setSubReplace']
+  runSubtitles: W['runSubtitles']
+  setSubtitleOpen: W['setSubtitleOpen']
+  pickTemplate: W['pickTemplate']
+  silenceOpen: W['silenceOpen']
+  setSilenceCut: W['setSilenceCut']
+  applySilenceCut: W['applySilenceCut']
+  setSilenceOpen: W['setSilenceOpen']
+  duckOpen: W['duckOpen']
+  duckOpts: W['duckOpts']
+  setDuckOpts: W['setDuckOpts']
+  duckEnv: W['duckEnv']
+  setDuckOpen: W['setDuckOpen']
+  seRefCb: W['seRefCb']
+  prefsOpen: W['prefsOpen']
+  resetShortcuts: W['resetShortcuts']
+  setPrefsOpen: W['setPrefsOpen']
+  setIconForColor: W['setIconForColor']
+  setIconForLane: W['setIconForLane']
+  perfOpen: W['perfOpen']
+  setPerfOpen: W['setPerfOpen']
+  setPerfStopped: W['setPerfStopped']
+  toasts: W['toasts']
+  closeConfirm: W['closeConfirm']
+  iconAssign: W['iconAssign']
+  laneIconAssign: W['laneIconAssign']
+  iconLibrary: W['iconLibrary']
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 const Ctx = createContext<DialogsValue | null>(null)
 

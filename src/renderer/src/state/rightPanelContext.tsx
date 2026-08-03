@@ -12,95 +12,97 @@
 //   （置き場を決めるためのもの）。
 
 import { createContext, useContext, type ReactNode } from 'react'
+import type { Wired } from './wiredValue'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// 型は手で書かず、詰めている実体から引く。**なぜ・どう腐らないかは state/wiredValue.ts**
+type W = Wired<'rightPanel'>
+
 export interface RightPanelValue {
   // 区画へ prop で渡していた物。**心臓を持っているのに prop も受ける**という
   // 二重の受け渡しになっていたので、こちらへ寄せた。
-  PANE_LABEL: any
-  orderedTabs: any
-  TAB_DEFS: any
-  pickTab: any
-  setTabOrder: any
-  setTabMenu: any
-  setTabOverflow: any
-  setTplMenu: any
-  setOrgMenu: any
-  rightTab: any
-  setTransDrop: any
-  draggingTransRef: any
-  draggingTelopAnimRef: any
-  setTelopDrop: any
-  toggleTelopEmphasis: any
-  myMotions: any
-  motionPresets: any
-  applyMotionPreset: any
-  deleteMyMotion: any
-  accSec: any
-  rightBodyRef: any
-  importSeInto: any
-  addMediaAtPlayhead: any
-  catOf: any
-  srtPath: any
-  labelGroups: any
-  removeMedia: any
-  beginMediaDrag: any
-  draggingMediaRef: any
-  localTemplates: any
-  isFav: any
-  draggingTemplateRef: any
-  iconFavs: any
-  toggleIconFav: any
-  draggingIconRef: any
+  PANE_LABEL: W['PANE_LABEL']
+  orderedTabs: W['orderedTabs']
+  TAB_DEFS: W['TAB_DEFS']
+  pickTab: W['pickTab']
+  setTabOrder: W['setTabOrder']
+  setTabMenu: W['setTabMenu']
+  setTabOverflow: W['setTabOverflow']
+  setTplMenu: W['setTplMenu']
+  setOrgMenu: W['setOrgMenu']
+  rightTab: W['rightTab']
+  setTransDrop: W['setTransDrop']
+  draggingTransRef: W['draggingTransRef']
+  draggingTelopAnimRef: W['draggingTelopAnimRef']
+  setTelopDrop: W['setTelopDrop']
+  toggleTelopEmphasis: W['toggleTelopEmphasis']
+  myMotions: W['myMotions']
+  motionPresets: W['motionPresets']
+  applyMotionPreset: W['applyMotionPreset']
+  deleteMyMotion: W['deleteMyMotion']
+  accSec: W['accSec']
+  rightBodyRef: W['rightBodyRef']
+  importSeInto: W['importSeInto']
+  addMediaAtPlayhead: W['addMediaAtPlayhead']
+  catOf: W['catOf']
+  srtPath: W['srtPath']
+  labelGroups: W['labelGroups']
+  removeMedia: W['removeMedia']
+  beginMediaDrag: W['beginMediaDrag']
+  draggingMediaRef: W['draggingMediaRef']
+  localTemplates: W['localTemplates']
+  isFav: W['isFav']
+  draggingTemplateRef: W['draggingTemplateRef']
+  iconFavs: W['iconFavs']
+  toggleIconFav: W['toggleIconFav']
+  draggingIconRef: W['draggingIconRef']
   /** 強調（揺れ・脈打ち）を運んでいる最中。持ち物は state/useBandDrag */
-  draggingEmphasisRef: any
-  seLibrary: any
-  seFavs: any
-  setSeFolderOf: any
-  toggleSeFav: any
-  TELOP_MOTIONS: any
-  addFilesToProject: any
-  addFolderToProject: any
-  handleImportSrt: any
-  loadVideo: any
-  selectByLabel: any
-  genThumbFor: any
-  prepareMediaMeta: any
-  allCats: any
-  openTplSec: any
-  tplSecRefs: any
-  toggleTplSec: any
-  saveCurrentAsTemplate: any
-  addCustomCat: any
-  deleteCustomCat: any
-  refreshPresets: any
-  applyTemplate: any
-  deleteUserTemplate: any
-  toggleFav: any
-  setTplCat: any
-  iconLibrary: any
-  iconFolders: any
-  iconOv: any
-  addIconImages: any
-  addIconFiles: any
-  addIconFolder: any
-  deleteIconFolder: any
-  removeIconImage: any
-  setIconFolderOf: any
-  seFolders: any
-  seOv: any
-  addSeFolder: any
-  deleteSeFolder: any
-  refreshSE: any
-  previewSE: any
-  setSelectedTransType: any
-  updateSelectedTransDur: any
-  deleteSelectedTrans: any
-  setTelopTransType: any
-  updateTelopTransDur: any
-  deleteSelectedTelopTrans: any
+  draggingEmphasisRef: W['draggingEmphasisRef']
+  seLibrary: W['seLibrary']
+  seFavs: W['seFavs']
+  setSeFolderOf: W['setSeFolderOf']
+  toggleSeFav: W['toggleSeFav']
+  TELOP_MOTIONS: W['TELOP_MOTIONS']
+  addFilesToProject: W['addFilesToProject']
+  addFolderToProject: W['addFolderToProject']
+  handleImportSrt: W['handleImportSrt']
+  loadVideo: W['loadVideo']
+  selectByLabel: W['selectByLabel']
+  genThumbFor: W['genThumbFor']
+  prepareMediaMeta: W['prepareMediaMeta']
+  allCats: W['allCats']
+  openTplSec: W['openTplSec']
+  tplSecRefs: W['tplSecRefs']
+  toggleTplSec: W['toggleTplSec']
+  saveCurrentAsTemplate: W['saveCurrentAsTemplate']
+  addCustomCat: W['addCustomCat']
+  deleteCustomCat: W['deleteCustomCat']
+  refreshPresets: W['refreshPresets']
+  applyTemplate: W['applyTemplate']
+  deleteUserTemplate: W['deleteUserTemplate']
+  toggleFav: W['toggleFav']
+  setTplCat: W['setTplCat']
+  iconLibrary: W['iconLibrary']
+  iconFolders: W['iconFolders']
+  iconOv: W['iconOv']
+  addIconImages: W['addIconImages']
+  addIconFiles: W['addIconFiles']
+  addIconFolder: W['addIconFolder']
+  deleteIconFolder: W['deleteIconFolder']
+  removeIconImage: W['removeIconImage']
+  setIconFolderOf: W['setIconFolderOf']
+  seFolders: W['seFolders']
+  seOv: W['seOv']
+  addSeFolder: W['addSeFolder']
+  deleteSeFolder: W['deleteSeFolder']
+  refreshSE: W['refreshSE']
+  previewSE: W['previewSE']
+  setSelectedTransType: W['setSelectedTransType']
+  updateSelectedTransDur: W['updateSelectedTransDur']
+  deleteSelectedTrans: W['deleteSelectedTrans']
+  setTelopTransType: W['setTelopTransType']
+  updateTelopTransDur: W['updateTelopTransDur']
+  deleteSelectedTelopTrans: W['deleteSelectedTelopTrans']
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 const Ctx = createContext<RightPanelValue | null>(null)
 
