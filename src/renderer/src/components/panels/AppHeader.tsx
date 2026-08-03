@@ -22,6 +22,8 @@ import { formatCombo } from '../../../../shared/shortcuts'
 import { useToastCtx } from '../../state/toastContext'
 import { useExportCtx } from '../../state/exportContext'
 import { useProjectStateCtx } from '../../state/projectStateContext'
+import { useDoc } from '../../state/contentContext'
+import { useSel } from '../../state/selectionContext'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface AppHeaderProps {
@@ -40,7 +42,25 @@ export function AppHeader(): JSX.Element {
   } = useHeader()
   const { showToast } = useToastCtx()
   const { ratio, loudnormLUFS, setLoudnormLUFS } = useExportCtx()
-  const { recentProjects } = useProjectStateCtx()
+  const { recentProjects, newTelopStyle, setNewTelopStyle } = useProjectStateCtx()
+  const { cues, setCues } = useDoc()
+  const { selectedIds } = useSel()
+  /**
+   * 書字方向を切り替える。
+   *
+   * **次に作る物と、いま選んでいる物の両方に当てる。** 向きは作ってから決めることが
+   * 多く、選んで押せないと作り直す羽目になる。選んでいなければ既定だけ変える。
+   */
+  const setTelopVertical = (v: boolean): void => {
+    setNewTelopStyle((s: typeof newTelopStyle) => ({ ...s, vertical: v }))
+    if (!selectedIds.length) return
+    setCues((prev) =>
+      prev.map((c) =>
+        selectedIds.includes(c.id) ? { ...c, style: { ...c.style, vertical: v } } : c
+      )
+    )
+  }
+  void cues
   return (
     <>
   {/* アプリの更新。作業の邪魔をしない細い帯で出す。
@@ -314,6 +334,26 @@ export function AppHeader(): JSX.Element {
       <button className="btn" onClick={addTelop} title={`再生ヘッド位置にテロップを追加 (${formatCombo(shortcuts.addTelop)})`}>
         ＋テロップ
       </button>
+      {/* **横書き／縦書き。** ＋テロップの隣に置く（次に作る物の向きを決める所なので）。
+          選んでいるテロップがあれば、そちらにも当てる——向きは「作ってから決める」
+          ことの方が多く、選んで押せないと作り直す羽目になる。
+          受け取らず自分で見に行くのは、品書き（AppMenus）や下の帯と同じ流儀。 */}
+      <div className="ratio-group">
+        {([false, true] as const).map((v) => (
+          <button
+            key={String(v)}
+            className={`chip ${!!newTelopStyle.vertical === v ? 'chip-on' : ''}`}
+            title={
+              v
+                ? '縦書き（列は右から左）。選んでいるテロップにも当てます'
+                : '横書き。選んでいるテロップにも当てます'
+            }
+            onClick={() => setTelopVertical(v)}
+          >
+            {v ? '縦書き' : '横書き'}
+          </button>
+        ))}
+      </div>
       <div className="ratio-group">
         {(['16:9', '9:16', '1:1'] as const).map((r) => (
           <button

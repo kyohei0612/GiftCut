@@ -296,6 +296,37 @@ export default async function (C) {
     )
   })
 
+  // **縦書き。** プレビューも書き出しも同じ `buildTelopSVG` を通るので、
+  // ここで縦になっていれば書き出しも縦になる（画面と書き出しで別々の式を持たない）。
+  // 見るのは**実際に描かれた形**——縦に組めていれば、横長だった文字の箱が縦長になる。
+  await check('横書き／縦書きを切り替えると、文字の並びが縦になる', async () => {
+    await resetProject()
+    await seekTo(2)
+    await page.waitForSelector('.telop-overlay .telop-textmain', { timeout: 8000 })
+    const shape = async () => {
+      const b = await page.locator('.telop-overlay .telop-textmain').first().boundingBox()
+      return b ? { w: Math.round(b.width), h: Math.round(b.height) } : null
+    }
+    const yoko = await shape()
+    assert(yoko && yoko.w > yoko.h, `横書きなのに横長でない（${JSON.stringify(yoko)}）`)
+
+    // 文字を選んでから切り替える（選んでいる物にも当たる作りにしてある）
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(300)
+    const tate = page.locator('.chip', { hasText: '縦書き' }).first()
+    assert(await tate.count(), '「縦書き」の切り替えが無い')
+    await tate.click()
+    await page.waitForTimeout(700)
+    const got = await shape()
+    assert(got && got.h > got.w, `縦書きにしたのに縦長にならない（${JSON.stringify(got)}）`)
+
+    // 戻せること（片道だけ効く状態に気づけない）
+    await page.locator('.chip', { hasText: '横書き' }).first().click()
+    await page.waitForTimeout(700)
+    const back = await shape()
+    assert(back && back.w > back.h, `横書きへ戻せない（${JSON.stringify(back)}）`)
+  })
+
   await check('テロップを重ねて置くと、重なった分が消える（上書き）', async () => {
     // **動画クリップは元から上書きされるのに、テロップだけ重なったまま残っていた。**
     // 画面では前後に重なって見えるだけで、どちらが出ているのか分からない。

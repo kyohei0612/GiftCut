@@ -251,20 +251,62 @@ export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): T
     )
   }
   const pad = Math.ceil(Math.max(padOut, shReach) + FS * 0.12)
-  // 返り値 textH＝枠(選択箱)の高さ。拡大文字ぶん(enlargedTop)を上に足す。
-  const textH = lines.length * lineH * FS + enlargedTop
-  const W = Math.ceil(maxW + pad * 2)
+
+  // ===== 縦書きか横書きか。**変えるのは「文字の置き方」と「枠の縦横」だけ** =====
+  //
+  // 縁・影・グラデ・部分装飾は `<text>` に掛かっているので、置き方を変えても
+  // そのまま効く（＝画面と書き出しで別々の式にならない）。
+  //
+  // 縦組みは `writing-mode: vertical-rl` に任せる。自分で1文字ずつ座標を計算すると、
+  // 約物（。、）の位置・合字・部分装飾の拡大文字が全部自前計算になり、
+  // **横書きと縦書きで別の組版を2つ持つ**ことになる。
+  const vert = !!s.vertical
+  /** 縦組みの1列ぶんの長さ（文字数×字送り）。和文は1文字＝1em で送る */
+  const colLen = (l: string): number => {
+    const n = [...l].length
+    return n * FS + tracking * Math.max(0, n - 1)
+  }
+  const maxColLen = vert ? Math.max(FS, ...lines.map(colLen)) : 0
+  // 枠（選択箱）の大きさ。横書きは「幅＝一番長い行／高さ＝行数」、縦書きはその逆。
+  const textW = vert ? lines.length * lineH * FS : maxW
+  const textH = vert ? maxColLen + enlargedTop : lines.length * lineH * FS + enlargedTop
+  const W = Math.ceil(textW + pad * 2)
   const H = Math.ceil(textH + pad * 2)
-  const ax = s.align === 'left' ? pad : s.align === 'right' ? W - pad : W / 2
+  // 寄せ。**縦書きでは「行の中の寄せ」が上下方向になる**（左＝上／右＝下）。
   const anchor = s.align === 'left' ? 'start' : s.align === 'right' ? 'end' : 'middle'
-  // ベースラインを enlargedTop 分下げる（拡大文字が上に伸びても枠内に収まるように）
-  const yOf = (i: number): number => pad + enlargedTop + (i + 0.5) * lineH * FS
+  const ax = vert
+    ? s.align === 'left'
+      ? pad + enlargedTop
+      : s.align === 'right'
+        ? H - pad
+        : pad + enlargedTop + (H - pad - (pad + enlargedTop)) / 2
+    : s.align === 'left'
+      ? pad
+      : s.align === 'right'
+        ? W - pad
+        : W / 2
+  /**
+   * 行（縦書きでは列）の位置。
+   *
+   * 横書き: i 行目のベースライン。拡大文字ぶん(enlargedTop)を下げる。
+   * 縦書き: i 列目の中心。**右から左へ**並べる（日本語の縦組み）。
+   */
+  const yOf = (i: number): number =>
+    vert
+      ? W - pad - (i + 0.5) * lineH * FS
+      : pad + enlargedTop + (i + 0.5) * lineH * FS
+  /** 1行（1列）ぶんの tspan に付ける座標。縦書きは x と y の役目が入れ替わる */
+  const posAttr = (i: number): string =>
+    vert
+      ? `x="${yOf(i).toFixed(1)}" y="${ax.toFixed(1)}"`
+      : `x="${ax.toFixed(1)}" y="${yOf(i).toFixed(1)}"`
   const lsAttr = tracking ? ` letter-spacing="${tracking.toFixed(2)}"` : ''
-  const tspans = lines
-    .map((l, i) => `<tspan x="${ax.toFixed(1)}" y="${yOf(i).toFixed(1)}">${_xmlEsc(l) || ' '}</tspan>`)
-    .join('')
+  const tspans = lines.map((l, i) => `<tspan ${posAttr(i)}>${_xmlEsc(l) || ' '}</tspan>`).join('')
   const famAttr = ff.replace(/"/g, '&quot;').replace(/'/g, '')
-  const fontAttr = `font-family='${famAttr}' font-size="${FS}" font-weight="${weight}" text-anchor="${anchor}" dominant-baseline="central"${lsAttr} style="font-synthesis:none;white-space:pre"`
+  // 縦組みは書字方向を宣言するだけ。**1文字ずつ座標を置きに行かない**
+  //（そうすると約物・合字・拡大文字が全部自前計算になり、組版が2つに割れる）
+  const wmAttr = vert ? 'writing-mode:vertical-rl;text-orientation:upright;' : ''
+  const fontAttr = `font-family='${famAttr}' font-size="${FS}" font-weight="${weight}" text-anchor="${anchor}" dominant-baseline="central"${lsAttr} style="${wmAttr}font-synthesis:none;white-space:pre"`
   // 縁/影用は全文均一の tspans（textEl）。塗り用は runs で文字ごとに上書きした fillTspans を使う。
   const textEl = (extra: string): string => `<text ${fontAttr} ${extra}>${tspans}</text>`
   // 部分装飾: グローバル文字index gi の run を返す（最後にマッチしたものを優先）
@@ -312,15 +354,18 @@ export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): T
             })
             .join('')
         : ' '
-      return `<tspan x="${ax.toFixed(1)}" y="${yOf(i).toFixed(1)}">${inner}</tspan>`
+      return `<tspan ${posAttr(i)}>${inner}</tspan>`
     })
     .join('')
 
   // 部分装飾の背景ハイライト（選択文字だけ bgColor）。最背面(影より後ろ)に矩形で敷く。
   // 文字送り(letter-spacing=tracking)込みで「文字ごとの実効フォント/サイズ」で実測し、run単位で連続する同色を1矩形に。
   let bgRects = ''
+  // **縦書きでは敷かない。** ここは「行の左端から文字幅を足していく」横書き専用の
+  // 計算で、縦組みに当てると見当違いの所に色が付く。**間違った箱を描くくらいなら
+  // 描かない**（付いていないことは見れば分かるが、ずれた箱は不具合に見える）。
   const hasRunBg = !!runs && runs.some((r) => r.bgColor)
-  if (hasRunBg && inkCtx) {
+  if (hasRunBg && inkCtx && !vert) {
     let bo = 0
     const padY = FS * 0.14 // 上下の余白
     for (let i = 0; i < lines.length; i++) {
@@ -418,7 +463,7 @@ export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): T
         const inner = segs.length
           ? segs.map((sg) => (sg.attr ? `<tspan${sg.attr}>${_xmlEsc(sg.text)}</tspan>` : _xmlEsc(sg.text))).join('')
           : ' '
-        return `<tspan x="${ax.toFixed(1)}" y="${yOf(i).toFixed(1)}">${inner}</tspan>`
+        return `<tspan ${posAttr(i)}>${inner}</tspan>`
       })
       .join('')
   }
@@ -559,5 +604,9 @@ export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): T
       : ''
   // width/height=100%＝外側コンテナ(cqh/px)でスケール。viewBoxが内部座標(1080基準px)を担う。
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="overflow:visible;display:block"><defs>${defs}</defs><g${skew}>${body}</g></svg>`
-  return { svg, w: W, h: H, textW: Math.ceil(maxW), textH: Math.ceil(textH), pad }
+  // **返す枠は、上で決めた textW/textH をそのまま返す。**
+  // ここだけ実測値（maxW）に戻していたので、縦書きにしても幅が横書きのままだった
+  // ＝縦に組んだのに当たり判定と絵の大きさは横長、という食い違いになる。
+  // 横書きでは textW === maxW なので、今までの値は1つも変わらない。
+  return { svg, w: W, h: H, textW: Math.ceil(textW), textH: Math.ceil(textH), pad }
 }
