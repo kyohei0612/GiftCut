@@ -20,6 +20,7 @@ export default async function (C) {
     page,
     resetProject,
     section,
+    skipHere,
     seekTo,
     v1Clips,
   } = C
@@ -678,7 +679,71 @@ export default async function (C) {
     assert(accepted.over, '帯が見本帳を受け付けない（落とし先になっていない）')
     assert(accepted.drop, '帯へ落としても何も起きない')
   })
-  // ※ 前は { orderDependent: true } を付けていた（「見本は手前の章が作る」ため）。
+  // **細すぎる演出の帯は作らない。**
+  //
+  // 出入りの演出は 0.3秒ほど。**長い動画を全体表示にすると帯の幅が約2px** で、
+  // 見えていないのに1つにつき6個（頭・尻 × 帯・名前・つまみ）の要素が増える。
+  // 実測で、演出248個のとき DOM が 1,678 → 3,166 になり、
+  // **再生ヘッドを掴んだときの重さもそれに比例して増えていた**
+  //（本人の症状は「再生ヘッドがカクつく。タイムラインだけ」。2026-08-03）。
+  //
+  // ここで見るのは**決まりそのもの**（`components/timeline/TelopAnimBand`）。
+  // 確認用の素材はテロップが3秒しかなく、全体表示でも 0.3秒が十分な幅を持つので、
+  // 画面の操作では「細すぎる」状態を作れない。**拡大率を直接下げて作る。**
+  await check('細すぎる演出の帯は作らない（寄せれば出てくる）', async () => {
+    await resetProject()
+    // テロップに出入りの演出を付ける（帯へ落とす道は別の項目で見ている）
+    const ok = await page.evaluate(() => {
+      const card = document.querySelector('.fx-item')
+      const target = document.querySelector('[data-tid="V2"] .telop-clip')
+      if (!card || !target) return false
+      const b = target.getBoundingClientRect()
+      const dt = new DataTransfer()
+      card.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }))
+      const at = { clientX: b.x + 6, clientY: b.y + b.height / 2 }
+      target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, ...at }))
+      target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, ...at }))
+      card.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }))
+      return true
+    })
+    if (!ok) skipHere('演出の一覧が出ていない（右パネルのトランジションを開く手順が要る）')
+    await page.waitForTimeout(600)
+    const bands = () => page.locator('.ttrans-telop').count()
+    const nWide = await bands()
+    assert(nWide > 0, '演出を置いても帯が出ない')
+
+    // **目一杯まで引く**＝1秒あたりの幅が最小になり、0.3秒の帯は数pxになる
+    const scr = await page.locator('.track-scroll').boundingBox()
+    await page.keyboard.down('Control')
+    await page.mouse.move(scr.x + scr.width / 2, scr.y + 60)
+    for (let i = 0; i < 30; i++) {
+      await page.mouse.wheel(0, 120)
+      await page.waitForTimeout(30)
+    }
+    await page.keyboard.up('Control')
+    await page.waitForTimeout(700)
+    const nThin = await bands()
+    assert(nThin < nWide, `引いても細い帯が消えない（寄せた ${nWide} → 引いた ${nThin}）`)
+
+    // 寄せ直せば戻る（消えたままにならない）
+    await page.keyboard.down('Control')
+    await page.mouse.move(scr.x + scr.width / 2, scr.y + 60)
+    for (let i = 0; i < 30; i++) {
+      await page.mouse.wheel(0, -120)
+      await page.waitForTimeout(30)
+    }
+    await page.keyboard.up('Control')
+    await page.waitForTimeout(700)
+    assert((await bands()) > nThin, '寄せ直しても演出の帯が戻らない')
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  },
+  // **右パネルの演出の一覧が開いている状態**が要る。それを作るのは手前の項目
+  //（見本帳を帯へ落とす所）で、ここだけ絞って回すと一覧が無く飛ばされる。
+  // ここで自分で開くと、確かめたい所（細い帯を作らないか）から遠くなる。
+  { orderDependent: true })
+
+  // 「動き」の節は components/panels/MotionPresetList。  // ※ 前は { orderDependent: true } を付けていた（「見本は手前の章が作る」ため）。
   //   実際に確かめたら、開ける節の中に**最初から入っている「プリセット」10枚**が
   //   あり、手前の章に頼っていなかった。印を外して絞っても回せるようにした
   //   （2026-08-03。嘘の赤を消す印なので、要らない所に付いていると
