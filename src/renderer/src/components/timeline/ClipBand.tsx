@@ -11,6 +11,9 @@
 
 import type { JSX, ReactNode } from 'react'
 
+/** 端のつまみの幅（px）。styles.css の .clip-trim と同じ値 */
+const TRIM_PX = 7
+
 /**
  * 帯を右クリックしたときに、クリップ用の品書きを開く。
  *
@@ -82,6 +85,18 @@ export function ClipBand({
   children?: ReactNode
   style?: React.CSSProperties
 }): JSX.Element {
+  // **細い帯には端のつまみを出さない。**
+  //
+  // つまみは片側 7px。帯が 14px 以下だと**左右のつまみで全部埋まり、本体を
+  // 掴んで動かせない**——出しても掴めないうえ、動かす操作の邪魔をしていた。
+  //
+  // 要素の数にも効く。実データ（451秒・248テロップ）の全体表示では
+  // `clip-trim` が 558個（帯1つに2個）で、タイムラインの中で一番多かった。
+  // **掴んでいる間はタイムラインが描き直される**ので、数が直に効く
+  //（本人の症状は「再生ヘッドがカクつく。タイムラインだけ」。2026-08-03）。
+  //
+  // 端を摘みたいときは寄る。どのみち 12px の帯の端は狙えない。
+  const wideEnoughToTrim = width > TRIM_PX * 2
   return (
     <div
       className={`clip ${className} ${selected ? 'clip-selected' : ''} ${group ? 'clip-nested' : ''}`}
@@ -105,14 +120,18 @@ export function ClipBand({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      {onTrimLeft && <div className="clip-trim clip-trim-l" onPointerDown={onTrimLeft} />}
+      {onTrimLeft && wideEnoughToTrim && (
+        <div className="clip-trim clip-trim-l" onPointerDown={onTrimLeft} />
+      )}
       {children}
       {onDelete && (
         <button className="se-del" title={deleteTitle} onPointerDown={onDelete}>
           ✕
         </button>
       )}
-      {onTrimRight && <div className="clip-trim clip-trim-r" onPointerDown={onTrimRight} />}
+      {onTrimRight && wideEnoughToTrim && (
+        <div className="clip-trim clip-trim-r" onPointerDown={onTrimRight} />
+      )}
     </div>
   )
 }

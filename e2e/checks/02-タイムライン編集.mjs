@@ -679,6 +679,55 @@ export default async function (C) {
     assert(accepted.over, '帯が見本帳を受け付けない（落とし先になっていない）')
     assert(accepted.drop, '帯へ落としても何も起きない')
   })
+  // **細い帯には端のつまみを出さない。**
+  //
+  // つまみは片側 7px。帯が 14px 以下だと**左右のつまみで全部埋まり、本体を
+  // 掴んで動かせない**——出しても掴めないうえ、動かす操作の邪魔になる。
+  // 実データの全体表示では `clip-trim` が 558個あり、タイムラインで一番多かった。
+  // 掴んでいる間はタイムラインが描き直されるので、数が直に効く（2026-08-03）。
+  await check('細い帯には端のつまみを出さない（寄せれば出てくる）', async () => {
+    await resetProject()
+    const trims = () => page.locator('.clip-trim').count()
+    const scr = await page.locator('.track-scroll').boundingBox()
+    const wheel = async (dir, n) => {
+      await page.keyboard.down('Control')
+      await page.mouse.move(scr.x + scr.width / 2, scr.y + 60)
+      for (let i = 0; i < n; i++) {
+        await page.mouse.wheel(0, dir * 120)
+        await page.waitForTimeout(30)
+      }
+      await page.keyboard.up('Control')
+      await page.waitForTimeout(700)
+    }
+    /** いちばん手前の帯の幅（px）。**回数ではなく、この幅で見る** */
+    const bandW = () =>
+      page.evaluate(() => {
+        const c = document.querySelector('.telop-clip, .video-clip')
+        return c ? Math.round(c.getBoundingClientRect().width) : 0
+      })
+    // **先に寄せる。** 起動直後はもう一番引いた状態（拡大率の下限）なので、
+    // そこから引いても何も変わらない——最初そう書いて、実測で気づいた。
+    await wheel(-1, 20)
+    const wWide = await bandW()
+    const nWide = await trims()
+    assert(wWide > 14, `寄せても帯が細いまま（${wWide}px）`)
+    assert(nWide > 0, '寄せても、つまみが1つも出ていない')
+
+    // 引く＝帯が細くなる → 掴めない幅のつまみは出さない
+    await wheel(1, 30)
+    const wThin = await bandW()
+    const nThin = await trims()
+    assert(wThin < 14, `引いても帯が細くならない（${wThin}px）`)
+    assert(nThin < nWide, `帯が ${wThin}px なのに、つまみが減らない（${nWide} → ${nThin}）`)
+
+    // 寄せ直すと戻る（掴めなくなったままにしない）。
+    // **幅が戻るまで寄せる**——同じ回数では戻らない（引くときに下限へ張り付くため）
+    for (let i = 0; i < 6 && (await bandW()) <= 14; i++) await wheel(-1, 10)
+    const wBack = await bandW()
+    assert(wBack > 14, `寄せ直しても帯が広がらない（${wBack}px）`)
+    assert((await trims()) > nThin, '帯が広がったのに、つまみが戻らない')
+  })
+
   // **細すぎる演出の帯は作らない。**
   //
   // 出入りの演出は 0.3秒ほど。**長い動画を全体表示にすると帯の幅が約2px** で、
