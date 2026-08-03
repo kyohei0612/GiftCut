@@ -86,7 +86,10 @@ const NEED_INDEX = 500
 const DEBT_INDEX = new Set([
   'src/main/exportRun.ts', // 1,220。shared/timeline の再実装を先に消す
   'src/renderer/src/state/useAppWiring.tsx', // 1,213
-  'src/renderer/src/state/useTimelineEdit.ts', // 893
+  // useTimelineEdit は**返済済み**（2026-08-03）。896行のままだが取説を付けた。
+  // 切り口を探して見つからなかった——mapContentTimes（5種類まとめて時刻を
+  // 付け替える）が群をまたいで4か所から使われていて、どこで切っても導管になる。
+  // **割るなら mapContentTimes の置き場を先に決めること。**
   // StylePanel は**返済済み**（2026-08-03）。アピアランス225行を
   // ./StyleAppearance へ出して 679 → 451。冒頭コメントも付けた
   // useProjectFile は**返済済み**（2026-08-03）。テンプレート141行を
@@ -248,7 +251,7 @@ describe('AI が余裕を持って読める形', () => {
     // 増やしたくなったら、それは「割るか取説を書くか」を先送りしているだけ。
     // 2026-08-03 に 13 で始めて、その日のうちに telopStyle / useLibraries /
     // useProjectFile を返して 10。
-    expect(DEBT_INDEX.size).toBeLessThanOrEqual(9)
+    expect(DEBT_INDEX.size).toBeLessThanOrEqual(8)
     expect(DEBT_HEAD.size).toBeLessThanOrEqual(10)
   })
 })

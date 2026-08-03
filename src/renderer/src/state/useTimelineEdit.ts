@@ -23,6 +23,48 @@
 // どこで切るか（silenceCut）・どう詰めるか（ripple）・切片の分け方（timeline）は
 // 画面を起動せずに確かめられるように分けてある。こちらの仕事は
 // 「選んでいる物を集めて、鍵を見て、呼ぶ」まで。
+//
+// ## なぜ 896 行のままなのか（2026-08-03 に測った）
+//
+// 話題は1つ（縮める側の操作）で、**切り口を探したが見つからなかった**:
+//
+//   `mapContentTimes`（5種類まとめて時刻を付け替える）が**群をまたいで
+//   使われている**——無音カット・映像切片の削除・カットまで詰める・
+//   再生ヘッドで切る、の4か所。ここが心臓なので、どこで切っても導管になる。
+//
+// だから割らずに、下の**取説**を付けた（`shared/readability.test.ts` が
+// 名前を照合するので、引っ越して説明だけ残すことはできない）。
+// **割るなら `mapContentTimes` の置き場を先に決めること。**
+//
+// ## 中身
+//
+// - `useTimelineEdit` … 下をまとめて返す唯一の入口
+// - `deleteSelected` … 選んだテロップを消す（後ろは動かない）
+// - `rippleDeleteSelected` … 消して後ろを詰める（**種類を跨いで全部**）
+// - `cutSelected` … 切り取り（コピーしてから消す）
+// - `regroupCopies` … 複製した物の「組」を振り直す（元の組と混ざらないように）
+// - `duplicateSelected` … テロップを複製する
+// - `razorSegment` … 切片を指定位置で2つに割る（レザー）
+// - `deleteSelectedSE` … 選んだ効果音を消す
+// - `findSilences` … 無音の区間を探す（ダッキングと無音カットの下ごしらえ）
+// - `applySilenceCut` … 見つけた無音を実際に落として詰める
+// - `rippleDeleteVideoSegments` … 本編の切片を消して後ろを詰める
+// - `toggleBlankSelectedVideo` … 映像だけ消す／戻す（音と長さは残す）
+// - `duplicateClipsFromMenu` … 右クリックからの複製（種類ごと）
+// - `duplicateSelectedSegments` … 本編の切片を複製する
+// - `setSelectedSegSpeed` … 再生速度を変える。**後ろも同量ずらして同期を保つ**
+// - `setSegRotate` … 切片の回転角を直接指定する（自由回転のつまみ用）
+// - `closeGapAtPlayhead` … 再生ヘッドの所の空白を詰める
+// - `deleteVideoSegmentsLeavingGap` … 切片を消して**空白を残す**（詰めない）
+// - `closeSelectedGaps` … 選んだ空白をまとめて詰める
+// - `closeGap` … 空白1つを詰める（上の2つの実体）
+// - `allContentEdges` … 本編に載っている物の端の時刻を全部集める
+// - `mapContentTimes` … **5種類まとめて**時刻を付け替える。**このファイルの心臓**
+// - `collapseContent` … ある区間を捨てて後ろを詰める（`mapContentTimes` を使う）
+// - `rippleToPrevCut` … 前のカットまで詰める（途中に端があればそこで止まる）
+// - `rippleToNextCut` … 次のカットまで詰める
+// - `splitVideoAtPlayhead` … 再生ヘッドで本編を割る
+// - `cutAtPlayhead` … 再生ヘッドで、載っている物も含めて切る
 
 import {
   clamp, layoutSegs, qFrame, rippleEnd, rippleShifted, rippleStart,
