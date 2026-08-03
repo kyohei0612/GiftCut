@@ -104,23 +104,36 @@ page.setDefaultTimeout(20000)
 // 「前回の作業が残っています」→ 復元する。
 // **重なって出ることがある**（テンプレート選びなど）ので、
 // 余分は e2e/dismiss.mjs でどけてから本命を押す
-await page.waitForTimeout(1500)
-await clearModals(page)
+// **窓が出るまで粘り、押した結果で判断する。**
+//
+// 前は「1.5秒待つ → clearModals → `.restore-btns` があるか見る」だったが、
+// **clearModals は真っ先に『復元する』を押す**（e2e/dismiss.mjs の BUTTONS の
+// 先頭）。押したあとに窓を探すので必ず空になり、中身が入っていても
+// 「下書きが空の可能性があります」で止まっていた。
+// しかも 1.5秒は 1MB クラスの下書きには足りない（2026-08-03。実データで気づいた）。
+//
+// 見るのは窓ではなく**中身が入ったか**。それが本当に確かめたいこと。
 const restore = page.locator('.restore-btns button', { hasText: /^復元する$/ })
-if (await restore.count().catch(() => 0)) {
-  await restore.first().click()
-  await page.waitForTimeout(4000)
-  const info = await page.evaluate(() => ({
+const loaded = async () =>
+  await page.evaluate(() => ({
     clips: document.querySelectorAll('.clip').length,
     telops: document.querySelectorAll('.telop-clip').length
   }))
-  console.log(`復元しました（切片 ${info.clips} / テロップ ${info.telops}）`)
-} else {
-  console.error('復元の確認が出ませんでした。下書きが空の可能性があります。')
+let info = await loaded()
+for (let i = 0; i < 30 && info.clips + info.telops === 0; i++) {
+  if (await restore.count().catch(() => 0)) await restore.first().click().catch(() => {})
+  else await clearModals(page)
+  await page.waitForTimeout(500)
+  info = await loaded()
+}
+if (info.clips + info.telops === 0) {
+  console.error('下書きを読み込めませんでした（切片もテロップも0）。')
   await app.close().catch(() => {})
   rmSync(tmp, { recursive: true, force: true })
   process.exit(2)
 }
+await page.waitForTimeout(2000)
+console.log(`復元しました（切片 ${info.clips} / テロップ ${info.telops}）`)
 
 /** 焼き直しが終わるまで待つ（変換に食われた分をカクつきとして数えないため） */
 const waitQuiet = async (ms = 600000) => {
