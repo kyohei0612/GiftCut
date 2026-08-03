@@ -1,62 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FillGradient } from '../lib/telopStyle'
 import { clamp } from '../../../shared/timeline'
+import { alphaAt, hexToRgb, hsvToRgb, rgbToHex, rgbToHsv } from '../../../shared/color'
 
-// ===== 色変換 =====
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  let h = (hex || '#000000').replace('#', '')
-  if (h.length === 3) h = h.split('').map((c) => c + c).join('')
-  const n = parseInt(h.slice(0, 6), 16) || 0
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
-}
-function rgbToHex(r: number, g: number, b: number): string {
-  return '#' + [r, g, b].map((v) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join('')
-}
-function rgbToHsv(r: number, g: number, b: number): { h: number; s: number; v: number } {
-  r /= 255
-  g /= 255
-  b /= 255
-  const mx = Math.max(r, g, b)
-  const mn = Math.min(r, g, b)
-  const d = mx - mn
-  let h = 0
-  if (d) {
-    if (mx === r) h = ((g - b) / d) % 6
-    else if (mx === g) h = (b - r) / d + 2
-    else h = (r - g) / d + 4
-    h *= 60
-    if (h < 0) h += 360
-  }
-  return { h, s: mx ? d / mx : 0, v: mx }
-}
-function hsvToRgb(h: number, s: number, v: number): { r: number; g: number; b: number } {
-  const c = v * s
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
-  const m = v - c
-  let r = 0
-  let g = 0
-  let b = 0
-  if (h < 60) [r, g, b] = [c, x, 0]
-  else if (h < 120) [r, g, b] = [x, c, 0]
-  else if (h < 180) [r, g, b] = [0, c, x]
-  else if (h < 240) [r, g, b] = [0, x, c]
-  else if (h < 300) [r, g, b] = [x, 0, c]
-  else [r, g, b] = [c, 0, x]
-  return { r: (r + m) * 255, g: (g + m) * 255, b: (b + m) * 255 }
-}
-function alphaAt(ops: { opacity: number; pos: number }[], pos: number): number {
-  if (!ops.length) return 1
-  const s = [...ops].sort((a, b) => a.pos - b.pos)
-  if (pos <= s[0].pos) return s[0].opacity / 100
-  if (pos >= s[s.length - 1].pos) return s[s.length - 1].opacity / 100
-  for (let i = 0; i < s.length - 1; i++) {
-    if (pos >= s[i].pos && pos <= s[i + 1].pos) {
-      const t = (pos - s[i].pos) / (s[i + 1].pos - s[i].pos || 1)
-      return (s[i].opacity + (s[i + 1].opacity - s[i].opacity) * t) / 100
-    }
-  }
-  return 1
-}
+// ※ 色の算数（hexToRgb / rgbToHex / rgbToHsv / hsvToRgb / alphaAt）は
+//    shared/color へ出した。**lib/telopSvg にも同じ計算があった**ので、
+//    書き出しと画面で色がズレないよう1本に寄せた（2026-08-03）。
 
 type Fill = { enabled: boolean; color: string; gradient?: FillGradient; gradStash?: FillGradient }
 type Mode = 'solid' | 'linear' | 'radial'

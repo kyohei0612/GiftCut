@@ -32,69 +32,20 @@ import {
   resolveGradMid
 } from './telopStyle'
 import type { FillGradient, ShadowSpec, StrokeLayer, TelopStyle } from './telopStyle'
+import { alphaAt, oklabLerp } from '../../../shared/color'
 
-// --- oklab補間（SVGはoklab非対応なのでsRGBストップに焼く。金属グラデの光沢を保つ） ---
-function _hex2rgb(h: string): [number, number, number] {
-  const s = h.replace('#', '')
-  return [parseInt(s.slice(0, 2), 16) || 0, parseInt(s.slice(2, 4), 16) || 0, parseInt(s.slice(4, 6), 16) || 0]
-}
-function _rgb2hex(r: number[]): string {
-  return '#' + r.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')
-}
-function _s2l(c: number): number {
-  c /= 255
-  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-}
-function _l2s(c: number): number {
-  return 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055)
-}
-function _rgb2oklab(rgb: [number, number, number]): [number, number, number] {
-  const r = _s2l(rgb[0]), g = _s2l(rgb[1]), b = _s2l(rgb[2])
-  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
-  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
-  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
-  return [
-    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
-    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
-    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s
-  ]
-}
-function _oklab2rgb(lab: [number, number, number]): [number, number, number] {
-  const L = lab[0], A = lab[1], B = lab[2]
-  const l_ = L + 0.3963377774 * A + 0.2158037573 * B
-  const m_ = L - 0.1055613458 * A - 0.0638541728 * B
-  const s_ = L - 0.0894841775 * A - 1.291485548 * B
-  const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_
-  return [
-    _l2s(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-    _l2s(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-    _l2s(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)
-  ]
-}
-function _oklabLerp(c0: string, c1: string, t: number): string {
-  const a = _rgb2oklab(_hex2rgb(c0)), b = _rgb2oklab(_hex2rgb(c1))
-  return _rgb2hex(_oklab2rgb([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]))
-}
+// ※ oklab の変換と16進の行き来（_hex2rgb / _rgb2hex / _s2l / _l2s /
+//    _rgb2oklab / _oklab2rgb / _oklabLerp）は shared/color へ出した。
+//    **components/FillPicker にも同じ計算があった**（このファイルの頭が
+//    「呼びたくなったら shared へ出す」と書いている、まさにその状態）。
+//    書き出しと画面で色がズレないよう1本に寄せた（2026-08-03）。
+//
+//    寄せたことで、`#abc` のような3桁の16進も正しく読めるようになった
+//    （こちら側は3桁を黒にしていた）。
+
 function _xmlEsc(s: string): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
-// 不透明度ストップ列を位置pos(0-1)で線形補間しα(0-1)を返す。未指定/空は不透明(1)。
-function _alphaAt(ops: { opacity: number; pos: number }[] | undefined, pos: number): number {
-  if (!ops || ops.length === 0) return 1
-  const s = [...ops].sort((a, b) => a.pos - b.pos)
-  if (pos <= s[0].pos) return s[0].opacity / 100
-  if (pos >= s[s.length - 1].pos) return s[s.length - 1].opacity / 100
-  for (let i = 0; i < s.length - 1; i++) {
-    const a = s[i]
-    const b = s[i + 1]
-    if (pos >= a.pos && pos <= b.pos) {
-      const t = (pos - a.pos) / (b.pos - a.pos || 1)
-      return (a.opacity + (b.opacity - a.opacity) * t) / 100
-    }
-  }
-  return 1
-}
-
 let _svgGradId = 0
 let _svgFilterId = 0 // 影ぼかしfilter用のグローバル一意カウンタ（同一documentでのid衝突を防ぐ）
 function _gradDef(id: string, g: NonNullable<TelopStyle['fill']['gradient']>): string {
@@ -112,14 +63,14 @@ function _gradDef(id: string, g: NonNullable<TelopStyle['fill']['gradient']>): s
     for (let k = 0; k < SAMPLES; k++) {
       const u = k / SAMPLES
       const t = u <= mid ? 0.5 * (u / mid) : 0.5 + 0.5 * ((u - mid) / (1 - mid))
-      out.push([s.pos + u * (next.pos - s.pos), _oklabLerp(s.color, next.color, t)])
+      out.push([s.pos + u * (next.pos - s.pos), oklabLerp(s.color, next.color, t)])
     }
   }
   out.push([stops[stops.length - 1].pos, stops[stops.length - 1].color])
   const stopsXml = out
     .map(
       ([p, c]) =>
-        `<stop offset="${Math.max(0, Math.min(1, p)).toFixed(4)}" stop-color="${c}" stop-opacity="${_alphaAt(
+        `<stop offset="${Math.max(0, Math.min(1, p)).toFixed(4)}" stop-color="${c}" stop-opacity="${alphaAt(
           g.opacityStops,
           p
         ).toFixed(3)}"/>`
