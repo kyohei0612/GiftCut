@@ -93,16 +93,28 @@ export function loadJson<T>(key: string, fallback: T): T {
   }
 }
 
-export function useProjectState(init: {
-  favorites: string[]
-  catOverrides: Record<string, string>
-  customCats: { key: string; label: string }[]
-  userTemplates: TelopTemplate[]
-  iconAssign: Record<string, string>
-  laneIconAssign: Record<string, string>
-  recentProjects: RecentProject[]
-  newTelopStyle: TelopStyle
-}): ProjectState {
+/**
+ * 最初の値は**関数で受け取る**（`useState` の遅延初期化）。
+ *
+ * 前は出来上がった値を受け取っていたので、**画面が描き直されるたびに
+ * localStorage から8つ読んで JSON を解析していた**——使うのは初回だけなのに。
+ * 実データではアイコンの割り当てだけで 0.6MB あり、再生ヘッドを掴んでいる間の
+ * 計測で `loadIconAssign` が上位に出てきた（2026-08-03）。
+ *
+ * **`useState(x)` の x は毎回作られる。`useState(() => x)` なら初回だけ。**
+ */
+export interface ProjectStateInit {
+  favorites: () => string[]
+  catOverrides: () => Record<string, string>
+  customCats: () => { key: string; label: string }[]
+  userTemplates: () => TelopTemplate[]
+  iconAssign: () => Record<string, string>
+  laneIconAssign: () => Record<string, string>
+  recentProjects: () => RecentProject[]
+  newTelopStyle: () => TelopStyle
+}
+
+export function useProjectState(init: ProjectStateInit): ProjectState {
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [srtPath, setSrtPath] = useState<string | null>(null)
   const [missingMedia, setMissingMedia] = useState<MissingMedia | null>(null)

@@ -156,15 +156,19 @@ export default function App(): React.JSX.Element {
   const toast = useToast()
   const playback = usePlayback(FPS)
   const dragPreview = useDragPreview()
+  // **読むのは起動時の1回だけ。** 出来上がった値を渡すと、画面が描き直される
+  // たびに localStorage から8つ読んで JSON を解析することになる（使うのは初回だけ）。
+  // 実データではアイコンの割り当てだけで 0.6MB あり、再生ヘッドを掴んでいる間の
+  // 計測で `loadIconAssign` が上位に出てきた（2026-08-03）。
   const projectState = useProjectState({
-    favorites: loadFavorites(),
-    catOverrides: loadCatOverrides(),
-    customCats: loadCustomCats(),
-    userTemplates: loadUserTemplates(),
-    iconAssign: loadIconAssign(),
-    laneIconAssign: loadJson<Record<string, string>>('giftcut.laneIconAssign', {}),
-    recentProjects: loadRecentProjects(RECENT_KEY, RECENT_MAX),
-    newTelopStyle: defaultTelopStyle()
+    favorites: loadFavorites,
+    catOverrides: loadCatOverrides,
+    customCats: loadCustomCats,
+    userTemplates: loadUserTemplates,
+    iconAssign: loadIconAssign,
+    laneIconAssign: () => loadJson<Record<string, string>>('giftcut.laneIconAssign', {}),
+    recentProjects: () => loadRecentProjects(RECENT_KEY, RECENT_MAX),
+    newTelopStyle: defaultTelopStyle
   })
   return (
     <LayoutProvider>

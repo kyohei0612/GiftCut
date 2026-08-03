@@ -49,9 +49,29 @@ function hueCat(h: number): string {
   if (h < 255) return '青'
   return '紫'
 }
+/**
+ * 一度出した答えを覚えておく。
+ *
+ * 見本帳は数百枚あり、**画面が描き直されるたびに全部の色を計算し直していた**
+ * （再生ヘッドを掴んでいる間の計測で `hexToHsl` が上位に出てきた。2026-08-03）。
+ * 答えはスタイルの中身だけで決まるので、**その物を鍵にすれば覚えられる**。
+ *
+ * `WeakMap` なので、見本が捨てられれば控えも一緒に消える
+ * （`lib/lru` のように上限を決める必要がない）。
+ */
+const colorCatCache = new WeakMap<TelopStyle, string>()
+
 // スタイルの「見た目の色」でカテゴリ判定。
 // 切り抜きテロップは白塗り＋色縁が多いので、塗りが無彩色なら縁→影の順で有彩色を探す。
 export function colorCatOf(st: TelopStyle): string {
+  const hit = colorCatCache.get(st)
+  if (hit != null) return hit
+  const out = colorCatOfInner(st)
+  colorCatCache.set(st, out)
+  return out
+}
+
+function colorCatOfInner(st: TelopStyle): string {
   const cands: string[] = []
   if (st.fill?.enabled) {
     const g = st.fill.gradient
