@@ -107,6 +107,7 @@ import { useNestSelectSync } from './useNest'
 import { useDiagnostics } from './useDiagnostics'
 import { useAppLayout } from './useAppLayout'
 import { useLibraries } from './useLibraries'
+import { useLibraryOrganize } from './useLibraryOrganize'
 import { useSegmentPlace } from './useSegmentPlace'
 import { type TimelineOps } from './timelineOpsContext'
 import { type TimelineView } from './timelineViewContext'
@@ -367,11 +368,15 @@ export function useAppWiring() {
     'project' | 'telop' | 'icon' | 'se' | 'transition'
   >('project')
 
-  // 置き場（効果音・テロップの見本・動きの見本帳）と整理は state/useLibraries
+  // 置き場（効果音・テロップの見本・動きの見本帳）は state/useLibraries。
+  // それをどう並べるか（★・フォルダ・畳み）は state/useLibraryOrganize。
+  // **2つはまたぐ名前が0個**なので、呼ぶ順にも決まりは無い（2026-08-03 に分けた）。
   const {
     seLibrary, refreshSE, importSeInto, localTemplates, refreshPresets,
     motionPresets, refreshMotionPresets, importMotionPresets,
-     myMotions, saveMyMotion, deleteMyMotion,
+    myMotions, saveMyMotion, deleteMyMotion
+  } = useLibraries({ askText })
+  const {
     isFav, toggleFav, setTplCat, openTplSec, toggleTplSec,
      setOpenAccSec, accSec, loadLS, saveLS,
     seFavs, seFolders, seOv,
@@ -379,7 +384,7 @@ export function useAppWiring() {
     toggleSeFav, toggleIconFav, setSeFolderOf, setIconFolderOf,
     addSeFolder, deleteSeFolder, addIconFolder, deleteIconFolder,
     orgMenu, setOrgMenu, allCats, catOf, addCustomCat, deleteCustomCat
-  } = useLibraries({ askText })
+  } = useLibraryOrganize({ askText })
   // プレビューの画質と、焼き直した映像（プロキシ）は state/useProxy
   const { previewRes, setPreviewRes, previewResRef, lastPreviewResRef, proxyMap, previewUrl } =
     useProxy({ loadLS, saveLS, playRateRef, sources, vClips, proxyForPathRef, setProxyPct })

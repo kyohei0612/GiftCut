@@ -94,7 +94,8 @@ const DEBT_INDEX = new Set([
   'src/renderer/src/state/useTimelineDrag.ts', // 577
   'src/renderer/src/lib/telopSvg.ts', // 564
   'src/renderer/src/state/useClipDrag.ts', // 534
-  'src/renderer/src/state/useLibraries.tsx', // 530
+  // useLibraries は**返済済み**（2026-08-03）。整理（★・フォルダ・畳み）を
+  // ./useLibraryOrganize へ出して 530 → 210。JSX が無くなったので .ts になった
   'src/renderer/src/state/useMediaDrop.ts', // 524
   'src/renderer/src/state/usePlaybackEngine.ts', // 516
   'src/renderer/src/state/usePreviewManip.ts' // 516
@@ -231,8 +232,8 @@ describe('AI が余裕を持って読める形', () => {
 
   it('DEBT は減らす方向にだけ動かす（この数を増やしたら赤くする）', () => {
     // 増やしたくなったら、それは「割るか取説を書くか」を先送りしているだけ。
-    // 2026-08-03 に 13 で始めて、その日のうちに telopStyle を返して 12。
-    expect(DEBT_INDEX.size).toBeLessThanOrEqual(12)
+    // 2026-08-03 に 13 で始めて、その日のうちに telopStyle と useLibraries を返して 11。
+    expect(DEBT_INDEX.size).toBeLessThanOrEqual(11)
     expect(DEBT_HEAD.size).toBeLessThanOrEqual(11)
   })
 })
