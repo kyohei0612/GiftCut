@@ -6,7 +6,7 @@
 // **素材が変わると数字も変わる**ので、前回と比べるときは同じ素材で測ること。
 import { sh } from './shell.mjs'
 import { fmt, mb } from './fmt.mjs'
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync, statSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, statSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -252,6 +252,29 @@ export function makeProject(video, totalSec) {
   )
   // 自動保存から復元する経路で開く。ファイル選択ダイアログを触らずに済み、
   // しかも本番と同じ読み込み経路をそのまま通せる。
+  writeFileSync(join(userData, 'giftcut-autosave.json'), json, 'utf-8')
+  const gcproj = join(dir, 'bench.gcproj')
+  writeFileSync(gcproj, json, 'utf-8')
+  return { dir, userData, gcproj, bytes: Buffer.byteLength(json) }
+}
+
+/**
+ * **本物のプロジェクトファイルで測る**（`npm run bench -- --project=<path>`）。
+ *
+ * 作り物の素材は「テロップ200枚が等間隔に並ぶ」ような素直な形になりがちで、
+ * 実際の編集で出る重さ（段が11本ある・切片が細かく刻まれている・
+ * 効果音が重なっている）が出てこない。本人のファイルをそのまま開いて測れる口。
+ *
+ * **原本は触らない。** 一時フォルダへ写してから開く（自動保存の経路も一時側）。
+ * 素材のパスは絶対パスのままなので、素材が動いていると読み込みで欠ける
+ * ——その場合は開いた直後に画面が「素材が見つかりません」を出すので、
+ * 数字を読む前にそこを見ること。
+ */
+export function useRealProject(srcPath) {
+  const dir = mkdtempSync(join(tmpdir(), 'giftcut-bench-'))
+  const userData = join(dir, 'userData')
+  mkdirSync(userData, { recursive: true })
+  const json = readFileSync(srcPath, 'utf-8')
   writeFileSync(join(userData, 'giftcut-autosave.json'), json, 'utf-8')
   const gcproj = join(dir, 'bench.gcproj')
   writeFileSync(gcproj, json, 'utf-8')

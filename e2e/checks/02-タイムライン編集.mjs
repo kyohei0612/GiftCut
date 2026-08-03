@@ -415,19 +415,40 @@ export default async function (C) {
   section('7. 文字（テロップ）')
   await resetProject()
 
+  // **段は決め打ちで見ない。** 2026-08-03 に「被っていない一番下の段に作る」へ
+  // 変わったので、V2→V3 と決め打ちしていた頃の書き方は嘘になる（実際、
+  // 通しでは V4→V5 に作られていて落ちていた。アプリは正しく、確認が古かった）。
+  // ここが見たいのは「増えること」と「2回目は1段上へ逃げること」の2つだけ。
   await check('T キーで文字ができ、もう一度押すと1段上にできる', async () => {
+    /** いまテロップが載っている映像段の番号（V2 → 2） */
+    const lanes = async () =>
+      await page.evaluate(() =>
+        [...document.querySelectorAll('[data-tid]')]
+          .filter((el) => el.querySelector('.telop-clip'))
+          .map((el) => Number((el.getAttribute('data-tid') ?? '').replace('V', '')))
+          .filter((n) => Number.isFinite(n))
+      )
     const n0 = await page.locator('.telop-clip').count()
+    const before = new Set(await lanes())
     await page.locator('.track-scroll').click({ position: { x: 700, y: 30 } })
     await page.keyboard.press('t')
     await page.waitForTimeout(400)
     const n1 = await page.locator('.telop-clip').count()
     assert(n1 === n0 + 1, `文字が増えていない（${n0} → ${n1}）`)
-    const onV2 = await page.locator('[data-tid="V2"] .telop-clip').count()
-    assert(onV2 > 0, '上から2段目に作られていない')
+    const after1 = await lanes()
+    const first = Math.max(...after1)
+    assert(first >= 2, `本編（V1）に作られている（V${first}）`)
+    assert(
+      !before.has(first) || after1.filter((x) => x === first).length > 1,
+      `被っていない段に作られていない（V${first}）`
+    )
     await page.keyboard.press('t')
     await page.waitForTimeout(400)
-    const onV3 = await page.locator('[data-tid="V3"] .telop-clip').count()
-    assert(onV3 > 0, '同じ位置で2回目を押しても1段上にできていない')
+    const second = Math.max(...(await lanes()))
+    assert(
+      second === first + 1,
+      `同じ位置で2回目を押しても1段上にできていない（V${first} → V${second}）`
+    )
     await page.keyboard.press('Control+z')
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(400)
@@ -573,7 +594,16 @@ export default async function (C) {
     await page.waitForTimeout(300)
     await strip.locator('.tab', { hasText: 'テロップ' }).first().click()
     await page.waitForTimeout(600)
-    assert(await page.locator('.tpl-card').count(), '見本帳に見本が1つも無い')
+    // **節を開いてから数える。** 2026-08-03 に「触っていない所は畳んで始まる」へ
+    // 変わったので、開く前は見本が1枚も描かれていない（画面にも「下の ▶ を押して
+    // 開くと…」と出ている）。開かずに数えていた頃の書き方は嘘になる。
+    const sec = page.locator('.tpl-acc').first()
+    assert(await sec.count(), '見本帳の節が1つも無い')
+    if (!(await sec.getAttribute('class'))?.includes('open')) {
+      await sec.click()
+      await page.waitForTimeout(600)
+    }
+    assert(await page.locator('.tpl-card').count(), '節を開いても見本が1つも無い')
     // **見るのは「帯が受け付けるか」。** 直す前は見本帳を無視していた（＝
     // dragover を受け入れず、落としても何も起きない）。当てた結果まで見ようとすると
     // 「元と違う見本を用意する」準備が要り、確認したい所から遠くなる。
@@ -606,11 +636,12 @@ export default async function (C) {
     assert(accepted, '見本または帯が見つからない')
     assert(accepted.over, '帯が見本帳を受け付けない（落とし先になっていない）')
     assert(accepted.drop, '帯へ落としても何も起きない')
-  },
-  // **見本帳に見本が1つ要る。** 見本は手前の章が作る物で、この章だけ絞って回すと
-  // 1つも無い。ここで自分で作ろうとすると、名前を聞く窓まで手順に入って
-  // 確かめたい所（帯が受け付けるか）から遠くなる。
-  { orderDependent: true })
+  })
+  // ※ 前は { orderDependent: true } を付けていた（「見本は手前の章が作る」ため）。
+  //   実際に確かめたら、開ける節の中に**最初から入っている「プリセット」10枚**が
+  //   あり、手前の章に頼っていなかった。印を外して絞っても回せるようにした
+  //   （2026-08-03。嘘の赤を消す印なので、要らない所に付いていると
+  //     絞った確認から永久に外れる＝直したかどうかを確かめられなくなる）。
 
   // **新しいテロップは、被らない一番下の段に作る。**
   // 再生ヘッドを頭にして作るので、そこに何か居ると作った瞬間から重なる。

@@ -25,6 +25,7 @@ import { spawn } from 'node:child_process'
 import {
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   writeFileSync,
   rmSync,
   existsSync,
@@ -42,7 +43,7 @@ import { watchdog } from './dismiss.mjs'
 import { sh } from './lib/shell.mjs'
 import { fmt, mb } from './lib/fmt.mjs'
 import { findLimits } from './bench-limits.mjs'
-import { CACHE, TELOPS, pickSource, makeLongVideo, makeStyle, makeCues, makeSegments, buildProject, makeProject } from './lib/fixture.mjs'
+import { CACHE, TELOPS, pickSource, makeLongVideo, makeStyle, makeCues, makeSegments, buildProject, makeProject, useRealProject } from './lib/fixture.mjs'
 import { similarity, brightness, meanVolume, silentSec, frameStats } from './lib/measure.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -52,6 +53,8 @@ const KEEP = process.argv.includes('--keep')
 const DO_EXPORT = !process.argv.includes('--no-export')
 const DO_LIMITS = !process.argv.includes('--no-limits')
 const MINUTES = Number((process.argv.find((a) => a.startsWith('--min=')) ?? '').slice(6)) || 60
+/** 本物のプロジェクトで測る（--project=<path>）。原本は触らず一時フォルダへ写す */
+const REAL = (process.argv.find((a) => a.startsWith('--project=')) ?? '').slice(10) || ''
 // 測定そのものが機能しているかを確かめるモード。
 // わざと間違った操作をして、ちゃんと「できていない」と落ちるかを見る。
 // これが無いと「何も起きていない＝軽い」を良い結果として読んでしまう
@@ -157,13 +160,36 @@ try {
     return f
   }
 
-  const totalSec = MINUTES * 60
-  const video = await makeLongVideo(MINUTES)
-  fx = makeProject(video, totalSec)
-  console.log(
-    `\n\x1b[1m負荷チェック\x1b[0m  ${MINUTES}分 / テロップ${TELOPS}枚 / プロジェクト ${fmt(fx.bytes / 1024, 0)} KB` +
-      `${DO_LIMITS ? ' / 限界さがしあり' : ''}${DO_EXPORT ? ' / 書き出しあり' : ''}\n`
-  )
+  // --project=<path> があれば**本物のプロジェクト**で測る（作り物を作らない）。
+  // 作り物は「テロップが等間隔に並ぶ」素直な形になりがちで、実際の編集で出る
+  // 重さ（段が11本・切片が細かい・効果音が重なる）が出てこない。
+  let totalSec = MINUTES * 60
+  if (REAL) {
+    fx = useRealProject(REAL)
+    const d = JSON.parse(readFileSync(REAL, 'utf-8'))
+    const cues = d.cues ?? []
+    totalSec = Math.ceil(
+      Math.max(0, ...cues.map((c) => c.end ?? 0), ...(d.segments ?? []).map((s) => s.tEnd ?? 0))
+    )
+    console.log(
+      `
+[1m負荷チェック（本物のプロジェクト）[0m  ${REAL}
+` +
+        `  尺 ${Math.round(totalSec)}秒 / テロップ${cues.length}枚 / 切片${(d.segments ?? []).length} / ` +
+        `効果音${(d.seClips ?? []).length} / 段${(d.tracks ?? []).length} / ` +
+        `プロジェクト ${fmt(fx.bytes / 1024, 0)} KB
+`
+    )
+  } else {
+    const video = await makeLongVideo(MINUTES)
+    fx = makeProject(video, totalSec)
+    console.log(
+      `
+[1m負荷チェック[0m  ${MINUTES}分 / テロップ${TELOPS}枚 / プロジェクト ${fmt(fx.bytes / 1024, 0)} KB` +
+        `${DO_LIMITS ? ' / 限界さがしあり' : ''}${DO_EXPORT ? ' / 書き出しあり' : ''}
+`
+    )
+  }
 
   app = await electron.launch({
     executablePath: require('electron'),
