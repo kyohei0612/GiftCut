@@ -27,9 +27,11 @@ import { nextOpenSecs } from '../../../shared/accordion'
 import {
   TELOP_CATS,
   colorCatOf,
-  saveCatOverrides,
-  saveCustomCats,
-  saveFavorites,
+  // **保存は「その1件の操作」だけ**（画面の一覧を丸ごと書かない。理由は lib 側の説明）
+  persistCat,
+  persistCustomCat,
+  persistDropCat,
+  persistFav,
   type TelopTemplate
 } from '../lib/telopTemplates'
 import { useProjectStateCtx } from './projectStateContext'
@@ -45,17 +47,19 @@ export function useLibraryOrganize(deps: UseLibraryOrganizeDeps) {
     useProjectStateCtx()
   // お気に入り（★）とカテゴリ上書き（ローカル保存）
   const isFav = (name: string): boolean => favorites.includes(name)
+  // **画面の一覧を丸ごと保存しない。押した1件だけを保存済みへ当てる**（lib/telopTemplates）。
+  // 画面の一覧にはプロジェクト由来が混ざっているので、そのまま書くと
+  // **触っていない物まで焼き付く**（2026-08-04 に直した⑦の残り）。
   const toggleFav = (name: string): void =>
     setFavorites((prev) => {
-      const next = prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
-      saveFavorites(next)
-      return next
+      const on = !prev.includes(name)
+      persistFav(name, on)
+      return on ? [...prev, name] : prev.filter((n) => n !== name)
     })
   const setTplCat = (name: string, cat: string): void =>
     setCatOverrides((prev) => {
-      const next = { ...prev, [name]: cat }
-      saveCatOverrides(next)
-      return next
+      persistCat(name, cat)
+      return { ...prev, [name]: cat }
     })
   // テロップタブのセクション開閉（アコーディオン＝1つだけ開く。既定は全て閉じる）
   const [openTplSec, setOpenTplSec] = useState<string | null>(null)
@@ -326,20 +330,18 @@ export function useLibraryOrganize(deps: UseLibraryOrganizeDeps) {
     askText('フォルダ名', '新しいフォルダ', (name) => {
       const key = (name || '').trim()
       if (!key || allCats.some((c) => c.key === key)) return
-      const next = [...customCats, { key, label: key }]
-      setCustomCats(next)
-      saveCustomCats(next)
+      setCustomCats([...customCats, { key, label: key }])
+      persistCustomCat(key, key)
       setOpenTplSec(key)
     })
   const deleteCustomCat = (key: string): void => {
-    const next = customCats.filter((c) => c.key !== key)
-    setCustomCats(next)
-    saveCustomCats(next)
+    setCustomCats(customCats.filter((c) => c.key !== key))
+    persistCustomCat(key, null)
     // このフォルダに入れていたテロップは上書きを外して元カテゴリへ戻す
+    persistDropCat(key)
     setCatOverrides((prev) => {
       const m = { ...prev }
       for (const n of Object.keys(m)) if (m[n] === key) delete m[n]
-      saveCatOverrides(m)
       return m
     })
     if (openTplSec === key) setOpenTplSec(null)

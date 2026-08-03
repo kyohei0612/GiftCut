@@ -11,7 +11,8 @@
 // 帯に出す名前と、右パネルで選ばせる並びが同じ物を指す。2か所に書くと
 // 「帯には出るのに選べない」種類ができる。
 import { LABEL_COLORS } from '../lib/labels'
-import { saveUserTemplates } from '../lib/telopTemplates'
+// **保存は「その1件の操作」だけ**（画面の一覧を丸ごと書かない。理由は lib 側の説明）
+import { persistUserTemplateAdd } from '../lib/telopTemplates'
 import type { AnimIn } from '../lib/telopStyle'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
@@ -65,9 +66,12 @@ export function useLabelsPresets() {
     if (!n) return
     const selected = cues.find((c) => c.id === selectedIds[0]) ?? null
     const base = selected?.style ?? newTelopStyle
-    const next = [...userTemplates, { name: n, style: structuredClone(base) }]
-    setUserTemplates(next)
-    saveUserTemplates(next)
+    const t = { name: n, style: structuredClone(base) }
+    setUserTemplates([...userTemplates, t])
+    // **画面の一覧を丸ごと保存しない**（プロジェクト由来が混ざっているため）。
+    // ここは `useTelopTemplate.saveCurrentAsTemplate` と**同じことをする2つ目の道**
+    // ——片方だけ直すと、こちらから足したときだけ焼き付く
+    persistUserTemplateAdd(t)
   }
 
   return { labelGroups, setLabelFor, selectByLabel, savePreset }

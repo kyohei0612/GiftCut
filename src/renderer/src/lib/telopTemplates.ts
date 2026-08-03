@@ -162,6 +162,66 @@ export function saveCustomCats(list: { key: string; label: string }[]): void {
   }
 }
 
+// ---- 保存は「その1件の操作」だけ。**画面に出ている一覧を丸ごと書かない** ----
+//
+// ## なぜこの形が要るか（2026-08-04）
+//
+// プロジェクトを開くと、そのプロジェクトが持っている ★・分類・自作フォルダ・
+// 自作テロップを**混ぜて画面に出す**（人からもらったプロジェクトでも見た目が
+// 再現するように）。**保存はしない**——開くだけでアプリのライブラリへ焼き付くと、
+// 新規で始めても前のプロジェクトの設定が残り「既定のテンプレートが意味をなさない」
+// 状態になる（state/useProjectTemplates の説明）。
+//
+// **穴が1つ残っていた。** 開いている間に自分で★を1つ押すと、
+// `saveFavorites(画面に出ている一覧)` を呼んでいたので、
+// **触っていないプロジェクト由来の物まで全部一緒に焼き付いた。**
+//
+// → 直し方は「アプリ側の物とプロジェクト由来を別々に持つ」ではなく、
+//   **保存する物を変える**こと。押した1件だけを、保存済みの一覧へ当てる。
+//   画面の一覧は渡さないので、**混ざりようがない。**
+//
+// ※ 読むのは毎回 localStorage（画面の状態ではない）。**そこが肝**——
+//   画面の状態には常にプロジェクト由来が混ざっている。
+
+/** ★ を1つだけ切り替えて保存する。`on` は**切り替えた後**の状態 */
+export function persistFav(name: string, on: boolean): void {
+  const cur = loadFavorites()
+  saveFavorites(on ? (cur.includes(name) ? cur : [...cur, name]) : cur.filter((n) => n !== name))
+}
+
+/** 分類の上書きを1件だけ保存する。`cat` が null なら上書きを外す */
+export function persistCat(name: string, cat: string | null): void {
+  const cur = loadCatOverrides()
+  if (cat === null) delete cur[name]
+  else cur[name] = cat
+  saveCatOverrides(cur)
+}
+
+/** 自作フォルダを1つだけ足す／消す。`label` が null なら消す */
+export function persistCustomCat(key: string, label: string | null): void {
+  const cur = loadCustomCats()
+  if (label === null) saveCustomCats(cur.filter((c) => c.key !== key))
+  else if (!cur.some((c) => c.key === key)) saveCustomCats([...cur, { key, label }])
+}
+
+/** そのフォルダを指している上書きを、保存済みの分から外す（フォルダを消したとき） */
+export function persistDropCat(key: string): void {
+  const cur = loadCatOverrides()
+  for (const n of Object.keys(cur)) if (cur[n] === key) delete cur[n]
+  saveCatOverrides(cur)
+}
+
+/** 自作テロップを1つだけ足す（同じ名前があれば置き換える） */
+export function persistUserTemplateAdd(t: TelopTemplate): void {
+  const cur = loadUserTemplates()
+  saveUserTemplates([...cur.filter((x) => x.name !== t.name), t])
+}
+
+/** 自作テロップを1つだけ消す。**名前で消す**（画面の一覧の番号は当てにならない） */
+export function persistUserTemplateRemove(name: string): void {
+  saveUserTemplates(loadUserTemplates().filter((t) => t.name !== name))
+}
+
 // 2色フチ（外=カラー太め, 内=黒細め）のよく使う組み合わせを作るヘルパー
 function twoStroke(fill: string, outer: string, outerW = 14, innerW = 5): TelopStyle {
   return {

@@ -23,7 +23,8 @@
 // **その範囲だけ**に入る（`runs`）。全部に当たると、直前に整えた所まで戻る。
 
 import type { TelopStyle, TextRun } from '../lib/telopStyle'
-import { saveUserTemplates } from '../lib/telopTemplates'
+// **保存は「その1件の操作」だけ**（画面の一覧を丸ごと書かない。理由は lib 側の説明）
+import { persistUserTemplateAdd, persistUserTemplateRemove } from '../lib/telopTemplates'
 import { useDoc } from './contentContext'
 import { useProjectStateCtx } from './projectStateContext'
 import { useSel } from './selectionContext'
@@ -55,16 +56,21 @@ export function useTelopTemplate(deps: UseTelopTemplateDeps) {
     const base = selected?.style ?? newTelopStyle
     askText('テンプレート名', 'マイテロップ' + (userTemplates.length + 1), (name) => {
       if (!name) return
-      const next = [...userTemplates, { name, style: structuredClone(base) }]
-      setUserTemplates(next)
-      saveUserTemplates(next)
+      const t = { name, style: structuredClone(base) }
+      setUserTemplates([...userTemplates, t])
+      // **画面の一覧を丸ごと保存しない**（プロジェクト由来が混ざっているため）。
+      // 足した1つだけを保存済みへ当てる。理由は lib/telopTemplates の説明
+      persistUserTemplateAdd(t)
     })
   }
 
   function deleteUserTemplate(i: number): void {
-    const next = userTemplates.filter((_, k) => k !== i)
-    setUserTemplates(next)
-    saveUserTemplates(next)
+    const gone = userTemplates[i]
+    if (!gone) return
+    setUserTemplates(userTemplates.filter((_, k) => k !== i))
+    // **番号ではなく名前で消す。** 画面の一覧の番号は、プロジェクト由来が
+    // 混ざったあとの番号なので、保存済みの一覧とは並びが違う
+    persistUserTemplateRemove(gone.name)
   }
 
   /**
