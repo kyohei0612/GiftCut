@@ -499,7 +499,12 @@ export default async function (C) {
     }
     assert(max !== null, `拡大のつまみが見つからない（上限が8以上のものが無い）`)
     assert(max >= 8, `上限が 800% になっていない（${max * 100}%）`)
-  })
+  },
+  // **左パネルに拡大のつまみが出ている状態**が要る。それを作るのは手前の章
+  //（クリップを選び、プロパティを開いた状態）で、この章だけ絞って回すと
+  // 何も選ばれておらず `.sp-row` が1つも無い＝「つまみが出ていない」で必ず落ちる。
+  // ここで自分で選び直すと、確かめたい所（上限が 800% か）から遠くなる。
+  { orderDependent: true })
 
   await check('「変形・調整をリセット」で設定が元に戻る', async () => {
     const clip = page.locator('[data-tid="V2"] .clip:not(.se-ghost)').first()

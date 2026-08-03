@@ -30,10 +30,19 @@ export function startEdgeScroll(
 ): EdgeScroller {
   let x: number | null = null
   let raf: number | null = null
+  // **枠の位置は掴み始めに1回だけ測る。**
+  // 掴んでいる間、枠そのものは動かない（動くのは中身）。毎コマ測り直していたが、
+  // `getBoundingClientRect` は**そのつど配置計算をやり直させる**ので、
+  // 帯が数百ある状態では効いてくる（実測で計測の 9.9% が配置計算だった。2026-08-03）。
+  // ※ パネルの幅を変えれば枠は動くが、**掴んでいる最中には変えられない**
+  //   （掴んでいる間、他の操作は受け付けない）。
+  let box = scroll?.getBoundingClientRect() ?? null
   const tick = (): void => {
     raf = requestAnimationFrame(tick)
     if (!scroll || x == null) return
-    const r = scroll.getBoundingClientRect()
+    // 掴み始めに枠が無かった（まだ描かれていない）ときだけ測り直す
+    if (!box) box = scroll.getBoundingClientRect()
+    const r = box
     const want = edgeScrollDelta(x, r.left, r.right)
     if (want === 0) return
     const before = scroll.scrollLeft

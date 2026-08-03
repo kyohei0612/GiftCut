@@ -29,6 +29,47 @@ export default async function (C) {
   let before = await clipLayout()
   const W = await clipW() // クリップ1つ＝5秒ぶんの幅
 
+  // **掴んだまま枠の外まで引っぱると、タイムラインが送られる**（ウェブページと同じ）。
+  // 送りの速さは shared/edgeScroll、枠の位置は lib/edgeScroller が見ている。
+  // **確認が1つも無かった**ので足した（2026-08-03。枠の位置を毎コマ測り直すのを
+  // やめたときに、壊れても気づけないことに気づいた）。
+  await check('掴んだまま右端まで引っぱると、タイムラインが送られる', async () => {
+    await resetProject()
+    // 全部が見えていると送る余地が無いので、まず寄せる
+    const scr = await page.locator('.track-scroll').boundingBox()
+    await page.keyboard.down('Control')
+    await page.mouse.move(scr.x + scr.width / 2, scr.y + 60)
+    for (let i = 0; i < 10; i++) {
+      await page.mouse.wheel(0, -120)
+      await page.waitForTimeout(60)
+    }
+    await page.keyboard.up('Control')
+    await page.waitForTimeout(400)
+    const left = () => page.evaluate(() => document.querySelector('.track-scroll')?.scrollLeft ?? 0)
+    await page.evaluate(() => {
+      const el = document.querySelector('.track-scroll')
+      if (el) el.scrollLeft = 0
+    })
+    await page.waitForTimeout(200)
+    const x0 = await left()
+
+    // 帯を掴んで、右端の外まで持っていって**そのまま止める**
+    const clip = page.locator('[data-tid="V1"] .video-clip').first()
+    const b = await clip.boundingBox()
+    assert(b, '掴む帯が見つからない')
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(scr.x + scr.width - 4, b.y + b.height / 2)
+    // 止めたまま待つ＝送りは「掴んでいる間ずっと」効く物
+    await page.waitForTimeout(900)
+    const x1 = await left()
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+    assert(x1 > x0 + 50, `端まで引っぱってもタイムラインが送られない（${x0} → ${x1}）`)
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  })
+
   await check('掴んで動かしている間、ブラウザ標準のドラッグ（半透明の影と🚫）が始まらない', async () => {
     // 標準のドラッグが始まると dragstart が飛ぶ。1回でも飛んだらアウト。
     await page.evaluate(() => {
