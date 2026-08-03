@@ -1023,6 +1023,68 @@ export default async function (C) {
   // 絞って回すと動いていない絵を書き出すので、比べた結果がひっくり返る。
   { orderDependent: true })
 
+  // **印を打った物を、プレビューで手で動かしたらどうなるか。**
+  //
+  // ここが逆だと「動きが消える」。印を打ってある項目を手で動かしたとき、
+  // 固定値の方を書き換えてしまうと、**打った印が全部無視される**
+  // （画面では動かしたつもりなのに、流すと元の道すじへ戻る）。
+  // 正しくは「**いまの時刻に印を打ち直す**」。
+  //
+  // 仕組みは state/usePreviewManip に書いてあるが、**確認が1つも無かった**
+  // （やること.md の「連動を確認」。2026-08-03 に足した）。
+  await check('印を打った物をプレビューで動かすと、その時刻に印が付く', async () => {
+    await resetProject()
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(300)
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    await page.waitForTimeout(300)
+    const row = page.locator('.mo-row').filter({ hasText: '位置 X' }).first()
+    assert(await row.count(), 'モーションタブに「位置 X」が無い')
+
+    // テロップは 1〜3秒。頭で ⏱ を押して、印のある状態にする
+    await seekTo(1.2)
+    await page.waitForTimeout(300)
+    await row.locator('.mo-watch').click()
+    await page.waitForTimeout(400)
+    // **印の数は画面に出ていない。** ◆ は「いまの時刻に印があるか」の1つだけ
+    // （点いていれば有る）。なので「その時刻に印が付いたか」で見る。
+    const hasKeyHere = async () => (await row.locator('.mo-diamond.on').count()) === 1
+    assert(await hasKeyHere(), '⏱ を押しても、その時刻に印が付かない')
+
+    // 別の時刻へ行って、**プレビューの文字を掴んで動かす**
+    await seekTo(2.4)
+    await page.waitForTimeout(400)
+    const tel = page.locator('.telop-overlay .telop-textmain').first()
+    assert(await tel.count(), '文字がプレビューに出ていない')
+    const b = await tel.boundingBox()
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 12; i++) {
+      await page.mouse.move(b.x + b.width / 2 - i * 8, b.y + b.height / 2)
+      await page.waitForTimeout(10)
+    }
+    await page.mouse.up()
+    await page.waitForTimeout(500)
+
+    // **動かした時刻に印が付いている**のが正しい（固定値を書き換えたなら付かない）
+    assert(
+      await hasKeyHere(),
+      '手で動かしても、その時刻に印が付かない＝固定値の方を書き換えている'
+    )
+
+    // **打った所へ戻ると、打った位置に居る**（＝印が効いている）
+    const xAt = async () =>
+      (await page.locator('.telop-overlay .telop-textmain').first().boundingBox())?.x ?? null
+    const xNow = await xAt()
+    await seekTo(1.2)
+    await page.waitForTimeout(500)
+    const xHead = await xAt()
+    assert(
+      xHead != null && xNow != null && Math.abs(xHead - xNow) > 20,
+      `頭へ戻っても位置が変わらない（${xHead} / ${xNow}）＝印が効いていない`
+    )
+  })
+
   // Premiere のプリセット取り込み（2件）は e2e/checks/09b-Premiere取り込み.mjs へ出した。
   // 末尾の塊なので、run.mjs の並びで直後に置けば実行順は変わらない。
 
