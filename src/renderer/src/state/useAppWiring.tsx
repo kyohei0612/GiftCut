@@ -127,6 +127,7 @@ import { useProjectGuard } from './useProjectGuard'
 import { useDragPreviewCtx } from './dragPreviewContext'
 import { useCopyPaste } from './useCopyPaste'
 import { useTelopEdit } from './useTelopEdit'
+import { useTelopAnim } from './useTelopAnim'
 import { useClipboardCtx } from './clipboardContext'
 import { useLaneHeights } from './useLaneHeights'
 import { usePlaybackCtx } from './playbackContext'
@@ -880,22 +881,19 @@ export function useAppWiring() {
       onMaster={(v) => setMasterVolume(Math.min(1, Math.max(0, v)))}
     />
   )
-  // テロップの足し引きと出入りの演出は state/useTelopEdit
-  const {
-    applyIconToCue, addTelop, updateCueText, patchCueAnim,
-      resolveTelopTransDrop, applyTelopTransDrop,
-    selectTelopTrans, updateTelopTransDur, setTelopTransType, deleteSelectedTelopTrans,
-    toggleTelopEmphasis, alignTelop
-  } = useTelopEdit({
+  // テロップの足し引きは state/useTelopEdit
+  const { applyIconToCue, addTelop, updateCueText, alignTelop } = useTelopEdit({
     cueTrack,
-    telopLocked,
     idCounter,
     trackNum,
-    insertTrackOrdered,
-    motionLabel,
-    draggingTelopAnimRef,
-    setRightTab
+    insertTrackOrdered
   })
+  // 出入りの演出（頭・尻・テロップ同士の間）は state/useTelopAnim
+  const {
+    patchCueAnim, resolveTelopTransDrop, applyTelopTransDrop,
+    selectTelopTrans, updateTelopTransDur, setTelopTransType, deleteSelectedTelopTrans,
+    toggleTelopEmphasis
+  } = useTelopAnim({ cueTrack, telopLocked, motionLabel, draggingTelopAnimRef, setRightTab })
 
   // コピーと貼り付け（クリップ／設定だけ／動きだけ）は state/useCopyPaste
   const {
