@@ -132,6 +132,25 @@ export const CANON: Canon[] = [
     // 通っていなかった**ので、伸ばすと重なったまま残っていた。
   },
   {
+    what: 'テロップの重なりを、画面（React）側から実際に当てるには？',
+    home: 'src/renderer/src/state/cueOverwrite.ts',
+    name: 'overwriteOverlapped',
+    use:
+      'overwriteOverlapped(cues, winnerIds, trackOf, nextId) を呼ぶ。' +
+      '**判定は shared/overwrite、呼び方はここ**——採番を updater の外でやる／' +
+      '複製は structuredClone、の2つは React 側でしか決められないので、ここに閉じてある',
+    // **上の overwriteCues と別に載せてあるのは、事故が2回とも「呼び忘れ」だったから。**
+    // 台帳は在り処しか書かないので、`overwriteCues` を引いただけでは
+    // 「呼んでいる場所が全部で3つあるか」までは分からない。
+    //
+    //   2026-08-03 ①  端をつまんで伸ばす道が通っていなかった
+    //   2026-08-03 ②  貼り付け・複製が通っていなかった（**秘書エージェントが発見**）
+    //
+    // → いまは 掴む（`useTimelineDrag`）／貼り付け（`useCopyPaste`）／
+    //   複製（`useTimelineEdit`）の3つがここを通る。
+    //   **4つ目の道を作るときは、必ずここを通すこと。**
+  },
+  {
     what: 'タイムライン全体がちょうど収まる拡大率は？',
     home: 'src/shared/zoomBar.ts',
     name: 'fitZoom',
@@ -167,5 +186,28 @@ export const CANON: Canon[] = [
     // 両端を含むと隣の窓と1フレーム重なり、半フレーム詰めると隙間ができて
     // **書き出した動画でテロップがチカチカする**。画面側の判定（shared/cueWindow）とも
     // 突き合わせてある。
+  },
+  {
+    what: '心臓（context）の受け口の型は、どこから持ってくる？',
+    home: 'src/renderer/src/state/wiredValue.ts',
+    name: 'Wired',
+    use:
+      "type W = Wired<'キー'> と書いて、各メンバーを W['同じ名前'] にする。" +
+      '**型を手で書かない**（実体は useAppWiring が詰めている1か所だけなので、そこから引ける）',
+    // 2026-08-03: 受け口が**341件すべて手書きの `any`** だった。区画は心臓を
+    // 自分で見に行くので、受け口が any だと**存在しない物を触っても型検査が素通りする**。
+    // 08-03 の不具合11件のうち2件がその型（`draggingEmphasisRef`）。
+    //
+    // 引く形にしたら **363件に本物の型が付き、any は 0**。
+    // その場で本物を1件見つけた（`TimelineArea` の手書き注釈に `kind` が無く、
+    // `{ id, name }` と書き直した瞬間に段の種類が黙って消える形だった）。
+    //
+    // **1行の派生型（`= W`）にはしない**——キーごとの説明が全部消えるため。
+    // 見張りは `ctxTypes.test.ts`（any を書かない／名前のズレも赤／
+    // 配線側で注釈を付け直さない）。経緯は `引き継ぎ-受け口の型.md`。
+    //
+    // ※ **同じ穴が一段深い所（フックの deps）に 221件残っている**（`やること.md`）。
+    //   ただし context と同じ手が使えるとは限らない——context は
+    //   **詰める場所が1か所**だったから引けた。数えてから決めること。
   }
 ]

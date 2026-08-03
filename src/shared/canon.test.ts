@@ -47,10 +47,19 @@ const files = walk(join(REPO, 'src')).map((f) => ({
   src: readFileSync(f, 'utf8')
 }))
 
-/** そのファイルが `name` を export しているか（function / const / class） */
+/**
+ * そのファイルが `name` を export しているか。
+ *
+ * **`type` と `interface` も見る。** 台帳に**型**を載せられるようにするため——
+ * 2026-08-03 に `Wired`（心臓の受け口の型をどこから引くか）を足したとき、
+ * ここが `function / const / class` しか見ておらず、
+ * **実在するのに「引っ越した？」と赤くなった。**
+ *
+ * 台帳の問いは「その答えはどこにあるか」なので、答えが**型**であることは普通にある。
+ */
 function declares(src: string, name: string): boolean {
   const re = new RegExp(
-    `^\\s*export\\s+(?:async\\s+)?(?:function|const|class|let)\\s+${name}\\b`,
+    `^\\s*export\\s+(?:async\\s+)?(?:function|const|class|let|type|interface)\\s+${name}\\b`,
     'm'
   )
   return re.test(src)
