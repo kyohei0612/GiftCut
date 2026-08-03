@@ -20,6 +20,7 @@ import { toGcUrl } from '../lib/gcUrl'
 import { useDoc } from './contentContext'
 import { useToastCtx } from './toastContext'
 import { useMediaCtx } from './mediaContext'
+import type { Ask } from './useAsk'
 
 // **`any` で受けない。** ここは呼ぶ側（`useAppWiring`）が実物を渡す入口なので、
 // 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
@@ -35,13 +36,8 @@ export interface UseProjectIODeps {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   applyProjectData: (data: any, videoExists: boolean, srcPath: string | null) => Promise<void>
-  askConfirm: (o: {
-    title: string
-    body: string
-    okLabel?: string
-    cancelLabel?: string
-    danger?: boolean
-  }) => Promise<boolean>
+  /** 形は書き写さず `useAsk` から引く（4か所で要るので、写すと必ずどこかが古くなる） */
+  askConfirm: Ask['askConfirm']
   /** 素材を読む・登録する */
   loadVideo: (path: string, opts?: { placed?: boolean }) => Promise<void>
   registerSource: (path: string) => Promise<{ id: number; dur: number } | null>

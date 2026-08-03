@@ -27,38 +27,47 @@
 
 import { useEffect, useState } from 'react'
 import { readPaneGeometry } from '../components/PaneWindow'
+import type { PaneGeom } from '../components/PaneWindow'
 import type { PaneId } from './usePanelLayout'
 import { useToastCtx } from './toastContext'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// **`any` で受けない。** ここは呼ぶ側（`useAppWiring`）が実物を渡す入口なので、
+// 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
+// 型は推測せず、呼び出し側が実際に渡している物をそのまま写した。
 export interface UseAppLayoutDeps {
   /** 区画の名前（画面に出す文言） */
-  PANE_LABEL: Record<string, string>
+  PANE_LABEL: Record<PaneId, string>
   /** 切り離している区画と、その窓の大きさ・位置 */
-  popped: any
+  popped: Partial<Record<PaneId, true>>
   setPopped: React.Dispatch<React.SetStateAction<Partial<Record<PaneId, true>>>>
-  paneGeom: any
-  setPaneGeom: any
+  paneGeom: Record<string, PaneGeom>
+  setPaneGeom: React.Dispatch<React.SetStateAction<Record<string, PaneGeom>>>
   /** 幅・高さ */
   leftW: number
-  setLeftW: any
+  setLeftW: (n: number) => void
   rightW: number
-  setRightW: any
+  setRightW: (n: number) => void
   timelineH: number
-  setTimelineH: any
+  setTimelineH: (n: number) => void
   videoTrackH: number
-  setVideoTrackH: any
+  setVideoTrackH: React.Dispatch<React.SetStateAction<number>>
   audioTrackH: number
-  setAudioTrackH: any
+  setAudioTrackH: React.Dispatch<React.SetStateAction<number>>
   /** タブの並び順と、いま選んでいるタブ */
-  tabOrder: any
+  tabOrder: Record<string, string[]>
   setTabOrder: React.Dispatch<React.SetStateAction<Record<string, string[]>>>
-  rightTab: string
-  setRightTab: any
-  monitorTab: string
-  setMonitorTab: any
+  rightTab: RightTab
+  setRightTab: React.Dispatch<React.SetStateAction<RightTab>>
+  monitorTab: MonitorTab
+  setMonitorTab: React.Dispatch<React.SetStateAction<MonitorTab>>
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/**
+ * タブの名前。**`string` で受けていた所を実際の値に絞った**——
+ * `string` だと綴りを間違えても通るし、増やしたときに直す場所が分からない。
+ */
+type RightTab = 'project' | 'telop' | 'icon' | 'se' | 'transition'
+type MonitorTab = 'program' | 'mixer'
 
 export function useAppLayout(deps: UseAppLayoutDeps) {
   const {

@@ -45,19 +45,33 @@ import { useExportCtx } from './exportContext'
 import { useMediaCtx } from './mediaContext'
 import { useIconsCtx } from './iconsContext'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * 雛形を選ぶ窓の中身（起動時と手動の両方）。
+ *
+ * **ここが唯一の家。** 前は `useAppWiring` の `useState` に直書きされていて、
+ * 受け取る側2つ（ここと `useAutosaveDraft`）はどちらも `any` だった＝
+ * 形が変わっても誰も気づけない。
+ */
+export type TemplatePickerState = {
+  items: { name: string; path: string }[]
+  startup: boolean
+}
+
+// **`any` で受けない。** ここは呼ぶ側が実物を渡す入口なので、
+// 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
 export interface UseProjectTemplatesDeps {
   /** 素材の種類（動画/音/画像）をパスから見分ける */
-  kindOf: any
+  kindOf: (p: string) => 'video' | 'audio' | 'image'
   /** いまの画面の配置を控える／当てる（窓を出した形も含む） */
-  layoutNow: any
-  applyLayout: any
+  layoutNow: () => Record<string, unknown>
+  /** **`l` が `any` なのは借りている側もそうだから**（直すならあちらが先） */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  applyLayout: (l: any) => void
   /** 名前を尋ねる小窓 */
   askText: (title: string, def: string, onOk: (v: string) => void) => void
-  setTemplatePicker: any
-  saveLS: any
+  setTemplatePicker: React.Dispatch<React.SetStateAction<TemplatePickerState | null>>
+  saveLS: (key: string, v: unknown) => void
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useProjectTemplates(deps: UseProjectTemplatesDeps) {
   const { kindOf, layoutNow, applyLayout, askText, setTemplatePicker, saveLS } = deps

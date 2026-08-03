@@ -27,21 +27,33 @@ import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
 import { useSel } from './selectionContext'
 import { usePlaybackCtx } from './playbackContext'
+import type { Ask } from './useAsk'
+import type { Layout } from '../../../shared/timeline'
+import type { ReframeTarget, VSeg } from '../lib/projectTypes'
+import type { Toast } from './useToast'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// **`any` で受けない。** ここは呼ぶ側（`useAppWiring`）が実物を渡す入口なので、
+// 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
+// 型は推測せず、呼び出し側が実際に渡している物をそのまま写した。
 export interface UseMotionDeps {
-  reframeTargetRef: any
-  askConfirm: any
-  showToast: any
-  segLayout: any
-  patchClipMotion: any
-  setSegZoom: any
-  setImgZoom: any
-  setVClipZoom: any
-  vcLen: any
+  reframeTargetRef: React.MutableRefObject<ReframeTarget | null>
+  /** 形は書き写さず引く（同じ物が4か所で要る） */
+  askConfirm: Ask['askConfirm']
+  showToast: (msg: string, type?: Toast['type']) => void
+  segLayout: Layout<VSeg>[]
+  patchClipMotion: (
+    kind: 'video' | 'img' | 'vclip',
+    id: number,
+    key: keyof ClipMotion,
+    fn: (keys: Keys | undefined) => Keys | undefined
+  ) => void
+  setSegZoom: (segId: number, z: { scale: number; x: number; y: number }) => void
+  setImgZoom: (id: number, z: { scale: number; x: number; y: number }) => void
+  setVClipZoom: (id: number, z: { scale: number; x: number; y: number }) => void
+  /** 重ねた動画の長さ。**正典は shared/timeline の vcLen** */
+  vcLen: (c: { srcStart: number; srcEnd: number }) => number
   seekTo: (t: number) => void
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useMotion(deps: UseMotionDeps) {
   const { reframeTargetRef, askConfirm, showToast, segLayout, patchClipMotion, setSegZoom, setImgZoom, setVClipZoom, vcLen, seekTo } = deps

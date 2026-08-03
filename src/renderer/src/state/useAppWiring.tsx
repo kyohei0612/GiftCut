@@ -121,7 +121,7 @@ import { useMediaOps } from './useMediaOps'
 import { useProjectStateCtx } from './projectStateContext'
 import { EXTRA_AUDIO_TRACK, } from '../lib/trackState'
 import { useProjectFile } from './useProjectFile'
-import { useProjectTemplates } from './useProjectTemplates'
+import { useProjectTemplates, type TemplatePickerState } from './useProjectTemplates'
 import { useProjectGuard } from './useProjectGuard'
 import { useDragPreviewCtx } from './dragPreviewContext'
 import { useCopyPaste } from './useCopyPaste'
@@ -609,10 +609,9 @@ export function useAppWiring() {
     mediaItems.length > 0
 
   // 雛形を選ぶ窓（起動時と手動の両方）。**当てても原本は汚さない**＝新規扱いで開く
-  const [templatePicker, setTemplatePicker] = useState<{
-    items: { name: string; path: string }[]
-    startup: boolean
-  } | null>(null)
+  // 形は state/useProjectTemplates の TemplatePickerState に1つだけ
+  //（前はここに直書きで、受け取る側2つはどちらも any だった）
+  const [templatePicker, setTemplatePicker] = useState<TemplatePickerState | null>(null)
 
   // 未保存の「＊」と、下書きの土台は state/useAutosaveMark
   // （何と比べて決めるか・なぜ変わったときだけ見直すかも中にある）

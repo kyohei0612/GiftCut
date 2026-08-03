@@ -22,25 +22,34 @@
 import { AUTOSAVE_MS } from '../lib/appConst'
 import { useEffect } from 'react'
 import { useToastCtx } from './toastContext'
+import type { Ask } from './useAsk'
+import type { RestoreState } from '../components/dialogs/ProjectDialogs'
+import type { TemplatePickerState } from './useProjectTemplates'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// **`any` で受けない。** ここは呼ぶ側（`useAppWiring`）が実物を渡す入口なので、
+// 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
+// 型は推測せず、呼び出し側が実際に渡している物をそのまま写した。
 export interface UseAutosaveDraftDeps {
   /** 下書きを書く */
   writeAutosave: (json: string) => Promise<void>
   /** いまの中身を文字列にした物と、その版 */
-  currentJsonRef: any
-  projectRevRef: any
-  autosavedRevRef: any
-  lastAutosaveRef: any
+  currentJsonRef: React.MutableRefObject<() => string>
+  projectRevRef: React.MutableRefObject<number>
+  autosavedRevRef: React.MutableRefObject<number>
+  lastAutosaveRef: React.MutableRefObject<string>
   /** 中身が入っているか（空なら復元を聞かない） */
-  hasContentRef: any
-  /** 読み込んだ下書きをタイムラインへ流し込む */
-  applyProjectData: any
-  askConfirm: any
-  setRestorePrompt: any
-  setTemplatePicker: any
+  hasContentRef: React.MutableRefObject<() => boolean>
+  /**
+   * 読み込んだ下書きをタイムラインへ流し込む。
+   * **`data` が `any` なのは正しい**——ディスクから読んだ物で形が保証されていない
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  applyProjectData: (data: any, videoExists: boolean, srcPath: string | null) => Promise<void>
+  /** 形は書き写さず引く（同じ物が4か所で要る） */
+  askConfirm: Ask['askConfirm']
+  setRestorePrompt: React.Dispatch<React.SetStateAction<RestoreState | null>>
+  setTemplatePicker: React.Dispatch<React.SetStateAction<TemplatePickerState | null>>
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useAutosaveDraft(deps: UseAutosaveDraftDeps): void {
   const {

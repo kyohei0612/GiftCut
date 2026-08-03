@@ -21,31 +21,34 @@
 // 再生ヘッドは秒60回動けば人の目には連続に見えるので、そこで止める。
 
 import { clamp, qFrame, tToSource } from '../../../shared/timeline'
+import type { SegLayout, Source, VSeg } from '../lib/projectTypes'
 import { isNeutralZoom } from '../lib/clipLook'
 import { perf } from '../lib/perfMonitor'
 import { usePlaybackCtx } from './playbackContext'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// **`any` で受けない。** ここは呼ぶ側（`useAppWiring`）が実物を渡す入口なので、
+// 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
+// 型は推測せず、呼び出し側が実際に渡している物をそのまま写した。
 export interface UsePlaybackEngineDeps {
   /** 本編の <video>。A面/B面の2本と、その一覧 */
-  videoRef: any
-  videoBRef: any
-  videoElsRef: any
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>
+  videoBRef: React.RefObject<HTMLVideoElement>
+  videoElsRef: React.MutableRefObject<Map<string, HTMLVideoElement>>
   /** いま表に出している面（A か B）。境目で入れ替える */
-  setActiveHalf: any
-  halfOf: any
-  elKey: any
-  segLayoutRef: any
-  srcOfSeg: any
-  videoTLenRef: any
+  setActiveHalf: React.Dispatch<React.SetStateAction<Record<number, 0 | 1>>>
+  halfOf: (srcId: number) => 0 | 1
+  elKey: (srcId: number, half: 0 | 1) => string
+  segLayoutRef: React.MutableRefObject<SegLayout[]>
+  srcOfSeg: (seg: VSeg | undefined) => Source | undefined
+  videoTLenRef: React.MutableRefObject<number>
   videoDurationRef: React.MutableRefObject<number>
-  contentEndRef: any
+  contentEndRef: React.MutableRefObject<number>
   /** 効果音の <audio> */
-  seAudioRefs: any
-  sePreviewRef: any
+  seAudioRefs: React.MutableRefObject<Map<number, HTMLAudioElement>>
+  sePreviewRef: React.MutableRefObject<HTMLAudioElement | null>
   /** 再生位置を進める（描き直しは頭打ち） */
-  paintTime: any
-  setTime: any
+  paintTime: (t: number, force?: boolean) => void
+  setTime: (t: number) => void
   /**
    * 再生ヘッドを横に見えている所へ連れてくる。state/useTimelineBox の物。
    *
@@ -206,7 +209,10 @@ export function usePlaybackEngine(deps: UsePlaybackEngineDeps) {
             requestAnimationFrame(ramp)
             pre.playbackRate = vv.playbackRate
             videoRef.current = pre
-            setActiveHalf((h: Record<number, string>) => ({ ...h, [prep.srcId]: prep.half }))
+            // 型は書かない。**手で書いた注釈が実体とズレていた**——
+            // 面は `0 | 1` なのに `Record<number, string>` と書いてあり、
+            // `setActiveHalf` が `any` だったので誰も気づけなかった
+            setActiveHalf((h) => ({ ...h, [prep.srcId]: prep.half }))
             preparedRef.current = null
             if (pre.paused && !pre.ended) void pre.play().catch(() => {})
             rafRef.current = requestAnimationFrame(tick)
