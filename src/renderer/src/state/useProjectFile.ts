@@ -35,6 +35,7 @@ import {
 import { saveIconAssign } from '../lib/iconLibrary'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, Marker, SEClip, Source, Track, VClip, VSeg } from '../lib/projectTypes'
+import type { Snap } from './useHistory'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 import { useDoc } from './contentContext'
 import { useProjectStateCtx } from './projectStateContext'
@@ -46,45 +47,56 @@ import { useMediaCtx } from './mediaContext'
 import { useIconsCtx } from './iconsContext'
 import { usePlaybackCtx } from './playbackContext'
 
+// **ここは画面側の配線をそのまま借りている。**
+//
+// 前はここを全部 `any` にして「型を細かく付けるより、借り物であることが
+// 見えている方が直しやすい」と書いてあった。**2026-08-04 に取り下げた**——
+// `any` は「借り物」ではなく「何でも通る」で、
+//
+//   ・借りている物が別の形に変わっても、ここは黙って通る
+//   ・引数の数を間違えても通る
+//
+// 借り物であることは**この説明**が伝えればよく、型を捨てる必要はない。
+//
+// **手で書いても腐らない。** ここは呼ぶ側（`useAppWiring`）が実物を渡す入口なので、
+// 型がズレた瞬間に呼び出し側で落ちる（心臓の受け口＝`*Context.tsx` とは逆で、
+// あちらは渡す側も受ける側も `any` だったので誰も気づけなかった）。
+// 型は推測せず、**呼び出し側が実際に渡している物をそのまま写した**。
+//
+// ※ duration / mediaMeta / audioTrackGain / undoStackRef / redoStackRef /
+//    pendingTimerRef は消した。**渡されていたが本文で一度も読んでいなかった**
+//    （残っていた出現箇所は全部コメントの中の文字列だった）。
+//    deps の未使用は noUnusedLocals では出ない（分割代入に入れなければ黙る）
+// ※ kindOf / askText / setTemplatePicker は ./useProjectTemplates へ移した
+//   （素材の種類を見分けるのも、名前を尋ねるのも、テンプレートの時だけ要る）
 export interface UseProjectFileDeps {
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  //
-  // **ここは画面側の配線をそのまま借りている。** 型を細かく付けるより、
-  // 借り物であることが見えている方が直しやすい（付け替えるときに
-  // どこまでが自分の責任かが分かる）。
-  //
-    // ※ duration / mediaMeta / audioTrackGain / undoStackRef / redoStackRef /
-    //    pendingTimerRef は消した。**渡されていたが本文で一度も読んでいなかった**
-    //    （残っていた出現箇所は全部コメントの中の文字列だった）。
-    //    deps の未使用は noUnusedLocals では出ない（分割代入に入れなければ黙る）
-    // ※ kindOf / askText / setTemplatePicker は ./useProjectTemplates へ移した
-    //   （素材の種類を見分けるのも、名前を尋ねるのも、テンプレートの時だけ要る）
-    stopPlayback: any
-    setTime: any
-    fallbackTrack: any
-    applyLayout: any
-    layoutNow: any
-    snapNow: any
-    resetHistory: any
-    confirmDiscard: any
-    hasProjectContent: any
-    rememberProject: any
-    prepareMediaMeta: any
-    commitPending: any
-    idCounter: any
-    savedJsonRef: any
-    projectJsonRef: any
-    markUnsavedRef: any
-    lastAutosaveRef: any
-    initializedForPathRef: any
-    proxyForPathRef: any
-    videoElsRef: any
-    videoRef: any
-    saveLS: any
-  baselineRef: any
-  hydrateSource: any
-  updateSource: any
-  /* eslint-enable @typescript-eslint/no-explicit-any */
+  stopPlayback: () => void
+  setTime: (t: number) => void
+  fallbackTrack: (id: string, kind: 'video' | 'audio') => string
+  /** 配置の当てはめ。**中身が `any` なのは借りている側もそうだから**（直すならあちらが先） */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  applyLayout: (l: any) => void
+  layoutNow: () => Record<string, unknown>
+  snapNow: () => Snap
+  resetHistory: (base: Snap) => void
+  confirmDiscard: (what: string) => Promise<boolean>
+  hasProjectContent: () => boolean
+  rememberProject: (path: string) => void
+  prepareMediaMeta: (path: string, kind: 'video' | 'audio' | 'image') => void
+  commitPending: () => void
+  idCounter: React.MutableRefObject<number>
+  savedJsonRef: React.MutableRefObject<string | null>
+  projectJsonRef: React.MutableRefObject<(p?: string | null) => string>
+  markUnsavedRef: React.MutableRefObject<(nowJson?: string) => void>
+  lastAutosaveRef: React.MutableRefObject<string>
+  initializedForPathRef: React.MutableRefObject<string | null>
+  proxyForPathRef: React.MutableRefObject<string | null>
+  videoElsRef: React.MutableRefObject<Map<string, HTMLVideoElement>>
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>
+  saveLS: (key: string, v: unknown) => void
+  baselineRef: React.MutableRefObject<Snap>
+  hydrateSource: (id: number, path: string) => void
+  updateSource: (id: number, patch: Partial<Source>) => void
 }
 
 export function useProjectFile(deps: UseProjectFileDeps) {

@@ -24,8 +24,12 @@
 import { EMPTY_DRAG_IMG } from '../lib/dragChip'
 import { clamp, fadeGain } from '../../../shared/timeline'
 import { newTrackState } from '../lib/trackState'
-import type { SEClip, VClip } from '../lib/projectTypes'
+import type { SEClip, Track, VClip } from '../lib/projectTypes'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
+import type { Cue } from '../lib/srt'
+import type { BinRefs } from '../../../shared/mediaBin'
+import type { MediaMeta } from './useMediaMeta'
+import type { ImgGhost, SeGhost, VideoGhost } from './useDragPreview'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { audioLaneFor, avoidBusyLane } from '../../../shared/lanes'
@@ -35,55 +39,65 @@ import { useMediaCtx } from './mediaContext'
 import { usePlaybackCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// **`any` で受けない。** ここは呼ぶ側（`useAppWiring`）が実物を渡す入口なので、
+// 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
+// 型は推測せず、呼び出し側が実際に渡している物をそのまま写した。
 export interface UseMediaDropDeps {
-  /** 掴んでいる絵を消すための透明画像（既定の巨大なゴーストを出さない） */
   /** 効果音を置くとき、足りなければ増やす音声段の名前 */
   EXTRA_AUDIO_TRACK: string
-  dragSeDurRef: any
+  dragSeDurRef: React.MutableRefObject<number>
   /** いま掴んでいる素材 */
-  draggingMediaRef: any
+  draggingMediaRef: React.MutableRefObject<MediaItem | null>
   /** 縦位置から段を割り出す */
-  dropLaneAt: any
-  fallbackTrack: any
+  dropLaneAt: (
+    yRel: number,
+    kind: 'video' | 'audio',
+    forVideoLayer?: boolean
+  ) => string | null
+  fallbackTrack: (id: string, kind: 'video' | 'audio') => string
   /** テロップが載っている段（既定の扱いを1か所にするため受け取る） */
-  /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-  cueTrack: (c: any) => string
+  cueTrack: (c: Cue) => string
   /** 段を正しい並びで足す */
-  insertTrackOrdered: any
+  insertTrackOrdered: (list: Track[], tr: Track) => Track[]
   /** その素材が、いまタイムラインで使われているか */
-  mediaInUse: any
+  mediaInUse: (path: string, refs: BinRefs) => boolean
   /** 調べ終わった素材の中身（尺・波形）。掴んでいる最中に読むので ref */
-  mediaMetaRef: any
+  mediaMetaRef: React.MutableRefObject<Record<string, MediaMeta>>
   /** これから調べる素材の待ち行列 */
-  mediaQueue: any
-  metaInFlightRef: any
+  mediaQueue: (job: () => Promise<unknown>) => void
+  metaInFlightRef: React.MutableRefObject<Set<string>>
   /** 映像段と対になる音声段の名前（V2 → A2） */
-  pairedAudioOf: any
-  placeVideoAtDrop: any
+  pairedAudioOf: (vTrack: string) => string
+  placeVideoAtDrop: (path: string, t: number, insert: boolean) => Promise<void>
   /** 映像と音の段を対で確保する */
-  reserveTrackPairForVideo: any
+  reserveTrackPairForVideo: (vTrack: string) => string
   scrollRef: React.RefObject<HTMLDivElement>
   trackInnerRef: React.RefObject<HTMLDivElement>
-  /** 吸着（クリップの左右どちらの端でも寄せる） */
-  snapClipStart: any
+  /** 吸着（クリップの左右どちらの端でも寄せる）。`more` は state/useSnap を見ること */
+  snapClipStart: (
+    tStart: number,
+    dur: number,
+    excludeSeIds?: number[],
+    excludeImgIds?: number[],
+    excludeVcIds?: number[],
+    more?: { cues?: number[]; extra?: number[] }
+  ) => number
   /** どこからも使われなくなった元動画 */
-  staleSourceIds: any
-  trackFromEvent: any
+  staleSourceIds: (path: string, refs: BinRefs) => number[]
+  trackFromEvent: (e: { target: EventTarget | null }, kind?: 'video' | 'audio') => string | null
   trackNum: (id: string) => number
   vcLen: (c: VClip) => number
-  /** 調べ終わった素材の中身の置き場 */
-  setMediaMeta: React.Dispatch<
-    React.SetStateAction<
-      Record<string, { dur?: number; wave?: { min: number[]; max: number[]; dur: number } }>
-    >
-  >
-  setImgGhost: any
-  setSeGhost: any
-  setVideoGhost: any
-  setSnapLineX: (x: number | null) => void
+  /**
+   * 調べ終わった素材の中身の置き場。
+   * **中身の形は `MediaMeta` を指す**——前はここに `{ dur?; wave? }` と
+   * 書き写してあり、あちらを直してもここは古いままになる形だった
+   */
+  setMediaMeta: React.Dispatch<React.SetStateAction<Record<string, MediaMeta>>>
+  setImgGhost: React.Dispatch<React.SetStateAction<ImgGhost | null>>
+  setSeGhost: React.Dispatch<React.SetStateAction<SeGhost | null>>
+  setVideoGhost: React.Dispatch<React.SetStateAction<VideoGhost | null>>
+  setSnapLineX: React.Dispatch<React.SetStateAction<number | null>>
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useMediaDrop(deps: UseMediaDropDeps) {
   const {

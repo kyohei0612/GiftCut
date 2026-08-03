@@ -21,34 +21,47 @@ import { useDoc } from './contentContext'
 import { useToastCtx } from './toastContext'
 import { useMediaCtx } from './mediaContext'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// **`any` で受けない。** ここは呼ぶ側（`useAppWiring`）が実物を渡す入口なので、
+// 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
+// 型は推測せず、呼び出し側が実際に渡している物をそのまま写した。
 export interface UseProjectIODeps {
-  projectPath: any
+  projectPath: string | null
   /** いまの中身を文字列にした物（保存の要否を見る） */
-  projectJson: any
-  /** 読み込んだ中身をタイムラインへ流し込む */
-  applyProjectData: any
-  askConfirm: any
+  projectJson: (pathOverride?: string | null) => string
+  /**
+   * 読み込んだ中身をタイムラインへ流し込む。
+   * **`data` が `any` なのは正しい**——ディスクから読んだ物で形が保証されていない
+   * （受け取った側が1つずつ確かめる。`useProjectFile` の解く所も同じ扱い）
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  applyProjectData: (data: any, videoExists: boolean, srcPath: string | null) => Promise<void>
+  askConfirm: (o: {
+    title: string
+    body: string
+    okLabel?: string
+    cancelLabel?: string
+    danger?: boolean
+  }) => Promise<boolean>
   /** 素材を読む・登録する */
-  loadVideo: any
-  registerSource: any
-  addMediaPaths: any  /** これから調べる素材の待ち行列 */
-  mediaQueue: any
+  loadVideo: (path: string, opts?: { placed?: boolean }) => Promise<void>
+  registerSource: (path: string) => Promise<{ id: number; dur: number } | null>
+  addMediaPaths: (paths: string[], folder?: string) => void
+  /** これから調べる素材の待ち行列 */
+  mediaQueue: (job: () => Promise<unknown>) => void
   /** サムネを作り終えた素材 */
-  thumbDoneRef: any
+  thumbDoneRef: React.MutableRefObject<Set<string>>
   /** 持ち出し（ZIP）の最中か */
-  packBusyRef: any
-  setPackPct: any
+  packBusyRef: React.MutableRefObject<boolean>
+  setPackPct: React.Dispatch<React.SetStateAction<number | null>>
   /** 下書き（自動保存）のまわり */
-  autosaveNgRef: any
-  autosavedRevRef: any
-  lastAutosaveRef: any
-  setAutosaveNg: any
+  autosaveNgRef: React.MutableRefObject<boolean>
+  autosavedRevRef: React.MutableRefObject<number>
+  lastAutosaveRef: React.MutableRefObject<string>
+  setAutosaveNg: React.Dispatch<React.SetStateAction<boolean>>
   /** 捨てる前に聞く／最近開いた物に足す（state/useProjectGuard の物） */
-  confirmDiscard: any
-  rememberProject: any
+  confirmDiscard: (what: string) => Promise<boolean>
+  rememberProject: (path: string) => void
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useProjectIO(deps: UseProjectIODeps) {
   const {

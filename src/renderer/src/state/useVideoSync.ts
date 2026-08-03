@@ -24,50 +24,61 @@
 
 import { useEffect } from 'react'
 import { clamp, tToSource, vcLen } from '../../../shared/timeline'
+import type { Layout } from '../../../shared/timeline'
 import { perf } from '../lib/perfMonitor'
-import type { Source } from '../lib/projectTypes'
+import type { SEClip, Source, VClip, VSeg } from '../lib/projectTypes'
+import type { PreviewRes } from '../components/panels/PreviewBars'
+import type { Snap } from './useHistory'
+import type { usePreviewFrame } from './usePreviewFrame'
 import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
 import { useMediaCtx } from './mediaContext'
 import { usePlaybackCtx } from './playbackContext'
 import { useExportCtx } from './exportContext'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// **`any` で受けない。** ここは呼ぶ側（useAppWiring）が実物を渡す入口なので、
+// 型を書いておけば**渡す物が変わった瞬間に呼び出し側で落ちる**——受け口（context）と
+// 違って、手で書いても腐らない（コンパイラが毎回照合する）。
+//
+// 型は推測せず、**呼び出し側が実際に渡している物の型をそのまま写した**
+// （TypeScript の compiler API で `useAppWiring` の実引数を読んだ）。
 export interface UseVideoSyncDeps {
   /** 本編の <video>（A面/B面）と、その一覧 */
-  videoRef: any
-  videoBRef: any
-  videoElsRef: any
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>
+  videoBRef: React.RefObject<HTMLVideoElement>
+  videoElsRef: React.MutableRefObject<Map<string, HTMLVideoElement>>
   /** どの面を使うか（元動画ごとに A/B が決まる） */
-  halfOf: any
-  elKey: any
-  elOf: any
+  halfOf: (srcId: number) => 0 | 1
+  elKey: (srcId: number, half: 0 | 1) => string
+  elOf: (srcId: number) => HTMLVideoElement | undefined
   /** 効果音の <audio> と、試聴用 */
-  seAudioRefs: any
+  seAudioRefs: React.MutableRefObject<Map<number, HTMLAudioElement>>
   /** 映像レイヤーの <video> */
-  vcElsRef: any
-  /** いま画面に出す重ねの状態（state/usePreviewFrame） */
-  xfPreview: any
-  segLayout: any
-  srcOfSeg: any
-  previewUrl: any
+  vcElsRef: React.MutableRefObject<Map<number, HTMLVideoElement>>
+  /**
+   * いま画面に出す重ねの状態。**作っている側から引く**
+   * （形を書き写すと、あちらを直したときにここだけ古くなる）
+   */
+  xfPreview: ReturnType<typeof usePreviewFrame>['xfPreview']
+  segLayout: Layout<VSeg>[]
+  srcOfSeg: (seg: VSeg | undefined) => Source | undefined
+  previewUrl: (path: string, orig: string) => string
   /** 焼き直した映像の対応表と、いまの画質 */
-  proxyMap: any
-  previewRes: any
-  lastPreviewResRef: any
+  proxyMap: Record<string, { url: string; res: number }>
+  previewRes: PreviewRes
+  lastPreviewResRef: React.MutableRefObject<PreviewRes>
   /** 元動画をいつ足したか（足した直後だけ先読みを急ぐ） */
-  srcAddedAtRef: any
+  srcAddedAtRef: React.MutableRefObject<Map<number, number>>
   /** 音量の計算 */
-  audioTrackGain: any
-  duckGainAt: any
-  seFadeGain: any
-  vcFadeGain: any
+  audioTrackGain: (id: string) => number
+  duckGainAt: (clip: SEClip, t: number) => number
+  seFadeGain: (clip: SEClip, t: number) => number
+  vcFadeGain: (c: VClip, t: number) => number
   trackNum: (id: string) => number
   /** 履歴。捨てた元動画がまだ要るかを見る */
-  undoStackRef: any
-  redoStackRef: any
+  undoStackRef: React.MutableRefObject<Snap[]>
+  redoStackRef: React.MutableRefObject<Snap[]>
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useVideoSync(deps: UseVideoSyncDeps): void {
   const {
