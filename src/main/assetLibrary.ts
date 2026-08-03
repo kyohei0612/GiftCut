@@ -253,12 +253,20 @@ ipcMain.handle('telop:presets', () => {
 
 // ---- 動きのプリセット（Premiere の .prfpset から写し取ったもの）----
 //
-// 置き場はテロップのテンプレ集と同じ考え方（cwd / appPath / userData）。
+// 置き場はテロップのテンプレ集と同じ考え方（appPath / resourcesPath / userData）。
 // **取り込んだ物は userData に書く**（アプリを入れ直しても消えない側）。
 // .prfpset そのものは持たない。読んだ結果（＝こちらの Motion）だけを残す。
+//
+// **`resourcesPath` は 2026-08-03 に足した。ここだけ抜けていた。**
+// 効果音（se:list）とテロップの見本（telop:presets）は最初から3つ見ているのに、
+// 動きの見本帳だけ2つしか見ていなかった＝**exe 1つで配る版では、同梱した
+// 動きが1つも出てこない**。このファイルの冒頭が名指しで戒めている
+// 「同梱ぶんが出てこない」事故が、ここでは現に起きる形だった。
 const motionRoots = (): string[] =>
   [
     join(app.getAppPath(), 'motion-presets'),
+    // **exe 1つで配る版**は、素材を中に同梱する（解凍させないため）
+    join(process.resourcesPath ?? '', 'motion-presets'),
     join(app.getPath('userData'), 'motion-presets')
   ].filter((r) => existsSync(r))
 const motionWriteRoot = (): string => join(app.getPath('userData'), 'motion-presets')

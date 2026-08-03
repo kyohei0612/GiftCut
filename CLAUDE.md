@@ -65,6 +65,7 @@
 | 同じ物を別の場所に二重に書く | `src/shared/noDuplicate.test.ts`（shared の作り直し／12行そっくり） |
 | 使っていない物がたまる | tsconfig の `noUnusedLocals` |
 | 時間計算がバラバラになる | `src/shared/timeline.test.ts` |
+| **一時フォルダが際限なく貯まる** | `e2e/lib/e2eFixture.mjs` の `cleanBigTemp`（**5GB を超えたら捨てる**）。<br>通し・測定・音の確認の入口で毎回通る。**82GB まで貯まった実績あり** |
 | 画面と書き出しで絵がズレる | `shared/clipMotion`・`shared/filterGraph` の試験 |
 
 **検査が無い決まりは「願望」**として `.company/engineering/CLAUDE.md` に分けて書いてある。

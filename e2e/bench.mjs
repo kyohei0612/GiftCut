@@ -44,6 +44,8 @@ import { sh } from './lib/shell.mjs'
 import { fmt, mb } from './lib/fmt.mjs'
 import { findLimits } from './bench-limits.mjs'
 import { CACHE, TELOPS, pickSource, makeLongVideo, makeStyle, makeCues, makeSegments, buildProject, makeProject, useRealProject } from './lib/fixture.mjs'
+// 一時フォルダが5GBを超えていたら、ここでまとめて捨てる（決まりは ./lib/e2eFixture）
+import { cleanBigTemp } from './lib/e2eFixture.mjs'
 import { similarity, brightness, meanVolume, silentSec, frameStats } from './lib/measure.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -160,6 +162,7 @@ try {
     return f
   }
 
+  cleanBigTemp()
   // --project=<path> があれば**本物のプロジェクト**で測る（作り物を作らない）。
   // 作り物は「テロップが等間隔に並ぶ」素直な形になりがちで、実際の編集で出る
   // 重さ（段が11本・切片が細かい・効果音が重なる）が出てこない。

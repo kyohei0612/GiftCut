@@ -21,7 +21,7 @@
 
 import { toggleSelect } from '../../../shared/clipEdit'
 import { startEdgeScroll } from '../lib/edgeScroller'
-import { subtractRanges, isUntouched } from '../../../shared/overwrite'
+import { overwriteCues } from '../../../shared/overwrite'
 import { clamp } from '../../../shared/timeline'
 import { formatTime, type Cue } from '../lib/srt'
 import { type SegLayout } from '../lib/projectTypes'
@@ -493,43 +493,23 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
    * StrictMode の2回走りで番号が飛ぶ・ずれる。**ここで作りきって、
    * 出来上がった配列を絶対値で入れる。**
    *
-   * ## どこを削るかの判定は shared/overwrite
+   * ## 中身は shared/overwrite の overwriteCues
    *
    * 削りすぎれば文字が消え、削り足りなければ重なったまま残る。
-   * 画面を起動せずに確かめられるように分けてある。
+   * **判定（subtractRanges）だけを分けていたが、それを束ねる所がここに残っていて、
+   * 一番怖い「最終的にどう並ぶか」だけがアプリを起動しないと見られなかった。**
+   * 組み立てごと向こうへ移し、ここは採番を預けて呼ぶだけにした（2026-08-03）。
    */
   function overwriteOverlappedCues(winnerIds: number[]): void {
-    const all = cuesRef.current
-    const winners = all.filter((c) => winnerIds.includes(c.id))
-    if (!winners.length) return
-    const next: Cue[] = []
-    let changed = false
-    for (const c of all) {
-      if (winnerIds.includes(c.id)) {
-        next.push(c)
-        continue
-      }
-      // 削るのは**同じ段に居る物だけ**（段が違えば重なって当然）
-      const cuts = winners
-        .filter((w) => cueTrack(w) === cueTrack(c))
-        .map((w) => ({ start: w.start, end: w.end }))
-      const parts = subtractRanges({ start: c.start, end: c.end }, cuts)
-      if (isUntouched({ start: c.start, end: c.end }, parts)) {
-        next.push(c)
-        continue
-      }
-      changed = true
-      parts.forEach((p, i) => {
-        // 先頭は元の id のまま（選択や打った動きの行き先が変わらないように）
-        next.push(
-          i === 0
-            ? { ...c, start: p.start, end: p.end }
-            : { ...structuredClone(c), id: idCounter.current++, start: p.start, end: p.end }
-        )
-      })
-    }
-    if (!changed) return
-    setCues(next.sort((a, b) => a.start - b.start))
+    const next = overwriteCues(
+      cuesRef.current,
+      winnerIds,
+      cueTrack,
+      // **採番はここでやる。** setState の中で回すと StrictMode の2回走りで飛ぶ
+      () => idCounter.current++,
+      (c) => structuredClone(c)
+    )
+    if (next) setCues(next)
   }
 
   function onClipContextMenu(cue: Cue, e: React.MouseEvent): void {

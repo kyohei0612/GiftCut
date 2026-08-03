@@ -61,3 +61,64 @@ export function subtractRanges(
 export function isUntouched(span: Range, parts: readonly Range[]): boolean {
   return parts.length === 1 && parts[0].start === span.start && parts[0].end === span.end
 }
+
+/**
+ * 上書きの結果、テロップの並びがどうなるかを組み立てる。
+ *
+ * ## なぜ「判定」だけでなく「組み立て」もここに置くか
+ *
+ * このファイルの頭に「画面が無くても確かめられる」と書いてあるのに、
+ * **`subtractRanges` を束ねる所だけが画面側（`state/useTimelineDrag`）に居た**。
+ * 一番怖いのは「削りすぎて文字が消える」ことなのに、その最終形だけが
+ * アプリを起動しないと見られない状態だった（2026-08-03 にこちらへ移した）。
+ *
+ * ## 新しい id は呼ぶ側が採る
+ *
+ * 真ん中を抜かれたテロップは2つに割れるので、片方に新しい id が要る。
+ * setState の中で採番すると **StrictMode の2回走りで番号が飛ぶ**ので、
+ * 採る役は呼ぶ側（`nextId`）に預け、ここは受け取った番号を使うだけにする。
+ *
+ * ## 先頭は元の id のまま
+ *
+ * 割れた左側は元の id を引き継ぐ。選択や、打った動きの行き先が変わらないように。
+ *
+ * @param nextId 新しい id を1つ返す（呼ぶたびに違う番号）
+ * @returns 変わらなければ null（呼ぶ側は setState しないで済む）
+ */
+export function overwriteCues<T extends Range & { id: number }>(
+  all: readonly T[],
+  winnerIds: readonly number[],
+  trackOf: (c: T) => string,
+  nextId: () => number,
+  clone: (c: T) => T = (c) => ({ ...c })
+): T[] | null {
+  const winners = all.filter((c) => winnerIds.includes(c.id))
+  if (!winners.length) return null
+  const out: T[] = []
+  let changed = false
+  for (const c of all) {
+    if (winnerIds.includes(c.id)) {
+      out.push(c)
+      continue
+    }
+    // 削るのは**同じ段に居る物だけ**（段が違えば重なって当然）
+    const cuts = winners
+      .filter((w) => trackOf(w) === trackOf(c))
+      .map((w) => ({ start: w.start, end: w.end }))
+    const parts = subtractRanges({ start: c.start, end: c.end }, cuts)
+    if (isUntouched({ start: c.start, end: c.end }, parts)) {
+      out.push(c)
+      continue
+    }
+    changed = true
+    parts.forEach((p, i) => {
+      out.push(
+        i === 0
+          ? { ...c, start: p.start, end: p.end }
+          : { ...clone(c), id: nextId(), start: p.start, end: p.end }
+      )
+    })
+  }
+  if (!changed) return null
+  return out.sort((a, b) => a.start - b.start)
+}

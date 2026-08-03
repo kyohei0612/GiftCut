@@ -35,6 +35,8 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { clearModals, watchdog } from './dismiss.mjs'
+// 一時フォルダが5GBを超えていたら、ここでまとめて捨てる（決まりは ./lib/e2eFixture）
+import { cleanBigTemp } from './lib/e2eFixture.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
@@ -66,6 +68,7 @@ if (!existsSync(join(ROOT, 'out/main/index.js'))) {
   process.exit(2)
 }
 
+cleanBigTemp()
 // **写しで起動する。** 本物を直接使うと、測っただけで下書きが書き換わる
 const tmp = mkdtempSync(join(tmpdir(), 'gc-stutter-'))
 const userData = join(tmp, 'userData')

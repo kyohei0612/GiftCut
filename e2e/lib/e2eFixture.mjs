@@ -22,9 +22,76 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 /** 画面を1枚撮るだけのとき（--shot）は、前回の残りを消さない */
 const SHOT_ONLY = process.argv.includes('--shot')
 
+/**
+ * 一時フォルダが**これを超えたら、種類を問わず全部捨てる**（バイト）。
+ *
+ * 前は `giftcut-e2e-` で始まる物だけを毎回消していたが、
+ * **測定（`giftcut-bench-*`）と音の確認（`gc-stutter-*`）が対象外**だった。
+ * 測定は1回ごとに60分の動画を作るので、気づいたら
+ * **148件・82GB たまっていた**（2026-08-03 に手で消した）。
+ *
+ * 毎回まとめて消さないのは、測定の使い回し（同じ素材を作り直さない）を
+ * 潰さないため。**貯まってから捨てる**方が、待ち時間と容量の折り合いが付く。
+ */
+const TEMP_LIMIT_BYTES = 5 * 1024 * 1024 * 1024
+
+/** そのフォルダの中身の合計バイト（読めない物は0として数える） */
+function dirBytes(dir) {
+  let sum = 0
+  try {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name)
+      if (e.isDirectory()) sum += dirBytes(full)
+      else {
+        try {
+          sum += statSync(full).size
+        } catch {
+          /* 消えた・読めない物は数えない */
+        }
+      }
+    }
+  } catch {
+    /* 読めないフォルダは0 */
+  }
+  return sum
+}
+
+/**
+ * 測定・音の確認が残した一時フォルダを、**貯まってから**まとめて捨てる。
+ *
+ * これだけを別の口にしてあるのは、`cleanLeftovers` が
+ * **通しの画面記録（e2e/shots）も消す**から。測定から呼ぶと、
+ * 直前に回した通しの記録が消えてしまう。
+ */
+export function cleanBigTemp() {
+  try {
+    const others = readdirSync(tmpdir()).filter(
+      (f) =>
+        (f.startsWith('giftcut-') && !f.startsWith('giftcut-e2e-')) || f.startsWith('gc-stutter-')
+    )
+    const total = others.reduce((a, f) => a + dirBytes(join(tmpdir(), f)), 0)
+    if (total <= TEMP_LIMIT_BYTES) return
+    let m = 0
+    for (const f of others) {
+      try {
+        rmSync(join(tmpdir(), f), { recursive: true, force: true })
+        m++
+      } catch {
+        /* 使用中なら次回に回す */
+      }
+    }
+    console.log(
+      `測定の一時フォルダが ${(total / 1024 ** 3).toFixed(1)} GB たまっていたので ${m} 件捨てました`
+    )
+  } catch {
+    /* temp が読めない環境では何もしない */
+  }
+}
+
 export function cleanLeftovers() {
   let n = 0
   try {
+    // 通しの残りは毎回消す。**前の回の状態を見て「通った」ことにしないため。**
     for (const f of readdirSync(tmpdir())) {
       if (!f.startsWith('giftcut-e2e-')) continue
       try {
@@ -37,6 +104,7 @@ export function cleanLeftovers() {
   } catch {
     /* temp が読めない環境では何もしない */
   }
+  cleanBigTemp()
   // 前回のスクリーンショットは消す（今回の結果と混ざると読み違える）。
   // ただし撮るだけのときは、前の記録を残しておく。
   if (!SHOT_ONLY) {
