@@ -89,7 +89,8 @@ const DEBT_INDEX = new Set([
   'src/renderer/src/state/useTimelineEdit.ts', // 893
   'src/renderer/src/components/StylePanel.tsx', // 679。冒頭コメントも無い
   'src/renderer/src/state/useProjectFile.ts', // 667
-  'src/renderer/src/lib/telopStyle.ts', // 623
+  // telopStyle.ts は**返済済み**（2026-08-03）。測る112行を ./telopMeasure へ出して
+  // 623 → 510 にし、残り10行ぶんは取説（// ## 中身）を付けて機械の照合下に入れた。
   'src/renderer/src/state/useTimelineDrag.ts', // 577
   'src/renderer/src/lib/telopSvg.ts', // 564
   'src/renderer/src/state/useClipDrag.ts', // 534
@@ -230,7 +231,8 @@ describe('AI が余裕を持って読める形', () => {
 
   it('DEBT は減らす方向にだけ動かす（この数を増やしたら赤くする）', () => {
     // 増やしたくなったら、それは「割るか取説を書くか」を先送りしているだけ。
-    expect(DEBT_INDEX.size).toBeLessThanOrEqual(13)
+    // 2026-08-03 に 13 で始めて、その日のうちに telopStyle を返して 12。
+    expect(DEBT_INDEX.size).toBeLessThanOrEqual(12)
     expect(DEBT_HEAD.size).toBeLessThanOrEqual(11)
   })
 })

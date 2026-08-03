@@ -1,6 +1,40 @@
-// テロップのスタイル定義（プレミアのエッセンシャルグラフィックス相当）
+// テロップのスタイル定義（プレミアのエッセンシャルグラフィックス相当）と、そこから CSS を組む。
+//
+// ## 測る所は別ファイル（2026-08-03 に出した）
+//
+// 文字が実際にどこまで塗られるかを DOM と canvas で測る112行が中に居たが、
+// 冒頭は「スタイル定義」の1行しか宣言しておらず、**測る話は書かれていなかった**。
+// 道具も違う（あちらはブラウザに聞く、こちらは文字列を組む）ので `./telopMeasure` へ。
+//
+// 出したことで `telopSvg → telopStyle` の輪も細くなった
+//（SVG 側が要るのは測る2つだけで、スタイルの定数とは無関係だった）。
+//
+// ## なぜ CSS の組み立てまで割らないか
+//
+// あと10行だけ 500 を超えているが、`computeTelopCss` を出すと**定数を借りに
+// 戻ってくる輪**ができる（`telopSvg` と同じ形）。話題は「テロップの見た目を
+// 決める物一式」で1つなので、割らずに下の取説を付けた。
+// 取説は機械で照合している（`shared/readability.test.ts`）ので、
+// **引っ越して説明だけ残す**ことはできない。
+//
+// ## 中身
+//
+// - `textRectInFrame` … 文字の箱がフレームのどこを占めるか（動きの当たり判定）
+// - `defaultTelopStyle` … 何も指定していないテロップの見た目
+// - `anchorTranslate` … 基準点（9か所）から CSS の translate を作る
+// - `anchorFlex` … 同じ基準点を flex の寄せ方に直す
+// - `anchorFrac` … 同じ基準点を 0..1 の割合に直す
+// - `hexToRgba` … #rrggbb ＋ 不透明度(%) → rgba()
+// - `_lum` … 明るさ。色の濃さを見て自動で決める所で使う
+// - `resolveGradMid` … グラデの中間点。未指定なら色の明暗から寄せる
+// - `gradientStopStr` … グラデのストップ列を CSS の文字列にする
+// - `isVerticalGrad` … 縦向きのグラデか（縦だけ文字の実描画範囲へ写す）
+// - `fillCss` … 塗り（単色 or グラデ）の CSS
+// - `cq` … 1080基準の値をコンテナ高さ比(cqh)へ。**比率が変わっても見た目を保つ**
+// - `computeTelopCss` … TelopStyle → 実際の CSS（Premiere と同じ重ね方）
 
-import { makeLru } from './lru'
+// グラデーションを文字の実描画範囲へ張るための実測。**ブラウザに聞く唯一の場所。**
+import { GRAD_PAD_EM, measureInkRange } from './telopMeasure'
 
 // コラボアイコンの基準サイズ（動画1080px高さ基準）。文字サイズとは独立させ、
 // アイコンサイズ倍率(iconScale)だけで大小を決める。従来の既定(fontSize90×1.6=144)に合わせた値。
@@ -297,7 +331,8 @@ export const MITER_LIMIT = 2
 // 塗りレイヤーの上下パディング(em)。line-height<1 だと文字インクが行ボックスをはみ出し、
 // background-clip:text はボックス外を塗れない（＝フォントによって上下が白欠けする）ため、
 // パディングで塗り箱を広げ、同量の負マージンでレイアウトは不変に保つ。
-export const GRAD_PAD_EM = 0.35
+// ※ GRAD_PAD_EM は ./telopMeasure が持ち主になった（測る側と塗る側が
+//    同じ値を見る必要があり、測る側でしか決められないため）。
 
 // ---- 影の調整係数（元データ geba.json は触らず、描画時に一括で掛ける）----
 // データはPremiere由来の生値。実効値 = データ値 × 係数。ここ一本で全テロップの影を調整。
@@ -305,129 +340,6 @@ export const GRAD_PAD_EM = 0.35
 export const SHADOW_BLUR_COEF = 0.5 // ぼかし: Premiere(データ)の半分がちょうど良い
 export const SHADOW_SPREAD_COEF = 15 / 18 // サイズ: 18→15相当に縮小
 export const SHADOW_DIST_COEF = 1.0 // 距離: 一旦そのまま（15-20へ寄せたい時ここを調整）
-
-/**
- * 文字インクの縦範囲を実測し、パディング込みの塗り箱に対する割合で返す。
- *   - ベースライン位置: DOMマーカーで「レイアウトエンジン自身」に答えさせる（フォントメトリクスの癖に非依存）
- *   - インクの上下端: canvas TextMetrics（actualBoundingBox、ベースライン基準）で文字ごとに実測
- * 固定係数・フォント別の推定は一切使わない＝今後どんなフォントを入れても正確。
- * Premiereはグラデを文字の実描画範囲に張るので、この範囲へストップをマップすると一致する。
- */
-let inkCtx: CanvasRenderingContext2D | null = null
-let measHost: HTMLDivElement | null = null
-// フォント名が鍵なので増えない（種類の数で頭打ち）
-const baselineCache = new Map<string, number>()
-/**
- * 測ったインクの範囲の控え。**上限を付けてある。**
- *
- * 鍵に**文字の中身**が入っている（下の key を見ること）ので、
- * 上限が無いと**1文字打つたびに新しい鍵ができ、古い物は一度も捨てられない**。
- * ＝編集した分だけ増え続ける。実際に「編集すればするほど重くなる」と言われていた。
- *
- * 2000件は、実物のプロジェクト（テロップ242個）の8倍。1本ぶん編集しても
- * 測り直しは起きず、打ち続けても増えない。
- */
-const inkCache = makeLru<{ top: number; bottom: number }>(2000)
-
-/**
- * 文字を測るための canvas。**1枚を使い回す。**
- *
- * 測るたびに作ると、テロップの数だけ canvas が増えて重くなる。
- * 画面の無い所（試験など）では作れないので null が返る——呼ぶ側で必ず見ること。
- */
-export function inkContext(): CanvasRenderingContext2D | null {
-  if (!inkCtx) inkCtx = document.createElement('canvas').getContext('2d')
-  return inkCtx
-}
-
-// canvasのfontショートハンドが解析失敗する名前（数字始まり等）に備え、各ファミリーを引用符で包む版を作る
-export const quoteFamilies = (fontFamily: string): string =>
-  fontFamily
-    .split(',')
-    .map((t) => {
-      const s = t.trim()
-      if (!s || s.startsWith('"') || s.startsWith("'")) return s
-      if (/^(sans-serif|serif|monospace|cursive|fantasy|system-ui)$/i.test(s)) return s
-      return `"${s}"`
-    })
-    .join(', ')
-
-// 行ボックス先頭からベースラインまでの距離(px, fontSize=100px時)をDOMで実測
-function measureBaseline(fontFamily: string, fontWeight: number, lineHeight: number): number {
-  const key = `${fontFamily}|${fontWeight}|${lineHeight.toFixed(3)}`
-  const hit = baselineCache.get(key)
-  if (hit != null) return hit
-  const em = 100
-  if (!measHost) {
-    measHost = document.createElement('div')
-    measHost.style.cssText =
-      'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;white-space:pre'
-    document.body.appendChild(measHost)
-  }
-  measHost.style.fontFamily = fontFamily
-  measHost.style.fontWeight = String(fontWeight)
-  measHost.style.fontSize = `${em}px`
-  measHost.style.lineHeight = String(lineHeight)
-  measHost.textContent = ''
-  const span = document.createElement('span')
-  span.textContent = 'あ永A'
-  const marker = document.createElement('span')
-  marker.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline'
-  measHost.append(span, marker)
-  const baseline = marker.getBoundingClientRect().top - measHost.getBoundingClientRect().top
-  baselineCache.set(key, baseline)
-  return baseline
-}
-
-export function measureInkRange(
-  text: string,
-  fontFamily: string,
-  fontWeight: number,
-  lineHeight: number
-): { top: number; bottom: number } {
-  const clampv = (v: number): number => Math.max(0, Math.min(1, v))
-  const lines = text.split('\n')
-  const first = lines[0] || 'あ'
-  const last = lines[lines.length - 1] || 'あ'
-  const key = `${fontFamily}|${fontWeight}|${lineHeight.toFixed(3)}|${lines.length}|${first.slice(0, 40)}|${last.slice(0, 40)}`
-  const hit = inkCache.get(key)
-  if (hit) return hit
-  try {
-    if (!inkCtx) inkCtx = document.createElement('canvas').getContext('2d')
-    if (!inkCtx) return { top: 0, bottom: 1 }
-    const em = 100
-    const pad = GRAD_PAD_EM * em
-    // fontショートハンドの解析失敗を検知（失敗すると前の値が残る）→ 引用符版で再設定
-    const qf = quoteFamilies(fontFamily)
-    inkCtx.font = '10px monospace'
-    inkCtx.font = `${fontWeight} ${em}px ${qf}`
-    if (inkCtx.font === '10px monospace') inkCtx.font = `${fontWeight} ${em}px sans-serif`
-    const m1 = inkCtx.measureText(first)
-    const mN = first === last ? m1 : inkCtx.measureText(last)
-    const inkA = m1.actualBoundingBoxAscent ?? em * 0.88
-    const inkD = mN.actualBoundingBoxDescent ?? 0
-    // ベースライン位置はDOM実測（レイアウトと同じ答え）
-    const baseline = measureBaseline(fontFamily, fontWeight, lineHeight)
-    const lh = lineHeight * em
-    const n = lines.length
-    const boxH = n * lh + pad * 2
-    const top = clampv((pad + baseline - inkA) / boxH)
-    const bottom = Math.max(top, clampv((pad + (n - 1) * lh + baseline + inkD) / boxH))
-    const r = { top, bottom }
-    // フォント未ロード中の誤計測をキャッシュしない（ロード後の再描画で正しい値に更新される）
-    let loaded = true
-    try {
-      loaded = document.fonts.check(`${fontWeight} ${em}px ${qf}`)
-      if (!loaded) void document.fonts.load(`${fontWeight} ${em}px ${qf}`)
-    } catch {
-      /* check不可なら毎回実測 */
-    }
-    if (loaded) inkCache.set(key, r)
-    return r
-  } catch {
-    return { top: 0, bottom: 1 }
-  }
-}
 
 export function fillCss(
   fill: TelopStyle['fill'],
