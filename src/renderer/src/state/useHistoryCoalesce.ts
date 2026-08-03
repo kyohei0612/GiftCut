@@ -20,24 +20,30 @@ import { useEffect } from 'react'
 import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
 import { useExportCtx } from './exportContext'
+import type { Snap } from './useHistory'
+import type { Ratio } from './useExportSettings'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// **`any` で受けない。** 呼ぶ側が実物を渡す入口なので、型がズレた瞬間に
+// 呼び出し側で落ちる＝手で書いても腐らない。
 export interface UseHistoryCoalesceDeps {
   /** 前回の写しと比べて変わっているか */
   isDirty: () => boolean
   /** いまの中身を1つの写しにする */
-  snapNow: any
-  pushUndo: any
-  baselineRef: any
-  pendingTimerRef: any
+  snapNow: () => Snap
+  pushUndo: (state: Snap) => void
+  baselineRef: React.MutableRefObject<Snap>
+  pendingTimerRef: React.MutableRefObject<number | null>
   /** 読み込みなど「履歴に残さない変更」の札 */
-  suppressHistoryRef: any
-  redoStackRef: any
-  setHistTick: any
-  /** 画面比。履歴の写しに入れる */
-  ratioRef: React.MutableRefObject<string>
+  suppressHistoryRef: React.MutableRefObject<boolean>
+  redoStackRef: React.MutableRefObject<Snap[]>
+  setHistTick: () => void
+  /**
+   * 画面比。履歴の写しに入れる。
+   * **`string` ではなく `Ratio`**——前は手で広げてあり、
+   * 「16:9」以外の綴りを入れても通る形だった
+   */
+  ratioRef: React.MutableRefObject<Ratio>
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useHistoryCoalesce(deps: UseHistoryCoalesceDeps): void {
   const {

@@ -78,6 +78,9 @@ import { totalCutLen } from '../../../shared/silenceCut'
 import { overwriteOverlapped } from './cueOverwrite'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, SEClip, VClip, VSeg } from '../lib/projectTypes'
+import type { SegLayout } from '../lib/projectTypes'
+import type { SegOps } from '../../../shared/timeline'
+import type { CutRange } from '../../../shared/silenceCut'
 import type { SilenceCutState } from '../components/dialogs/AudioDialogs'
 import { useDoc } from './contentContext'
 import { useMediaCtx } from './mediaContext'
@@ -89,26 +92,27 @@ import { usePlaybackCtx } from './playbackContext'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseTimelineEditDeps {
   /** つなぎ目の演出のうち、どこにも掛からなくなった物を捨てる */
-  cleanupOrphanTrans: any
+  cleanupOrphanTrans: (list: VSeg[], removedIds: Set<number>) => VSeg[]
   /** まだ確定していない変更を、履歴へ積んでしまう（消す前に必ず呼ぶ） */
   commitPending: () => void
-  copySelected: any
+  copySelected: () => void
   cueTrack: (c: Cue) => string
-  cutRangeFromSegs: any
+  cutRangeFromSegs: (segs: VSeg[], tA: number, tB: number) => { out: VSeg[]; insertAt: number }
   deleteSelectedImg: () => void
   deleteSelectedVClip: () => void
   idCounter: React.MutableRefObject<number>
   /** 本編（V1）に鍵が掛かっているか */
   mainLocked: () => boolean
-  makeGapSeg: any
+  makeGapSeg: (len: number) => VSeg
   seekTo: (t: number) => void
   /**
    * 再生ヘッドが枠の外なら、見える所へ連れてくる（見えているときは何もしない）。
    * リップル削除で詰めたあと、ヘッドだけ画面の外へ飛ぶことがある。
    */
   revealPlayhead: () => void
-  segLayoutRef: React.MutableRefObject<{ seg: VSeg; tStart: number; tEnd: number; len: number; index: number }[]>
-  segOps: any
+  /** **形は SegLayout を指す**（前はここに書き写してあり、あちらを直しても古いままになる形だった） */
+  segLayoutRef: React.MutableRefObject<SegLayout[]>
+  segOps: SegOps<VSeg>
   /** 無音カットの下ごしらえの状態（探している最中か・見つかった所） */
   silenceCut: SilenceCutState
   setSilenceCut: React.Dispatch<React.SetStateAction<SilenceCutState>>
@@ -116,11 +120,11 @@ export interface UseTimelineEditDeps {
   setTime: (t: number) => void
   /** 境目より後ろを、種類を跨いでまとめてずらす */
   shiftAfter: (boundaryT: number, delta: number) => void
-  silenceCuts: any
+  silenceCuts: CutRange[]
   stopPlayback: () => void
   telopLocked: (c: Cue) => boolean
   vcLen: (c: VClip) => number
-  videoRef: any
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 

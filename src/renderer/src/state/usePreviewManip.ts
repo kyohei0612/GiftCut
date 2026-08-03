@@ -28,33 +28,43 @@ import {
   type Zoom
 } from '../../../shared/clipMotion'
 import { DEFAULT_ZOOM } from '../lib/clipLook'
-import type { ImgClip, ReframeTarget, VClip } from '../lib/projectTypes'
+import type { ImgClip, ReframeTarget, VClip, VSeg } from '../lib/projectTypes'
+import type { Layout } from '../../../shared/timeline'
+import type { useEdit } from './useEdit'
 import { useDoc } from './contentContext'
 import { usePlaybackCtx } from './playbackContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// **`any` で受けない。** 呼ぶ側が実物を渡す入口なので、型がズレた瞬間に
+// 呼び出し側で落ちる＝手で書いても腐らない。
 export interface UsePreviewManipDeps {
   /** 映像を映している枠。ここを基準に掴んだ位置を測る */
   screenRef: React.RefObject<HTMLDivElement>
   /** いま掴める相手（本編の切片・重ねた動画・画像のどれか） */
   reframeTargetRef: React.MutableRefObject<ReframeTarget | null>
-  segLayout: any
+  segLayout: Layout<VSeg>[]
   vcLen: (c: VClip) => number
   // ※ videoRef / cueTrack / iconForCue / videoTLen / v1Hidden / curBlank /
   //   curSegZoom は消した。**本体では1度も読まず、useScreenshot へ渡すだけ**
   //   だった（2026-08-03。呼ぶ側があちらを直接呼ぶ形にした）。
-  /** 印（キーフレーム）が付いている項目を書き換える */
-  patchClipMotion: any
-  setSegZoom: any
-  setImgZoom: any
-  setVClipZoom: any
-  setSegRotate: any
+  /**
+   * 印（キーフレーム）が付いている項目を書き換える。
+   * **形は書き写さず `useEdit` から引く**（`useMotion` でも同じ物が要るので、
+   * 写すと片方だけ古くなる）
+   */
+  patchClipMotion: Edit['patchClipMotion']
+  setSegZoom: Edit['setSegZoom']
+  setImgZoom: Edit['setImgZoom']
+  setVClipZoom: Edit['setVClipZoom']
+  /** これだけ useEdit の物ではない（回転は切片だけの話なので別の所で作っている） */
+  setSegRotate: (segId: number, deg: number) => void
   clearAllSelections: () => void
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/** 作っている側（state/useEdit）の形。ここで書き直さない */
+type Edit = ReturnType<typeof useEdit>
 
 export function usePreviewManip(deps: UsePreviewManipDeps) {
   const {

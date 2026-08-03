@@ -28,7 +28,9 @@ import { dragModeOf, movedEnough, type SegDropMode } from '../../../shared/dragM
 import { toggleSelect } from '../../../shared/clipEdit'
 import { formatTime } from '../lib/srt'
 import { rafThrottle } from '../lib/schedule'
-import { type SegLayout } from '../lib/projectTypes'
+import { type SegLayout, type Source, type VSeg } from '../lib/projectTypes'
+import type { Tool } from './useAppChrome'
+import type { VideoGhost } from './useDragPreview'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 
@@ -36,7 +38,7 @@ import { useSel } from './selectionContext'
 export interface UseSegmentDragDeps {
   /** 本編が鍵で守られているか */
   /** いまの道具（選択・レザー） */
-  tool: any
+  tool: Tool
   mainLocked: () => boolean
   /** 段まるごとの選択ツールが先に反応したか。true なら掴みは始めない */
   maybeTrackSelect: (e: React.PointerEvent) => boolean
@@ -44,11 +46,11 @@ export interface UseSegmentDragDeps {
   undo: () => void
 
   /** 切片を別の時刻へ動かす（並び替えの本体） */
-  moveSegmentTo: any
+  moveSegmentTo: (segId: number, t: number, mode?: SegDropMode, alsoIds?: number[]) => void
   /** 切片を切る */
-  razorSegment: any
+  razorSegment: (seg: VSeg, atSrc: number) => void
   /** その切片が使っている素材 */
-  srcOfSeg: any
+  srcOfSeg: (seg: VSeg | undefined) => Source | undefined
   /** 境目より後ろをまとめてずらす */
   shiftAfter: (boundaryT: number, delta: number) => void
 
@@ -64,11 +66,25 @@ export interface UseSegmentDragDeps {
   /** 掴んでいる最中の見た目 */
   setDragTip: (v: { x: number; y: number; text: string } | null) => void
   setSnapLineX: (v: number | null) => void
-  setVideoGhost: any
+  setVideoGhost: React.Dispatch<React.SetStateAction<VideoGhost | null>>
   /** 落とすと上書きされる相手。赤く見せるために覚えておく */
   setOverwriteIds: React.Dispatch<React.SetStateAction<number[]>>
-  snapClipStart: any
-  snapTime: any
+  /** 端を吸い付ける（頭・尻の両方を見る）。`more` は state/useSnap を見ること */
+  snapClipStart: (
+    tStart: number,
+    dur: number,
+    excludeSeIds?: number[],
+    excludeImgIds?: number[],
+    excludeVcIds?: number[],
+    more?: { cues?: number[]; extra?: number[] }
+  ) => number
+  snapTime: (
+    t: number,
+    excludeCueIds?: number[],
+    excludeSeIds?: number[],
+    excludeImgIds?: number[],
+    excludeVcIds?: number[]
+  ) => number
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
