@@ -247,7 +247,7 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
       ...vClipsRef.current.map((c) => ({
         track: c.track,
         tStart: c.tStart,
-        duration: Math.max(0.05, c.srcEnd - c.srcStart)
+        duration: vcLen(c)
       }))
     ]
     return avoidBusyLane(order, busy, t, picked)

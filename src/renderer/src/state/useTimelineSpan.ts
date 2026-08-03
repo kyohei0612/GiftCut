@@ -20,7 +20,7 @@
 // **帯は元から窓の分だけ描いていたのに、目盛りだけが全部だった。**
 // 刻みの決め方は `shared/rulerTicks`（試験14件）。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { formatTimecode } from '../../../shared/timeline'
+import { formatTimecode, vcLen } from '../../../shared/timeline'
 import { visibleTicks } from '../../../shared/rulerTicks'
 import { useDoc } from './contentContext'
 
@@ -51,7 +51,7 @@ export function useTimelineSpan(deps: UseTimelineSpanDeps) {
   const vcEnd = useMemo(
     () =>
       vClips.length
-        ? Math.max(...vClips.map((c) => c.tStart + Math.max(0.05, c.srcEnd - c.srcStart)))
+        ? Math.max(...vClips.map((c) => c.tStart + vcLen(c)))
         : 0,
     [vClips]
   )

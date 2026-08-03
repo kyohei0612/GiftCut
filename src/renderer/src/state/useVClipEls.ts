@@ -7,6 +7,7 @@
 // 常設すると、クリップの数だけメディア要素が居座って重い。
 // そこで再生ヘッドの前後2秒ぶんだけ要素を残し、**表示だけ切り替える**。
 import { useMemo, useRef } from 'react'
+import { vcLen } from '../../../shared/timeline'
 
 /** 再生ヘッドの前後、何秒ぶんの要素を残しておくか */
 const VC_WINDOW = 2
@@ -23,7 +24,7 @@ export function useVClipEls(
         .filter(
           (c) =>
             currentTime >= c.tStart - VC_WINDOW &&
-            currentTime < c.tStart + Math.max(0.05, c.srcEnd - c.srcStart) + VC_WINDOW
+            currentTime < c.tStart + vcLen(c) + VC_WINDOW
         )
         .slice()
         .sort(

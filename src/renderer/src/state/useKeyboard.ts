@@ -25,6 +25,7 @@
 
 import { useEffect, useRef } from 'react'
 import { resolveShortcut, shouldBlur } from '../../../shared/keymap'
+import { vcLen } from '../../../shared/timeline'
 import type { ShortcutId, Shortcuts } from '../../../shared/shortcuts'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
@@ -257,7 +258,7 @@ export function useKeyboard(deps: UseKeyboardDeps): void {
             .map((c) => ({
               ...c,
               id: vClipIdCounter.current++,
-              tStart: c.tStart + Math.max(0.05, c.srcEnd - c.srcStart)
+              tStart: c.tStart + vcLen(c)
             }))
           setVClips((prev) => [...prev, ...dupes])
           setSelectedVClipIds(dupes.map((d) => d.id))

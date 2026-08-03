@@ -23,7 +23,7 @@
 // 書き出しの入力にも無駄に載る。ただし**主ソースは残す**（戻せなくなる）。
 
 import { useEffect } from 'react'
-import { clamp, tToSource } from '../../../shared/timeline'
+import { clamp, tToSource, vcLen } from '../../../shared/timeline'
 import { perf } from '../lib/perfMonitor'
 import type { Source } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
@@ -262,7 +262,7 @@ export function useVideoSync(deps: UseVideoSyncDeps): void {
       const c = vClipsRef.current.find((x) => x.id === id)
       if (!c || !el) return
       const local = currentTime - c.tStart
-      const len = Math.max(0.05, c.srcEnd - c.srcStart)
+      const len = vcLen(c)
       const inRange = local >= 0 && local < len
       if (!inRange) {
         // 窓に入っているだけ（区間外）の要素は必ず止める。要素は残るのでここが効く

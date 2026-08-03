@@ -33,6 +33,7 @@
 // 消さずに戻ると、線だけが残って「まだ効いている」ように見える。
 
 import { nearestSnap } from '../../../shared/snap'
+import { vcLen } from '../../../shared/timeline'
 
 /**
  * 吸い付く距離（画面px）。
@@ -112,7 +113,7 @@ export function useSnap(deps: UseSnapDeps): Snap {
       if (!excludeImgIds.includes(c.id)) targets.push(c.tStart, c.tStart + c.duration) // 画像端
     for (const c of vClipsRef.current)
       if (!excludeVcIds.includes(c.id))
-        targets.push(c.tStart, c.tStart + Math.max(0.05, c.srcEnd - c.srcStart)) // 映像レイヤー端
+        targets.push(c.tStart, c.tStart + vcLen(c)) // 映像レイヤー端
     for (const m of markersRef.current) targets.push(m.t) // マーカー位置
     return targets
   }

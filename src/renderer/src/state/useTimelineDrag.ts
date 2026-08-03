@@ -63,7 +63,9 @@ export interface UseTimelineDragDeps {
   cueTrack: (c: Cue) => string
   telopLocked: (c: Cue) => boolean
   trackNum: (id: string) => number
-  vcLen: (c: any) => number
+  // **`any` で受けない。** ここは正典（shared/timeline の vcLen）を配る導線で、
+  // `any` だと「まったく別の関数」を渡されても型検査が素通りする
+  vcLen: (c: { srcStart: number; srcEnd: number }) => number
   idCounter: React.MutableRefObject<number>
 
   /** 掴んでいる最中の見た目 */
@@ -184,7 +186,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     setSelectedVClipIds(
       vClips
         .filter((c) => {
-          const len = Math.max(0.05, c.srcEnd - c.srcStart)
+          const len = vcLen(c)
           const hit = fwd ? c.tStart + len > T : c.tStart < T
           return hit && (want(c.track) || want('A' + trackNum(c.track)))
         })
@@ -302,7 +304,7 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
       setSelectedVClipIds(
         vClips
           .filter((c) => {
-            const len = Math.max(0.05, c.srcEnd - c.srcStart)
+            const len = vcLen(c)
             if (!((c.tStart + len) * z >= mx0 && c.tStart * z <= mx1)) return false
             return (
               overRow(tracks.findIndex((t) => t.id === c.track)) ||

@@ -13,7 +13,9 @@
 // 太らせればいい**（太さは保存されるので次から続く）。
 import { useMemo } from 'react'
 import type { Cue } from '../lib/srt'
-import type { Track, TrackState, VClip } from '../lib/projectTypes'
+import type { Track, TrackState } from '../lib/projectTypes'
+// 重ねる動画の長さ。**正典は shared/timeline**（画面と書き出しで同じ物を通す）
+import { vcLen } from '../../../shared/timeline'
 
 export interface UseTrackGeomDeps {
   tracks: Track[]
@@ -48,9 +50,6 @@ export function useTrackGeom(deps: UseTrackGeomDeps) {
 
   /** テロップが居る段（決めていなければ V2） */
   const cueTrack = (c: Cue): string => c.track ?? 'V2'
-
-  /** 重ねる動画の長さ（0にならないよう最低 0.05 秒） */
-  const vcLen = (c: VClip): number => Math.max(0.05, c.srcEnd - c.srcStart)
 
   /** 音の段のどれかがソロか（ソロが1つでもあれば、他は鳴らさない） */
   const anyAudioSolo = tracks.some((t) => t.kind === 'audio' && trackStates[t.id]?.solo)

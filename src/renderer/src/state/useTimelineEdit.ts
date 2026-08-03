@@ -466,7 +466,7 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
       const dupes = picked.map((c) => ({
         ...c,
         id: vClipIdCounter.current++,
-        tStart: c.tStart + Math.max(0.05, c.srcEnd - c.srcStart),
+        tStart: c.tStart + vcLen(c),
         group: rg(c.group)
       }))
       setVClips((prev) => [...prev, ...dupes])

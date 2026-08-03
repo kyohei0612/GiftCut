@@ -63,24 +63,20 @@ export const CANON: Canon[] = [
     name: 'vcLen',
     use: 'vcLen(c) を shared/timeline から import する',
     re: /Math\.max\(\s*0\.05\s*,\s*[\w.]+\.srcEnd\s*-\s*[\w.]+\.srcStart\s*\)/,
-    debt: {
-      // **書き出し側は返済済み**（2026-08-03）。この検査が「正典は shared/timeline だが
-      // 実体は useTrackGeom にあって props で配られている」と自分で書いていたので、
-      // **正典を本当に shared/timeline へ置いてから** import した（exportRun の2件）。
-      // 画面側の11か所は props で受け取れる場所なので、順次ここへ寄せる。
-      'src/renderer/src/components/LeftPanel.tsx': 1, // props で受けているのに影を作っている
-      'src/renderer/src/state/useClipDrag.ts': 1,
-      'src/renderer/src/state/useExport.ts': 1,
-      'src/renderer/src/state/useKeyboard.ts': 1,
-      'src/renderer/src/state/useMediaDrop.ts': 1,
-      'src/renderer/src/state/useSnap.ts': 1,
-      'src/renderer/src/state/useTimelineDrag.ts': 2,
-      'src/renderer/src/state/useTimelineEdit.ts': 1,
-      'src/renderer/src/state/useTimelineSpan.ts': 1,
-      'src/renderer/src/state/useTrackGeom.ts': 1, // ← 画面側の元締め。shared へ寄せたら 0
-      'src/renderer/src/state/useVClipEls.ts': 1,
-      'src/renderer/src/state/useVideoSync.ts': 1
-    }
+    // **全額返済（2026-08-03）。生の式は 0 件。**
+    //
+    // 13か所を寄せてみて、**2つの型に割れていた**:
+    //
+    //   ① もう手に持っていた（deps で `vcLen` を受けているのに、その行だけ生で書いた）
+    //      … useClipDrag / useMediaDrop / useTimelineDrag×2 / useTimelineEdit の5件。
+    //      **同じ関数の別の行では受け取った vcLen を使っている**ので、
+    //      「知らなかった」のではなく**書くときに思い出さなかった**だけ
+    //   ② 持っていなかった（import を足した）… 残り6件
+    //
+    // `LeftPanel.tsx` は①の極端な形で、**ローカル定数を `vcLen` と名づけて
+    // 正典の名前を奪っていた**（`vcSec` に改名した）。
+    // 画面側の元締め `useTrackGeom` も、自前の式をやめて正典を import して配っている。
+    debt: {}
   },
   {
     what: '切片の再生速度は？（0以下なら等速）',

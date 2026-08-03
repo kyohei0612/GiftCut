@@ -428,7 +428,7 @@ export function useClipDrag(deps: ClipDragDeps) {
     // 吸い付ける相手は束の全体（上の spanOf）。長さは「イン点〜アウト点」
     const grpSpan = spanOf(
       vClips.filter((c) => grpIds.includes(c.id)),
-      (c) => Math.max(0.05, c.srcEnd - c.srcStart)
+      (c) => vcLen(c)
     )
     setSelectedVClipIds(grpIds)
     const partners = partnersOf('vclip', grpIds)

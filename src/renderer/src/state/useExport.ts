@@ -11,7 +11,7 @@
 // 何分もかかり、途中でやめると中途半端なファイルが残る。必ず設定の窓を挟む。
 import { buildExportPayload } from '../../../shared/exportPayload'
 import { joinOut, outputBaseName, resPFromHeight } from '../../../shared/exportDefaults'
-import { layoutSegs, segSpeed, totalSegLen, xfadeDurAt } from '../../../shared/timeline'
+import { layoutSegs, segSpeed, totalSegLen, vcLen, xfadeDurAt } from '../../../shared/timeline'
 import { trackGainForExport } from '../../../shared/trackGain'
 import { envToFfmpegExpr } from '../../../shared/ducking'
 import { buildSrt } from '../lib/srt'
@@ -260,7 +260,7 @@ export function useExport(deps: UseExportDeps) {
         ? Math.max(...expImgs.map((c) => c.tStart + c.duration))
         : 0
       const expVcEnd = vClips.length
-        ? Math.max(...vClips.map((c) => c.tStart + Math.max(0.05, c.srcEnd - c.srcStart)))
+        ? Math.max(...vClips.map((c) => c.tStart + vcLen(c)))
         : 0
       // マルチソース: 入力に使う元動画一覧（切片の srcId はこの並びの番号に直る）
       const srcList = sourcesRef.current.length

@@ -31,7 +31,7 @@ import type { Cue } from '../lib/srt'
 import type { ReframeTarget } from '../lib/projectTypes'
 import type { ClipMotion } from '../../../shared/clipMotion'
 import type { Keys } from '../../../shared/keyframes'
-import { segSpeed, segTLen } from '../../../shared/timeline'
+import { segSpeed, segTLen, vcLen } from '../../../shared/timeline'
 import { formatTime } from '../lib/srt'
 import {
   DEFAULT_ADJUST,
@@ -163,7 +163,9 @@ export function LeftPanel(): React.JSX.Element {
         const im = selectedImgIds.length
           ? imgClips.find((c) => c.id === selectedImgIds[0])
           : undefined
-        const vcLen = vc ? Math.max(0.05, vc.srcEnd - vc.srcStart) : 0
+        // **名前を変えてある。** 前はローカル定数を `vcLen` と呼んでいて、
+        // 正典（shared/timeline の vcLen）の名前を奪い、生の式で影を作っていた
+        const vcSec = vc ? vcLen(vc) : 0
         return (
           <PropertiesPanel
             multiCount={selectedIds.length}
@@ -266,8 +268,8 @@ export function LeftPanel(): React.JSX.Element {
                     },
                     track: vc.track,
                     pairedAudio: pairedAudioOf(vc.track),
-                    lengthLabel: formatTime(vcLen),
-                    length: vcLen,
+                    lengthLabel: formatTime(vcSec),
+                    length: vcSec,
                     others: selectedVClipIds.length - 1,
                     vol: vc.vol ?? 1,
                     fadeIn: vc.afadeIn ?? 0,
