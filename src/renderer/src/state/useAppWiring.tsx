@@ -129,6 +129,7 @@ import { useCopyPaste } from './useCopyPaste'
 import { useTelopEdit } from './useTelopEdit'
 import { useTelopAnim } from './useTelopAnim'
 import { useAttrCopy } from './useAttrCopy'
+import { useTelopTemplate } from './useTelopTemplate'
 import { useLaneResize } from './useLaneResize'
 import { startFader } from '../lib/faderDrag'
 import { clipXform } from '../lib/clipXform'
@@ -964,17 +965,19 @@ export function useAppWiring() {
   // プロジェクトの開く・保存・復元は state/useProjectFile
   //（拾い忘れた項目はエラーも出ずに消えるので、1か所にまとめてある）
   const {
-    saveCurrentAsTemplate, deleteUserTemplate, projectJson, saveProjectFn,
-    openProjectFn, saveAsTemplateFn, openTemplateFn,
-    pickTemplate, applyProjectData, applyTemplate, applyTemplateToCue
+    projectJson, saveProjectFn, openProjectFn, saveAsTemplateFn, openTemplateFn,
+    pickTemplate, applyProjectData
   } = useProjectFile({
     stopPlayback, setTime, fallbackTrack, kindOf, applyLayout, layoutNow, snapNow,
     resetHistory, confirmDiscard, hasProjectContent, askText, rememberProject,
-    prepareMediaMeta, runColorFromStyle, applyRunRange, curSel, selected,
-    commitPending, idCounter, savedJsonRef, projectJsonRef, markUnsavedRef,
-    lastAutosaveRef, initializedForPathRef, proxyForPathRef, videoElsRef, videoRef,
-    setTemplatePicker, saveLS, baselineRef, hydrateSource, updateSource
+    prepareMediaMeta, commitPending, idCounter, savedJsonRef, projectJsonRef,
+    markUnsavedRef, lastAutosaveRef, initializedForPathRef, proxyForPathRef,
+    videoElsRef, videoRef, setTemplatePicker, saveLS, baselineRef, hydrateSource,
+    updateSource
   })
+  // テロップの見本（作る・当てる・消す）は state/useTelopTemplate
+  const { saveCurrentAsTemplate, deleteUserTemplate, applyTemplate, applyTemplateToCue } =
+    useTelopTemplate({ askText, selected, curSel, runColorFromStyle, applyRunRange })
 
   // 素材とプロジェクトの出し入れ（開く・足す・持ち出す・下書き）は state/useProjectIO
   const {
