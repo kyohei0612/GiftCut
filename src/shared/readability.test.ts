@@ -1,0 +1,236 @@
+// **AI が余裕を持って読める形か**を、機械で見張る。
+//
+// ## なぜ行数ではなく「読み方」で決めるか
+//
+// AI は行数によって**読み方を変える**。ここが全ての土台:
+//
+//   〜500 行        頭から通しで読む
+//   500〜1,250 行   冒頭コメントを読んで、あとは grep で当たりを付ける ← ここが本番
+//   1,250 行〜      読めない（fileSize.test.ts が止める）
+//
+// **500 を超えた瞬間から、AI は「そのファイルを読んだ」と言いながら読んでいない。**
+//
+// 2026-08-03 に実際に起きた:
+//
+//   害になった例  main/exportRun.ts（1,220行）。冒頭コメントだけ読んで
+//                「ffmpeg を直に spawn していない」と断言して間違えた。本文を見ていない。
+//                **頭のコメントが「読んだ気」を作った。**
+//   効いた例      state/useClipDrag.ts（534行）。冒頭に「バラバラに置いて片方だけ
+//                直した事故」と書いてあったので、読んで割るのをやめた。
+//
+// ## だから道を2つ用意する（どちらかを満たせばよい）
+//
+//   ① 500 行以下にする
+//   ② **取説**（下の「## 中身」）を付けて、**それを機械で照合する**
+//
+// **割ることが目的ではない。読めることが目的。** 割るのにもコストがある:
+// ファイルが増えると「どれを見ればいいか」を探す所から始まるし、継ぎ目が
+// 増えると**片側だけ直す事故**が増える（08-03 の不具合8件は全部これ）。
+//
+// ## 取説は「機械で照合する」のが条件。できないなら書かない
+//
+// **腐った取説は、無いより悪い。** AI はそれを信じて「このファイルには
+// これしか無い」と判断する——exportRun でやったのと同じ間違え方をする。
+//
+// 実例（このリポジトリで既に腐っていた）:
+//
+//   lib/telopAnim.ts の末尾に、本体の無い説明が残っていた。
+//   「文字の箱がフレームのどこを占めるかを出す」という doc だけが残り、
+//   中身の textRectInFrame は telopStyle.ts へ引っ越し済み。**誰も気づいていない**
+//   （noUnusedLocals は説明を見ない）。
+//
+// ## 取説の書き方
+//
+//   // ## 中身
+//   //
+//   // - `関数名` … 何をするか
+//   // - `関数名2` … 何をするか
+//
+// **top-level の関数（`function` と、中身が矢印関数の `const`）が全部並んでいること。**
+// 1つでも欠けたら赤。存在しない名前が載っていても赤。
+// 定数（`const TRIM_PX = 7` のような物）は載せなくてよい。
+//
+// ## 赤くなったら
+//
+// **DEBT から消す方向にだけ動かす。足さない。**
+// 足したくなったら、それは「割るか取説を書くか」を先送りしているだけ。
+//
+// ## この検査の持ち主
+//
+// **リファクタリング部**（`.company/engineering/departments/refactor/CLAUDE.md`）。
+//
+// 他の部門は「触ったパス」で担当が決まるが、**この部門だけはパスを持たない**
+//（全パスが対象だから）。つまり**パスからは絶対に辿り着けない**——
+// 思い出したときにしか読まれない。それは 07-31〜08-02 に `.company/` の記録が
+// 1行も残らなかったのと同じ壊れ方をする。
+//
+// **だからこの検査そのものを入口にしている。** 赤くなったら上のファイルを読むこと。
+// （`.company/` は .gitignore なので、clone しただけでは無い。
+//   無ければこのファイルの説明だけで足りるように書いてある）
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { dirname, join, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+const SKIP = new Set(['node_modules', 'out', 'dist', '.git', 'shots'])
+
+/** 取説が要る大きさ。ここを超えたら AI は通しで読まない */
+const NEED_INDEX = 500
+
+/**
+ * まだ取説も分割も無い物（2026-08-03 時点）。**減らす方向にだけ動かす。**
+ *
+ * 行数の多い順。上から片付ける。
+ */
+const DEBT_INDEX = new Set([
+  'src/main/exportRun.ts', // 1,220。shared/timeline の再実装を先に消す
+  'src/renderer/src/state/useAppWiring.tsx', // 1,213
+  'src/renderer/src/state/useTimelineEdit.ts', // 893
+  'src/renderer/src/components/StylePanel.tsx', // 679。冒頭コメントも無い
+  'src/renderer/src/state/useProjectFile.ts', // 667
+  'src/renderer/src/lib/telopStyle.ts', // 623
+  'src/renderer/src/state/useTimelineDrag.ts', // 577
+  'src/renderer/src/lib/telopSvg.ts', // 564
+  'src/renderer/src/state/useClipDrag.ts', // 534
+  'src/renderer/src/state/useLibraries.tsx', // 530
+  'src/renderer/src/state/useMediaDrop.ts', // 524
+  'src/renderer/src/state/usePlaybackEngine.ts', // 516
+  'src/renderer/src/state/usePreviewManip.ts' // 516
+])
+
+/**
+ * 冒頭コメントがまだ無い物（2026-08-03 時点。11本）。**減らす方向にだけ動かす。**
+ *
+ * 冒頭コメントが無いファイルほど話題が多い、という関係が実測で出ている:
+ * FillPicker（宣言なし）は3話題で、割った瞬間に**同じ25行が2つある**と検査に出た。
+ * 1ファイルに収まっている間は誰にも見えなかった。
+ */
+const DEBT_HEAD = new Set([
+  'src/renderer/src/components/StylePanel.tsx',
+  'src/main/index.ts',
+  'src/renderer/src/components/TelopText.tsx',
+  'src/preload/index.ts',
+  'src/renderer/src/components/FillPicker.tsx',
+  'src/preload/index.d.ts',
+  'src/renderer/src/App.tsx',
+  'src/renderer/src/components/CropModal.tsx',
+  'src/renderer/src/components/WaveformCanvas.tsx',
+  'src/renderer/src/lib/srt.ts',
+  'src/renderer/src/main.tsx'
+])
+
+function walk(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    if (SKIP.has(name)) continue
+    const full = join(dir, name)
+    if (statSync(full).isDirectory()) walk(full, out)
+    else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(full)
+  }
+  return out
+}
+
+const rel = (p: string): string => relative(REPO, p).split(sep).join('/')
+const files = walk(join(REPO, 'src')).map((f) => ({
+  path: rel(f),
+  lines: readFileSync(f, 'utf8').split(/\r?\n/)
+}))
+
+/**
+ * top-level の「呼べる物」の名前。
+ *
+ * 定数は数えない（`const TRIM_PX = 7` まで取説に並べると、誰も直さなくなる）。
+ * 矢印関数かどうかは、同じ行に `=>` があるか、`(` で終わって次行へ続くかで見る。
+ */
+function topLevelCallables(lines: string[]): string[] {
+  const out: string[] = []
+  lines.forEach((l, i) => {
+    const fn = l.match(/^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/)
+    if (fn) {
+      out.push(fn[1])
+      return
+    }
+    const cn = l.match(/^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]*)?=\s*(.*)$/)
+    if (!cn) return
+    const tail = cn[2]
+    const next = lines[i + 1] ?? ''
+    const isArrow =
+      /=>/.test(tail) ||
+      /^(?:async\s*)?\(\s*$/.test(tail.trim()) ||
+      (tail.trim() === '' && /^\s*\(/.test(next))
+    if (isArrow) out.push(cn[1])
+  })
+  return out
+}
+
+/** 「## 中身」の節に並んだ名前（バッククォートで囲った物だけ拾う） */
+function indexedNames(lines: string[]): string[] | null {
+  const start = lines.findIndex((l) => /^\s*\/\/\s*##\s*中身\s*$/.test(l))
+  if (start < 0) return null
+  const out: string[] = []
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i]
+    if (!/^\s*\/\//.test(l)) break // コメントが途切れたら終わり
+    if (/^\s*\/\/\s*##\s/.test(l)) break // 次の節が始まったら終わり
+    const m = l.match(/^\s*\/\/\s*-\s*`([A-Za-z_$][\w$]*)`/)
+    if (m) out.push(m[1])
+  }
+  return out
+}
+
+describe('AI が余裕を持って読める形', () => {
+  it('見張る対象が見つかっている（歩き方が壊れていないか）', () => {
+    expect(files.length).toBeGreaterThan(200)
+  })
+
+  it('**冒頭コメントがある**（何のファイルか、読まずに分かる）', () => {
+    const bad: string[] = []
+    for (const f of files) {
+      if (DEBT_HEAD.has(f.path)) continue
+      const first = f.lines.find((l) => l.trim().length > 0) ?? ''
+      if (!/^\s*(\/\/|\/\*)/.test(first)) bad.push(`${f.path}  (${f.lines.length}行)`)
+    }
+    expect(bad, '\n冒頭コメントが無い:\n' + bad.join('\n') + '\n\n上の説明を読むこと').toEqual([])
+  })
+
+  it(`**${NEED_INDEX}行を超えたら、割るか取説を付ける**`, () => {
+    const bad: string[] = []
+    for (const f of files) {
+      if (f.lines.length <= NEED_INDEX || DEBT_INDEX.has(f.path)) continue
+      if (indexedNames(f.lines) === null) bad.push(`${f.path}  (${f.lines.length}行)`)
+    }
+    expect(
+      bad,
+      '\n' +
+        NEED_INDEX +
+        '行を超えているのに取説（// ## 中身）が無い:\n' +
+        bad.join('\n') +
+        '\n\n割るか、取説を付けること'
+    ).toEqual([])
+  })
+
+  it('**取説が腐っていない**（並べた名前と、実際の中身が一致する）', () => {
+    const bad: string[] = []
+    for (const f of files) {
+      const listed = indexedNames(f.lines)
+      if (listed === null) continue
+      const actual = topLevelCallables(f.lines)
+      const missing = actual.filter((n) => !listed.includes(n))
+      const ghost = listed.filter((n) => !actual.includes(n))
+      if (missing.length) bad.push(`${f.path}  取説に無い: ${missing.join(', ')}`)
+      if (ghost.length) bad.push(`${f.path}  **本体が無い**: ${ghost.join(', ')}`)
+    }
+    expect(
+      bad,
+      '\n取説と中身がズレている:\n' +
+        bad.join('\n') +
+        '\n\n**腐った取説は無いより悪い。** 引っ越したら説明も連れて行くこと'
+    ).toEqual([])
+  })
+
+  it('DEBT は減らす方向にだけ動かす（この数を増やしたら赤くする）', () => {
+    // 増やしたくなったら、それは「割るか取説を書くか」を先送りしているだけ。
+    expect(DEBT_INDEX.size).toBeLessThanOrEqual(13)
+    expect(DEBT_HEAD.size).toBeLessThanOrEqual(11)
+  })
+})
