@@ -84,7 +84,12 @@ const NEED_INDEX = 500
  * 行数の多い順。上から片付ける。
  */
 const DEBT_INDEX = new Set([
-  'src/main/exportRun.ts', // 1,220。shared/timeline の再実装を先に消す
+  // exportRun は**返済済み**（2026-08-03）。1,229 → 479。
+  // **取説の道が塞がっていたので、先に割るしか無かった**——top-level の callable が
+  // `isExporting` と `registerExportHandlers` の2つしか無く（1,012行が `export:run` の
+  // 中の1コールバック）、取説を書いても2行で「これしか無い」という嘘の案内になる。
+  // → 話題で3つに割った: ./exportGraph（組み立て・893行・取説あり）と
+  //   ./exportSpawn（走らせる・258行・取説あり）。詳しくは `引き継ぎ-読める形.md`
   'src/renderer/src/state/useAppWiring.tsx', // 1,213
   // useTimelineEdit は**返済済み**（2026-08-03）。896行のままだが取説を付けた。
   // 切り口を探して見つからなかった——mapContentTimes（5種類まとめて時刻を

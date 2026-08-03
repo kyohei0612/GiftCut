@@ -96,6 +96,26 @@ export function segTLen(s: TimeSeg): number {
 }
 
 /**
+ * 重ねた動画クリップ（V2以降・映像レイヤー）の長さ。**下限 0.05秒。**
+ *
+ * 切片（`segTLen`）と違って速度を持たず、0 まで縮めさせない。0 にすると
+ * ffmpeg の trim が空になって枝ごと成立しなくなる／帯が消えて掴めなくなる。
+ *
+ * ## ここに置いた理由（2026-08-03）
+ *
+ * **同じ式が13か所に散っていた。** `noDuplicate.test.ts` の言うとおり、
+ * 原因は「`vcLen` が `useTrackGeom` にあって **props で配られている**」こと——
+ * import では取れないので、書く瞬間に存在が見えない。実際 `LeftPanel.tsx` は
+ * props で受け取っておきながら**同じ名前のローカル定数に生の式を書いて影を作っていた**。
+ *
+ * 書き出し側（`main/`）からは props すら届かないので、まずここへ置いた。
+ * 画面側の13か所は順次ここへ寄せる（寄せたら `noDuplicate.test.ts` の debt も減らす）。
+ */
+export function vcLen(c: { srcStart: number; srcEnd: number }): number {
+  return Math.max(0.05, c.srcEnd - c.srcStart)
+}
+
+/**
  * 切片列 → 位置つきレイアウト。切片は常に隙間なく連続して並ぶ（リップル前提）。
  * 前から累積するので tEnd[i] === tStart[i+1] が常に成り立つ。
  */

@@ -103,10 +103,13 @@ const CANON: {
   {
     what: '重ねた動画クリップの長さ',
     home: 'src/shared/timeline.ts',
-    use: 'vcLen(c) を import する（いまは useTrackGeom にあり props で配っている＝書く瞬間に見えない）',
+    use: 'vcLen(c) を shared/timeline から import する',
     re: /Math\.max\(\s*0\.05\s*,\s*[\w.]+\.srcEnd\s*-\s*[\w.]+\.srcStart\s*\)/,
     debt: {
-      'src/main/exportRun.ts': 2,
+      // **書き出し側は返済済み**（2026-08-03）。この検査が「正典は shared/timeline だが
+      // 実体は useTrackGeom にあって props で配られている」と自分で書いていたので、
+      // **正典を本当に shared/timeline へ置いてから** import した（exportRun の2件）。
+      // 画面側の11か所は props で受け取れる場所なので、順次ここへ寄せる。
       'src/renderer/src/components/LeftPanel.tsx': 1, // props で受けているのに影を作っている
       'src/renderer/src/state/useClipDrag.ts': 1,
       'src/renderer/src/state/useExport.ts': 1,
@@ -262,7 +265,8 @@ describe('同じ物を2か所に書かない', () => {
       0
     )
     // 2026-08-03 に 21 で始めて、その日のうちに exportRun の3件を返して 18。
+    // さらに書き出しを3つに割ったとき、vcLen を shared/timeline へ置いて2件返して 16。
     // **ここを増やしてはいけない。減らしたら数字も一緒に下げること。**
-    expect(total).toBeLessThanOrEqual(18)
+    expect(total).toBeLessThanOrEqual(16)
   })
 })
