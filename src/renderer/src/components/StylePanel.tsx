@@ -18,6 +18,9 @@ export interface IconLibItem {
   image: string
 }
 
+/** 節の開け閉めの覚え先。画面の都合なのでプロジェクトには入れない */
+const SP_CLOSED_KEY = 'gc.stylePanelClosed'
+
 interface Props {
   style: TelopStyle
   onChange: (next: TelopStyle) => void
@@ -67,9 +70,34 @@ export default function StylePanel({
 }: Props): JSX.Element {
   const [presetName, setPresetName] = useState('')
   const [fillPickerOpen, setFillPickerOpen] = useState(false)
-  // セクション開閉（Premiere風に見出しクリックで畳める）。既定: スタイル/アイコンは閉じる
-  const [closed, setClosed] = useState<Record<string, boolean>>({ style: true, icon: true })
-  const toggle = (k: string): void => setClosed((p) => ({ ...p, [k]: !p[k] }))
+  /**
+   * 節の開け閉め（見出しを押すと畳める）。既定はスタイル／アイコンを閉じておく。
+   *
+   * **覚えておく。** 前は組み立て直すたびに既定へ戻っていたので、
+   * 選ぶ物を変えるたびに開き直す羽目になっていた（＝触った所も畳まれる）。
+   * **触っていない所は畳んだまま、開いた所は開いたまま**にする。
+   * 画面の都合なのでプロジェクトには入れない（localStorage）。
+   */
+  const [closed, setClosed] = useState<Record<string, boolean>>(() => {
+    try {
+      const s = localStorage.getItem(SP_CLOSED_KEY)
+      const v = s ? JSON.parse(s) : null
+      if (v && typeof v === 'object') return v as Record<string, boolean>
+    } catch {
+      /* 読めなければ既定で始める */
+    }
+    return { style: true, icon: true }
+  })
+  const toggle = (k: string): void =>
+    setClosed((p) => {
+      const next = { ...p, [k]: !p[k] }
+      try {
+        localStorage.setItem(SP_CLOSED_KEY, JSON.stringify(next))
+      } catch {
+        /* 覚えられなくても操作は続けられる */
+      }
+      return next
+    })
   // sp-sec-{k}: CSS flex order で表示順を制御（整列→スタイル→テキスト→アピアランス→アイコン）
   const secCls = (k: string): string => `sp-section sp-sec-${k} ${closed[k] ? 'sec-closed' : ''}`
   const set = (patch: Partial<TelopStyle>): void => onChange({ ...style, ...patch })

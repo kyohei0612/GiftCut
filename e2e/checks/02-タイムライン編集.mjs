@@ -563,6 +563,79 @@ export default async function (C) {
     )
   })
 
+  // **見本帳は、タイムラインの帯にも落とせる。**
+  // プレビューの文字の上には元から落とせたのに、帯には落とせなかった。
+  // 同じ物を同じように扱えないと「どこへ落とせるのか」を毎回思い出す羽目になる。
+  await check('見本帳をタイムラインの帯へ落とすと、その文字に当たる', async () => {
+    await resetProject()
+    const strip = page.locator('.panel-tabs-strip').last()
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(300)
+    await strip.locator('.tab', { hasText: 'テロップ' }).first().click()
+    await page.waitForTimeout(600)
+    assert(await page.locator('.tpl-card').count(), '見本帳に見本が1つも無い')
+    // **見るのは「帯が受け付けるか」。** 直す前は見本帳を無視していた（＝
+    // dragover を受け入れず、落としても何も起きない）。当てた結果まで見ようとすると
+    // 「元と違う見本を用意する」準備が要り、確認したい所から遠くなる。
+    // 当てる中身そのものは、プレビューの文字へ落とす道と**同じ関数**を通っている。
+    const accepted = await page.evaluate(() => {
+      const card = document.querySelector('.tpl-card')
+      const band = document.querySelector('[data-tid="V2"] .telop-clip')
+      if (!card || !band) return null
+      const dt = new DataTransfer()
+      card.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }))
+      const b = band.getBoundingClientRect()
+      const at = { clientX: b.x + b.width / 2, clientY: b.y + b.height / 2 }
+      const over = new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: dt,
+        ...at
+      })
+      band.dispatchEvent(over)
+      const drop = new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: dt,
+        ...at
+      })
+      band.dispatchEvent(drop)
+      card.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }))
+      return { over: over.defaultPrevented, drop: drop.defaultPrevented }
+    })
+    assert(accepted, '見本または帯が見つからない')
+    assert(accepted.over, '帯が見本帳を受け付けない（落とし先になっていない）')
+    assert(accepted.drop, '帯へ落としても何も起きない')
+  },
+  // **見本帳に見本が1つ要る。** 見本は手前の章が作る物で、この章だけ絞って回すと
+  // 1つも無い。ここで自分で作ろうとすると、名前を聞く窓まで手順に入って
+  // 確かめたい所（帯が受け付けるか）から遠くなる。
+  { orderDependent: true })
+
+  // **新しいテロップは、被らない一番下の段に作る。**
+  // 再生ヘッドを頭にして作るので、そこに何か居ると作った瞬間から重なる。
+  // 相手はテロップだけでなく画像も見る（同じ段に絵が居ると文字が裏に隠れる）。
+  await check('テロップを足すと、被っていない段に作られる', async () => {
+    await resetProject()
+    // 文字は 1〜3秒（V2）、画像は 1〜5秒（V3）。2秒の所へ足すと、両方に被る
+    await seekTo(2)
+    const before = await page.locator('.telop-clip').count()
+    await page.keyboard.press('t')
+    await page.waitForTimeout(700)
+    const after = await page.locator('.telop-clip').count()
+    assert(after === before + 1, `テロップが増えていない（${before} → ${after}）`)
+    // V2（文字）にも V3（画像）にも作られていないこと
+    const onV2 = await page.locator('[data-tid="V2"] .telop-clip').count()
+    assert(onV2 === before, `被っている段（V2）に作られた（${before} → ${onV2}）`)
+    const made = await page.evaluate(() => {
+      const el = [...document.querySelectorAll('.telop-clip')].find((e) =>
+        e.className.includes('clip-selected')
+      )
+      return el?.closest('[data-tid]')?.getAttribute('data-tid') ?? null
+    })
+    assert(made && made !== 'V2' && made !== 'V3', `被っている段に作られた（${made}）`)
+  })
+
   // **段に置いた物は、段に固定されない。**
   // 置いたら最後その段から動かせない、という状態が長く続いていた（本人から
   // 「レーン固定で他レーンに動かせなかった」）。掴んで縦に振れば移せる。

@@ -32,6 +32,7 @@ import { useDoc } from '../../state/contentContext'
 import { useTimelineOps } from '../../state/timelineOpsContext'
 import { useSel } from '../../state/selectionContext'
 import { usePlaybackCtx } from '../../state/playbackContext'
+import { usePreviewCtx } from '../../state/previewContext'
 
 /** 落とした場所から決まった「付く先」。どのテロップかはまだ入っていない */
 export interface TelopDropSpot {
@@ -93,6 +94,10 @@ export function TelopBands({
 }): JSX.Element {
   const { cues } = useDoc()
   const { isSelected, setSelectedIds, setEditingId, selectedTelopTrans } = useSel()
+  // 見本帳・アイコンを帯へ落とすための物。**受け取らず自分で見に行く**
+  //（プレビューの文字側と同じ物を使う＝落とし方が2通りにならない）
+  const { draggingTemplateRef, draggingIconRef, applyTemplateToCue, applyIconToCue } =
+    usePreviewCtx()
   // ◆を右クリックで消す（心臓は state/useMotion の removeKeyAtTime）
   const { removeKeyAtTime } = useTimelineOps()
   const { currentTimeRef } = usePlaybackCtx()
@@ -115,6 +120,15 @@ export function TelopBands({
           onTrimLeft={(e) => onTrimStart(cue, 'l', e)}
           onTrimRight={(e) => onTrimStart(cue, 'r', e)}
           onDragOver={(e) => {
+            // **見本帳とアイコンも受ける。** プレビューの文字の上には元から落とせたのに、
+            // タイムラインの帯には落とせなかった。同じ物を同じように扱えないと、
+            // 「どこへ落とせるのか」を毎回思い出す羽目になる（本人の方針＝
+            // クリックは据え置きで、D&D でも持ってこられるように）
+            if (draggingTemplateRef.current || draggingIconRef.current) {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'copy'
+              return
+            }
             if (!draggingTelopAnimRef.current) return
             e.preventDefault()
             e.dataTransfer.dropEffect = 'copy'
@@ -133,6 +147,15 @@ export function TelopBands({
             if (draggingTelopAnimRef.current) setTelopDrop(null)
           }}
           onDrop={(e) => {
+            const tpl = draggingTemplateRef.current
+            const iconColor = draggingIconRef.current
+            if (tpl || iconColor) {
+              e.preventDefault()
+              e.stopPropagation()
+              if (tpl) applyTemplateToCue(cue.id, tpl)
+              else if (iconColor) applyIconToCue(cue.id, iconColor)
+              return
+            }
             if (!draggingTelopAnimRef.current) return
             e.preventDefault()
             e.stopPropagation()

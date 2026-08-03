@@ -10,6 +10,7 @@
 // クリップの頭と尻に別々に付く。掴んで落とした位置で頭か尻かが決まるので、
 // 中央より手前なら頭、奥なら尻として扱う。
 import { clamp } from '../../../shared/timeline'
+import { firstFreeLane, type LaneItem } from '../../../shared/telopLane'
 import { adjustRuns } from '../lib/textRuns'
 import {
   defaultAnim,  hasAnim,  type AnimIn,
@@ -46,7 +47,7 @@ export interface UseTelopEditDeps {
 
 export function useTelopEdit(deps: UseTelopEditDeps) {
   const { cueTrack, telopLocked, idCounter, trackNum, insertTrackOrdered, motionLabel, draggingTelopAnimRef, setRightTab } = deps
-  const { cues, setCues, vClips } = useDoc()
+  const { cues, setCues, vClips, imgClips } = useDoc()
   const { selectedIds, setSelectedIds, selectedTelopTrans, setSelectedTelopTrans, setEditingId, isSelected, clearAll: clearAllSelections, setSelectedTrackId,
     setSelectedVideoIds, setSelectedAudioIds, setSelectedSeIds, 
      setSelectedTrans,  setVideoSelected,
@@ -88,11 +89,16 @@ export function useTelopEdit(deps: UseTelopEditDeps) {
           !reservedByVideo.has(tr.id)
       )
       .sort((a, b) => trackNum(a.id) - trackNum(b.id)) // 下段から順に見る
-    // これから作るテロップの尺(2秒)と重なるものがあれば「埋まっている」とみなす
-    const busy = (id: string): boolean =>
-      cues.some((c) => cueTrack(c) === id && c.start < t + 2 && c.end > t)
-    const free = cands.find((tr) => !busy(tr.id))
-    if (free) return free.id
+      .map((tr) => tr.id)
+    // **相手はテロップだけではない。** 同じ段に画像が居ると、作った瞬間から
+    // 文字が絵の裏に隠れる。重なりの決まり（頭だけ／尻だけ重なるのも避ける、
+    // 端が接しているだけは重ならない）は `shared/telopLane` に置いてある
+    const items: LaneItem[] = [
+      ...cues.map((c) => ({ track: cueTrack(c), start: c.start, end: c.end })),
+      ...imgClips.map((c) => ({ track: c.track, start: c.tStart, end: c.tStart + c.duration }))
+    ]
+    const free = firstFreeLane(cands, t, t + 2, items)
+    if (free) return free
     // 全部埋まっている＝一番上の1段上に新しいトラックを作る
     const maxNum = Math.max(
       1,
