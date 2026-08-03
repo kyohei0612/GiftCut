@@ -7,7 +7,11 @@
     "types": ["electron-vite/node", "node"],
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "strict": true
+    "strict": true,
+    // 画面側（tsconfig.web.json）には最初から付いていたが、**こちら側に無かった**。
+    // そのせいで src/main/index.ts に死んだ import が43個たまり、
+    // 「過去に切り出した先で使っている物」がここにも残り続けていた（2026-08-03）。
+    "noUnusedLocals": true
   },
   "include": [
     "electron.vite.config.ts",

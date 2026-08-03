@@ -21,19 +21,12 @@
 //
 // 起動は必ず ./ffmpegRun 経由。直に spawn すると、
 // アプリを閉じた後も変換が走り続ける（追跡から漏れるため）。
-import { app, dialog, ipcMain, shell } from 'electron'
-import { dirname, join, normalize, resolve } from 'path'
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync
-} from 'fs'
-import { writeFile as writeFileAsync } from 'fs/promises'
-import { tmpdir, cpus } from 'os'
-import { spawn, type ChildProcess } from 'child_process'
+import { app, dialog, ipcMain } from 'electron'
+import { dirname, join, normalize } from 'path'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+// **spawn は import しない。** 起動は必ず trackedSpawn 経由（上の注意書きのとおり）
+import type { ChildProcess } from 'child_process'
 // フィルタグラフは ffmpeg を起動する前に検証する（入力indexのズレ・ラベルの
 // 定義漏れ・無音素材からの音声参照は、起動して初めて分かると原因が読めない）。
 import {
@@ -53,7 +46,7 @@ import { colorAdjustFilter } from '../shared/colorAdjust'
 // 書き出し先が素材と同じだと ffmpeg は必ず失敗する。始める前に気づいて日本語で言う
 import { clashingSource } from '../shared/exportTarget'
 import { uniqueName } from '../shared/exportDefaults'
-import { ENCODERS, crfToBitrateK } from './encoders'
+import { ENCODERS } from './encoders'
 // 入力を何本にも分ける（split/asplit）決まり。文字列の置き換えだけなので shared に置いてある
 import {
   newLabelUses,
@@ -63,7 +56,6 @@ import {
 } from '../shared/filterLabels'
 import {
   FFMPEG,
-  FFPROBE,
   filterScriptArgs,
   hasAudioStream,
   liveTmpDirs,
@@ -676,7 +668,6 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
     ses?.forEach((se, k) => {
       const ms = Math.max(0, Math.round(se.tStart * 1000))
       const durN = Math.max(0.05, se.duration)
-      const dur = durN.toFixed(3)
       const vol = (se.volume ?? 1).toFixed(2)
       // フェードイン/アウト（afade）を volume と adelay の間に挟む
       const fi = Math.max(0, Math.min(se.fadeIn ?? 0, durN))
@@ -1071,7 +1062,9 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   return await new Promise((resolve) => {
     // cwd=tmp: テロップPNG・フィルタを相対パスで渡してコマンドライン長を抑える
     // （元動画・出力先は絶対パスなので cwd の影響を受けない）
-    const ff = spawn(FFMPEG, args, { cwd: tmp })
+    // **trackedSpawn を通す。** 直に spawn していたので、書き出し中にアプリを
+    // 閉じると killAllChildren の管理外で ffmpeg が裏に残っていた（2026-08-03 に修正）
+    const ff = trackedSpawn(FFMPEG, args, 0, { cwd: tmp })
     currentExportFf = ff
     let err = ''
     ff.stderr.on('data', (d) => {
@@ -1185,7 +1178,7 @@ ${detail}`
         const to = fixed.indexOf('-pix_fmt')
         if (from >= 0 && to > from)
           fixed.splice(from, to - from, ...cpu.args(crf, { w: width, h: height, fps: outFps }))
-        const ff2 = spawn(FFMPEG, fixed, { cwd: tmp })
+        const ff2 = trackedSpawn(FFMPEG, fixed, 0, { cwd: tmp })
         currentExportFf = ff2
         let err2 = ''
         ff2.stderr.on('data', (d) => {

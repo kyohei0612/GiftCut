@@ -22,7 +22,7 @@ import { app } from 'electron'
 import { join, resolve } from 'path'
 import { existsSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { spawn, type ChildProcess } from 'child_process'
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'child_process'
 import { ENCODERS, type Enc } from './encoders'
 
 /** 走っている子プロセス。終了時にまとめて殺す */
@@ -166,9 +166,19 @@ export function useEncoder(enc: Enc): void {
  * spawn をこれ経由にして、終了時に確実に殺せるようにする（＋任意でタイムアウト）。
  *
  * **直に spawn しないこと。** 追跡から漏れると、アプリを閉じた後も変換が走り続ける。
+ *
+ * `opts` は 2026-08-03 に足した。**それまで cwd を渡せなかったせいで、
+ * 書き出し本体（exportRun）が「直に spawn しないこと」と自分で書いた真下で
+ * `spawn(FFMPEG, args, { cwd: tmp })` を呼んでいた**＝一番長く走る物が
+ * 追跡から漏れていて、書き出し中に閉じると ffmpeg が裏に残った。
  */
-export function trackedSpawn(cmd: string, args: string[], timeoutMs = 0): ChildProcess {
-  const p = spawn(cmd, args)
+export function trackedSpawn(
+  cmd: string,
+  args: string[],
+  timeoutMs = 0,
+  opts?: { cwd?: string }
+): ChildProcessWithoutNullStreams {
+  const p = spawn(cmd, args, opts)
   liveProcs.add(p)
   let timer: NodeJS.Timeout | null = null
   if (timeoutMs > 0) {

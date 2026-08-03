@@ -25,9 +25,8 @@
 // 効果音（効果音ラボ由来）とテロップの見本は再配布できないので、公開用のビルドからは
 // 外してある（scripts/check-packaged.mjs が見張っている）。無ければ空を返すこと。
 import { app, dialog, ipcMain, shell } from 'electron'
-import { join, normalize } from 'path'
+import { join } from 'path'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'fs'
-import { createHash } from 'crypto'
 import { tmpdir } from 'os'
 // Premiere のプリセット（.prfpset）を読んで、こちらの「動き」にする。
 // **読むのも変換するのも shared に置いてある**ので、ここは置き場の世話だけをする。
@@ -36,7 +35,6 @@ import { toMotion, isFullyCopyable, endsHidden } from '../shared/prfpsetImport'
 import type { MotionPresetFile } from '../shared/telopMotion'
 import { extractZip } from './zip'
 import { allowFile } from './allowList'
-import { seRoots } from './assetRoots'
 // 保存する物の整合性検査。取り込んだプロジェクトも同じ道を通す
 import { inspectProject } from './projectFiles'
 

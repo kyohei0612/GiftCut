@@ -17,7 +17,7 @@
 // 開発機は PATH の ffmpeg（x264 入り）を拾ってしまうので気づけない。
 // **同梱 ffmpeg に無い物を名指ししないこと。**
 import { app, ipcMain } from 'electron'
-import { join, normalize, resolve } from 'path'
+import { join, normalize } from 'path'
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, utimesSync } from 'fs'
 import { createHash } from 'crypto'
 import { cpus, setPriority, constants as osConstants } from 'os'

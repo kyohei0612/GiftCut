@@ -6,86 +6,29 @@ import {
   mkdirSync,
   rmSync,
   renameSync,
-  copyFileSync,
   statSync,
   existsSync,
   readdirSync,
-  createReadStream,
-  createWriteStream,
-  utimesSync
+  createReadStream
 } from 'fs'
-import { writeFile as writeFileAsync } from 'fs/promises'
-import { createHash } from 'crypto'
-import { tmpdir, cpus, setPriority, constants as osConstants } from 'os'
+import { tmpdir } from 'os'
 import { Readable } from 'stream'
-import { spawn, type ChildProcess } from 'child_process'
-// フィルタグラフは ffmpeg を起動する前に検証する（入力indexのズレ・ラベルの
-// 定義漏れ・無音素材からの音声参照は、起動して初めて分かると原因が読めない）。
-import {
-  formatGraphProblems,
-  hasGraphError,
-  overlayEnableExpr,
-  validateFilterGraph,
-  type GraphInput
-} from '../shared/filterGraph'
-// 保存するプロジェクトの整合性検査（参照切れ・長さ0・id重複など）
-import { checkProject, formatProjectProblems } from '../shared/projectCheck'
-// クリップ・画像の動き（キーフレーム）。**画面と同じ折れ線を式にする**ので、
-// 焼き方をここで別に考えない（別々に書くと、見た絵と出来た絵が違う事故になる）。
-import { hasClipMotion, zoomPanChain, zoompanFilter, type ClipMotion } from '../shared/clipMotion'
-// 色調整のフィルタ。**GPL 専用の eq は使えない**（同梱は LGPL 版）ので、
-// 同じ計算を lutyuv で書いてある。
-import { colorAdjustFilter } from '../shared/colorAdjust'
-// Premiere のプリセット（.prfpset）を読んで、こちらの「動き」にする。
-// **読むのも変換するのも shared に置いてある**ので、本体側は置き場の世話だけをする。
-import { parsePrfpset } from '../shared/prfpset'
-import { toMotion, isFullyCopyable, endsHidden } from '../shared/prfpsetImport'
-import type { MotionPresetFile } from '../shared/telopMotion'
+// **spawn は import しない。** 起動は必ず trackedSpawn 経由（下の注意書きのとおり）
+import type { ChildProcess } from 'child_process'
 // 本体ウィンドウの大きさ・位置（初回の既定と、前回の形の引き継ぎ）
 import { nextBounds, MIN_SIZE, type WindowState } from '../shared/windowBounds'
-// プロジェクトの持ち出し（素材ごと ZIP に入れる／展開してパスを繋ぎ直す）
-import { planPack, relinkProject, PROJECT_ENTRY, MANIFEST_ENTRY } from '../shared/projectPack'
-import { writeZip, extractZip } from './zip'
 // 自動更新（GitHub の Releases を見に行く）
 import { setupAutoUpdate } from './updater'
-// 同梱素材のパスを今の置き場へ繋ぎ直す（家庭用 exe は起動ごとに展開先が変わる）
-import { relinkBundledPath } from '../shared/relinkBundled'
-import {
-  MODEL,
-  dirOf,
-  downloadTo,
-  findExe,
-  modelPath,
-  modelReady,
-  runWhisper
-} from './subtitles'
-// 書き出し先が素材と同じだと ffmpeg は必ず失敗する。始める前に気づいて日本語で言う
-import { clashingSource } from '../shared/exportTarget'
-
-// 未保存の変更があるか（renderer から 'project:dirty' で通知される）。×ボタンの確認に使う。
-let projectDirty = false
-
-import { ENCODERS, type Enc } from './encoders'
+import { MODEL, downloadTo, findExe, modelPath, modelReady, runWhisper } from './subtitles'
 // ffmpeg / ffprobe を呼ぶ所は全部ここを通す（同梱物の場所・終了時の後始末・
 // 使えるエンコーダ選び）。**直に spawn しないこと。**
-import {
-  FFMPEG,
-  FFPROBE,
-  filterScriptArgs,
-  hasAudioStream,
-  killAllChildren,
-  liveTmpDirs,
-  trackedSpawn,
-  tryEncoder,
-  useEncoder,
-  videoEncoder
-} from './ffmpegRun'
+import { FFMPEG, FFPROBE, killAllChildren, trackedSpawn } from './ffmpegRun'
 import { isExporting, registerExportHandlers } from './exportRun'
 // gcfile:// で画面へ配ってよいファイルの名簿。**新しく渡す道を作ったら必ず通す**
 import { allowFile, isAllowed } from './allowList'
 import { registerAssetHandlers } from './assetLibrary'
 import { registerMediaProbeHandlers } from './mediaProbe'
-import { inspectProject, isProjectDirty, registerProjectFileHandlers } from './projectFiles'
+import { isProjectDirty, registerProjectFileHandlers } from './projectFiles'
 
 // 自動実行（e2e・監査・計測）で動かしているかどうか。
 //
@@ -648,7 +591,9 @@ app.whenReady().then(() => {
   /** 動画の長さ（秒）。進み具合を出すのに要る。取れなければ 0 */
   const probeDuration = (path: string): Promise<number> =>
     new Promise((resolve) => {
-      const p = spawn(FFPROBE, [
+      // **trackedSpawn を通す**（70行目の決まり）。直に spawn していたので、
+      // 聞き取りの最中に閉じると killAllChildren の管理外で裏に残っていた
+      const p = trackedSpawn(FFPROBE, [
         '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path
       ])
       let out = ''
@@ -707,7 +652,7 @@ app.whenReady().then(() => {
       // 2) 音を取り出す。**16kHz モノラルの wav**（whisper.cpp が受ける形）
       send({ phase: 'extract' })
       const okWav = await new Promise<boolean>((resolve) => {
-        const ff = spawn(FFMPEG, [
+        const ff = trackedSpawn(FFMPEG, [
           '-y', '-i', videoPath,
           '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le',
           tmpWav
