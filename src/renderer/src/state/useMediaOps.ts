@@ -16,6 +16,7 @@ import { useSel } from './selectionContext'
 import { useMediaCtx } from './mediaContext'
 import { useToastCtx } from './toastContext'
 import { usePlaybackCtx } from './playbackContext'
+import type { Snap } from './useHistory'
 
 export interface UseMediaOpsDeps {
   stopPlayback: () => void
@@ -23,7 +24,6 @@ export interface UseMediaOpsDeps {
   /** 拡張子から種類を見分ける */
   kindOf: (path: string) => 'video' | 'image' | 'audio'
   setOpenAccSec: (fn: (p: Record<string, string[]>) => Record<string, string[]>) => void
-  /* eslint-disable @typescript-eslint/no-explicit-any */
   videoElsRef: React.MutableRefObject<Map<string, HTMLVideoElement>>
   /** いま焼き直している原本のパス */
   proxyForPathRef: React.MutableRefObject<string | null>
@@ -31,13 +31,11 @@ export interface UseMediaOpsDeps {
   /** この動画について初期の切片を作ったか */
   initializedForPathRef: React.MutableRefObject<string | null>
   /** 履歴の控え（読み込みで積み直すため） */
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  baselineRef: React.MutableRefObject<any>
-  redoStackRef: React.MutableRefObject<any[]>
+  baselineRef: React.MutableRefObject<Snap>
+  redoStackRef: React.MutableRefObject<Snap[]>
   pendingTimerRef: React.MutableRefObject<number | null>
-  undoStackRef: React.MutableRefObject<any[]>
+  undoStackRef: React.MutableRefObject<Snap[]>
   suppressHistoryRef: React.MutableRefObject<boolean>
-  /** パス → gcfile URL */  /* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
 export function useMediaOps(deps: UseMediaOpsDeps) {

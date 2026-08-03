@@ -28,6 +28,8 @@ import { useViewCtx } from './viewContext'
 import { clamp } from '../../../shared/timeline'
 import { formatTime } from '../lib/srt'
 import type { ImgClip, SEClip, VClip } from '../lib/projectTypes'
+// **useHistory の Snap と名前がぶつかる**ので別名で受ける
+import type { Snap as SnapApi } from './useSnap'
 
 /**
  * まとめて動かす束の、左端と右端。
@@ -64,22 +66,10 @@ export interface ClipDragDeps {
   /** 吸い付いた位置に出す縦線 */
   setSnapLineX: (v: number | null) => void
   /** 端を吸い付ける（頭・尻の両方を見る）。`more` は state/useSnap を見ること */
-  snapClipStart: (
-    tStart: number,
-    dur: number,
-    excludeSeIds?: number[],
-    excludeImgIds?: number[],
-    excludeVcIds?: number[],
-    more?: { cues?: number[]; extra?: number[] }
-  ) => number
+  /** 形は書き写さず、作っている側（state/useSnap）から引く */
+  snapClipStart: SnapApi['snapClipStart']
   /** 時刻を吸い付ける */
-  snapTime: (
-    t: number,
-    excludeCueIds?: number[],
-    excludeSeIds?: number[],
-    excludeImgIds?: number[],
-    excludeVcIds?: number[]
-  ) => number
+  snapTime: SnapApi['snapTime']
   /** 映像クリップを置いた段に、対の音声段を用意する */
   reserveTrackPairForVideo: (track: string) => void
   /** 落とし先の段を覚えておく（離すまで確定しない） */

@@ -66,8 +66,8 @@ export interface UseAppLayoutDeps {
  * タブの名前。**`string` で受けていた所を実際の値に絞った**——
  * `string` だと綴りを間違えても通るし、増やしたときに直す場所が分からない。
  */
-type RightTab = 'project' | 'telop' | 'icon' | 'se' | 'transition'
-type MonitorTab = 'program' | 'mixer'
+export type RightTab = 'project' | 'telop' | 'icon' | 'se' | 'transition'
+export type MonitorTab = 'program' | 'mixer'
 
 export function useAppLayout(deps: UseAppLayoutDeps) {
   const {
@@ -101,7 +101,6 @@ export function useAppLayout(deps: UseAppLayoutDeps) {
     rightTab,
     monitorTab
   })
-  /* eslint-disable @typescript-eslint/no-explicit-any */
   const applyLayout = (l: any): void => {
     if (!l || typeof l !== 'object') return
     const num = (v: unknown, set: (n: number) => void): void => {
@@ -125,7 +124,6 @@ export function useAppLayout(deps: UseAppLayoutDeps) {
       setPopped(next)
     }
   }
-  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   /** 保存した並び順を当てる。知らないタブは後ろに残す（項目が増えても消えない） */
   function orderedTabs<T extends { id: string }>(group: string, tabs: T[]): T[] {

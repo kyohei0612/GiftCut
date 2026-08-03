@@ -23,21 +23,21 @@ import type { SegLayout, VSeg } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useViewCtx } from './viewContext'
+import type { RightTab } from './useAppLayout'
+import type { Toast } from './useToast'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseTransitionsDeps {
   segLayout: SegLayout[]
   segLayoutRef: React.MutableRefObject<SegLayout[]>
   /** いま演出を掴んで運んでいるか */
   draggingTransRef: React.MutableRefObject<{ type: TransType } | null>
   trackInnerRef: React.RefObject<HTMLDivElement>
-  setRightTab: any
+  setRightTab: React.Dispatch<React.SetStateAction<RightTab>>
   clearSegSel: () => void
   mainLocked: () => boolean
-  showToast: any
+  showToast: (msg: string, type?: Toast['type']) => void
   transDur: number
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useTransitions(deps: UseTransitionsDeps) {
   const {  segLayoutRef, draggingTransRef, trackInnerRef, setRightTab,  mainLocked, showToast, transDur } = deps

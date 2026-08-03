@@ -20,6 +20,7 @@ import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { useClipboardCtx, type CopiedAttrs } from './clipboardContext'
+import type { Source, VSeg } from '../lib/projectTypes'
 
 export interface UseAttrCopyDeps {
   /** 本編（V1/A1）に鍵が掛かっているか */
@@ -27,7 +28,7 @@ export interface UseAttrCopyDeps {
   telopLocked: (c: import('../lib/srt').Cue) => boolean
   /** その切片の元の素材（名前を出すのに使う） */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  srcOfSeg: any
+  srcOfSeg: (seg: VSeg | undefined) => Source | undefined
 }
 
 export function useAttrCopy(deps: UseAttrCopyDeps) {

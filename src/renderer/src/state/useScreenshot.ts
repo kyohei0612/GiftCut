@@ -27,21 +27,19 @@ import { useIconsCtx } from './iconsContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseScreenshotDeps {
   /** 本編の映像を映している <video> */
-  videoRef: any
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>
   /** いま本編の映像が隠されているか（👁・黒ブランク・尺の外） */
-  v1Hidden: any
-  curBlank: any
-  videoTLen: any
+  v1Hidden: boolean
+  curBlank: boolean
+  videoTLen: number
   /** いまの切片の寄せ（プレビューの transform と同じ物） */
-  curSegZoom: any
+  curSegZoom: { scale: number; x: number; y: number }
   cueTrack: (c: Cue) => string
   vcLen: (c: VClip) => number
-  iconForCue: any
+  iconForCue: (c: Cue) => string | undefined
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useScreenshot(deps: UseScreenshotDeps) {
   const { videoRef, v1Hidden, curBlank, videoTLen, curSegZoom, cueTrack, vcLen, iconForCue } = deps

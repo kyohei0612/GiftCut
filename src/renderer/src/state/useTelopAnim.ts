@@ -24,8 +24,8 @@ import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useToastCtx } from './toastContext'
 import { useViewCtx } from './viewContext'
+import type { RightTab } from './useAppLayout'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseTelopAnimDeps {
   /** そのテロップが載っている段 */
   cueTrack: (c: Cue) => string
@@ -34,11 +34,10 @@ export interface UseTelopAnimDeps {
   /** 演出の名前（吹き出しに出す） */
   motionLabel: (t: AnimIn) => string
   /** いま掴んで運んでいる演出（掴んでいなければ null） */
-  draggingTelopAnimRef: any
+  draggingTelopAnimRef: React.MutableRefObject<{ type: AnimIn } | null>
   /** 落としたあとに開くタブ */
-  setRightTab: any
+  setRightTab: React.Dispatch<React.SetStateAction<RightTab>>
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useTelopAnim(deps: UseTelopAnimDeps) {
   const { cueTrack, telopLocked, motionLabel, draggingTelopAnimRef, setRightTab } = deps

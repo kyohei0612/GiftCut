@@ -23,6 +23,7 @@ import { useProjectStateCtx } from './projectStateContext'
 import { usePlaybackCtx } from './playbackContext'
 import { useExportCtx } from './exportContext'
 import { useIconsCtx } from './iconsContext'
+import type { Track } from '../lib/projectTypes'
 
 export interface UseTelopEditDeps {
   cueTrack: (c: import('../lib/srt').Cue) => string
@@ -31,7 +32,7 @@ export interface UseTelopEditDeps {
   trackNum: (id: string) => number
   /** 段を正しい並びで足す */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  insertTrackOrdered: any
+  insertTrackOrdered: (list: Track[], tr: Track) => Track[]
 }
 
 export function useTelopEdit(deps: UseTelopEditDeps) {

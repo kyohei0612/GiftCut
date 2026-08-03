@@ -24,8 +24,8 @@ import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useToastCtx } from './toastContext'
 import { usePlaybackCtx } from './playbackContext'
+import type { Cue } from '../lib/srt'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseIconLibraryDeps {
   /** 取り込んである絵の一覧。App が持っている */
   iconLibrary: IconItem[]
@@ -38,18 +38,17 @@ export interface UseIconLibraryDeps {
   setIconOv: React.Dispatch<React.SetStateAction<Record<string, string>>>
   setIconFavs: React.Dispatch<React.SetStateAction<string[]>>
   /** 揃える軸を測り直す（自動を入れたときに要る） */
-  applyIconAutoLeft: any
+  applyIconAutoLeft: (retried?: boolean) => void
   /** どの畳みを開いているか */
   setOpenAccSec: React.Dispatch<React.SetStateAction<Record<string, string[]>>>
   /** localStorage へ書く */
-  saveLS: any
+  saveLS: (key: string, v: unknown) => void
   screenRef: React.RefObject<HTMLDivElement>
   seekTo: (t: number) => void
   stopPlayback: () => void
   /** いま選んでいるテロップ（1つめ） */
-  selected: any
+  selected: Cue | null
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useIconLibrary(deps: UseIconLibraryDeps) {
   const {

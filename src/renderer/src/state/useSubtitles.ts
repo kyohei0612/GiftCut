@@ -23,6 +23,9 @@ import { useSel } from './selectionContext'
 import { useMediaCtx } from './mediaContext'
 import { useToastCtx } from './toastContext'
 import { useIconsCtx } from './iconsContext'
+import type { Snap } from './useHistory'
+import type { Ask } from './useAsk'
+import type { SubtitlePhase } from '../components/dialogs/SubtitleDialog'
 
 export interface UseSubtitlesDeps {
   /** 聞き取りの前に止める（流したままだと音が混ざる） */
@@ -30,10 +33,9 @@ export interface UseSubtitlesDeps {
   seekTo: (t: number) => void
   /** 切片の並び（カット点を「音より強い手がかり」として使う） */
   segLayout: { tStart: number }[]
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  resetHistory: (snap: any) => void
-  askConfirm: (o: any) => Promise<boolean>
-  /* eslint-enable @typescript-eslint/no-explicit-any */
+  resetHistory: (base: Snap) => void
+  /** 形は書き写さず引く（同じ物が5か所で要る） */
+  askConfirm: Ask['askConfirm']
   idCounter: React.MutableRefObject<number>
   /** 1枚に載せる文字数の上限 */
   subMaxChars: number
@@ -43,7 +45,7 @@ export interface UseSubtitlesDeps {
   newTelopStyle: import('../lib/telopStyle').TelopStyle
   setSrtPath: (v: string | null) => void
   setSubtitleOpen: (v: boolean) => void
-  setSubtitleState: (v: any) => void
+  setSubtitleState: React.Dispatch<React.SetStateAction<SubtitlePhase>>
 }
 
 export function useSubtitles(deps: UseSubtitlesDeps) {

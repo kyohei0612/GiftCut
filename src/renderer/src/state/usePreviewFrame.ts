@@ -28,19 +28,19 @@ import { useDoc } from './contentContext'
 import { useMediaCtx } from './mediaContext'
 import { usePlaybackCtx } from './playbackContext'
 import { isNeutralZoom } from '../lib/clipLook'
+import type { Layout } from '../../../shared/timeline'
+import type { Source, VSeg } from '../lib/projectTypes'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UsePreviewFrameDeps {
   /** クロスディゾルブを、カットを過ぎてから何秒だけ重ねたままにするか */
-  segLayout: any
-  srcOfSeg: any
+  segLayout: Layout<VSeg>[]
+  srcOfSeg: (seg: VSeg | undefined) => Source | undefined
   /** 再生ヘッド位置の切片の拡大・切り抜き */
-  curSegZoom: any
-  curCropInset: any
+  curSegZoom: { scale: number; x: number; y: number }
+  curCropInset: string | undefined
   /** 元動画の再生用URL（焼き直し済みがあればそちら） */
-  previewUrl: any
+  previewUrl: (path: string, orig: string) => string
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function usePreviewFrame(deps: UsePreviewFrameDeps) {
   const { segLayout, srcOfSeg, curSegZoom, curCropInset, previewUrl } = deps

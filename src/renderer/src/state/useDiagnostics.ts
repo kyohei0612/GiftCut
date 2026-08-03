@@ -31,19 +31,20 @@ import { useDoc } from './contentContext'
 import { useDragPreviewCtx } from './dragPreviewContext'
 import { usePlaybackCtx } from './playbackContext'
 import { useToastCtx } from './toastContext'
+import type { Marquee } from './useDragPreview'
+import type { SegLayout } from '../lib/projectTypes'
+import type { PreviewRes } from '../components/panels/PreviewBars'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseDiagnosticsDeps {
   /** 計測の小窓を開いているか */
   setPerfOpen: React.Dispatch<React.SetStateAction<boolean>>
   /** 掴んでいる最中に出す物（何を掴んでいるかの手掛かりになる） */
-  dragTip: any
-  marquee: any
-  segLayoutRef: any
-  previewResRef: any
-  videoRef: any
+  dragTip: { x: number; y: number; text: string } | null
+  marquee: Marquee | null
+  segLayoutRef: React.MutableRefObject<SegLayout[]>
+  previewResRef: React.MutableRefObject<PreviewRes>
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useDiagnostics(deps: UseDiagnosticsDeps): void {
   const {

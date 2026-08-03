@@ -32,21 +32,20 @@ import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { useMediaCtx } from './mediaContext'
+import type { SegOps, SplitSeg } from '../../../shared/timeline'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseSegmentPlaceDeps {
   /** 本編（V1）に鍵が掛かっているか */
   mainLocked: () => boolean
   /** 切片を分ける・空白を作るの決まり（shared/timeline へ渡す形） */
-  segOps: any
-  segSplit: any
+  segOps: SegOps<VSeg>
+  segSplit: SplitSeg<VSeg>
   /** 境目より後ろを、種類を跨いでまとめてずらす */
   shiftAfter: (boundaryT: number, delta: number) => void
   /** 素材を読む・登録する */
-  loadVideo: any
-  registerSource: any
+  loadVideo: (path: string, opts?: { placed?: boolean }) => Promise<void>
+  registerSource: (path: string) => Promise<{ id: number; dur: number } | null>
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useSegmentPlace(deps: UseSegmentPlaceDeps) {
   const { mainLocked, segOps, segSplit, shiftAfter, loadVideo, registerSource } = deps

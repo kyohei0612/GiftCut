@@ -31,7 +31,6 @@ import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseTracksAdminDeps {
   /** 段の上下に置く余白（映像の段の高さ × これ） */
   /** どれか1本でもソロなら、それ以外は鳴らさない */
@@ -42,7 +41,6 @@ export interface UseTracksAdminDeps {
   nVideoTracks: number
   nAudioTracks: number
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useTracksAdmin(deps: UseTracksAdminDeps) {
   const { anyAudioSolo, cueTrack, trackNum, nVideoTracks, nAudioTracks } = deps

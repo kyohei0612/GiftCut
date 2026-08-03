@@ -57,7 +57,6 @@ export interface UsePlaybackEngineDeps {
    */
   revealPlayhead: () => void
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function usePlaybackEngine(deps: UsePlaybackEngineDeps) {
   const {

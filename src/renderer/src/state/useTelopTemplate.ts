@@ -27,19 +27,23 @@ import { saveUserTemplates } from '../lib/telopTemplates'
 import { useDoc } from './contentContext'
 import { useProjectStateCtx } from './projectStateContext'
 import { useSel } from './selectionContext'
+import type { Cue } from '../lib/srt'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseTelopTemplateDeps {
   /** 名前を尋ねる窓を出す */
   askText: (title: string, def: string, onOk: (v: string) => void) => void
   /** いま選んでいるテロップ（無ければ null） */
-  selected: any
+  selected: Cue | null
   /** 打ち直し中に選んでいる文字の範囲 */
-  curSel: any
-  runColorFromStyle: any
-  applyRunRange: any
+  curSel: () => { start: number; end: number }
+  runColorFromStyle: (st: TelopStyle) => string | undefined
+  applyRunRange: (
+    cueId: number,
+    start: number,
+    end: number,
+    patch: Partial<TextRun>
+  ) => void
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useTelopTemplate(deps: UseTelopTemplateDeps) {
   const { askText, selected, curSel, runColorFromStyle, applyRunRange } = deps

@@ -89,7 +89,6 @@ import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { usePlaybackCtx } from './playbackContext'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseTimelineEditDeps {
   /** つなぎ目の演出のうち、どこにも掛からなくなった物を捨てる */
   cleanupOrphanTrans: (list: VSeg[], removedIds: Set<number>) => VSeg[]
@@ -126,7 +125,6 @@ export interface UseTimelineEditDeps {
   vcLen: (c: VClip) => number
   videoRef: React.MutableRefObject<HTMLVideoElement | null>
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useTimelineEdit(deps: UseTimelineEditDeps) {
   const {

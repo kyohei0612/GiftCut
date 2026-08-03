@@ -31,11 +31,14 @@ import { useDoc } from './contentContext'
 import { useNest } from './useNest'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
+import type { Tool, ContextMenu } from './useAppChrome'
+import type { Marquee } from './useDragPreview'
+// **useHistory の Snap と名前がぶつかる**ので別名で受ける
+import type { Snap as SnapApi } from './useSnap'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseTimelineDragDeps {
   /** いまの道具（選択・レザー・トラック選択） */
-  tool: any
+  tool: Tool
   duration: number
   /** 段の当たり判定（state/useLaneGeometry） */
   laneAtY: (yRel: number) => string | null
@@ -70,11 +73,12 @@ export interface UseTimelineDragDeps {
 
   /** 掴んでいる最中の見た目 */
   setDragTip: (v: { x: number; y: number; text: string } | null) => void
-  setMarquee: any
+  setMarquee: React.Dispatch<React.SetStateAction<Marquee | null>>
   setSnapLineX: (v: number | null) => void
   /** 吸い付き先の計算 */
-  snapClipStart: any
-  snapTime: any
+  /** 形は書き写さず、作っている側（state/useSnap）から引く */
+  snapClipStart: SnapApi['snapClipStart']
+  snapTime: SnapApi['snapTime']
   /** クリックした所の時刻 */
   scrubFromClientX: (clientX: number) => void
   /** 段を用意する／落とし先を覚えておく */
@@ -83,9 +87,8 @@ export interface UseTimelineDragDeps {
   addVideoTrack: () => void
   pendingLaneRef: React.MutableRefObject<string | null>
   /** 右クリックの品書きを出す */
-  setMenu: any
+  setMenu: React.Dispatch<React.SetStateAction<ContextMenu | null>>
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useTimelineDrag(deps: UseTimelineDragDeps) {
   const {

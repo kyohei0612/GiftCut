@@ -33,8 +33,9 @@ import type { Tool } from './useAppChrome'
 import type { VideoGhost } from './useDragPreview'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
+// **useHistory の Snap と名前がぶつかる**ので別名で受ける
+import type { Snap as SnapApi } from './useSnap'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseSegmentDragDeps {
   /** 本編が鍵で守られているか */
   /** いまの道具（選択・レザー） */
@@ -70,23 +71,10 @@ export interface UseSegmentDragDeps {
   /** 落とすと上書きされる相手。赤く見せるために覚えておく */
   setOverwriteIds: React.Dispatch<React.SetStateAction<number[]>>
   /** 端を吸い付ける（頭・尻の両方を見る）。`more` は state/useSnap を見ること */
-  snapClipStart: (
-    tStart: number,
-    dur: number,
-    excludeSeIds?: number[],
-    excludeImgIds?: number[],
-    excludeVcIds?: number[],
-    more?: { cues?: number[]; extra?: number[] }
-  ) => number
-  snapTime: (
-    t: number,
-    excludeCueIds?: number[],
-    excludeSeIds?: number[],
-    excludeImgIds?: number[],
-    excludeVcIds?: number[]
-  ) => number
+  /** 形は書き写さず、作っている側（state/useSnap）から引く */
+  snapClipStart: SnapApi['snapClipStart']
+  snapTime: SnapApi['snapTime']
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useSegmentDrag(deps: UseSegmentDragDeps) {
   const {

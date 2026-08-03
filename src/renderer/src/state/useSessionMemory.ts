@@ -32,19 +32,19 @@ import { useSel } from './selectionContext'
 import { useViewCtx } from './viewContext'
 import { clampZoom } from './useView'
 import { usePlaybackCtx } from './playbackContext'
+import type { RightTab } from './useAppLayout'
+import type { TelopTemplate } from '../lib/telopTemplates'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseSessionMemoryDeps {
   setTime: (t: number) => void
   /** 横スクロールと、右パネルの中身 */
   scrollRef: React.RefObject<HTMLDivElement>
-  rightBodyRef: any
+  rightBodyRef: React.RefObject<HTMLDivElement>
   rightTab: string
-  setRightTab: any
+  setRightTab: React.Dispatch<React.SetStateAction<RightTab>>
   /** 右パネルの一覧の件数（増えてから位置を戻す） */
-  localTemplates: any
+  localTemplates: TelopTemplate[]
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /**
  * この起動で「見ていた場所」（拡大率・横位置）を戻したか。

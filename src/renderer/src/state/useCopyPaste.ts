@@ -27,6 +27,7 @@ import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { useClipboardCtx } from './clipboardContext'
 import { usePlaybackCtx } from './playbackContext'
+import type { ReframeTarget } from '../lib/projectTypes'
 
 export interface UseCopyPasteDeps {
   cueTrack: (c: import('../lib/srt').Cue) => string
@@ -34,15 +35,13 @@ export interface UseCopyPasteDeps {
   telopLocked: (c: import('../lib/srt').Cue) => boolean
   selected: import('../lib/srt').Cue | null
   idCounter: React.MutableRefObject<number>
-  /* eslint-disable @typescript-eslint/no-explicit-any */
   /** モーションのどの行を選んでいるか（貼るときの当て先） */
-  motionSelRef: any
+  motionSelRef: React.MutableRefObject<string[]>
   /** いま出ているモーションの行。**印の無い項目の値**はここからしか取れない */
-  motionRowsRef: any
+  motionRowsRef: React.MutableRefObject<MotionRow[]>
   /** プレビューの枠で今つまんでいる相手 */
-  reframeTargetRef: any
+  reframeTargetRef: React.MutableRefObject<ReframeTarget | null>
   leftTab: string
-  /* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
 export function useCopyPaste(deps: UseCopyPasteDeps) {

@@ -245,11 +245,8 @@ export function useProjectFile(deps: UseProjectFileDeps) {
     // id はファイルの値を信用せず振り直す（NaN/重複による採番汚染を防ぐ）
     const loadedCues: Cue[] = loadCues(d.cues)
     const loadedSegs: VSeg[] = loadSegs(d.segments)
-    /* eslint-enable @typescript-eslint/no-explicit-any */
-    /* eslint-disable @typescript-eslint/no-explicit-any */
     const loadedSe: SEClip[] = loadSeClips(d.seClips)
     // トラック構成（追加レーン）を復元。形式が不正ならデフォルトに戻す
-    /* eslint-disable @typescript-eslint/no-explicit-any */
     const loadedTracks: Track[] = Array.isArray(d.tracks)
       ? d.tracks
           .filter(
@@ -268,7 +265,6 @@ export function useProjectFile(deps: UseProjectFileDeps) {
             kind: t.kind
           }))
       : []
-    /* eslint-enable @typescript-eslint/no-explicit-any */
     let nextTracks =
       loadedTracks.some((t) => t.id === 'V1') && loadedTracks.some((t) => t.id === 'A1')
         ? loadedTracks
@@ -306,7 +302,6 @@ export function useProjectFile(deps: UseProjectFileDeps) {
     }
     // メディアビン（プロジェクトに追加した素材）を復元
     if (Array.isArray(d.mediaItems)) {
-      /* eslint-disable @typescript-eslint/no-explicit-any */
       const items: MediaItem[] = d.mediaItems
         .filter((m: any) => m && typeof m.path === 'string')
         .map((m: any) => ({
@@ -316,19 +311,16 @@ export function useProjectFile(deps: UseProjectFileDeps) {
           kind: m.kind === 'audio' || m.kind === 'image' ? m.kind : ('video' as const),
           folder: typeof m.folder === 'string' ? m.folder : undefined
         }))
-      /* eslint-enable @typescript-eslint/no-explicit-any */
       setMediaItems(items)
       // サムネは見えている物だけ作る（onVisible が呼ぶ）
     }
     setSelectedTrackId(null)
     // マーカー復元（t 昇順、idは振り直し）
-    /* eslint-disable @typescript-eslint/no-explicit-any */
     const loadedMarkers: Marker[] = loadMarkers(d.markers)
     // 画像クリップ復元
     const loadedImgs: ImgClip[] = loadImgClips(d.imgClips, fallbackTrack)
     // 映像レイヤークリップ復元
     const loadedVc: VClip[] = loadVClips(d.vClips, fallbackTrack)
-    /* eslint-enable @typescript-eslint/no-explicit-any */
     idCounter.current = loadedCues.length + 1
     segIdCounter.current = loadedSegs.length + 1
     seIdCounter.current = loadedSe.length + 1

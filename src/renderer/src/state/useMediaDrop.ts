@@ -38,6 +38,8 @@ import { useToastCtx } from './toastContext'
 import { useMediaCtx } from './mediaContext'
 import { usePlaybackCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
+// **useHistory の Snap と名前がぶつかる**ので別名で受ける
+import type { Snap as SnapApi } from './useSnap'
 
 // **`any` で受けない。** ここは呼ぶ側（`useAppWiring`）が実物を渡す入口なので、
 // 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
@@ -73,15 +75,8 @@ export interface UseMediaDropDeps {
   reserveTrackPairForVideo: (vTrack: string) => string
   scrollRef: React.RefObject<HTMLDivElement>
   trackInnerRef: React.RefObject<HTMLDivElement>
-  /** 吸着（クリップの左右どちらの端でも寄せる）。`more` は state/useSnap を見ること */
-  snapClipStart: (
-    tStart: number,
-    dur: number,
-    excludeSeIds?: number[],
-    excludeImgIds?: number[],
-    excludeVcIds?: number[],
-    more?: { cues?: number[]; extra?: number[] }
-  ) => number
+  /** 吸着（クリップの左右どちらの端でも寄せる）。**形は作っている側（state/useSnap）から引く** */
+  snapClipStart: SnapApi['snapClipStart']
   /** どこからも使われなくなった元動画 */
   staleSourceIds: (path: string, refs: BinRefs) => number[]
   trackFromEvent: (e: { target: EventTarget | null }, kind?: 'video' | 'audio') => string | null

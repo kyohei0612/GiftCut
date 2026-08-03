@@ -23,6 +23,7 @@ import { useExportCtx } from './exportContext'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, Marker, SEClip, Track, TrackState, VClip, VSeg } from '../lib/projectTypes'
 import type { Ratio } from './useExportSettings'
+import type { PreviewRes } from '../components/panels/PreviewBars'
 
 /** ある時点の控え */
 export interface Snap {
@@ -42,15 +43,13 @@ export interface Snap {
   //   参照されなくなったソースは専用の GC effect で片付ける。
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface UseHistoryDeps {
   /** 位置が飛んだら、温めてあった面は当てにできない */
-  preparedRef: any
-  previewResRef: any
-  lastPaintRef: any
-  ratioRef: any
+  preparedRef: React.MutableRefObject<{ segIdx: number; srcId: number; half: 0 | 1 } | null>
+  previewResRef: React.MutableRefObject<PreviewRes>
+  lastPaintRef: React.MutableRefObject<number>
+  ratioRef: React.MutableRefObject<Ratio>
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export interface History {
   undoStackRef: React.MutableRefObject<Snap[]>
