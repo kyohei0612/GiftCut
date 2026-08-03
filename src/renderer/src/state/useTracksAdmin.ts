@@ -20,11 +20,9 @@
 // 「鍵が掛かっていたら触らない」は全部の操作で同じ。散らすと、
 // キーでは消えるのにボタンでは消えない、のような食い違いが出る。
 
-import { TRACK_PAD_ROWS } from '../lib/appConst'
 import { clamp } from '../../../shared/timeline'
 import { trackGain } from '../../../shared/trackGain'
 import { newTrackState } from '../lib/trackState'
-import { TRACK_H_MAX, TRACK_H_MIN } from './useLaneHeights'
 import type { Cue } from '../lib/srt'
 import type { Track, TrackState } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
@@ -41,23 +39,13 @@ export interface UseTracksAdminDeps {
   cueTrack: (c: Cue) => string
   /** 段の名前から番号を取る（V2 → 2） */
   trackNum: (id: string) => number
-  /** その段のいまの高さ（px） */
-  trackHOf: (idOrKind: string) => number
   nVideoTracks: number
   nAudioTracks: number
-  videoTrackHRef: React.MutableRefObject<number>
-  audioTrackHRef: React.MutableRefObject<number>
-  setVideoTrackH: React.Dispatch<React.SetStateAction<number>>
-  setAudioTrackH: React.Dispatch<React.SetStateAction<number>>
-  setLaneH: React.Dispatch<React.SetStateAction<Record<string, number>>>
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function useTracksAdmin(deps: UseTracksAdminDeps) {
-  const {
-    anyAudioSolo, cueTrack, trackNum, trackHOf, nVideoTracks, nAudioTracks,
-    videoTrackHRef, audioTrackHRef, setVideoTrackH, setAudioTrackH, setLaneH
-  } = deps
+  const { anyAudioSolo, cueTrack, trackNum, nVideoTracks, nAudioTracks } = deps
   const {
     cues, setCues, cuesRef, setSegments, segsRef, seClips, setSeClips, seClipsRef,
     imgClips, setImgClips, imgClipsRef, vClips, setVClips, vClipsRef
@@ -309,91 +297,16 @@ export function useTracksAdmin(deps: UseTracksAdminDeps) {
     const vol = clamp(v, 0, 1)
     setTrackStates((s) => ({ ...s, [id]: { ...s[id], volume: vol } }))
   }
-  // 縦フェーダーのドラッグ（上=1.0 / 下=0）。apply には 0..1 の値が渡る
-  function startFader(e: React.PointerEvent, apply: (f: number) => void): void {
-    e.preventDefault()
-    e.stopPropagation()
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    const set = (cy: number): void => apply(clamp(1 - (cy - rect.top) / rect.height, 0, 1))
-    set(e.clientY)
-    const mv = (ev: PointerEvent): void => set(ev.clientY)
-    const up = (): void => {
-      window.removeEventListener('pointermove', mv)
-      window.removeEventListener('pointerup', up)
-      window.removeEventListener('pointercancel', up)
-    }
-    window.addEventListener('pointermove', mv)
-    window.addEventListener('pointerup', up)
-    window.addEventListener('pointercancel', up)
-  }
-  /**
-   * 段見出しの**境目を掴んで**高さを変える（プレミアと同じ操作）。
-   * 映像の境目なら映像レーン全体、音声なら音声レーン全体がまとめて変わる。
-   *
-   * @param above 掴んだ境目より上に、同じ種類の段がいくつあるか（1から数える）
-   *
-   * 掴んだ線をカーソルに追従させるには、**その線より上にある段の数**で割る。
-   * 線の位置は「上にある段の高さの合計」で決まるので、1px 動かしたければ
-   * 1段あたり 1/n px 変える必要がある。
-   * 映像側は上の余白（TRACK_PAD_ROWS 段ぶん）も段の高さで伸び縮みするため、
-   * その分も数に入れる。ここを間違えると、掴んだ場所から線がじわじわ離れていく。
-   */
-  function startGroupResize(
-    kind: 'video' | 'audio',
-    above: number,
-    e: React.PointerEvent,
-    trackId?: string
-  ): void {
-    e.preventDefault()
-    e.stopPropagation()
-    const startY = e.clientY
-    // **掴んだ段だけ動かす。**
-    // まとめて変える作りだと、波形を1本だけ見たいときにも他の段まで太り、
-    // 画面が足りなくなる。掴んだ線の下にある段はそのまま押し下がる。
-    if (trackId) {
-      const startOwn = trackHOf(trackId)
-      const prevCur = document.body.style.cursor
-      document.body.style.cursor = 'row-resize'
-      const mv = (ev: PointerEvent): void => {
-        const h = clamp(startOwn + (ev.clientY - startY), TRACK_H_MIN, TRACK_H_MAX)
-        setLaneH((p) => ({ ...p, [trackId]: h }))
-      }
-      const up = (): void => {
-        document.body.style.cursor = prevCur
-        window.removeEventListener('pointermove', mv)
-        window.removeEventListener('pointerup', up)
-        window.removeEventListener('pointercancel', up)
-      }
-      window.addEventListener('pointermove', mv)
-      window.addEventListener('pointerup', up)
-      window.addEventListener('pointercancel', up)
-      return
-    }
-    const startH = kind === 'video' ? videoTrackHRef.current : audioTrackHRef.current
-    const rows = Math.max(1, kind === 'video' ? above + TRACK_PAD_ROWS : above)
-    const setter = kind === 'video' ? setVideoTrackH : setAudioTrackH
-    // 掴んでいる間は、どこへ動かしても行を変える手のままにする
-    // （途中で別のカーソルに化けると「外れた」ように見える）
-    const prevCursor = document.body.style.cursor
-    document.body.style.cursor = 'row-resize'
-    const onMove = (ev: PointerEvent): void => {
-      setter(clamp(startH + (ev.clientY - startY) / rows, TRACK_H_MIN, TRACK_H_MAX))
-    }
-    const onUp = (): void => {
-      document.body.style.cursor = prevCursor
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
-  }
+  // ※ 段の高さを掴んで変える（startGroupResize）は state/useLaneResize、
+  //    ミキサーの縦フェーダー（startFader）は lib/faderDrag へ出した。
+  //    高さの話はこのファイルの頭のコメントに1行も無く、フェーダーは
+  //    段と何の関係も無い（呼ぶのは PreviewBars だけ）。
+  //    出したことで deps が 11個 → 5個 に減っている。
 
   return {
     trackFromEvent, mainLocked, fallbackTrack, audioTrackFromEvent, insertTrackOrdered,
     reserveTrackPairForVideo, setClipLabel, addVideoTrack, addAudioTrack, trackHasContent,
     telopLocked, trackHasContentInner, canDeleteTrack, deleteTrack, selectTrack,
-    audioTrackGain, setTrackVolume, startFader, startGroupResize
+    audioTrackGain, setTrackVolume
   }
 }

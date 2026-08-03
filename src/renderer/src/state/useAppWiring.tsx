@@ -129,6 +129,8 @@ import { useCopyPaste } from './useCopyPaste'
 import { useTelopEdit } from './useTelopEdit'
 import { useTelopAnim } from './useTelopAnim'
 import { useAttrCopy } from './useAttrCopy'
+import { useLaneResize } from './useLaneResize'
+import { startFader } from '../lib/faderDrag'
 import { useClipboardCtx } from './clipboardContext'
 import { useLaneHeights } from './useLaneHeights'
 import { usePlaybackCtx } from './playbackContext'
@@ -303,11 +305,11 @@ export function useAppWiring() {
   const {
     trackFromEvent, mainLocked, fallbackTrack, insertTrackOrdered,
     reserveTrackPairForVideo, setClipLabel, addVideoTrack, addAudioTrack,
-    telopLocked, deleteTrack, selectTrack,
-    audioTrackGain, setTrackVolume, startFader, startGroupResize
-  } = useTracksAdmin({
-    anyAudioSolo, cueTrack, trackNum, trackHOf, nVideoTracks, nAudioTracks,
-    videoTrackHRef, audioTrackHRef, setVideoTrackH, setAudioTrackH, setLaneH
+    telopLocked, deleteTrack, selectTrack, audioTrackGain, setTrackVolume
+  } = useTracksAdmin({ anyAudioSolo, cueTrack, trackNum, nVideoTracks, nAudioTracks })
+  // 段見出しの境目を掴んで高さを変えるのは state/useLaneResize
+  const { startGroupResize } = useLaneResize({
+    trackHOf, videoTrackHRef, audioTrackHRef, setVideoTrackH, setAudioTrackH, setLaneH
   })
   // 上下の余白。段の高さを変えたら一緒に変わる。
   // 上はゆったり、下は1段ぶん。下も同じだけ取ると、その分だけ段が画面から
