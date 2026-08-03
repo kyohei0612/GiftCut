@@ -10,6 +10,7 @@
 // 集めておくと、拡大率を変えたときにズレるのがここだけで済む。
 
 import type { JSX } from 'react'
+import { usePlaybackCtx } from '../../state/playbackContext'
 
 export function TimeRuler({
   ticks,
@@ -70,9 +71,25 @@ export function Marquee({
   )
 }
 
-export function Playhead({ x, onScrub }: { x: number; onScrub: (e: React.PointerEvent) => void }): JSX.Element {
+/**
+ * 再生ヘッド。**時刻は自分で見に行く。**
+ *
+ * 前は置く側（`TimelineArea`）が `currentTime` を受け取って `x` を渡していた。
+ * そのせいで**再生ヘッドが1px動くたびに、タイムライン全体が描き直されていた**
+ * ——実データ（帯277個）で、掴んで20回動かすのに 1,135ms かかっていた。
+ * 動くのはこの1本だけなので、ここだけが時刻を知っていればよい
+ * （2026-08-03。`memo` を足すより、**知る範囲を狭める方が確実**）。
+ */
+export function Playhead({
+  zoom,
+  onScrub
+}: {
+  zoom: number
+  onScrub: (e: React.PointerEvent) => void
+}): JSX.Element {
+  const { currentTime } = usePlaybackCtx()
   return (
-    <div className="playhead" style={{ left: x }}>
+    <div className="playhead" style={{ left: currentTime * zoom }}>
       <div className="playhead-handle" onPointerDown={onScrub} />
     </div>
   )

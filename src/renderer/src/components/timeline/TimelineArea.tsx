@@ -89,7 +89,10 @@ export function TimelineArea(): JSX.Element {
   } = useSel()
   const { tracks, trackStates } = useTracksCtx()
   const { zoom, setZoom, zoomRef } = useViewCtx()
-  const { currentTime, fps } = usePlaybackCtx()
+  // **currentTime は受け取らない。** 受けると、再生ヘッドが動くたびに
+  // タイムライン全体（帯277個）が描き直される。時刻が要るのは再生ヘッドだけなので、
+  // あちらが自分で見に行く（components/timeline/Ruler の Playhead）
+  const { fps } = usePlaybackCtx()
   const { videoSrc, mediaItems } = useMediaCtx()
   const { timelineH } = useLayout()
   const { videoGhost, seGhost, imgGhost, marquee, snapLineX, overwriteIds } = useDragPreviewCtx()
@@ -302,7 +305,9 @@ export function TimelineArea(): JSX.Element {
               onCancelRename={() => setEditingMarkerId(null)}
             />
 
-            <Playhead x={currentTime * zoom} onScrub={startScrub} />
+            {/* **時刻はこの部品が自分で見に行く。** ここで受け取ると、
+                再生ヘッドが1px動くたびにタイムライン全体が描き直される */}
+            <Playhead zoom={zoom} onScrub={startScrub} />
 
             {/* 上の余白。端に貼り付いていると足す余地が見えず窮屈に感じる */}
             <div className="track-pad" style={{ height: padTop }} />
