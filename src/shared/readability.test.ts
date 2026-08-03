@@ -87,7 +87,8 @@ const DEBT_INDEX = new Set([
   'src/main/exportRun.ts', // 1,220。shared/timeline の再実装を先に消す
   'src/renderer/src/state/useAppWiring.tsx', // 1,213
   'src/renderer/src/state/useTimelineEdit.ts', // 893
-  'src/renderer/src/components/StylePanel.tsx', // 679。冒頭コメントも無い
+  // StylePanel は**返済済み**（2026-08-03）。アピアランス225行を
+  // ./StyleAppearance へ出して 679 → 451。冒頭コメントも付けた
   // useProjectFile は**返済済み**（2026-08-03）。テンプレート141行を
   // ./useProjectTemplates へ出して 667 → 537 にし、取説を付けて照合下に入れた
   // telopStyle.ts は**返済済み**（2026-08-03）。測る112行を ./telopMeasure へ出して
@@ -110,7 +111,6 @@ const DEBT_INDEX = new Set([
  * 1ファイルに収まっている間は誰にも見えなかった。
  */
 const DEBT_HEAD = new Set([
-  'src/renderer/src/components/StylePanel.tsx',
   'src/main/index.ts',
   'src/renderer/src/components/TelopText.tsx',
   'src/preload/index.ts',
@@ -248,7 +248,7 @@ describe('AI が余裕を持って読める形', () => {
     // 増やしたくなったら、それは「割るか取説を書くか」を先送りしているだけ。
     // 2026-08-03 に 13 で始めて、その日のうちに telopStyle / useLibraries /
     // useProjectFile を返して 10。
-    expect(DEBT_INDEX.size).toBeLessThanOrEqual(10)
-    expect(DEBT_HEAD.size).toBeLessThanOrEqual(11)
+    expect(DEBT_INDEX.size).toBeLessThanOrEqual(9)
+    expect(DEBT_HEAD.size).toBeLessThanOrEqual(10)
   })
 })
