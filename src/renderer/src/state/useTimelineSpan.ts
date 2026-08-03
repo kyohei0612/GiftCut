@@ -9,11 +9,19 @@
 // 逆に「何も無い所まで延々と再生が続く」になる。片方だけ直すと、
 // 置いた物が画面の右端からはみ出したまま気づけない。
 //
-// ## 目盛りは尺と拡大率だけで決まる
+// ## 目盛りは「見えている範囲」だけ作る
 //
-// 再生ヘッドが動くたびに作り直すと、長い素材ではそれだけで重くなる。
-import { useEffect, useMemo, useRef } from 'react'
+// 再生ヘッドが動くたびに作り直すと、長い素材ではそれだけで重くなるので、
+// 尺・拡大率・**いま見えている所**だけで決まるようにしてある。
+//
+// **2026-08-03 まで端から端まで作っていた**（上限20,000個）。実データ（451秒）で
+// 寄せると目盛りだけで 4,538 個の要素になり、帯（クリップ）は23個しか
+// 描いていないのに DOM が 1,679 → 10,412 に膨らんでいた。
+// **帯は元から窓の分だけ描いていたのに、目盛りだけが全部だった。**
+// 刻みの決め方は `shared/rulerTicks`（試験14件）。
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatTimecode } from '../../../shared/timeline'
+import { visibleTicks } from '../../../shared/rulerTicks'
 import { useDoc } from './contentContext'
 
 export interface UseTimelineSpanDeps {
@@ -22,10 +30,12 @@ export interface UseTimelineSpanDeps {
   /** 1秒あたりの横幅（px） */
   zoom: number
   fps: number
+  /** 横に送る枠。**見えている範囲を知るために要る** */
+  scrollRef: { current: HTMLDivElement | null }
 }
 
 export function useTimelineSpan(deps: UseTimelineSpanDeps) {
-  const { videoTLen, zoom, fps } = deps
+  const { videoTLen, zoom, fps, scrollRef } = deps
   const { cues, seClips, imgClips, vClips } = useDoc()
 
   const seEnd = useMemo(
@@ -69,33 +79,32 @@ export function useTimelineSpan(deps: UseTimelineSpanDeps) {
    * 小さい目盛りは、その間が 7px 以上あく範囲でいちばん細かく割る。
    * 上限を置いてあるのは、拡大 × 長尺で目盛りが何十万個にもなるため。
    */
-  const rulerTicks = useMemo(() => {
-    const cands = [
-      1 / fps, 2 / fps, 5 / fps, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600
-    ]
-    const minLabelPx = 84
-    let major = cands[cands.length - 1]
-    for (const c of cands)
-      if (c * zoom >= minLabelPx) {
-        major = c
-        break
-      }
-    const majorPx = major * zoom
-    const sub = [10, 5, 4, 2, 1].find((n) => majorPx / n >= 7) ?? 1
-    const minor = major / sub
-    const nMinor = Math.min(20000, Math.floor(duration / minor) + 1)
-    const ticks: { left: number; major: boolean; label?: string }[] = []
-    for (let i = 0; i <= nMinor; i++) {
-      const time = i * minor
-      const isMajor = Math.abs(time / major - Math.round(time / major)) < 1e-6
-      ticks.push({
-        left: time * zoom,
-        major: isMajor,
-        label: isMajor ? formatTimecode(time, fps) : undefined
-      })
+  // **横に送ったら作り直す。** 送っている間ずっと同じ物を出していると、
+  // 端まで行った所で目盛りが尽きる。ZoomBar と同じやり方で見張る
+  //（React は他人の scrollLeft を知らないので、自分で聞きに行くしかない）
+  const [scrollTick, bumpScroll] = useState(0)
+  useEffect(() => {
+    const sc = scrollRef.current
+    if (!sc) return
+    const bump = (): void => bumpScroll((n) => n + 1)
+    sc.addEventListener('scroll', bump, { passive: true })
+    const ro = new ResizeObserver(bump)
+    ro.observe(sc)
+    return () => {
+      sc.removeEventListener('scroll', bump)
+      ro.disconnect()
     }
-    return ticks
-  }, [zoom, duration, fps])
+  }, [scrollRef])
+
+  const rulerTicks = useMemo(() => {
+    void scrollTick // 送るたびに作り直すための取っ手
+    const sc = scrollRef.current
+    return visibleTicks(zoom, duration, fps, sc?.scrollLeft ?? 0, sc?.clientWidth ?? 0).map((t) => ({
+      left: t.left,
+      major: t.major,
+      label: t.time != null ? formatTimecode(t.time, fps) : undefined
+    }))
+  }, [zoom, duration, fps, scrollTick, scrollRef])
 
   return { seEnd, imgEnd, vcEnd, duration, contentEnd, contentEndRef, rulerTicks }
 }

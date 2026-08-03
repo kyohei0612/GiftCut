@@ -500,7 +500,7 @@ export function useAppWiring() {
   // タイムラインの長さ（出す長さ／本当の終わり）と、ものさしの目盛りは
   // state/useTimelineSpan（長さが2つある理由も中にある）
   const { seEnd, duration, contentEndRef, rulerTicks } =
-    useTimelineSpan({ videoTLen, zoom, fps })
+    useTimelineSpan({ videoTLen, zoom, fps, scrollRef })
 
   // 再生の心臓（流す・止める・飛ぶ・コマ送り）は state/usePlaybackEngine。
   // **素材の読み込み（下）より先に呼ぶ。** 以前は逆で、読み込む側が「止める物」を
