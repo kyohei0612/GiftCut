@@ -1,6 +1,6 @@
 {
   "name": "giftcut",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "切り抜き動画特化のテロップ編集アプリ",
   "author": "kyohei",
   "main": "./out/main/index.js",
