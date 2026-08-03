@@ -5,7 +5,8 @@ import {
   type StrokePosition,
   type TelopStyle
 } from '../lib/telopStyle'
-import { FillPicker, ColorField } from './FillPicker'
+import { FillPicker } from './FillPicker'
+import { ColorField } from './ColorArea'
 import { ScrubNumber } from './ScrubNumber'
 
 export interface StylePreset {
