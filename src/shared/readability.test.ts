@@ -88,7 +88,8 @@ const DEBT_INDEX = new Set([
   'src/renderer/src/state/useAppWiring.tsx', // 1,213
   'src/renderer/src/state/useTimelineEdit.ts', // 893
   'src/renderer/src/components/StylePanel.tsx', // 679。冒頭コメントも無い
-  'src/renderer/src/state/useProjectFile.ts', // 667
+  // useProjectFile は**返済済み**（2026-08-03）。テンプレート141行を
+  // ./useProjectTemplates へ出して 667 → 537 にし、取説を付けて照合下に入れた
   // telopStyle.ts は**返済済み**（2026-08-03）。測る112行を ./telopMeasure へ出して
   // 623 → 510 にし、残り10行ぶんは取説（// ## 中身）を付けて機械の照合下に入れた。
   'src/renderer/src/state/useTimelineDrag.ts', // 577
@@ -139,15 +140,28 @@ const files = walk(join(REPO, 'src')).map((f) => ({
 }))
 
 /**
- * top-level の「呼べる物」の名前。
+ * 取説に並べるべき「呼べる物」の名前。
  *
- * 定数は数えない（`const TRIM_PX = 7` まで取説に並べると、誰も直さなくなる）。
- * 矢印関数かどうかは、同じ行に `=>` があるか、`(` で終わって次行へ続くかで見る。
+ * ## `function` は中に入っていても数える
+ *
+ * 大きいファイルはほぼ全部フックで、**中身が1つの関数の中に入っている**
+ *（`useProjectFile` は524行のうち約500行が `useProjectFile()` の中）。
+ * top-level だけ見ると取説が1行になって、何の役にも立たない。
+ * **grep で探す相手はその中の関数**なので、そちらを並べさせる。
+ *
+ * ## 矢印の `const` は top-level だけ
+ *
+ * 中の矢印関数まで数えると、3行のヘルパーが全部並んで取説が読めなくなる。
+ * 線を「`function` と書いたか」に引いてある——**名前を付けて外から呼ぶ物は
+ * `function` で書く**、という書き分けがこのリポジトリで既に守られている。
+ *
+ * 定数は数えない（`const TRIM_PX = 7` まで並べると、誰も直さなくなる）。
  */
 function topLevelCallables(lines: string[]): string[] {
   const out: string[] = []
   lines.forEach((l, i) => {
-    const fn = l.match(/^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/)
+    // 先頭の空白を許す＝関数の中の function も拾う
+    const fn = l.match(/^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/)
     if (fn) {
       out.push(fn[1])
       return
@@ -232,8 +246,9 @@ describe('AI が余裕を持って読める形', () => {
 
   it('DEBT は減らす方向にだけ動かす（この数を増やしたら赤くする）', () => {
     // 増やしたくなったら、それは「割るか取説を書くか」を先送りしているだけ。
-    // 2026-08-03 に 13 で始めて、その日のうちに telopStyle と useLibraries を返して 11。
-    expect(DEBT_INDEX.size).toBeLessThanOrEqual(11)
+    // 2026-08-03 に 13 で始めて、その日のうちに telopStyle / useLibraries /
+    // useProjectFile を返して 10。
+    expect(DEBT_INDEX.size).toBeLessThanOrEqual(10)
     expect(DEBT_HEAD.size).toBeLessThanOrEqual(11)
   })
 })

@@ -1,16 +1,25 @@
-// プロジェクトの開く・保存・復元と、テンプレート。
+// いま作っているプロジェクトを、開く・保存する・画面へ流し込む。
 //
 // ## ここが一番「静かに壊れる」所
 //
 // 開いたときに拾い忘れた項目は、**エラーも出ずに消える**。
 // 読み込みの整え直しは lib/projectLoad に出して試験で押さえたが、
-// その前後（どのファイルを開いたか・何を控えるか・テンプレートの当て方）は
-// まだここにある。
+// その前後（どのファイルを開いたか・何を控えるか）はまだここにある。
 //
-// ## テンプレートを当てるときの決まり
+// ## テンプレートは別ファイル（2026-08-03 に出した）
 //
-// **原本を汚さない。** テンプレートから始めたら「新規」扱いにして、
-// 上書き保存でテンプレート自体を潰さないようにする。
+// 元の冒頭は「開く・保存・復元**と、テンプレート**」と**2つ宣言していた**。
+// テンプレートは「次に始めるときの形」を決める話で、タイムラインの中身を
+// 一切触らない。持ち物もほとんど重ならなかった（deps 3個・context 8個が
+// まるごと不要になった）→ `./useProjectTemplates`。
+//
+// ## 中身
+//
+// - `useProjectFile` … 下の4つをまとめて返す唯一の入口
+// - `projectJson` … いまの中身を丸ごと文字列にする（保存と自動保存で共通）
+// - `saveProjectFn` … 保存する。**保留中の履歴を先に確定させてから**書く
+// - `openProjectFn` … ファイルを開く。未保存があれば先に確かめる
+// - `applyProjectData` … 読んだ中身を画面へ流し込む。**ここの拾い忘れが一番怖い**
 import { toGcUrl } from '../lib/gcUrl'
 import { clamp, FPS_FALLBACK as FPS } from '../../../shared/timeline'
 import { loadCues, loadSegs, loadSeClips, loadMarkers, loadImgClips, loadVClips } from '../lib/projectLoad'
@@ -21,8 +30,8 @@ import {
   newTrackState,
   normalizeTrackName
 } from '../lib/trackState'
-import { mergeAssignments, mergeFavorites, mergeFolders, mergeNamed } from '../../../shared/templateMerge'
-import { saveCatOverrides, saveCustomCats, saveFavorites, saveUserTemplates } from '../lib/telopTemplates'
+// ※ templateMerge / telopTemplates の保存系は ./useProjectTemplates へ一緒に出た
+//    （混ぜる話はテンプレートを当てるときにしか出てこない）。
 import { saveIconAssign } from '../lib/iconLibrary'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, Marker, SEClip, Source, Track, VClip, VSeg } from '../lib/projectTypes'
@@ -48,17 +57,17 @@ export interface UseProjectFileDeps {
     //    pendingTimerRef は消した。**渡されていたが本文で一度も読んでいなかった**
     //    （残っていた出現箇所は全部コメントの中の文字列だった）。
     //    deps の未使用は noUnusedLocals では出ない（分割代入に入れなければ黙る）
+    // ※ kindOf / askText / setTemplatePicker は ./useProjectTemplates へ移した
+    //   （素材の種類を見分けるのも、名前を尋ねるのも、テンプレートの時だけ要る）
     stopPlayback: any
     setTime: any
     fallbackTrack: any
-    kindOf: any
     applyLayout: any
     layoutNow: any
     snapNow: any
     resetHistory: any
     confirmDiscard: any
     hasProjectContent: any
-    askText: (title: string, def: string, onOk: (v: string) => void) => void
     rememberProject: any
     prepareMediaMeta: any
     commitPending: any
@@ -71,7 +80,6 @@ export interface UseProjectFileDeps {
     proxyForPathRef: any
     videoElsRef: any
     videoRef: any
-    setTemplatePicker: any
     saveLS: any
   baselineRef: any
   hydrateSource: any
@@ -80,7 +88,9 @@ export interface UseProjectFileDeps {
 }
 
 export function useProjectFile(deps: UseProjectFileDeps) {
-  const { stopPlayback, setTime, fallbackTrack, kindOf, applyLayout, layoutNow, snapNow, resetHistory, confirmDiscard, hasProjectContent, askText, rememberProject, prepareMediaMeta, commitPending, idCounter, savedJsonRef, projectJsonRef, markUnsavedRef, lastAutosaveRef, initializedForPathRef, proxyForPathRef, videoElsRef, videoRef, setTemplatePicker, saveLS, baselineRef, hydrateSource, updateSource } = deps
+  // ※ kindOf / askText / setTemplatePicker は ./useProjectTemplates へ移った
+  //   （素材の種類を見分けるのも、名前を尋ねるのも、テンプレートの時だけ要る）
+  const { stopPlayback, setTime, fallbackTrack, applyLayout, layoutNow, snapNow, resetHistory, confirmDiscard, hasProjectContent, rememberProject, prepareMediaMeta, commitPending, idCounter, savedJsonRef, projectJsonRef, markUnsavedRef, lastAutosaveRef, initializedForPathRef, proxyForPathRef, videoElsRef, videoRef, saveLS, baselineRef, hydrateSource, updateSource } = deps
   const { cues, setCues, segments, setSegments, seClips, setSeClips, imgClips, setImgClips, vClips, setVClips, markers, setMarkers, segIdCounter, seIdCounter, imgIdCounter, vClipIdCounter, markerIdCounter } = useDoc()
   const { setSelectedIds, clearSegSel, setEditingId, setSelectedTrackId, setSelectedVClipIds,
     setSelectedMarkerId, setSelectedSeIds,
@@ -92,8 +102,9 @@ export function useProjectFile(deps: UseProjectFileDeps) {
   const { setFps } = usePlaybackCtx()
   const {
     projectPath, setProjectPath, setSrtPath, setMissingMedia, setRecentProjects,
-    favorites, setFavorites, catOverrides, setCatOverrides, customCats, setCustomCats,
-    userTemplates, setUserTemplates, newTelopStyle, setNewTelopStyle, transDur, setTransDur, srtPath,
+    // ※ テロップの整理（★/分類/自作フォルダ/自作テロップ）は ./useProjectTemplates へ。
+    //   **混ぜるのはテンプレートを当てるときだけ**で、開く・保存には出てこなかった
+    newTelopStyle, setNewTelopStyle, transDur, setTransDur, srtPath,
     iconAssign, setIconAssignState, laneIconAssign, setLaneIconAssign, missingMedia
   } = useProjectStateCtx()
 
@@ -208,146 +219,6 @@ export function useProjectFile(deps: UseProjectFileDeps) {
 
   // テンプレJSON＝プロジェクトタブ(メディアビン)＋テロップ設定(フォルダ/お気に入り/カテゴリ)＋比率/アイコン。
   // タイムライン(カット/配置=cues/segments/seClips/videoPath)は含めない。
-  function templateJson(): string {
-    return JSON.stringify(
-      {
-        version: 1,
-        kind: 'template',
-        ratio,
-        mediaItems: mediaItems.map((m) => ({
-          path: m.path,
-          name: m.name,
-          kind: m.kind,
-          folder: m.folder
-        })),
-        iconSide,
-        iconOffset,
-        iconScale,
-        iconAuto,
-        iconAnchorPos,
-        // テンプレは「開始状態を揃える」ものなので、テロップの自作テンプレと
-        // アイコン割当・既定スタイルも含める（含めないと★が存在しないテンプレを指す）
-        telop: { favorites, catOverrides, customCats, userTemplates },
-        iconAssign,
-        laneIconAssign,
-        newTelopStyle,
-        // 画面の配置も込みで覚える。テンプレは「開始状態を揃える」ものなので、
-        // 窓を出した形で登録すれば、次からその形で始まる
-        layout: layoutNow()
-      },
-      null,
-      1
-    )
-  }
-
-  /** テンプレを適用（メディアビン＋テロップ設定＋設定。タイムラインは触らない） */
-  function applyProjectTemplate(data: any): void {
-    const d = data as any
-    // テンプレは「新規プロジェクトの開始状態」なので、保存先は引き継がない。
-    // 残すと直後の Ctrl+S が元のプロジェクトを無警告で上書きしてしまう。
-    setProjectPath(null)
-    if (d.ratio) setRatio(d.ratio)
-    if (Array.isArray(d.mediaItems)) {
-      const items: MediaItem[] = d.mediaItems
-        .filter((m: any) => m && typeof m.path === 'string')
-        .map((m: any) => {
-          const kind = kindOf(String(m.path))
-          return {
-            id: mediaIdCounter.current++,
-            path: String(m.path),
-            name: String(m.name ?? String(m.path).split(/[\\/]/).pop() ?? ''),
-            kind,
-            folder: typeof m.folder === 'string' ? m.folder : undefined,
-            thumb: kind === 'image' ? toGcUrl(String(m.path)) : undefined
-          }
-        })
-      // 画像はパスをそのままサムネに（テンプレ適用と同じ扱いに揃える）
-      const withThumb = items.map((m) =>
-        m.kind === 'image' ? { ...m, thumb: toGcUrl(m.path) } : m
-      )
-      setMediaItems(withThumb)
-      // サムネ・尺・波形は見えている物だけ用意する（onVisible が呼ぶ）
-    }
-    if (d.iconSide) setIconSide(d.iconSide)
-    if (d.iconOffset && typeof d.iconOffset.x === 'number') setIconOffset(d.iconOffset)
-    if (typeof d.iconScale === 'number') setIconScale(d.iconScale)
-    if (typeof d.iconAuto === 'boolean') setIconAuto(d.iconAuto)
-    if (d.iconAnchorPos && typeof d.iconAnchorPos.x === 'number' && typeof d.iconAnchorPos.y === 'number')
-      setIconAnchorPos({ x: d.iconAnchorPos.x, y: d.iconAnchorPos.y })
-    // 動画ズーム（リフレーム）は切片ごと（loadedSegs で復元済み）。旧グローバル videoZoom は無視。
-    //
-    // テロップの整理（★/分類/自作フォルダ/自作テロップ）とアイコンの割り当ては
-    // **置き換えではなく混ぜる**。混ぜ方の決まりは shared/templateMerge にあり、
-    // 「いまの設定が勝つ」向きも含めてテストで見張ってある。
-    // 置き換えにしていた頃は、テンプレを1回開くだけで育てた設定が全部消えた（戻せない）。
-    if (d.telop) {
-      const favs = mergeFavorites(favorites, d.telop.favorites)
-      if (favs !== favorites) {
-        setFavorites(favs)
-        saveFavorites(favs)
-      }
-      const cats = mergeAssignments(catOverrides, d.telop.catOverrides)
-      if (cats !== catOverrides) {
-        setCatOverrides(cats)
-        saveCatOverrides(cats)
-      }
-      const folders = mergeFolders(customCats, d.telop.customCats)
-      if (folders !== customCats) {
-        setCustomCats(folders)
-        saveCustomCats(folders)
-      }
-      const tpls = mergeNamed(userTemplates, d.telop.userTemplates)
-      if (tpls.length !== userTemplates.length) {
-        setUserTemplates(tpls)
-        saveUserTemplates(tpls)
-      }
-    }
-    const icons = mergeAssignments(iconAssign, d.iconAssign)
-    if (icons !== iconAssign) {
-      setIconAssignState(icons)
-      saveIconAssign(icons)
-    }
-    const laneIcons = mergeAssignments(laneIconAssign, d.laneIconAssign)
-    if (laneIcons !== laneIconAssign) {
-      setLaneIconAssign(laneIcons)
-      saveLS('giftcut.laneIconAssign', laneIcons)
-    }
-    if (d.newTelopStyle && typeof d.newTelopStyle === 'object') setNewTelopStyle(d.newTelopStyle)
-    // 画面の配置（窓を出した形も含む）。テンプレの目的は「開始状態を揃える」こと
-    applyLayout(d.layout)
-    showToast('テンプレートを読み込みました。', 'success')
-  }
-
-  // 現在の設定をテンプレートとして保存（GiftCut/テンプレート/ 配下）
-  function saveAsTemplateFn(): void {
-    askText('テンプレート名', 'マイテンプレート', (name) => {
-      if (!name) return
-      void window.giftcut.saveTemplate(name, templateJson()).then((res) => {
-        if (res?.ok) showToast('テンプレートを保存しました:\n' + res.path, 'success')
-        else showToast('保存失敗: ' + (res?.error ?? ''), 'error')
-      })
-    })
-  }
-
-  // テンプレートを開く＝テンプレートフォルダ内の一覧から選ぶ（アプリ内ピッカー）
-  async function openTemplateFn(): Promise<void> {
-    const t = await window.giftcut.listTemplates()
-    if (!t?.ok || !t.items.length) {
-      showToast('テンプレートがありません。\n「テンプレートとして保存」で作成してください。')
-      return
-    }
-    setTemplatePicker({ items: t.items, startup: false })
-  }
-
-  async function pickTemplate(path: string): Promise<void> {
-    setTemplatePicker(null)
-    const res = await window.giftcut.loadTemplate(path)
-    if (!res?.ok || !res.data) {
-      showToast('テンプレートを開けませんでした:\n' + (res?.error ?? ''), 'error')
-      return
-    }
-    applyProjectTemplate(res.data)
-  }
 
   async function applyProjectData(
     data: any,
@@ -660,7 +531,7 @@ export function useProjectFile(deps: UseProjectFileDeps) {
   //    テロップの文字装飾とは別物だった（あちらは runs / strokes / shadows を
   //    相似で拡大縮小する話で、ファイルの読み書きが1行も出てこない）。
 
-  // templateJson / applyProjectTemplate / mergeTemplateKeepFrame は返さない。
-  // 受け取る所が無かった（この中でだけ使う。return の中は noUnusedLocals が見ない）
-  return { projectJson, saveProjectFn, openProjectFn, saveAsTemplateFn, openTemplateFn, pickTemplate, applyProjectData }
+  // **返すのは、外が本当に受け取っている物だけ。**
+  // return の中は noUnusedLocals が見ないので、放っておくと静かに増える。
+  return { projectJson, saveProjectFn, openProjectFn, applyProjectData }
 }

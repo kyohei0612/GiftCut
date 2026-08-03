@@ -127,6 +127,7 @@ import { useMediaOps } from './useMediaOps'
 import { useProjectStateCtx } from './projectStateContext'
 import { EXTRA_AUDIO_TRACK, } from '../lib/trackState'
 import { useProjectFile } from './useProjectFile'
+import { useProjectTemplates } from './useProjectTemplates'
 import { useProjectGuard } from './useProjectGuard'
 import { useDragPreviewCtx } from './dragPreviewContext'
 import { useCopyPaste } from './useCopyPaste'
@@ -976,16 +977,18 @@ export function useAppWiring() {
 
   // プロジェクトの開く・保存・復元は state/useProjectFile
   //（拾い忘れた項目はエラーも出ずに消えるので、1か所にまとめてある）
-  const {
-    projectJson, saveProjectFn, openProjectFn, saveAsTemplateFn, openTemplateFn,
-    pickTemplate, applyProjectData
-  } = useProjectFile({
-    stopPlayback, setTime, fallbackTrack, kindOf, applyLayout, layoutNow, snapNow,
-    resetHistory, confirmDiscard, hasProjectContent, askText, rememberProject,
+  const { projectJson, saveProjectFn, openProjectFn, applyProjectData } = useProjectFile({
+    stopPlayback, setTime, fallbackTrack, applyLayout, layoutNow, snapNow,
+    resetHistory, confirmDiscard, hasProjectContent, rememberProject,
     prepareMediaMeta, commitPending, idCounter, savedJsonRef, projectJsonRef,
     markUnsavedRef, lastAutosaveRef, initializedForPathRef, proxyForPathRef,
-    videoElsRef, videoRef, setTemplatePicker, saveLS, baselineRef, hydrateSource,
+    videoElsRef, videoRef, saveLS, baselineRef, hydrateSource,
     updateSource
+  })
+  // テンプレート（次に始めるときの形を決める）は state/useProjectTemplates。
+  // **タイムラインの中身は一切触らない**ので、上とは持ち物がほとんど重ならない。
+  const { saveAsTemplateFn, openTemplateFn, pickTemplate } = useProjectTemplates({
+    kindOf, layoutNow, applyLayout, askText, setTemplatePicker, saveLS
   })
   // テロップの見本（作る・当てる・消す）は state/useTelopTemplate
   const { saveCurrentAsTemplate, deleteUserTemplate, applyTemplate, applyTemplateToCue } =

@@ -21,7 +21,9 @@
 //
 // ## 中身
 //
-// - `useLibraries` … 下の物を全部まとめて返す唯一の入口
+// - `useLibraries` … 下をまとめて返す唯一の入口
+// - `importSeInto` … 効果音を入れる（ファイル／フォルダ／掴んで落とした物）
+// - `saveMyMotion` … いま選んでいるテロップの動きに、名前を付けて残す
 
 import { useEffect, useState } from 'react'
 import { hasMotion, sanitizeMotion } from '../lib/telopStyle'
