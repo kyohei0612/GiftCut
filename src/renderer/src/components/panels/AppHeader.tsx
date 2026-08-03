@@ -338,7 +338,11 @@ export function AppHeader(): JSX.Element {
           選んでいるテロップがあれば、そちらにも当てる——向きは「作ってから決める」
           ことの方が多く、選んで押せないと作り直す羽目になる。
           受け取らず自分で見に行くのは、品書き（AppMenus）や下の帯と同じ流儀。 */}
-      <div className="ratio-group">
+      {/* **`ratio-group` を使い回さない。** あちらは画面比の chip で、
+          「いま選ばれている chip」を数えている所がある（数えた側が壊れる）。
+          見た目が同じだからと同じ名前を付けると、必ずどこかが巻き添えになる
+          （測定ボタンで `status-pop` を使い回して同じ事故を起こした） */}
+      <div className="wm-group">
         {([false, true] as const).map((v) => (
           <button
             key={String(v)}

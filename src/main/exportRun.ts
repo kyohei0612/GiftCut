@@ -54,6 +54,13 @@ import { colorAdjustFilter } from '../shared/colorAdjust'
 import { clashingSource } from '../shared/exportTarget'
 import { uniqueName } from '../shared/exportDefaults'
 import { ENCODERS, crfToBitrateK } from './encoders'
+// 入力を何本にも分ける（split/asplit）決まり。文字列の置き換えだけなので shared に置いてある
+import {
+  newLabelUses,
+  resolveInputLabels as resolveInputLabelsIn,
+  useA as useAIn,
+  useV as useVIn
+} from '../shared/filterLabels'
 import {
   FFMPEG,
   FFPROBE,
@@ -394,39 +401,13 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   // （同じ入力ラベルを2箇所以上から直接参照するとフィルタグラフが成立しない）。
   // 本数はフィルタを組み終わるまで分からないので、いったんプレースホルダを書き、
   // 最後に split 宣言を先頭へ足しつつ実ラベルへ置換する（1箇所だけなら [N:v] を直接使う＝従来と同じ）。
-  const vUses: number[] = []
-  const aUses: number[] = []
-  const useV = (idx: number): string => {
-    const n = vUses[idx] ?? 0
-    vUses[idx] = n + 1
-    return `@V${idx}_${n}@`
-  }
-  const useA = (idx: number): string => {
-    const n = aUses[idx] ?? 0
-    aUses[idx] = n + 1
-    return `@A${idx}_${n}@`
-  }
-  const resolveInputLabels = (f: string): string => {
-    let pre = ''
-    const fix = (uses: number[], tag: 'V' | 'A', st: 'v' | 'a'): void => {
-      uses.forEach((n, idx) => {
-        if (!n) return
-        if (n === 1) {
-          f = f.replace(`@${tag}${idx}_0@`, `[${idx}:${st}]`)
-          return
-        }
-        const labels: string[] = []
-        for (let i = 0; i < n; i++) labels.push(`[x${tag}${idx}_${i}]`)
-        pre += `[${idx}:${st}]${st === 'v' ? 'split' : 'asplit'}=${n}${labels.join('')};`
-        labels.forEach((l, i) => {
-          f = f.replace(`@${tag}${idx}_${i}@`, l)
-        })
-      })
-    }
-    fix(vUses, 'V', 'v')
-    fix(aUses, 'A', 'a')
-    return pre + f
-  }
+  // **決まりは shared/filterLabels にある。** やっているのは文字列の置き換えだけで
+  // ffmpeg も electron も要らないので、アプリを起動せずに確かめられる所へ出した。
+  // ここは「この書き出し1回ぶんの数え台」を持って、包みを当てるだけ
+  const labelUses = newLabelUses()
+  const useV = (idx: number): string => useVIn(labelUses, idx)
+  const useA = (idx: number): string => useAIn(labelUses, idx)
+  const resolveInputLabels = (f: string): string => resolveInputLabelsIn(labelUses, f)
 
   // 映像レイヤー素材に音声があるか（無い素材の [N:a] を参照すると書き出しが失敗する）
   const vcHasAudio = vcs
