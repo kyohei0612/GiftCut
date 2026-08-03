@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, protocol, screen } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol, screen } from 'electron'
 import { join, normalize, resolve } from 'path'
 import {
   readFileSync,
@@ -11,22 +11,20 @@ import {
   readdirSync,
   createReadStream
 } from 'fs'
-import { tmpdir } from 'os'
 import { Readable } from 'stream'
-// **spawn は import しない。** 起動は必ず trackedSpawn 経由（下の注意書きのとおり）
-import type { ChildProcess } from 'child_process'
 // 本体ウィンドウの大きさ・位置（初回の既定と、前回の形の引き継ぎ）
 import { nextBounds, MIN_SIZE, type WindowState } from '../shared/windowBounds'
 // 自動更新（GitHub の Releases を見に行く）
 import { setupAutoUpdate } from './updater'
-import { MODEL, downloadTo, findExe, modelPath, modelReady, runWhisper } from './subtitles'
-// ffmpeg / ffprobe を呼ぶ所は全部ここを通す（同梱物の場所・終了時の後始末・
-// 使えるエンコーダ選び）。**直に spawn しないこと。**
-import { FFMPEG, FFPROBE, killAllChildren, trackedSpawn } from './ffmpegRun'
+import { registerSubtitleHandlers } from './subtitles'
+// 閉じるときの後片付け。**このファイルはもう ffmpeg を直接は動かさない**
+// （長さ・コマ数は ./mediaProbe、聞き取りは ./subtitles、書き出しは ./exportRun）
+import { killAllChildren } from './ffmpegRun'
 import { isExporting, registerExportHandlers } from './exportRun'
 // gcfile:// で画面へ配ってよいファイルの名簿。**新しく渡す道を作ったら必ず通す**
 import { allowFile, isAllowed } from './allowList'
 import { registerAssetHandlers } from './assetLibrary'
+import { registerDialogHandlers } from './dialogs'
 import { registerMediaProbeHandlers } from './mediaProbe'
 import { isProjectDirty, registerProjectFileHandlers } from './projectFiles'
 
@@ -358,175 +356,6 @@ app.whenReady().then(() => {
     })
   })
 
-  // SRT インポート: ファイルを開いて中身を返す
-  ipcMain.handle('dialog:importSrt', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      title: 'SRT ファイルを選択',
-      filters: [{ name: 'Subtitle (SRT)', extensions: ['srt'] }],
-      properties: ['openFile']
-    })
-    if (canceled || filePaths.length === 0) return null
-    try {
-      const content = readFileSync(filePaths[0], 'utf-8')
-      return { path: filePaths[0], content }
-    } catch (err) {
-      return { path: filePaths[0], content: '', error: String(err) }
-    }
-  })
-
-  // 動画インポート: パスだけ返す（gcfile 配信を許可）
-  ipcMain.handle('dialog:openVideo', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      title: '動画を選択',
-      filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'mkv', 'webm', 'avi'] }],
-      properties: ['openFile']
-    })
-    if (canceled || filePaths.length === 0) return null
-    allowFile(filePaths[0])
-    return { path: filePaths[0] }
-  })
-
-  // メディアの尺（秒）を取得（SE をタイムラインに置く時の長さ用）
-  ipcMain.handle('media:duration', async (_e, path: string) => {
-    if (!path || !isAllowed(path)) return { ok: false }
-    return await new Promise((resolve) => {
-      const p = trackedSpawn(FFPROBE, [
-        '-v',
-        'error',
-        '-show_entries',
-        'format=duration',
-        '-of',
-        'csv=p=0',
-        path
-      ])
-      let out = ''
-      p.stdout?.on('data', (d) => {
-        out += d.toString()
-      })
-      p.on('error', () => resolve({ ok: false }))
-      p.on('close', () => {
-        const d = parseFloat(out.trim())
-        resolve(d > 0 ? { ok: true, duration: d } : { ok: false })
-      })
-    })
-  })
-
-  // 動画の実フレームレートと大きさを返す。
-  //
-  // fps は素材fps対応用（ffprobe r_frame_rate = "30000/1001" 等）。
-  // **大きさも一緒に返す**のは、書き出しの既定を素材に合わせるため。
-  // ここで取らずに画面の <video> から取ると、**焼き直し（プロキシ）の
-  // 大きさを拾ってしまう**（360p のプロキシを見て「素材は360p」と誤解する）。
-  //
-  // `-of default=nw=1` は `key=value` を1行ずつ出す。csv だと並び順が
-  // 聞いた順ではなくストリームの順になり、どれがどれか分からなくなる。
-  ipcMain.handle('media:fps', async (_e, path: string) => {
-    if (!path || !isAllowed(path)) return { ok: false }
-    return await new Promise((resolve) => {
-      const p = trackedSpawn(FFPROBE, [
-        '-v',
-        'error',
-        '-select_streams',
-        'v:0',
-        '-show_entries',
-        'stream=r_frame_rate,width,height',
-        '-of',
-        'default=nw=1',
-        path
-      ])
-      let out = ''
-      p.stdout?.on('data', (d) => {
-        out += d.toString()
-      })
-      p.on('error', () => resolve({ ok: false }))
-      p.on('close', () => {
-        const pick = (k: string): string =>
-          new RegExp(`^${k}=(.*)$`, 'm').exec(out.trim())?.[1]?.trim() ?? ''
-        const s = pick('r_frame_rate')
-        const m = /^(\d+)\/(\d+)$/.exec(s)
-        const fps = m ? Number(m[1]) / Number(m[2]) : parseFloat(s)
-        const w = parseInt(pick('width'), 10)
-        const h = parseInt(pick('height'), 10)
-        const size = w > 0 && h > 0 ? { w, h } : {}
-        resolve(fps > 0 && isFinite(fps) ? { ok: true, fps, ...size } : { ok: false, ...size })
-      })
-    })
-  })
-
-  // 書き出し先の既定（まだ一度も選んでいないとき）。
-  // **プレミアと同じで「ダウンロード」から始める。** 二度目からは
-  // 前に選んだ場所を画面側が覚えているので、ここは初回だけ効く。
-  ipcMain.handle('path:downloads', () => {
-    try {
-      return { ok: true, path: app.getPath('downloads') }
-    } catch {
-      return { ok: false }
-    }
-  })
-
-  // 書き出し先のフォルダを選ぶ（ファイルではなくフォルダを選ばせる）
-  ipcMain.handle('dialog:chooseDir', async (_e, current?: string) => {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      title: '書き出し先のフォルダを選択',
-      defaultPath: current || undefined,
-      properties: ['openDirectory', 'createDirectory']
-    })
-    if (canceled || !filePaths.length) return null
-    return { path: filePaths[0] }
-  })
-
-  // メディア（動画/音声/画像）を複数追加。gcfile 配信を許可してパス一覧を返す
-  const MEDIA_EXT = [
-    'mp4', 'mov', 'mkv', 'webm', 'avi',
-    'mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac',
-    'png', 'jpg', 'jpeg', 'gif', 'webp'
-  ]
-  ipcMain.handle('dialog:addMedia', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      title: 'メディアを追加',
-      filters: [
-        { name: 'メディア', extensions: MEDIA_EXT },
-        { name: 'すべて', extensions: ['*'] }
-      ],
-      properties: ['openFile', 'multiSelections']
-    })
-    if (canceled || filePaths.length === 0) return null
-    filePaths.forEach((p) => allowFile(p))
-    return { paths: filePaths }
-  })
-
-  // フォルダを追加（再帰的にメディアファイルを集める。SE のフォルダごと追加用）
-  ipcMain.handle('dialog:addFolder', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      title: 'フォルダを追加',
-      properties: ['openDirectory']
-    })
-    if (canceled || filePaths.length === 0) return null
-    const root = filePaths[0]
-    const found: string[] = []
-    const walk = (dir: string, depth: number): void => {
-      if (depth > 6) return
-      let entries: import('fs').Dirent[]
-      try {
-        entries = readdirSync(dir, { withFileTypes: true })
-      } catch {
-        return
-      }
-      for (const ent of entries) {
-        const full = join(dir, ent.name)
-        if (ent.isDirectory()) walk(full, depth + 1)
-        else {
-          const ext = ent.name.toLowerCase().split('.').pop() ?? ''
-          if (MEDIA_EXT.includes(ext)) {
-            allowFile(full)
-            found.push(full)
-          }
-        }
-      }
-    }
-    walk(root, 0)
-    return { folder: root.split(/[\\/]/).pop() ?? root, paths: found }
-  })
   ipcMain.handle('perf:save', (_e, text: string, toDownloads?: boolean) => {
     try {
       const dir = toDownloads
@@ -581,144 +410,17 @@ app.whenReady().then(() => {
     }
   })
 
-  // ---- 字幕を作る（聞き取り）----
-  //
-  // 流れ: 音を取り出す → 聞き取る → 呼んだ側（画面）が割って合わせる。
-  // **合わせる所は画面側**（カット点を知っているのがそちらなので）。
-  // ここは「音を文字にする」までを受け持つ。
-  const subCancel = { canceled: false }
-  let subProc: ChildProcess | null = null
-  /** 動画の長さ（秒）。進み具合を出すのに要る。取れなければ 0 */
-  const probeDuration = (path: string): Promise<number> =>
-    new Promise((resolve) => {
-      // **trackedSpawn を通す**（70行目の決まり）。直に spawn していたので、
-      // 聞き取りの最中に閉じると killAllChildren の管理外で裏に残っていた
-      const p = trackedSpawn(FFPROBE, [
-        '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path
-      ])
-      let out = ''
-      p.stdout?.on('data', (d) => (out += d.toString()))
-      p.on('error', () => resolve(0))
-      p.on('close', () => {
-        const d = parseFloat(out.trim())
-        resolve(Number.isFinite(d) && d > 0 ? d : 0)
-      })
-    })
-  ipcMain.handle('subtitles:status', () => ({
-    ok: true,
-    exe: !!findExe(),
-    model: modelReady(),
-    label: MODEL.label,
-    // 落とすのは模型だけ（実行ファイルは同梱してある）
-    sizeMB: modelReady() ? 0 : MODEL.sizeMB
-  }))
-  ipcMain.handle('subtitles:cancel', () => {
-    subCancel.canceled = true
-    try {
-      subProc?.kill()
-    } catch {
-      /* すでに終わっている */
-    }
-    return { ok: true }
-  })
-  ipcMain.handle('subtitles:run', async (e, videoPath: string) => {
-    subCancel.canceled = false
-    const send = (s: unknown): void => {
-      if (!e.sender.isDestroyed()) e.sender.send('subtitles:progress', s)
-    }
-    const tmpWav = join(tmpdir(), `giftcut-sub-${Date.now()}.wav`)
-    try {
-      if (!videoPath || !existsSync(videoPath))
-        return { ok: false, error: '聞き取る動画がありません' }
+  // 字幕を作る（聞き取り）の受け口は ./subtitles
+  registerSubtitleHandlers()
 
-      // 1) 模型を落とす（初回だけ）。実行ファイルは同梱してある
-      if (!findExe())
-        return {
-          ok: false,
-          error: '聞き取りの実行ファイルが見つかりません（同梱物が欠けています）'
-        }
-      if (!modelReady()) {
-        send({ phase: 'download', percent: 0 })
-        const r = await downloadTo(
-          MODEL.url,
-          modelPath(),
-          (p) => send({ phase: 'download', percent: p }),
-          subCancel
-        )
-        if (!r.ok) return { ok: false, error: `聞き取りの模型を落とせません: ${r.error}` }
-      }
-      if (subCancel.canceled) return { ok: false, canceled: true }
-
-      // 2) 音を取り出す。**16kHz モノラルの wav**（whisper.cpp が受ける形）
-      send({ phase: 'extract' })
-      const okWav = await new Promise<boolean>((resolve) => {
-        const ff = trackedSpawn(FFMPEG, [
-          '-y', '-i', videoPath,
-          '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le',
-          tmpWav
-        ])
-        subProc = ff
-        ff.on('error', () => resolve(false))
-        ff.on('close', (c) => resolve(c === 0 && existsSync(tmpWav)))
-      })
-      if (subCancel.canceled) return { ok: false, canceled: true }
-      if (!okWav) return { ok: false, error: '音を取り出せませんでした' }
-
-      // 3) 聞き取る
-      send({ phase: 'listen', percent: 0 })
-      const dur = await probeDuration(videoPath)
-      const r = await runWhisper(
-        findExe()!,
-        tmpWav,
-        dur,
-        (p) => send({ phase: 'listen', percent: p }),
-        (p) => (subProc = p)
-      )
-      if (subCancel.canceled) return { ok: false, canceled: true }
-      if (!r.ok || !r.segs) return { ok: false, error: r.error }
-      return { ok: true, segs: r.segs, duration: dur }
-    } catch (er) {
-      return { ok: false, error: String(er) }
-    } finally {
-      subProc = null
-      try {
-        rmSync(tmpWav, { force: true })
-      } catch {
-        /* 消せなくても結果は変わらない */
-      }
-    }
-  })
-
-  // ---- 素材パック（ZIP）をまとめて取り込む ----
-  //
-  // 「フォルダを開いて、展開して、中身を貼る」は手順が3つあり、
-  // **どれか1つでも間違えると素材が出てこない**（しかも間違いに気づけない）。
-  // ZIP を選ぶだけで済むようにする。展開も置き場所の判断もこちらでやる。
-  //
-  // **入れるのは決まった名前のフォルダだけ。** ZIP の中に何が入っていても、
-  // 知らない物は userData へ撒かない（受け取った ZIP を無条件に展開しない）。
-  ipcMain.handle('image:save', async (_e, dataUrl: string) => {
-    const save = await dialog.showSaveDialog({
-      title: 'スクショを保存',
-      defaultPath: 'giftcut_screenshot.png',
-      filters: [{ name: 'PNG', extensions: ['png'] }]
-    })
-    if (save.canceled || !save.filePath) return { ok: false, error: 'キャンセル' }
-    try {
-      const b64 = dataUrl.replace(/^data:image\/png;base64,/, '')
-      writeFileSync(save.filePath, Buffer.from(b64, 'base64'))
-      return { ok: true, path: save.filePath }
-    } catch (e) {
-      return { ok: false, error: String(e) }
-    }
-  })
-
-
-
+  // ※ ここにあった「素材パック（ZIP）をまとめて取り込む」の説明は、
+  //    受け口が ./assetLibrary へ移ったあとの**空の看板**だった（下にあったのは
+  //    スクショ保存で、ZIP とは関係なかった）。中身と一緒に消した。
 
 
   // 受け口はそれぞれ別ファイル（この1つのファイルに全部置くと読み切れなくなる）。
   // どれも「app.whenReady() の中で1回だけ」呼ぶ約束。
+  registerDialogHandlers() //    開く・フォルダを選ぶ・保存する（./dialogs）
   registerExportHandlers() //     書き出し（./exportRun）
   registerAssetHandlers() //     効果音・見本・取り込み（./assetLibrary）
   registerMediaProbeHandlers() // サムネ・焼き直し・波形（./mediaProbe）

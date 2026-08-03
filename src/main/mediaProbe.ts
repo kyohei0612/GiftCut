@@ -21,7 +21,10 @@ import { join, normalize } from 'path'
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, utimesSync } from 'fs'
 import { createHash } from 'crypto'
 import { cpus, setPriority, constants as osConstants } from 'os'
-import { spawn } from 'child_process'
+// **spawn は import しない。** 起動は必ず trackedSpawn 経由。
+// 直に spawn していたので、サムネ・焼き直し・波形の ffmpeg が
+// killAllChildren の管理外だった。とくに焼き直しは長く走るので、
+// アプリを閉じたあとも裏で回り続けていた（2026-08-03 に修正）
 import { ENCODERS } from './encoders'
 import { FFMPEG, FFPROBE, trackedSpawn, tryEncoder, videoEncoder } from './ffmpegRun'
 import { allowFile, isAllowed } from './allowList'
@@ -118,6 +121,78 @@ pruneProxyCache(proxyDir)
 /** サムネ・焼き直し・波形の受け口。**app.whenReady() の中で1回だけ呼ぶ。** */
 
 export function registerMediaProbeHandlers(): void {
+// ---- 素材そのものを尋ねる（長さ・コマ数・大きさ）----
+// 元は main/index.ts に置いてあったが、要る物（ipcMain / FFPROBE / trackedSpawn /
+// isAllowed）は**このファイルが最初から全部 import している**当人だった
+// ＝またぐ名前は0個（2026-08-03。中身は変えていない）。
+
+// メディアの尺（秒）を取得（SE をタイムラインに置く時の長さ用）
+ipcMain.handle('media:duration', async (_e, path: string) => {
+  if (!path || !isAllowed(path)) return { ok: false }
+  return await new Promise((resolve) => {
+    const p = trackedSpawn(FFPROBE, [
+      '-v',
+      'error',
+      '-show_entries',
+      'format=duration',
+      '-of',
+      'csv=p=0',
+      path
+    ])
+    let out = ''
+    p.stdout?.on('data', (d) => {
+      out += d.toString()
+    })
+    p.on('error', () => resolve({ ok: false }))
+    p.on('close', () => {
+      const d = parseFloat(out.trim())
+      resolve(d > 0 ? { ok: true, duration: d } : { ok: false })
+    })
+  })
+})
+
+// 動画の実フレームレートと大きさを返す。
+//
+// fps は素材fps対応用（ffprobe r_frame_rate = "30000/1001" 等）。
+// **大きさも一緒に返す**のは、書き出しの既定を素材に合わせるため。
+// ここで取らずに画面の <video> から取ると、**焼き直し（プロキシ）の
+// 大きさを拾ってしまう**（360p のプロキシを見て「素材は360p」と誤解する）。
+//
+// `-of default=nw=1` は `key=value` を1行ずつ出す。csv だと並び順が
+// 聞いた順ではなくストリームの順になり、どれがどれか分からなくなる。
+ipcMain.handle('media:fps', async (_e, path: string) => {
+  if (!path || !isAllowed(path)) return { ok: false }
+  return await new Promise((resolve) => {
+    const p = trackedSpawn(FFPROBE, [
+      '-v',
+      'error',
+      '-select_streams',
+      'v:0',
+      '-show_entries',
+      'stream=r_frame_rate,width,height',
+      '-of',
+      'default=nw=1',
+      path
+    ])
+    let out = ''
+    p.stdout?.on('data', (d) => {
+      out += d.toString()
+    })
+    p.on('error', () => resolve({ ok: false }))
+    p.on('close', () => {
+      const pick = (k: string): string =>
+        new RegExp(`^${k}=(.*)$`, 'm').exec(out.trim())?.[1]?.trim() ?? ''
+      const s = pick('r_frame_rate')
+      const m = /^(\d+)\/(\d+)$/.exec(s)
+      const fps = m ? Number(m[1]) / Number(m[2]) : parseFloat(s)
+      const w = parseInt(pick('width'), 10)
+      const h = parseInt(pick('height'), 10)
+      const size = w > 0 && h > 0 ? { w, h } : {}
+      resolve(fps > 0 && isFinite(fps) ? { ok: true, fps, ...size } : { ok: false, ...size })
+    })
+  })
+})
+
 ipcMain.handle('video:thumbnail', async (_e, videoPath: string) => {
   if (!videoPath) return { ok: false, error: 'パスがありません' }
   if (!isAllowed(videoPath))
@@ -127,7 +202,7 @@ ipcMain.handle('video:thumbnail', async (_e, videoPath: string) => {
   const out = join(app.getPath('temp'), 'giftcut_thumb_' + Date.now() + '.png')
   const args = ['-y', '-ss', '0.5', '-i', videoPath, '-frames:v', '1', '-vf', 'scale=240:-1', out]
   return await new Promise((resolve) => {
-    const ff = spawn(FFMPEG, args)
+    const ff = trackedSpawn(FFMPEG, args)
     let err = ''
     ff.stderr.on('data', (d) => {
       err += d.toString()
@@ -184,7 +259,7 @@ ipcMain.handle('video:proxy', async (e, videoPath: string, height?: number) => {
   }
   // 進捗計算用に総時間を取得
   const durSec = await new Promise<number>((resolve) => {
-    const p = spawn(FFPROBE, [
+    const p = trackedSpawn(FFPROBE, [
       '-v',
       'error',
       '-show_entries',
@@ -265,7 +340,7 @@ ipcMain.handle('video:proxy', async (e, videoPath: string, height?: number) => {
   /** 1回焼いてみる。進捗もここから送る */
   const runOnce = (a: string[]): Promise<{ code: number | null; err: string }> =>
     new Promise((resolve) => {
-      const ff = spawn(FFMPEG, a)
+      const ff = trackedSpawn(FFMPEG, a)
       // **優先度も下げる。** スレッド数を絞っても、同じ優先度で並んでいる限り
       // OS は公平に順番を回すので、音を出す処理が待たされることがある。
       // 「編集の邪魔をしない」が焼き直しの正しい立ち位置。
@@ -404,7 +479,7 @@ ipcMain.handle('audio:waveform', async (_e, videoPath: string) => {
   // ピーク検出には十分。aresample は 48k 化のみで実質ダウンサンプリングしない）
   const args = ['-v', 'error', '-i', videoPath, '-ac', '1', '-ar', String(rate), '-f', 'f32le', '-']
   return await new Promise((resolve) => {
-    const ff = spawn(FFMPEG, args)
+    const ff = trackedSpawn(FFMPEG, args)
     const mins: number[] = []
     const maxs: number[] = []
     let curMin = 0
