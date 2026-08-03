@@ -144,6 +144,26 @@ const viewWarnRef = { n: 0 }
 /** 縦横比を当て直す関数の置き場（check から呼ぶ。定義は下の run の中） */
 const applyRatioRef = { fn: null }
 /**
+ * **画面を寄せた／送ったまま終わった項目を、名指しで覚えておく。**
+ *
+ * 画面の状態を戻すのは `resetProject()` の中だけなので、寄せっぱなしは
+ * **次の項目以降へそのまま漏れる**。しかも帯（クリップ）は**見えている範囲にしか
+ * 作られない**ので、漏れると後ろの確認が
+ *
+ *   「クリップの数が変わった（3 → 1）」  ← 窓の外に居るだけ。消えていない
+ *   「後ろのクリップが動いてしまった（実際: -2074）」  ← 左外へ送られただけ
+ *
+ * という**アプリが壊れたようにしか見えない**赤に化ける。
+ *
+ * 2026-08-03 に実際にこれで4件が赤くなり、**まる1日「元からある不具合」として
+ * 控えられた**（リファクタ前へ戻しても同じ赤が出たので、そう見えた——
+ * 原因の確認が、その戻し先にも既に入っていた）。
+ *
+ * 窓の閉じ忘れと同じ扱いにする＝**黙って直さず、誰の後始末かを出す。**
+ * `fn` は viewDrift の置き場（定義は下の run の中）、`by` は最初に残した項目の名前。
+ */
+const viewDirtyRef = { fn: null, by: null }
+/**
  * この比率では成り立たない確認を、理由付きで飛ばす。
  *
  * **黙って通さないこと。** 元動画（横長）と直接比べる作りの確認は、
@@ -302,6 +322,14 @@ async function check(name, fn, opts = {}) {
       err: esc(msg)
     })
     if (pageRef) await pageRef.waitForTimeout(1200) // 失敗は読む時間を長めに
+  }
+  // 画面を寄せた／送ったまま終わったなら、**最初に残した項目の名前だけ**控える
+  //（2件目以降は、1件目の漏れを引き継いでいるだけなので上書きしない）。
+  // 出すのは restoreView。ここで出すと、正しく resetProject を呼ぶ項目まで
+  // 毎回鳴って**警告が読み飛ばされる**（効かない見張りは、あるだけ有害）。
+  if (typeof viewDirtyRef.fn === 'function' && !viewDirtyRef.by) {
+    const d = await viewDirtyRef.fn().catch(() => [])
+    if (d.length) viewDirtyRef.by = name
   }
   if (pageRef) await pageRef.waitForTimeout(SLOW ? 500 : 180)
 }
@@ -665,10 +693,22 @@ try {
    * その場で戻せるものは戻し、読み込み直しでしか戻らないものが1つでもあれば
    * 読み込み直す。**戻したあと、本当に戻ったかを確かめる**（戻せていないのに
    * 先へ進むと、原因が分からないまま次の項目が落ちる）。
+   *
+   * @param final これが最後の一手か。**プロジェクトを開き直す前は false。**
+   *   拡大率は `.track-inner` の幅で見ている（下の VIEW_STATE 参照）が、幅は
+   *   **寄せ具合と中身の長さの両方**で決まる。SRT の入れ替えのように中身の長さが
+   *   変わった直後は、全体表示に戻しても幅が一致しない——**寄せ具合は正しいのに
+   *   「戻し切れなかった」と数えてしまう**（2026-08-03 の通しで実際に1回出た。
+   *   直後に開き直して揃うので、実害の無い嘘の警告だった）。
+   *   **鳴りっぱなしの警告は読み飛ばされる**ので、中身を戻したあとの1回だけ数える。
    */
-  async function restoreView(drift) {
+  async function restoreView(drift, final = true) {
     const why = drift.map((d) => `${d.s.name}: ${d.base} → ${d.now}`).join(' / ')
-    console.log(`  \x1b[90m画面の状態を戻します（${why}）\x1b[0m`)
+    // **誰が残したのかを必ず出す。** ここまで来ると「戻す直前の項目」しか
+    // 分からないが、本当の犯人はもっと手前で寄せたまま終わった項目のことが多い
+    //（間に挟まった確認が全部、その画面で測られている）。
+    const by = viewDirtyRef.by ? `／残したのは「${viewDirtyRef.by}」` : ''
+    console.log(`  \x1b[90m画面の状態を戻します（${why}${by}）\x1b[0m`)
     if (drift.some((d) => d.s.restore === 'reload')) {
       await page.evaluate((keys) => {
         for (const k of keys) localStorage.removeItem(k)
@@ -698,12 +738,19 @@ try {
     for (const d of drift) {
       if (typeof d.s.restore === 'function') await d.s.restore(d.base)
     }
+    viewDirtyRef.by = null // 戻したので、次に残した項目を新しく数える
     const left = await viewDrift()
     // **戻し切れなくても、そこで通しを打ち切らない。**
-    // 後始末は各項目の合間に走るので、ここで例外にすると
-    // **1件の戻し漏れで残り全部が回らなくなる**（実際、通しが4回止まった）。
-    // 見落とさないよう必ず出したうえで、確認は続ける。
-    if (left.length) {
+    // ここで例外にすると **1件の戻し漏れで残り全部が回らなくなる**
+    //（実際、通しが4回止まった）。見落とさないよう必ず出したうえで、確認は続ける。
+    //
+    // ※ **この戻しは「各項目の合間」には走らない。`resetProject()` の中だけ。**
+    //   つまり画面を寄せた／送った確認は、**自分で戻さないと次の確認へ漏れる**
+    //   （2026-08-03: 端まで引っぱる確認が寄せたまま終わり、後ろの4件が
+    //   「クリップが消えた（3 → 1）」「後ろのクリップが動いた（x = -2074）」で
+    //   赤くなった。帯は見えている範囲にしか作らないので、寄せて送るだけで
+    //   **消えたようにも動いたようにも見える**）。
+    if (left.length && final) {
       console.log(
         `  \x1b[33m※ 戻し切れなかった: ${left
           .map((d) => `${d.s.name}=${d.now}（起動時 ${d.base}）`)
@@ -744,7 +791,11 @@ try {
     // なので dirty の判定より先に見る。
     const drift = await viewDrift()
     if (drift.length) {
-      await restoreView(drift)
+      // このあとプロジェクトを開き直すなら、ここはまだ「最後の一手」ではない。
+      // 中身の長さが変わったままだと拡大率が一致しないので、ここで数えると
+      // 実害の無い「戻し切れなかった」が出る（restoreView の @param final 参照）。
+      const willReopen = touchedRef.dirty || drift.some((d) => d.s.restore === 'reload')
+      await restoreView(drift, !willReopen)
       // 読み込み直したなら中身も戻す。その場で戻しただけなら中身は無傷
       if (drift.some((d) => d.s.restore === 'reload')) touchedRef.dirty = true
     }
@@ -789,6 +840,8 @@ try {
    * 途中から横長に戻っていて、**通ったことにならない**。
    */
   applyRatioRef.fn = applyRatio
+  // check から「画面が寄ったまま終わっていないか」を見られるようにする
+  viewDirtyRef.fn = viewDrift
   async function applyRatio() {
     if (RATIO === '16:9') return
     // 窓（復元の確認・テンプレート選び）が出ている間は押せない。

@@ -69,6 +69,25 @@ export default async function (C) {
     assert(x1 > x0 + 50, `端まで引っぱってもタイムラインが送られない（${x0} → ${x1}）`)
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(400)
+    // **寄せた状態と送った位置を、この確認の中で必ず戻す。**
+    //
+    // 画面の状態を戻すのは `resetProject()` の中（run.mjs の viewDrift / restoreView）で、
+    // **次に誰かが呼ぶまで走らない。** この確認は Ctrl+ホイールで10回寄せ、
+    // 端まで送ってから終わるので、戻さないと後ろの確認が
+    // 「2.5倍に寄せて 4602px 送った画面」を測ることになる:
+    //
+    //   ・帯は**見えている範囲にしか作られない**ので clipLayout() の数が減る（3 → 1）
+    //   ・画面の外へ出たクリップの x が負になる（-2074）
+    //
+    // どちらも「クリップが消えた」「後ろのクリップが動いた」という文言になるので、
+    // **アプリが壊れたようにしか見えない赤が4件続けて出る**（2026-08-03 に実際に出た。
+    // リファクタ前へ戻しても同じ赤が出たので「元からある不具合」と記録されていたが、
+    // 本当はこの確認を足した 08-03 15:44 から始まっていた）。
+    //
+    // ※ **この1行を外すと本当に赤4件に戻ることを確かめてある**（2026-08-03）。
+    //   そのとき `run.mjs` が「残したのは『掴んだまま右端まで引っぱると、
+    //   タイムラインが送られる』」と名指しで出す。
+    await resetProject()
   })
 
   await check('掴んで動かしている間、ブラウザ標準のドラッグ（半透明の影と🚫）が始まらない', async () => {
@@ -741,6 +760,19 @@ export default async function (C) {
   // 画面の操作では「細すぎる」状態を作れない。**拡大率を直接下げて作る。**
   await check('細すぎる演出の帯は作らない（寄せれば出てくる）', async () => {
     await resetProject()
+    // **見本帳は自分で開く。**
+    //
+    // 右パネルのタブと節は `resetProject()` が既定へ戻す（節の開け閉めは覚える作りだが、
+    // 覚えているのは localStorage で、戻しの対象に入っている）。開けずに始めると
+    // `.fx-item` が1つも無く、下の `ok` が false になって**この確認は丸ごと飛ぶ**
+    // ＝一度も走らない見張りになる（2026-08-03 の通しで実際に飛んでいた。
+    // 手前の「細い帯には端のつまみを出さない」が拡大率を残し、その戻しでタブも既定へ帰った）。
+    await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
+    await page.waitForTimeout(300)
+    if (!(await page.locator('.tpl-acc.open', { hasText: '💬 テロップ' }).count())) {
+      await page.locator('.tpl-acc', { hasText: '💬 テロップ' }).first().click()
+      await page.waitForTimeout(400)
+    }
     // テロップに出入りの演出を付ける（帯へ落とす道は別の項目で見ている）
     const ok = await page.evaluate(() => {
       const card = document.querySelector('.fx-item')
@@ -755,7 +787,10 @@ export default async function (C) {
       card.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }))
       return true
     })
-    if (!ok) skipHere('演出の一覧が出ていない（右パネルのトランジションを開く手順が要る）')
+    // **飛ばさずに落とす。** 前は skipHere で逃げていたが、逃げると
+    // 「見張りがあるのに一度も見ていない」状態が緑のまま続く（実際に続いていた）。
+    // 見本帳は上で自分で開いているので、無いなら本当におかしい。
+    assert(ok, '演出の一覧かテロップの帯が見つからない（見本帳を開く手順が壊れている）')
     await page.waitForTimeout(600)
     const bands = () => page.locator('.ttrans-telop').count()
     const nWide = await bands()
@@ -774,23 +809,36 @@ export default async function (C) {
     const nThin = await bands()
     assert(nThin < nWide, `引いても細い帯が消えない（寄せた ${nWide} → 引いた ${nThin}）`)
 
-    // 寄せ直せば戻る（消えたままにならない）
-    await page.keyboard.down('Control')
-    await page.mouse.move(scr.x + scr.width / 2, scr.y + 60)
-    for (let i = 0; i < 30; i++) {
-      await page.mouse.wheel(0, -120)
-      await page.waitForTimeout(30)
-    }
-    await page.keyboard.up('Control')
+    // 寄せ直せば戻る（消えたままにならない）。
+    //
+    // **ホイールで戻さない。** 寄せ／引きはマウスの位置を中心にするので、
+    // 30回ぶん往復すると横位置がずれ、テロップ自体が窓の外へ出る。
+    // 帯は**見えている範囲にしか作られない**ので、そうなると
+    // 「戻らない」と「そこを見ていない」の区別が付かない（実際にそれで赤くなった。
+    // この確認は長らく飛ばされていて、走らせた初回に出た）。
+    // 「↔ 全体表示」は起動直後と同じ所へ一発で戻る（restoreView も同じ手を使う）。
+    await page.locator('.tl-zoom button').first().click()
     await page.waitForTimeout(700)
+    // **先に成立を確かめる。** ここが0なら見ている場所の問題で、演出の話ではない
+    assert(
+      await page.locator('[data-tid="V2"] .telop-clip').count(),
+      '全体表示に戻したのにテロップの帯そのものが無い（この確認は成立していない）'
+    )
     assert((await bands()) > nThin, '寄せ直しても演出の帯が戻らない')
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(400)
-  },
-  // **右パネルの演出の一覧が開いている状態**が要る。それを作るのは手前の項目
-  //（見本帳を帯へ落とす所）で、ここだけ絞って回すと一覧が無く飛ばされる。
-  // ここで自分で開くと、確かめたい所（細い帯を作らないか）から遠くなる。
-  { orderDependent: true })
+  })
+  // ※ 前は `{ orderDependent: true }` を付けていた。理由は「右パネルの演出の一覧が
+  //   開いている状態が要る。それを作るのは手前の項目（見本帳を帯へ落とす所）」で、
+  //   自分で開くと確かめたい所から遠くなる、という判断だった。
+  //
+  //   **その判断は裏目に出ていた。** 手前の項目が拡大率を残す → その戻しで
+  //   右パネルのタブも既定へ帰る → **通しでも一覧が無く飛ばされる**。
+  //   絞ると見ない・通しでも飛ぶ＝**一度も走らない見張り**が緑のまま残っていた
+  //   （2026-08-03 の通しで発覚。252件中これ1件だけが「見ていません」だった）。
+  //
+  //   → 上で自分でタブと節を開くようにして印を外した。数行増えるが、
+  //     **走らない見張りより、少し遠回りでも毎回走る見張りの方がよい。**
 
   // 「動き」の節は components/panels/MotionPresetList。  // ※ 前は { orderDependent: true } を付けていた（「見本は手前の章が作る」ため）。
   //   実際に確かめたら、開ける節の中に**最初から入っている「プリセット」10枚**が
