@@ -100,6 +100,8 @@ import { usePlaybackEngine } from './usePlaybackEngine'
 import { usePreviewFrame } from './usePreviewFrame'
 import { useVideoSync } from './useVideoSync'
 import { useSessionMemory, takeRestoredView } from './useSessionMemory'
+import { useHistoryCoalesce } from './useHistoryCoalesce'
+import { useAutosaveDraft } from './useAutosaveDraft'
 import { useSelectionCleanup } from './useSelectionCleanup'
 import { useNestSelectSync } from './useNest'
 import { useDiagnostics } from './useDiagnostics'
@@ -996,13 +998,21 @@ export function useAppWiring() {
     lastAutosaveRef, setAutosaveNg, confirmDiscard, rememberProject
   })
 
-  // 作業位置と下書きを覚えておくのは state/useSessionMemory
-  useSessionMemory({
-    writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef,
-    lastAutosaveRef, hasContentRef, applyProjectData, askConfirm, setRestorePrompt,
-    setTemplatePicker, isDirty, snapNow, pushUndo, baselineRef, pendingTimerRef,
-    suppressHistoryRef, redoStackRef, setHistTick, setTime,
-    scrollRef, rightBodyRef, rightTab, setRightTab, ratioRef, localTemplates
+  // 覚えておく物は3つ。**この順に呼ぶこと**（2026-08-03 に1つを3つへ分けた）。
+  //
+  // 効果（useEffect）は**宣言した順**に走る。いちばん上の「作業位置を覚える」は
+  // 「1つ前の描画の ref」を見て中身があるか判断しているので、**写し取りをする
+  // useHistoryCoalesce を先に呼ぶと、起動直後に空でセッションを上書きしうる。**
+  // 同じ型の事故を1度やっていて、e2e が `7613 → 0` で捕まえた
+  //（16-仕上げ「前回の続きを開くと、タイムラインの横位置も戻る」）。
+  useSessionMemory({ setTime, scrollRef, rightBodyRef, rightTab, setRightTab, localTemplates })
+  useHistoryCoalesce({
+    isDirty, snapNow, pushUndo, baselineRef, pendingTimerRef,
+    suppressHistoryRef, redoStackRef, setHistTick, ratioRef
+  })
+  useAutosaveDraft({
+    writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef, lastAutosaveRef,
+    hasContentRef, applyProjectData, askConfirm, setRestorePrompt, setTemplatePicker
   })
   projectJsonRef.current = projectJson
 
