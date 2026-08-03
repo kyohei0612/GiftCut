@@ -24,12 +24,11 @@ import { useLayout } from '../state/layoutContext'
 import { useLeftPanel } from '../state/leftPanelContext'
 import { useSel } from '../state/selectionContext'
 import { useDoc } from '../state/contentContext'
-import { useViewCtx } from '../state/viewContext'
 import { useIconsCtx } from '../state/iconsContext'
 import { useToastCtx } from '../state/toastContext'
 import { useEdit } from '../state/useEdit'
 import type { Cue } from '../lib/srt'
-import type { ReframeTarget, VClip } from '../lib/projectTypes'
+import type { ReframeTarget } from '../lib/projectTypes'
 import type { ClipMotion } from '../../../shared/clipMotion'
 import { putKey, removeKey, valueAt, hasKeys, type Keys } from '../../../shared/keyframes'
 import { hasClipMotion, zoomAt, MIN_MOTION_SCALE } from '../../../shared/clipMotion'
@@ -56,9 +55,8 @@ export interface LeftPanelProps {
   /** アイコンの位置を全テロップで揃えるかを切り替える */
   changeIconAuto: (on: boolean) => void
   clearClipMotions: () => void
-  /** いまの再生位置と全体の長さ（秒） */
+  /** いまの再生位置（秒） */
   currentTime: number
-  duration: number
   /** モーションで選んでいる項目（描き直しを待たずに読むので ref） */
   motionSelRef: React.MutableRefObject<string[]>
   /** いま出ているモーションの行（コピーが印の無い項目も写せるように） */
@@ -95,8 +93,9 @@ export interface LeftPanelProps {
   updateSelectedStyle: (style: TelopStyle) => void
   updateSelectedText: (text: string) => void
   userTemplates: TelopTemplate[]
-  /** その映像クリップの長さ（秒） */
-  vcLen: (c: VClip) => number
+  // ※ duration と vcLen は消した。**渡されていたが分割代入に入っておらず、
+  //    誰も読んでいなかった**（このフックの消費者は LeftPanel 1つだけ）。
+  //    しかも vcLen は 595行のローカル const に名前を奪われていた
   /** そのテロップに出すアイコン画像（割り当ての優先順位を当てはめた結果） */
   iconForCue: (c: Cue) => string | undefined
 }
@@ -136,7 +135,6 @@ export function LeftPanel(): React.JSX.Element {
   const { leftW, leftTab, setLeftTab } = useLayout()
   const { selectedIds, selectedSeIds, selectedImgIds, selectedVClipIds, selectedVideoIds, selectedAudioIds } = useSel()
   const { segments, seClips, imgClips, vClips } = useDoc()
-  const { } = useViewCtx()
   const { showToast } = useToastCtx()
   const { iconSide, setIconSide, iconOffset, setIconOffset, iconScale, setIconScale, iconAuto, setIconSettingsOpen } = useIconsCtx()
   const { updateSelectedImg, updateSelectedSE, updateSelectedVClip, patchCuePos, patchCueScale, patchMotion, patchClipMotion, clearTelopMotions, setSelectedAdjust, setSelectedCrop, setSegZoom, setImgZoom, setVClipZoom, rotateSelectedSeg, flipSelectedSeg, toggleMuteSelectedSegments, resetTelopChannel, nudgeOthers, setSelectedAudio, clearBox, selected } = useEdit()

@@ -584,7 +584,6 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
   }
   return {
     startScrub,
-    trackSelect,
     maybeTrackSelect,
     onTrackAreaPointerDown,
     onClipPointerDown,

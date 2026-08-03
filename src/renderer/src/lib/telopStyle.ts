@@ -472,75 +472,11 @@ export interface ComputedTelop {
   text: React.CSSProperties // 最前面レイヤー（互換用）
 }
 
-/** スタイル全体を倍率kで相似スケール（縁・影・ベベル込み＝見た目の比率を保つ）。サムネや一括縮小用 */
-export function scaleTelopStyle(s: TelopStyle, k: number): TelopStyle {
-  const r1 = (n: number): number => Math.round(n * 10) / 10
-  const scSh = <T extends { distance: number; blur: number; spread?: number }>(sd: T): T => ({
-    ...sd,
-    distance: r1(sd.distance * k),
-    blur: r1(sd.blur * k),
-    ...(sd.spread != null ? { spread: r1(sd.spread * k) } : {})
-  })
-  return {
-    ...s,
-    fontSize: Math.max(1, Math.round(s.fontSize * k)),
-    strokes: s.strokes.map((st) => ({ ...st, width: r1(st.width * k) })),
-    shadow: scSh(s.shadow),
-    ...(s.shadows ? { shadows: s.shadows.map(scSh) } : {}),
-    ...(s.bevel ? { bevel: { ...s.bevel, size: r1(s.bevel.size * k) } } : {}),
-    ...(s.box ? { box: { w: Math.round(s.box.w * k), h: Math.round(s.box.h * k) } } : {})
-  }
-}
-
-// テンプレ一覧の小さなプレビュー用（固定fontPxで「あア」等を描く簡易版。フチは text-stroke で近似）
-export function telopThumbCss(
-  s: TelopStyle,
-  fontPx: number
-): { box: React.CSSProperties; text: React.CSSProperties } {
-  const strokes = s.strokes.filter((st) => st.enabled).sort((a, b) => b.width - a.width)
-  const outer = strokes[0]
-  const strokeW = outer ? (fontPx * outer.width) / s.fontSize : 0
-  let shadow = 'none'
-  if (s.shadow.enabled) {
-    const k = fontPx / s.fontSize
-    const rad = (s.shadow.angle * Math.PI) / 180
-    // Premiere/Adobeの影角度は 0°=上・時計回り（dx=sin, dy=-cos）。135°→右下。
-    const dx = Math.sin(rad) * s.shadow.distance * k
-    const dy = -Math.cos(rad) * s.shadow.distance * k
-    const bl = s.shadow.blur * k
-    shadow = `${dx.toFixed(1)}px ${dy.toFixed(1)}px ${bl.toFixed(1)}px ${hexToRgba(s.shadow.color, s.shadow.opacity)}`
-  }
-  return {
-    box: {
-      background: s.background.enabled
-        ? hexToRgba(s.background.color, s.background.opacity)
-        : 'transparent',
-      padding: s.background.enabled
-        ? s.background.size != null
-          ? (fontPx * s.background.size) / s.fontSize
-          : `${fontPx * 0.1}px ${fontPx * 0.25}px`
-        : 0,
-      borderRadius: s.background.enabled
-        ? s.background.corner != null
-          ? (fontPx * s.background.corner) / s.fontSize
-          : fontPx * 0.12
-        : 0
-    },
-    text: {
-      fontFamily: s.fontFamily,
-      fontWeight: s.bold ? 800 : 500,
-      fontSynthesis: 'none', // 偽ボールド禁止（単一ウェイトのフォントが潰れるのを防ぐ）
-      fontStyle: s.italic ? 'italic' : 'normal',
-      fontSize: fontPx,
-      lineHeight: 1,
-      ...fillCss(s.fill),
-      WebkitTextStroke: outer ? `${strokeW.toFixed(1)}px ${outer.color}` : undefined,
-      paintOrder: 'stroke',
-      textShadow: shadow,
-      whiteSpace: 'nowrap'
-    }
-  }
-}
+// ※ ここにあった scaleTelopStyle（19行）と telopThumbCss（49行）は消した。
+//    どちらも export されていたが、リポジトリ全体で参照が0だった
+//    （export した物は noUnusedLocals が見ないので、静かに残っていた）。
+//    使うのをやめた痕跡も残っていて、`components/TemplateCard.tsx` に
+//    「scaleTelopStyle不要」というコメントが書かれている。
 
 /** TelopStyle から実際の CSS を計算（Premiere同構造のレイヤー方式）。text はグラデのインク範囲実測用 */
 export function computeTelopCss(s: TelopStyle, text?: string): ComputedTelop {

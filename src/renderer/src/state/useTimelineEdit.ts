@@ -884,7 +884,9 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     deleteSelectedSE, findSilences, applySilenceCut, rippleDeleteVideoSegments,
     toggleBlankSelectedVideo, duplicateClipsFromMenu, duplicateSelectedSegments,
     setSelectedSegSpeed, setSegRotate, closeGapAtPlayhead, deleteVideoSegmentsLeavingGap,
-    closeSelectedGaps, closeGap, allContentEdges, mapContentTimes, collapseContent,
+    // closeGap / allContentEdges / mapContentTimes / collapseContent は返さない。
+    // 受け取る所が無かった（この中でだけ使う。return の中は noUnusedLocals が見ない）
+    closeSelectedGaps,
     rippleToPrevCut, rippleToNextCut, splitVideoAtPlayhead, cutAtPlayhead
   }
 }

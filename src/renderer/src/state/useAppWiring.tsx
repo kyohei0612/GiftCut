@@ -968,44 +968,12 @@ export function useAppWiring() {
     openProjectFn, saveAsTemplateFn, openTemplateFn,
     pickTemplate, applyProjectData, applyTemplate, applyTemplateToCue
   } = useProjectFile({
-    stopPlayback,
-    setTime,
-    duration,
-    fallbackTrack,
-    kindOf,
-    applyLayout,
-    layoutNow,
-    snapNow,
-    resetHistory,
-    confirmDiscard,
-    hasProjectContent,
-    askText,
-    rememberProject,
-    prepareMediaMeta,
-    mediaMeta,
-    runColorFromStyle,
-    applyRunRange,
-    curSel,
-    selected,
-    audioTrackGain,
-    commitPending,
-    idCounter,
-    savedJsonRef,
-    projectJsonRef,
-    markUnsavedRef,
-    lastAutosaveRef,
-    initializedForPathRef,
-    proxyForPathRef,
-    videoElsRef,
-    videoRef,
-    setTemplatePicker,
-    saveLS,
-    baselineRef,
-    undoStackRef,
-    redoStackRef,
-    pendingTimerRef,
-    hydrateSource,
-    updateSource
+    stopPlayback, setTime, fallbackTrack, kindOf, applyLayout, layoutNow, snapNow,
+    resetHistory, confirmDiscard, hasProjectContent, askText, rememberProject,
+    prepareMediaMeta, runColorFromStyle, applyRunRange, curSel, selected,
+    commitPending, idCounter, savedJsonRef, projectJsonRef, markUnsavedRef,
+    lastAutosaveRef, initializedForPathRef, proxyForPathRef, videoElsRef, videoRef,
+    setTemplatePicker, saveLS, baselineRef, hydrateSource, updateSource
   })
 
   // 素材とプロジェクトの出し入れ（開く・足す・持ち出す・下書き）は state/useProjectIO
@@ -1166,11 +1134,11 @@ export function useAppWiring() {
   // 右パネルまわり。中身は state/rightPanelContext.tsx
   // 左パネルが要る物（右・プレビュー・タイムラインと同じ流儀）
   const leftPanel: LeftPanelValue = {
-    alignTelop, applyTemplate, changeIconAuto, clearClipMotions, currentTime, duration,
+    alignTelop, applyTemplate, changeIconAuto, clearClipMotions, currentTime,
     motionSelRef, motionRowsRef, nudgeClips, pairedAudioOf, panelStyleFor, reframeTarget, resetClipChannel,
     resetCount, saveMyMotion, savePreset, seekTo, setBoxAnchor, setPersonIconForSelected,
     setSelectedSegSpeed, toggleKeys, updateSelectedStyle, updateSelectedText, userTemplates,
-    vcLen, iconForCue
+    iconForCue
   }
 
   const rightPanel: RightPanelValue = {

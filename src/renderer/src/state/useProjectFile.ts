@@ -45,9 +45,12 @@ export interface UseProjectFileDeps {
   // 借り物であることが見えている方が直しやすい（付け替えるときに
   // どこまでが自分の責任かが分かる）。
   //
+    // ※ duration / mediaMeta / audioTrackGain / undoStackRef / redoStackRef /
+    //    pendingTimerRef は消した。**渡されていたが本文で一度も読んでいなかった**
+    //    （残っていた出現箇所は全部コメントの中の文字列だった）。
+    //    deps の未使用は noUnusedLocals では出ない（分割代入に入れなければ黙る）
     stopPlayback: any
     setTime: any
-    duration: any
     fallbackTrack: any
     kindOf: any
     applyLayout: any
@@ -59,12 +62,10 @@ export interface UseProjectFileDeps {
     askText: (title: string, def: string, onOk: (v: string) => void) => void
     rememberProject: any
     prepareMediaMeta: any
-    mediaMeta: any
     runColorFromStyle: any
     applyRunRange: any
     curSel: any
     selected: any
-    audioTrackGain: any
     commitPending: any
     idCounter: any
     savedJsonRef: any
@@ -78,9 +79,6 @@ export interface UseProjectFileDeps {
     setTemplatePicker: any
     saveLS: any
   baselineRef: any
-  undoStackRef: any
-  redoStackRef: any
-  pendingTimerRef: any
   hydrateSource: any
   updateSource: any
   /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -788,5 +786,7 @@ export function useProjectFile(deps: UseProjectFileDeps) {
     setEditingId(null)
   }
 
-  return { saveCurrentAsTemplate, deleteUserTemplate, projectJson, saveProjectFn, openProjectFn, templateJson, applyProjectTemplate, saveAsTemplateFn, openTemplateFn, pickTemplate, applyProjectData, applyTemplate, mergeTemplateKeepFrame, applyTemplateToCue }
+  // templateJson / applyProjectTemplate / mergeTemplateKeepFrame は返さない。
+  // 受け取る所が無かった（この中でだけ使う。return の中は noUnusedLocals が見ない）
+  return { saveCurrentAsTemplate, deleteUserTemplate, projectJson, saveProjectFn, openProjectFn, saveAsTemplateFn, openTemplateFn, pickTemplate, applyProjectData, applyTemplate, applyTemplateToCue }
 }

@@ -12,11 +12,8 @@ export interface StylePreset {
   name: string
   style: TelopStyle
 }
-export interface IconLibItem {
-  id: number
-  name: string
-  image: string
-}
+// ※ ここにあった IconLibItem は消した。export されていたが参照が0だった
+//    （export した型は noUnusedLocals が見ない）
 
 /** 節の開け閉めの覚え先。画面の都合なのでプロジェクトには入れない */
 const SP_CLOSED_KEY = 'gc.stylePanelClosed'
