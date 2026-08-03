@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "check": "node scripts/check-project.mjs",
+    "index": "node scripts/gen-index.mjs",
     "verify": "npm run typecheck && npm run test",
     "check:dist": "node scripts/check-dist.mjs",
     "release:check": "npm run verify && npm run check:ffmpeg && npm run build && npm run check:dist && npm run dist && npm run check:packaged",
