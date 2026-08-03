@@ -83,8 +83,8 @@ export interface PreviewCtxValue {
   windowVClips: any
   /** 重ねた動画・画像の置き方 */
   vcRefCb: any
-  vcXform: any
-  imgXform: any
+  /** 回転・反転・ズームの CSS。**映像レイヤーと画像で同じ物**（lib/clipXform） */
+  clipXform: any
   vcLen: any
   /** テロップに添える絵 */
   iconForCue: any

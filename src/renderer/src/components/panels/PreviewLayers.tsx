@@ -31,7 +31,7 @@ export function VideoLayers({
   clips,
   vcLen,
   vcRefCb,
-  vcXform,
+  clipXform,
   previewUrl,
   onSelect
 }: {
@@ -39,7 +39,8 @@ export function VideoLayers({
   clips: any[]
   vcLen: (c: any) => number
   vcRefCb: (id: number) => (el: HTMLVideoElement | null) => void
-  vcXform: (c: any, localT: number) => string | undefined
+  /** 回転・反転・ズームの CSS（lib/clipXform）。画像と同じ物 */
+  clipXform: (c: any, localT: number) => string | undefined
   previewUrl: (path: string, orig: string) => string
   onSelect: (e: React.PointerEvent, t: { kind: 'vclip'; clip: any }) => void
 }): JSX.Element {
@@ -65,7 +66,7 @@ export function VideoLayers({
             preload="auto"
             playsInline
             style={{
-              transform: vcXform(c, local),
+              transform: clipXform(c, local),
               filter: adjustCss(c.adjust),
               clipPath: cropInset(c.crop),
               // 👁非表示は「映像だけ消す」（音は鳴り続ける＝V1のvideoBlankと同じ扱い）
@@ -89,10 +90,11 @@ export function VideoLayers({
  * そのまま描くと上下が逆になる。
  */
 export function ImageLayers({
-  imgXform,
+  clipXform,
   onSelect
 }: {
-  imgXform: (c: any, localT: number) => string | undefined
+  /** 回転・反転・ズームの CSS（lib/clipXform）。映像レイヤーと同じ物 */
+  clipXform: (c: any, localT: number) => string | undefined
   onSelect: (e: React.PointerEvent, t: { kind: 'img'; clip: any }) => void
 }): JSX.Element {
   const { imgClips } = useDoc()
@@ -121,7 +123,7 @@ export function ImageLayers({
             alt=""
             title={`${c.name}（ドラッグで移動・四隅で拡大）`}
             style={{
-              transform: imgXform(c, currentTime - c.tStart),
+              transform: clipXform(c, currentTime - c.tStart),
               filter: adjustCss(c.adjust),
               clipPath: cropInset(c.crop),
               opacity: c.opacity ?? 1

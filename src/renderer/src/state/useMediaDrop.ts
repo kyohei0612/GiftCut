@@ -23,10 +23,8 @@
 
 import { EMPTY_DRAG_IMG } from '../lib/dragChip'
 import { clamp, fadeGain } from '../../../shared/timeline'
-import { zoomAt, type ClipMotion } from '../../../shared/clipMotion'
-import { isNeutralZoom } from '../lib/clipLook'
 import { newTrackState } from '../lib/trackState'
-import type { ImgClip, SEClip, VClip } from '../lib/projectTypes'
+import type { SEClip, VClip } from '../lib/projectTypes'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
@@ -184,43 +182,9 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
     )
     setSelectedImgIds([])
   }
-  // 映像レイヤーのCSS transform（回転/反転＋ズーム）。
-  // localT はクリップの先頭からの秒。動きが付いていればその瞬間のズームになる
-  // （印が無ければ zoomAt は固定値をそのまま返すので、今までと同じ絵）。
-  function vcXform(
-    c: {
-      rotate?: number
-      flipH?: boolean
-      flipV?: boolean
-      zoom?: { scale: number; x: number; y: number }
-      motion?: ClipMotion
-    },
-    localT = 0
-  ): string | undefined {
-    const parts: string[] = []
-    if (c.rotate) parts.push(`rotate(${c.rotate}deg)`)
-    if (c.flipH) parts.push('scaleX(-1)')
-    if (c.flipV) parts.push('scaleY(-1)')
-    const z = zoomAt(c.zoom, c.motion, localT)
-    if (!isNeutralZoom(z))
-      parts.push(
-        `translate(${(z.x * 100).toFixed(3)}%, ${(z.y * 100).toFixed(3)}%) scale(${z.scale.toFixed(4)})`
-      )
-    return parts.length ? parts.join(' ') : undefined
-  }
-  // 画像のCSS transform（回転/反転＋ズーム）。動画切片と同じ合成順。
-  function imgXform(c: ImgClip, localT = 0): string | undefined {
-    const parts: string[] = []
-    if (c.rotate) parts.push(`rotate(${c.rotate}deg)`)
-    if (c.flipH) parts.push('scaleX(-1)')
-    if (c.flipV) parts.push('scaleY(-1)')
-    const z = zoomAt(c.zoom, c.motion, localT)
-    if (!isNeutralZoom(z))
-      parts.push(
-        `translate(${(z.x * 100).toFixed(3)}%, ${(z.y * 100).toFixed(3)}%) scale(${z.scale.toFixed(4)})`
-      )
-    return parts.length ? parts.join(' ') : undefined
-  }
+  // ※ CSS transform の組み立ては lib/clipXform へ出した。
+  //    このファイルの頭のコメントは「落とす」話だけで、描画の話が無かった。
+  //    映像レイヤー用と画像用が**本体1文字違わずに2つ**あったので、1本にまとめてある
 
   /**
    * ドラッグ中の「ここに置きます」の影を更新する。
@@ -506,13 +470,12 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
     }
     if (track !== EXTRA_AUDIO_TRACK) showToast(track + ' に追加しました。')
   }
-  // SEクリップ内ローカル秒 t におけるフェード係数(0-1)。頭 fadeIn / 尻 fadeOut を線形。
+  // SEクリップ内ローカル秒 t におけるフェード係数(0-1)。
+  // **すぐ上の vcFadeGain と同じ計算を、ここだけ手で書き直してあった**
+  // （「フェード計算は shared/timeline の fadeGain に集約」と宣言したそばで割れていた）。
+  // 中身は1行ずつ突き合わせて完全一致だったので、同じ1本に寄せた
   function seFadeGain(clip: SEClip, t: number): number {
-    let g = 1
-    if (clip.fadeIn > 0 && t < clip.fadeIn) g = Math.min(g, t / clip.fadeIn)
-    const outStart = clip.duration - clip.fadeOut
-    if (clip.fadeOut > 0 && t > outStart) g = Math.min(g, (clip.duration - t) / clip.fadeOut)
-    return clamp(g, 0, 1)
+    return fadeGain(t, clip.duration, clip.fadeIn, clip.fadeOut)
   }
   function removeMedia(id: number): void {
     const m = mediaItems.find((x) => x.id === id)
@@ -550,10 +513,11 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
     setSelectedMediaIds((prev) => prev.filter((x) => x !== id))
   }
 
+  // `trackForNewBgm` は返さない。受け取る所が無かった（addBgm の中でだけ使う）
   return {
-    prepareMediaMeta, beginMediaDrag, placeImage, deleteSelectedImg, vcXform, imgXform,
+    prepareMediaMeta, beginMediaDrag, placeImage, deleteSelectedImg,
     updateDropGhost, clearDropGhosts, dropMediaNearest, videoDropLane, placeVClip,
-    deleteSelectedVClip, vcFadeGain, placeSE, trackForNewBgm, addBgm, seFadeGain, removeMedia,
+    deleteSelectedVClip, vcFadeGain, placeSE, addBgm, seFadeGain, removeMedia,
     imgLaneAt, placeDropped
   }
 }

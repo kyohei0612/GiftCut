@@ -60,7 +60,7 @@ export function PreviewArea(): JSX.Element {
     screenRef, videoRef, videoBRef, videoElsRef, elKey, activeHalf, effActiveSrcId,
     previewSources, previewUrl, monitorAspect, xfPreview, xfBStyle, xfNextBUrl,
     xfDipOverlay, transOverlay, videoMainStyle, curAdjustCss, curBlank, v1Hidden,
-    videoTLen, activeCues, windowVClips, vcRefCb, vcXform, imgXform, vcLen, iconForCue,
+    videoTLen, activeCues, windowVClips, vcRefCb, clipXform, vcLen, iconForCue,
     proxyPct, packPct, onVideoReframeStart, onVideoRotateStart, resetVideoZoom,
     zoomAnchor, toggleZoomAnchor, onZoomAnchorStart,
     resetSelectedTelops, telopResetCount,
@@ -306,11 +306,11 @@ export function PreviewArea(): JSX.Element {
               clips={windowVClips}
               vcLen={vcLen}
               vcRefCb={vcRefCb}
-              vcXform={vcXform}
+              clipXform={clipXform}
               previewUrl={previewUrl}
               onSelect={selectPreviewOverlay}
             />
-            <ImageLayers imgXform={imgXform} onSelect={selectPreviewOverlay} />
+            <ImageLayers clipXform={clipXform} onSelect={selectPreviewOverlay} />
             <TelopLayer
               activeCues={activeCues}
               cueTrack={cueTrack}

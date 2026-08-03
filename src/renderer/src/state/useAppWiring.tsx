@@ -131,6 +131,7 @@ import { useTelopAnim } from './useTelopAnim'
 import { useAttrCopy } from './useAttrCopy'
 import { useLaneResize } from './useLaneResize'
 import { startFader } from '../lib/faderDrag'
+import { clipXform } from '../lib/clipXform'
 import { useClipboardCtx } from './clipboardContext'
 import { useLaneHeights } from './useLaneHeights'
 import { usePlaybackCtx } from './playbackContext'
@@ -716,7 +717,7 @@ export function useAppWiring() {
 
   // 素材を掴んで落とす（どの段の、どこへ置くか）は state/useMediaDrop
   const {
-    prepareMediaMeta, beginMediaDrag, placeImage, deleteSelectedImg, vcXform, imgXform,
+    prepareMediaMeta, beginMediaDrag, placeImage, deleteSelectedImg,
     updateDropGhost, clearDropGhosts, dropMediaNearest, videoDropLane, placeVClip,
     deleteSelectedVClip, vcFadeGain, placeSE, addBgm, seFadeGain, removeMedia, imgLaneAt, placeDropped
   } = useMediaDrop({
@@ -1150,7 +1151,7 @@ export function useAppWiring() {
     previewSources, previewUrl, monitorAspect,
     xfPreview, xfBStyle, xfNextBUrl, xfDipOverlay, transOverlay, videoMainStyle,
     curAdjustCss, curBlank, v1Hidden, videoTLen, activeCues, windowVClips,
-    vcRefCb, vcXform, imgXform, vcLen, iconForCue, proxyPct, packPct,
+    vcRefCb, clipXform, vcLen, iconForCue, proxyPct, packPct,
     onVideoReframeStart, onVideoRotateStart, resetVideoZoom, resetCount,
     zoomAnchor, toggleZoomAnchor, onZoomAnchorStart,
     resetSelectedTelops, telopResetCount,
