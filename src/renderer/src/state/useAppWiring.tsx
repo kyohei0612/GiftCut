@@ -93,6 +93,7 @@ import { useTimelineEdit } from './useTimelineEdit'
 import { useTracksAdmin } from './useTracksAdmin'
 import { useMediaDrop } from './useMediaDrop'
 import { usePreviewManip } from './usePreviewManip'
+import { useScreenshot } from './useScreenshot'
 import { useIconLibrary } from './useIconLibrary'
 import { useProjectIO } from './useProjectIO'
 import { usePlaybackEngine } from './usePlaybackEngine'
@@ -942,12 +943,16 @@ export function useAppWiring() {
   // プレビューの上で映像を掴む（動かす・拡げる・回す）と画面を撮るのは state/usePreviewManip
   const {
     onVideoReframeStart, selectPreviewOverlay, resetVideoZoom, onVideoRotateStart,
-    captureScreenshot, zoomAnchor, toggleZoomAnchor, onZoomAnchorStart
+    zoomAnchor, toggleZoomAnchor, onZoomAnchorStart
   } = usePreviewManip({
-    screenRef, videoRef, reframeTargetRef, segLayout, cueTrack, iconForCue, vcLen,
-    videoTLen, v1Hidden, curBlank, curSegZoom, patchClipMotion,
+    screenRef, reframeTargetRef, segLayout, vcLen, patchClipMotion,
     setSegZoom, setImgZoom, setVClipZoom, clearAllSelections,
     setSegRotate
+  })
+  // スクショ（撮る）は state/useScreenshot。**掴んで動かす話とは別**なので、
+  // usePreviewManip を素通しさせずに直接呼ぶ（あちらの deps が7個減った）
+  const { captureScreenshot } = useScreenshot({
+    videoRef, v1Hidden, curBlank, videoTLen, curSegZoom, cueTrack, vcLen, iconForCue
   })
 
   // 本編の切片（カット列）を掴む・端を摘むのは state/useSegmentDrag。

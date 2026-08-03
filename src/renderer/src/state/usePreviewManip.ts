@@ -28,8 +28,6 @@ import {
   type Zoom
 } from '../../../shared/clipMotion'
 import { DEFAULT_ZOOM } from '../lib/clipLook'
-import type { Cue } from '../lib/srt'
-import { useScreenshot } from './useScreenshot'
 import type { ImgClip, ReframeTarget, VClip } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
 import { usePlaybackCtx } from './playbackContext'
@@ -41,18 +39,13 @@ import { useToastCtx } from './toastContext'
 export interface UsePreviewManipDeps {
   /** 映像を映している枠。ここを基準に掴んだ位置を測る */
   screenRef: React.RefObject<HTMLDivElement>
-  videoRef: any
   /** いま掴める相手（本編の切片・重ねた動画・画像のどれか） */
   reframeTargetRef: React.MutableRefObject<ReframeTarget | null>
   segLayout: any
-  cueTrack: (c: Cue) => string
-  iconForCue: any
   vcLen: (c: VClip) => number
-  videoTLen: any
-  /** いま本編の映像が隠されているか */
-  v1Hidden: any
-  curBlank: any
-  curSegZoom: any
+  // ※ videoRef / cueTrack / iconForCue / videoTLen / v1Hidden / curBlank /
+  //   curSegZoom は消した。**本体では1度も読まず、useScreenshot へ渡すだけ**
+  //   だった（2026-08-03。呼ぶ側があちらを直接呼ぶ形にした）。
   /** 印（キーフレーム）が付いている項目を書き換える */
   patchClipMotion: any
   setSegZoom: any
@@ -65,8 +58,7 @@ export interface UsePreviewManipDeps {
 
 export function usePreviewManip(deps: UsePreviewManipDeps) {
   const {
-    screenRef, videoRef, reframeTargetRef, segLayout, cueTrack, iconForCue, vcLen,
-    videoTLen, v1Hidden, curBlank, curSegZoom, patchClipMotion,
+    screenRef, reframeTargetRef, segLayout, vcLen, patchClipMotion,
     setSegZoom, setImgZoom, setVClipZoom, setSegRotate, clearAllSelections
   } = deps
   const { setSegments, imgClips, setImgClips, vClips, setVClips } = useDoc()
@@ -511,14 +503,13 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
     window.addEventListener('pointercancel', onUp)
   }
 
-  // スクショ（撮る）は state/useScreenshot へ出した。**掴んで動かす話とは別**で、
-  // 渡す物を数えたら8個だった（40個までなら切ってよい）。中身は動かしていない
-  const { captureScreenshot } = useScreenshot({
-    videoRef, v1Hidden, curBlank, videoTLen, curSegZoom, cueTrack, vcLen, iconForCue
-  })
-
+  // ※ スクショ（撮る）は state/useScreenshot。**ここを素通ししない。**
+  //   2026-08-03 まで、こちらが受け取ってあちらへ渡すだけの中継をしていて、
+  //   そのためだけに deps が7個（videoRef / cueTrack / iconForCue / videoTLen /
+  //   v1Hidden / curBlank / curSegZoom）増えていた。**本体では1度も読んでいない。**
+  //   呼ぶ側（useAppWiring）はその7個を元から全部持っているので、直接呼べば済む。
   return {
     onVideoReframeStart, selectPreviewOverlay, resetVideoZoom, onVideoRotateStart,
-    captureScreenshot, zoomAnchor, toggleZoomAnchor, onZoomAnchorStart
+    zoomAnchor, toggleZoomAnchor, onZoomAnchorStart
   }
 }
