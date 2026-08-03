@@ -648,7 +648,7 @@ export function useAppWiring() {
   // 動き（キーフレーム）を付ける・消す・配るのは state/useMotion
   const {
      removeKeyAtTime, resetClipChannel, clearClipMotions, toggleKeys, nudgeClips,
-    applyMotionPreset, animBreakpoints
+    applyMotionPreset
   } = useMotion({
     reframeTargetRef, askConfirm, showToast, segLayout,
     patchClipMotion, setSegZoom, setImgZoom, setVClipZoom, vcLen, seekTo
@@ -661,7 +661,6 @@ export function useAppWiring() {
     cueTrack,
     iconForCue,
     resolveExportFps,
-    animBreakpoints,
     duckEnv,
     seEnd,
     v1Hidden

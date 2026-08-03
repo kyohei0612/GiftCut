@@ -17,6 +17,7 @@ import { envToFfmpegExpr } from '../../../shared/ducking'
 import { buildSrt } from '../lib/srt'
 import { hasAnim, hasMotion, telopStateAt } from '../lib/telopStyle'
 import { renderCueToPng } from '../lib/rasterize'
+import { animBreakpoints } from '../lib/telopAnimSteps'
 import type { VSeg } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
@@ -35,13 +36,9 @@ export interface UseExportDeps {
   iconForCue: (c: import('../lib/srt').Cue) => string | undefined
   /** 実際に使う fps（'素材と同じ' を数値へ読み替える） */
   resolveExportFps: () => number
-  /** 動きが変わる時刻（そこだけ画像を焼き直す） */
-  animBreakpoints: (
-    anim: import('../lib/telopStyle').TelopAnim | undefined,
-    motion: import('../lib/telopStyle').Motion | undefined,
-    dur: number,
-    fps: number
-  ) => number[]
+  // ※ 「動きが変わる時刻」（animBreakpoints）は受け取らない。
+  //    編集の入れ物（useMotion）から中継していたが、React の状態を1つも触らない
+  //    純関数だったので `lib/telopAnimSteps` へ出し、ここから直接読む＝渡し物が1つ減った
   /** 声に合わせて BGM を下げる曲線 */
   duckEnv: import('../../../shared/ducking').GainPoint[]
   /** 効果音の終わり（タイムラインの長さに含める） */
@@ -51,7 +48,7 @@ export interface UseExportDeps {
 }
 
 export function useExport(deps: UseExportDeps) {
-  const { stopPlayback, srcOfSeg, cueTrack, iconForCue, resolveExportFps, animBreakpoints, duckEnv, seEnd, v1Hidden } = deps
+  const { stopPlayback, srcOfSeg, cueTrack, iconForCue, resolveExportFps, duckEnv, seEnd, v1Hidden } = deps
   const { cues, segments, seClips, imgClips, vClips } = useDoc()  const { tracks, trackStates } = useTracksCtx()
   const {
     ratio, exportOpts, setExportOpts, masterVolume, loudnormLUFS, setShowExportDialog,

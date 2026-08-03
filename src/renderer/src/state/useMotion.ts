@@ -20,7 +20,7 @@
 import { clamp } from '../../../shared/timeline'
 import { hasKeys, putKey, removeKey, valueAt, type Keys } from '../../../shared/keyframes'
 import { hasClipMotion, type ClipMotion } from '../../../shared/clipMotion'
-import { hasMotion, sanitizeMotion, type Motion, type TelopAnim } from '../lib/telopStyle'
+import { hasMotion, sanitizeMotion, type Motion } from '../lib/telopStyle'
 import { DEFAULT_ZOOM, isNeutralZoom } from '../lib/clipLook'
 import type { MotionPresetFile } from '../../../shared/telopMotion'
 import { useDoc } from './contentContext'
@@ -303,28 +303,9 @@ export function useMotion(deps: UseMotionDeps) {
     )
   }
 
-  // アニメの「変化する区間」の分割点（ローカル秒）を返す。中間の静止区間は1枚で済ませる。
-  function animBreakpoints(
-    anim: TelopAnim | undefined,
-    motion: Motion | undefined,
-    dur: number,
-    fps: number
-  ): number[] {
-    const step = 1 / fps
-    const set = new Set<number>([0])
-    const addRange = (a: number, b: number): void => {
-      for (let t = a; t < b - 1e-4; t += step) set.add(Math.round(t / step) * step)
-    }
-    // 自分で打った動き（モーション）が付いていたら、全区間を刻む。
-    // どこで値が変わるか決め打ちできないので、通しで並べるしかない。
-    if (hasMotion(motion) || anim?.emphasis === 'shake' || anim?.emphasis === 'pulse') {
-      addRange(0, dur)
-    } else if (anim) {
-      if (anim.in !== 'none') addRange(0, Math.min(anim.inDur, dur))
-      if (anim.out !== 'none') addRange(Math.max(0, dur - anim.outDur), dur)
-    }
-    return [...set].filter((t) => t < dur - 1e-4).sort((a, b) => a - b)
-  }
+  // ※ 書き出し用の「変化する区間の刻み」（animBreakpoints）は `lib/telopAnimSteps` へ出した。
+  //    ここは**編集の操作**を集めた所で、あれだけが書き出しの下ごしらえだった。
+  //    使う側（useExport）が直接読むので、ここから中継する必要も無くなった。
 
-  return { setMotion, removeKeyAtTime, resetClipChannel, clearClipMotions, toggleKeys, nudgeClips, applyMotionPreset, animBreakpoints }
+  return { setMotion, removeKeyAtTime, resetClipChannel, clearClipMotions, toggleKeys, nudgeClips, applyMotionPreset }
 }
