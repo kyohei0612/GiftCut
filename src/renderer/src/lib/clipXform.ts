@@ -34,14 +34,27 @@ export function clipXform(
   },
   localT = 0
 ): string | undefined {
+  // **並べる順が意味を持つ。** CSS は右にある物から先に当たるので、
+  // ここは「最後に当てたい物ほど左」。動かす（translate）を左端に置いて、
+  // **画面の向きのまま動く**ようにする。
+  //
+  // 2026-08-03 まで逆だった（回す・反転が左）。そのせいで:
+  //
+  //   反転した絵は、右へ掴んで動かすと**左へ動いた**（左右が真逆）
+  //   回した絵は、掴んだ向きではなく**回った向きへ**動いた
+  //
+  // 掴む側（state/usePreviewManip）は画面の実寸の差をそのまま zoom.x に
+  // 足している＝**画面の向きで動く前提**。書き出し（main/exportRun）も
+  // 反転→回転→動かす の順で組んでいる。**画面だけが違っていた。**
+  // 実測: 反転＋移動で 0.497（左右が真逆）、回転＋移動で 0.228 ずれていた。
   const parts: string[] = []
-  if (c.rotate) parts.push(`rotate(${c.rotate}deg)`)
-  if (c.flipH) parts.push('scaleX(-1)')
-  if (c.flipV) parts.push('scaleY(-1)')
   const z = zoomAt(c.zoom, c.motion, localT)
   if (!isNeutralZoom(z))
     parts.push(
       `translate(${(z.x * 100).toFixed(3)}%, ${(z.y * 100).toFixed(3)}%) scale(${z.scale.toFixed(4)})`
     )
+  if (c.rotate) parts.push(`rotate(${c.rotate}deg)`)
+  if (c.flipH) parts.push('scaleX(-1)')
+  if (c.flipV) parts.push('scaleY(-1)')
   return parts.length ? parts.join(' ') : undefined
 }

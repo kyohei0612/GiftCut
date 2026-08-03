@@ -83,12 +83,17 @@ export function useScreenshot(deps: UseScreenshotDeps) {
   /**
    * 重ねる物（映像レイヤー・画像）を1枚、**プレビューと同じ変形で**描く。
    *
-   * プレビューは CSS の `transform` でやっている:
+   * プレビューは CSS の `transform` でやっている（lib/clipXform）:
    *
-   *   rotate → scaleX(-1) → scaleY(-1) → translate(x%,y%) → scale(s)  ／ 原点は中心
+   *   translate(x%,y%) → scale(s) → rotate → scaleX(-1) → scaleY(-1)  ／ 原点は中心
    *
    * ここは**その並びをそのままなぞる**。順番を入れ替えると、回した物の
    * 寄せ方向が変わって「撮った絵だけ位置が違う」になる。
+   *
+   * **2026-08-03 まで、ここも古い順（回す・反転が先）をなぞっていた。**
+   * 画面側の CSS を直したので、こちらも一緒に直した。canvas は
+   * **後から呼んだ変形ほど先に当たる**ので、CSS とは書く順が逆になる
+   * （CSS: translate が左端 ⇔ canvas: translate を最後に呼ぶ）。
    * 明るさ等（`adjustCss`）と切り抜き（`cropInset` と同じ範囲）も同じ物を通す。
    *
    * ※ 切り抜きは**変形のあとに、その物の座標で**掛ける（CSS の clip-path と同じ順）。
@@ -118,11 +123,13 @@ export function useScreenshot(deps: UseScreenshotDeps) {
     const f = adjustCss(c.adjust)
     if (f) ctx.filter = f
     ctx.translate(W / 2, H / 2)
+    // **動かすのを先に呼ぶ**（canvas は後から呼んだ物ほど先に当たるので、
+    // これで「動かすのが最後に効く」＝画面の向きのまま動く）
+    const z = zoomAt(c.zoom, c.motion, localT)
+    ctx.translate(z.x * W, z.y * H)
     if (c.rotate) ctx.rotate((c.rotate * Math.PI) / 180)
     if (c.flipH) ctx.scale(-1, 1)
     if (c.flipV) ctx.scale(1, -1)
-    const z = zoomAt(c.zoom, c.motion, localT)
-    ctx.translate(z.x * W, z.y * H)
     ctx.scale(z.scale, z.scale)
     ctx.translate(-W / 2, -H / 2)
     if (c.crop && cropInset(c.crop)) {
