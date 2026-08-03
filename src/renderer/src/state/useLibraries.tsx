@@ -375,74 +375,86 @@ export function useLibraries(deps: UseLibrariesDeps) {
   const [iconOv, setIconOv] = useState<Record<string, string>>(() =>
     loadLS('giftcut.iconOverrides', {})
   )
-  const toggleSeFav = (p: string): void =>
-    setSeFavs((prev) => {
-      const n = prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
-      saveLS('giftcut.seFavorites', n)
-      return n
-    })
-  const toggleIconFav = (id: string): void =>
-    setIconFavs((prev) => {
+  /**
+   * 効果音とアイコンの「お気に入り・フォルダ」は、**やっていることが同じ**。
+   *
+   * 2026-08-03 まで、5組（お気に入りの入切・フォルダの付け替え・足す・消す）が
+   * **本体まで丸写しで2つずつ**あった。違うのは覚え先のキーと、
+   * 予約語（アイコンだけ 'lib' も使えない）だけ。
+   * **片方だけ直すと、もう片方が置き去りになる**ので、違いを表にして1本にした。
+   */
+  const seSide = {
+    favs: setSeFavs,
+    ov: setSeOv,
+    folders: seFolders,
+    setFolders: setSeFolders,
+    tab: 'se' as const,
+    keys: { fav: 'giftcut.seFavorites', ov: 'giftcut.seOverrides', folders: 'giftcut.seFolders' },
+    reserved: ['fav']
+  }
+  const iconSide = {
+    favs: setIconFavs,
+    ov: setIconOv,
+    folders: iconFolders,
+    setFolders: setIconFolders,
+    tab: 'icon' as const,
+    // アイコンは 'lib'（アイコン画像）も節の名前として使っているので予約語
+    keys: {
+      fav: 'giftcut.iconFavorites',
+      ov: 'giftcut.iconOverrides',
+      folders: 'giftcut.iconFolders'
+    },
+    reserved: ['fav', 'lib']
+  }
+  type Side = typeof seSide | typeof iconSide
+
+  /** お気に入りの入切（入っていれば外す） */
+  const toggleFavOn = (s: Side, id: string): void =>
+    s.favs((prev) => {
       const n = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-      saveLS('giftcut.iconFavorites', n)
+      saveLS(s.keys.fav, n)
       return n
     })
-  const setSeFolderOf = (p: string, key: string | null): void =>
-    setSeOv((prev) => {
-      const n = { ...prev }
-      if (key) n[p] = key
-      else delete n[p]
-      saveLS('giftcut.seOverrides', n)
-      return n
-    })
-  const setIconFolderOf = (id: string, key: string | null): void =>
-    setIconOv((prev) => {
+  /** その物をどのフォルダに入れるか（null で元に戻す） */
+  const setFolderOn = (s: Side, id: string, key: string | null): void =>
+    s.ov((prev) => {
       const n = { ...prev }
       if (key) n[id] = key
       else delete n[id]
-      saveLS('giftcut.iconOverrides', n)
+      saveLS(s.keys.ov, n)
       return n
     })
-  const addSeFolder = (): void =>
+  /** フォルダを足して、そこを開く */
+  const addFolderOn = (s: Side): void =>
     askText('フォルダ名', '新しいフォルダ', (name) => {
       const key = (name || '').trim()
-      if (!key || key === 'fav' || seFolders.some((f) => f.key === key)) return
-      const next = [...seFolders, { key, label: key }]
-      setSeFolders(next)
-      saveLS('giftcut.seFolders', next)
-      setOpenAccSec((p) => ({ ...p, se: [key] }))
+      if (!key || s.reserved.includes(key) || s.folders.some((f) => f.key === key)) return
+      const next = [...s.folders, { key, label: key }]
+      s.setFolders(next)
+      saveLS(s.keys.folders, next)
+      setOpenAccSec((p) => ({ ...p, [s.tab]: [key] }))
     })
-  const deleteSeFolder = (key: string): void => {
-    const next = seFolders.filter((f) => f.key !== key)
-    setSeFolders(next)
-    saveLS('giftcut.seFolders', next)
-    setSeOv((prev) => {
+  /** フォルダを消す。**中の物は消さず、元の場所へ戻す** */
+  const deleteFolderOn = (s: Side, key: string): void => {
+    const next = s.folders.filter((f) => f.key !== key)
+    s.setFolders(next)
+    saveLS(s.keys.folders, next)
+    s.ov((prev) => {
       const n = Object.fromEntries(Object.entries(prev).filter(([, v]) => v !== key))
-      saveLS('giftcut.seOverrides', n)
+      saveLS(s.keys.ov, n)
       return n
     })
-    setOpenAccSec((p) => ({ ...p, se: (p.se ?? []).filter((x) => x !== key) }))
+    setOpenAccSec((p) => ({ ...p, [s.tab]: (p[s.tab] ?? []).filter((x) => x !== key) }))
   }
-  const addIconFolder = (): void =>
-    askText('フォルダ名', '新しいフォルダ', (name) => {
-      const key = (name || '').trim()
-      if (!key || key === 'fav' || key === 'lib' || iconFolders.some((f) => f.key === key)) return
-      const next = [...iconFolders, { key, label: key }]
-      setIconFolders(next)
-      saveLS('giftcut.iconFolders', next)
-      setOpenAccSec((p) => ({ ...p, icon: [key] }))
-    })
-  const deleteIconFolder = (key: string): void => {
-    const next = iconFolders.filter((f) => f.key !== key)
-    setIconFolders(next)
-    saveLS('giftcut.iconFolders', next)
-    setIconOv((prev) => {
-      const n = Object.fromEntries(Object.entries(prev).filter(([, v]) => v !== key))
-      saveLS('giftcut.iconOverrides', n)
-      return n
-    })
-    setOpenAccSec((p) => ({ ...p, icon: (p.icon ?? []).filter((x) => x !== key) }))
-  }
+
+  const toggleSeFav = (p: string): void => toggleFavOn(seSide, p)
+  const toggleIconFav = (id: string): void => toggleFavOn(iconSide, id)
+  const setSeFolderOf = (p: string, key: string | null): void => setFolderOn(seSide, p, key)
+  const setIconFolderOf = (id: string, key: string | null): void => setFolderOn(iconSide, id, key)
+  const addSeFolder = (): void => addFolderOn(seSide)
+  const addIconFolder = (): void => addFolderOn(iconSide)
+  const deleteSeFolder = (key: string): void => deleteFolderOn(seSide, key)
+  const deleteIconFolder = (key: string): void => deleteFolderOn(iconSide, key)
   // SE/アイコン共用の右クリックメニュー（テロップの「フォルダへ移動」と同じ見た目・動作）
   const [orgMenu, setOrgMenu] = useState<{
     x: number
@@ -495,14 +507,21 @@ export function useLibraries(deps: UseLibrariesDeps) {
     if (openTplSec === key) setOpenTplSec(null)
   }
 
+  // **返すのは、外が本当に受け取っている物だけ。**
+  // 2026-08-03 まで57個返していたが、受け取られていたのは43個。差の14個
+  // （setSeLibrary / setLocalTemplates / setMotionPresets / MY_MOTIONS_KEY /
+  //   setMyMotions / putMyMotions / setOpenTplSec / openAccSec / accSecRefs /
+  //   toggleAccSec / setSeFavs / setSeFolders / setSeOv / setIconFolders）は
+  // このファイルの中でしか使っていなかった。**return の中は noUnusedLocals が
+  // 見ない**ので、静かに増え続ける場所。
   return {
-    seLibrary, setSeLibrary, refreshSE, importSeInto, localTemplates, setLocalTemplates, refreshPresets,
-    motionPresets, setMotionPresets, refreshMotionPresets, importMotionPresets,
-    MY_MOTIONS_KEY, myMotions, setMyMotions, putMyMotions, saveMyMotion, deleteMyMotion,
-    isFav, toggleFav, setTplCat, openTplSec, setOpenTplSec, toggleTplSec,
-    openAccSec, setOpenAccSec, accSecRefs, toggleAccSec, accSec, loadLS, saveLS,
-    seFavs, setSeFavs, seFolders, setSeFolders, seOv, setSeOv,
-    iconFavs, setIconFavs, iconFolders, setIconFolders, iconOv, setIconOv,
+    seLibrary, refreshSE, importSeInto, localTemplates, refreshPresets,
+    motionPresets, refreshMotionPresets, importMotionPresets,
+    myMotions, saveMyMotion, deleteMyMotion,
+    isFav, toggleFav, setTplCat, openTplSec, toggleTplSec,
+    setOpenAccSec, accSec, loadLS, saveLS,
+    seFavs, seFolders, seOv,
+    iconFavs, setIconFavs, iconFolders, iconOv, setIconOv,
     toggleSeFav, toggleIconFav, setSeFolderOf, setIconFolderOf,
     addSeFolder, deleteSeFolder, addIconFolder, deleteIconFolder,
     orgMenu, setOrgMenu, allCats, catOf, addCustomCat, deleteCustomCat
