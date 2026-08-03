@@ -24,6 +24,9 @@ import { isExporting, registerExportHandlers } from './exportRun'
 // gcfile:// で画面へ配ってよいファイルの名簿。**新しく渡す道を作ったら必ず通す**
 import { allowFile, isAllowed } from './allowList'
 import { registerAssetHandlers } from './assetLibrary'
+import { registerSeHandlers } from './seLibrary'
+import { registerMotionPresetHandlers } from './motionPresets'
+import { registerAssetPackHandlers } from './assetPacks'
 import { registerDialogHandlers } from './dialogs'
 import { registerMediaProbeHandlers } from './mediaProbe'
 import { isProjectDirty, registerProjectFileHandlers } from './projectFiles'
@@ -422,7 +425,10 @@ app.whenReady().then(() => {
   // どれも「app.whenReady() の中で1回だけ」呼ぶ約束。
   registerDialogHandlers() //    開く・フォルダを選ぶ・保存する（./dialogs）
   registerExportHandlers() //     書き出し（./exportRun）
-  registerAssetHandlers() //     効果音・見本・取り込み（./assetLibrary）
+  registerAssetHandlers() //     テロップの見本帳（./assetLibrary）
+  registerSeHandlers() //        効果音（./seLibrary）
+  registerMotionPresetHandlers() // 動きの見本帳（./motionPresets）
+  registerAssetPackHandlers() // 素材パック・フォルダを開く（./assetPacks）
   registerMediaProbeHandlers() // サムネ・焼き直し・波形（./mediaProbe）
   registerProjectFileHandlers() // 保存・下書き・持ち出し・雛形（./projectFiles）
 

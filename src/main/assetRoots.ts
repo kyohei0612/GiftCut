@@ -32,10 +32,31 @@ import { relinkBundledPath } from '../shared/relinkBundled'
 export const relinkBundled = (p: string, folder: 'SE' | 'telop-presets', roots: string[]): string =>
   relinkBundledPath(p, folder, roots, existsSync)
 
-/** SE の置き場（se:list と同じ候補） */
-export const seRoots = (): string[] =>
+/**
+ * 素材の置き場を、**あるものだけ**並べて返す。
+ *
+ * ## 3か所を必ず全部見る
+ *
+ *   `appPath`        … 開発中はリポジトリ直下
+ *   `resourcesPath`  … **exe 1つで配る版**は、素材を中に同梱する（解凍させないため）
+ *   `userData`       … 使う人が自分で入れた物（更新でも消えない）
+ *
+ * **見つかった1つ目で打ち切ってはいけない。** 同梱ぶんが入っている版で、
+ * userData に足した物が永遠に出てこなくなる。
+ *
+ * ## なぜ1本にまとめてあるか
+ *
+ * 2026-08-03 まで、同じ並びが **`assetLibrary` の中に3回**書かれていた
+ * （効果音・テロップの見本・動きの見本帳）。**そのうち動きの見本帳だけ
+ * `resourcesPath` が抜けていて**、exe 1つで配る版では同梱した動きが
+ * 1つも出てこなかった。**3回書けば、1回は抜ける。**
+ */
+export const assetRoots = (folder: string): string[] =>
   [
-    join(app.getAppPath(), 'SE'),
-    join(process.resourcesPath ?? '', 'SE'),
-    join(app.getPath('userData'), 'SE')
+    join(app.getAppPath(), folder),
+    join(process.resourcesPath ?? '', folder),
+    join(app.getPath('userData'), folder)
   ].filter((r) => existsSync(r))
+
+/** SE の置き場（se:list と同じ候補） */
+export const seRoots = (): string[] => assetRoots('SE')

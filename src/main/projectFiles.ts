@@ -84,6 +84,40 @@ export const inspectProject = (json: string, origin: string): void => {
 /** プロジェクトのファイルまわりの受け口。**app.whenReady() の中で1回だけ呼ぶ。** */
 
 export function registerProjectFileHandlers(): void {
+// ※ `project:save` は 2026-08-03 に ./assetLibrary から移した。
+//   開く・下書き・持ち出し・雛形が全部こちらに居るのに、**保存だけが
+//   素材の置き場のファイルに紛れ込んでいた**（あちらの冒頭コメントにも
+//   宣言が無かった）。整合性検査 inspectProject も同じファイルの中になる。
+// プロジェクト保存（JSON を .gcproj として書き出す）
+// curPath があり asNew でなければ「上書き保存」＝ダイアログを出さない
+// （毎回ダイアログだと project(1).gcproj が増殖して最新版が分からなくなるため）。
+ipcMain.handle(
+  'project:save',
+  async (_e, json: string, curPath?: string | null, asNew?: boolean) => {
+    let target = curPath && !asNew && existsSync(curPath) ? curPath : null
+    if (!target) {
+      const save = await dialog.showSaveDialog({
+        title: asNew ? 'プロジェクトを別名で保存' : 'プロジェクトを保存',
+        defaultPath: curPath || 'project.gcproj',
+        filters: [{ name: 'GiftCut Project', extensions: ['gcproj', 'json'] }]
+      })
+      if (save.canceled || !save.filePath) return { ok: false, error: 'キャンセル' }
+      target = save.filePath
+    }
+    try {
+      // 一時ファイルへ書いてから rename（書き込み中のクラッシュ/電源断で本体を壊さない）
+      const tmpFile = target + '.tmp'
+      writeFileSync(tmpFile, json, 'utf-8')
+      renameSync(tmpFile, target)
+      // 保存したものが壊れていないかを毎回検査する（保存自体は止めない）
+      inspectProject(json, 'save')
+      return { ok: true, path: target }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  }
+)
+
 ipcMain.handle('project:autosave', async (_e, json: string) => {
   try {
     // 非同期＋アトミック書き込み（メインスレッドを止めず、途中で落ちても壊れない）。
