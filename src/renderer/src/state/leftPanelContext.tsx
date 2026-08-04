@@ -12,8 +12,56 @@
 import { createContext, useContext } from 'react'
 // **部品の props 型に別名付けしない**（shared/ctxTypes.test.ts の R4）
 import type { Wired } from './wiredValue'
+// 束の中身の取り先。**配線を通さず、ここで集める**（下の useLeftPanelValue）
+import { useCueIcon } from './cueIconContext'
+import { useCurrentLookCtx } from './currentLookContext'
+import { useIconLibraryCtx } from './iconLibraryContext'
+import { useLabelsPresetsCtx } from './labelsPresetsContext'
+import { useMotionCtx } from './motionContext'
+import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackEngineCtx } from './playbackEngineContext'
+import { useProjectStateCtx } from './projectStateContext'
+import { useTelopBoxCtx } from './telopBoxContext'
+import { useTelopEditCtx } from './telopEditContext'
+import { useTelopLookCtx } from './telopLookContext'
+import { useTelopTemplateCtx } from './telopTemplateContext'
+import { useTimelineEditCtx } from './timelineEditContext'
+import { useTrackGeomCtx } from './trackGeomContext'
 
 export type LeftPanelValue = Wired<'leftPanel'>
+
+/**
+ * 束の**中身をここで集める**（2026-08-04）。理由は state/timelineOpsContext と同じ。
+ *
+ * `resetCount` だけ配線から受ける——**配線にしか実体が無い糊**で、
+ * リセットが何個に効くかをテロップ・切片・画像の3種類にまたがって数える。
+ */
+export function useLeftPanelValue(deps: { resetCount: () => number }) {
+  const { alignTelop } = useTelopEditCtx()
+  const { applyTemplate } = useTelopTemplateCtx()
+  const { changeIconAuto, setPersonIconForSelected } = useIconLibraryCtx()
+  const {
+    clearClipMotions, motionSelRef, motionRowsRef, nudgeClips, resetClipChannel, toggleKeys
+  } = useMotionCtx()
+  const { currentTime } = usePlaybackCtx()
+  const { pairedAudioOf } = useTrackGeomCtx()
+  const { panelStyleFor, updateSelectedStyle, updateSelectedText } = useTelopLookCtx()
+  const { reframeTarget } = useCurrentLookCtx()
+  const { savePreset } = useLabelsPresetsCtx()
+  const { seekTo } = usePlaybackEngineCtx()
+  const { setBoxAnchor } = useTelopBoxCtx()
+  const { setSelectedSegSpeed } = useTimelineEditCtx()
+  const { userTemplates } = useProjectStateCtx()
+  const { iconForCue } = useCueIcon()
+  return {
+    alignTelop, applyTemplate, changeIconAuto, clearClipMotions, currentTime,
+    motionSelRef, motionRowsRef, nudgeClips, pairedAudioOf, panelStyleFor, reframeTarget,
+    resetClipChannel,
+    resetCount: deps.resetCount, savePreset, seekTo, setBoxAnchor, setPersonIconForSelected,
+    setSelectedSegSpeed, toggleKeys, updateSelectedStyle, updateSelectedText, userTemplates,
+    iconForCue
+  }
+}
 
 const Ctx = createContext<LeftPanelValue | null>(null)
 

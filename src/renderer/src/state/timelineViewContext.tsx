@@ -17,8 +17,21 @@
 // `inView` から外れた帯は作らない。並んでいる数だけ作ると、
 // マウスを動かすたびに全部が作り直される（クリップ1000個で1操作 68ms かかっていた）。
 
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, useContext, useRef, useState, type ReactNode } from 'react'
 import type { Wired } from './wiredValue'
+// 束の中身の取り先。**配線を通さず、ここで集める**（下の useTimelineViewValue）
+import { motionLabel } from './useLabelsPresets'
+import { useAppChromeCtx } from './appChromeContext'
+import { useLaneHeightsCtx } from './laneHeightsContext'
+import { useMediaCtx } from './mediaContext'
+import { useMediaMetaCtx } from './mediaMetaContext'
+import { useSegLayoutCtx } from './segLayoutContext'
+import { useShortcutPrefsCtx } from './shortcutPrefsContext'
+import { useSilenceDuckCtx } from './silenceDuckContext'
+import { useTimelineBoxCtx } from './timelineBoxContext'
+import { useTimelineSpanCtx } from './timelineSpanContext'
+import { useTrackGeomCtx } from './trackGeomContext'
+import { useViewNavCtx } from './viewNavContext'
 
 // 型は手で書かず、詰めている実体から引く。**なぜ・どう腐らないかは state/wiredValue.ts**
 type W = Wired<'timelineView'>
@@ -79,6 +92,40 @@ export interface TimelineView {
 
   // ---- 寄る・引く ----
   fitTimelineZoom: W['fitTimelineZoom']
+}
+
+/**
+ * 束の**中身をここで集める**（2026-08-04）。理由は state/timelineOpsContext と同じ——
+ * 取り出す所と詰める所が同じなら、間の配線は要らない（`npm run passthrough` の②）。
+ *
+ * マウスの縦線（`hoverX`）だけは**ここで作る**。配線が持っていたが、
+ * 読むのも書くのもタイムラインの見え方だけで、外へ出る先が1つも無かった。
+ */
+export function useTimelineViewValue() {
+  const { cueTrack, vcLen, pairedAudioOf, trackNum, trackHOf } = useTrackGeomCtx()
+  const { mediaMeta } = useMediaMetaCtx()
+  const { srcOfSeg } = useMediaCtx()
+  const { silenceCut } = useSilenceDuckCtx()
+  const { shortcuts } = useShortcutPrefsCtx()
+  const { duration, rulerTicks } = useTimelineSpanCtx()
+  const { tool, setTool, snap } = useAppChromeCtx()
+  const { segLayout } = useSegLayoutCtx()
+  const { padTop, padBottom } = useLaneHeightsCtx()
+  const { inView, scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll } = useTimelineBoxCtx()
+  const { fitTimelineZoom } = useViewNavCtx()
+  /** マウスの縦線を出す位置（タイムラインの上をなぞっている所） */
+  const [hoverX, setHoverX] = useState<number | null>(null)
+  /** マウスの印の間引き用（毎回描くと動かすだけで重くなる） */
+  const lastHoverPaintRef = useRef(0)
+  return {
+    cueTrack, vcLen, mediaMeta, srcOfSeg, pairedAudioOf, trackNum, motionLabel,
+    silenceCut, shortcuts, duration,
+    tool, setTool, snap,
+    hoverX, setHoverX, lastHoverPaintRef,
+    segLayout, rulerTicks, padTop, padBottom, trackHOf, inView,
+    scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll,
+    fitTimelineZoom
+  }
 }
 
 const Ctx = createContext<TimelineView | null>(null)

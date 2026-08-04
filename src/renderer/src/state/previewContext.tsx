@@ -21,6 +21,43 @@
 
 import { createContext, useContext, type ReactNode } from 'react'
 import type { Wired } from './wiredValue'
+// 束の中身の取り先。**配線を通さず、ここで集める**（下の usePreviewCtxValue）
+import { TransportInfo } from '../components/panels/PreviewBars'
+import { clipXform } from '../lib/clipXform'
+import { startFader } from '../lib/faderDrag'
+import { useAppChromeCtx } from './appChromeContext'
+import { useAppLayoutCtx } from './appLayoutContext'
+import { useCueIcon } from './cueIconContext'
+import { useDoc } from './contentContext'
+import { useCurrentLookCtx } from './currentLookContext'
+import { useDragPreviewCtx } from './dragPreviewContext'
+import { useExportCtx } from './exportContext'
+import { useHistoryCtx } from './historyContext'
+import { useLayout } from './layoutContext'
+import { useMarkersCtx } from './markersContext'
+import { useMediaCtx } from './mediaContext'
+import { useMediaOpsCtx } from './mediaOpsContext'
+import { useNowShowingCtx } from './nowShowingContext'
+import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackEngineCtx } from './playbackEngineContext'
+import { usePreviewFrameCtx } from './previewFrameContext'
+import { usePreviewManipCtx } from './previewManipContext'
+import { useProxyCtx } from './proxyContext'
+import { useScreenshotCtx } from './screenshotContext'
+import { useSegLayoutCtx } from './segLayoutContext'
+import { useSel } from './selectionContext'
+import { useShortcutPrefsCtx } from './shortcutPrefsContext'
+import { useTelopBoxCtx } from './telopBoxContext'
+import { useTelopEditCtx } from './telopEditContext'
+import { useTelopLookCtx } from './telopLookContext'
+import { useTelopTemplateCtx } from './telopTemplateContext'
+import { useTimelineBoxCtx } from './timelineBoxContext'
+import { useTimelineSpanCtx } from './timelineSpanContext'
+import { useTrackGeomCtx } from './trackGeomContext'
+import { useTracksAdminCtx } from './tracksAdminContext'
+import { useTracksCtx } from './tracksContext'
+import { useVClipElsCtx } from './vClipElsContext'
+import { useVideoElsCtx } from './videoElsContext'
 
 // 型は手で書かず、詰めている実体から引く。**なぜ・どう腐らないかは state/wiredValue.ts**
 type W = Wired<'previewCtx'>
@@ -134,6 +171,96 @@ export interface PreviewCtxValue {
   setMasterVolume: W['setMasterVolume']
   /** 操作バーの右に出す状態（画質・fps・尺） */
   transportInfo: W['transportInfo']
+}
+
+/**
+ * 束の**中身をここで集める**（2026-08-04）。理由は state/timelineOpsContext と同じ。
+ *
+ * 配線から一緒に連れてきた物が2つある。どちらも**プレビューの見出し行の話**で、
+ * 配線に置く理由が無かった:
+ *
+ *   `monitorAspect`  … 枠の形（比率の設定そのまま）
+ *   `transportInfo`  … 右端に出す「状態」。**押す物ではないので操作バーに置かない**
+ *                      （混ぜると再生ボタンが端へ押しやられる。1段で済むと縦が26px 広がる）
+ *
+ * `resetCount` だけ配線から受ける——3種類にまたがって数える糊なので、
+ * どの心臓の持ち物でもない。
+ */
+export function usePreviewCtxValue(deps: { resetCount: () => number }) {
+  const { orderedTabs, TAB_DEFS, pickTab, setTabMenu, setTabOverflow } = useAppLayoutCtx()
+  const { monitorTab, setTabOrder } = useLayout()
+  const { shortcuts } = useShortcutPrefsCtx()
+  const { cueTrack, vcLen } = useTrackGeomCtx()
+  const { srcOfSeg, proxyPct, videoSrc } = useMediaCtx()
+  const { loadVideo, updateSource } = useMediaOpsCtx()
+  const { segLayoutRef, videoTLen } = useSegLayoutCtx()
+  const { segsRef, segIdCounter } = useDoc()
+  const { suppressHistoryRef } = useHistoryCtx()
+  const { initializedForPathRef } = useAppChromeCtx()
+  const {
+    stopPlayback, xfBStyle, togglePlay, skipSec, stepFrame, seekAndReveal, handleVideoEnded
+  } = usePlaybackEngineCtx()
+  const { clearSegSel } = useSel()
+  const { toggleTrack } = useTracksCtx()
+  const { updateCueText, applyIconToCue } = useTelopEditCtx()
+  const { applyTemplateToCue } = useTelopTemplateCtx()
+  const { duration } = useTimelineSpanCtx()
+  const { draggingMediaRef } = useDragPreviewCtx()
+  const { screenRef } = useTimelineBoxCtx()
+  const { videoRef, videoBRef, videoElsRef, elKey, activeHalf } = useVideoElsCtx()
+  const { effActiveSrcId, curAdjustCss, curBlank, reframeTarget } = useCurrentLookCtx()
+  const { previewSources, activeCues } = useNowShowingCtx()
+  const { previewUrl, previewRes, setPreviewRes } = useProxyCtx()
+  const { xfPreview, xfNextBUrl, xfDipOverlay, transOverlay, videoMainStyle } =
+    usePreviewFrameCtx()
+  const { v1Hidden, setTrackVolume } = useTracksAdminCtx()
+  const { windowVClips, vcRefCb } = useVClipElsCtx()
+  const { iconForCue } = useCueIcon()
+  const {
+    onVideoReframeStart, onVideoRotateStart, resetVideoZoom, zoomAnchor, toggleZoomAnchor,
+    onZoomAnchorStart, selectPreviewOverlay
+  } = usePreviewManipCtx()
+  const { resetSelectedTelops, telopResetCount, onTelopPointerDown, onTelopResizeStart } =
+    useTelopBoxCtx()
+  const { editorTextRef, setEditorSel, clearRunsInSelection } = useTelopLookCtx()
+  const { jumpMarker, addMarkerAtPlayhead } = useMarkersCtx()
+  const { captureScreenshot } = useScreenshotCtx()
+  const { ratio, masterVolume, setMasterVolume } = useExportCtx()
+  const { fps, playRateUI } = usePlaybackCtx()
+  /** プレビューの枠の形（比率の設定そのまま） */
+  const monitorAspect = ratio === '16:9' ? '16 / 9' : ratio === '9:16' ? '9 / 16' : '1 / 1'
+  const transportInfo = (
+    <TransportInfo
+      previewRes={previewRes}
+      onPreviewRes={setPreviewRes}
+      hasVideo={!!videoSrc}
+      fps={fps}
+      playRate={playRateUI}
+      duration={duration}
+      master={masterVolume}
+      onMaster={(v) => setMasterVolume(Math.min(1, Math.max(0, v)))}
+    />
+  )
+  return {
+    orderedTabs, TAB_DEFS, monitorTab, pickTab, setTabMenu, setTabOverflow, setTabOrder,
+    shortcuts, cueTrack, srcOfSeg, loadVideo, updateSource, segLayoutRef, segsRef, segIdCounter,
+    suppressHistoryRef, initializedForPathRef, stopPlayback, clearSegSel, toggleTrack, duration,
+    draggingMediaRef,
+    screenRef, videoRef, videoBRef, videoElsRef, elKey, activeHalf, effActiveSrcId,
+    previewSources, previewUrl, monitorAspect,
+    xfPreview, xfBStyle, xfNextBUrl, xfDipOverlay, transOverlay, videoMainStyle,
+    curAdjustCss, curBlank, v1Hidden, videoTLen, activeCues, windowVClips,
+    vcRefCb, clipXform, vcLen, iconForCue, proxyPct,
+    onVideoReframeStart, onVideoRotateStart, resetVideoZoom, resetCount: deps.resetCount,
+    zoomAnchor, toggleZoomAnchor, onZoomAnchorStart,
+    resetSelectedTelops, telopResetCount,
+    selectPreviewOverlay, reframeTarget, onTelopPointerDown, onTelopResizeStart,
+    editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
+    applyTemplateToCue, applyIconToCue,
+    togglePlay, skipSec, stepFrame, jumpMarker, addMarkerAtPlayhead, captureScreenshot,
+    seekAndReveal, handleVideoEnded, startFader, setTrackVolume, setMasterVolume,
+    transportInfo
+  }
 }
 
 const Ctx = createContext<PreviewCtxValue | null>(null)
