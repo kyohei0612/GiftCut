@@ -53,29 +53,21 @@
 // - `cutSelected` … 切り取り（コピーしてから消す）
 // - `regroupCopies` … 複製した物の「組」を振り直す（元の組と混ざらないように）
 // - `duplicateSelected` … テロップを複製する
-// - `razorSegment` … 切片を指定位置で2つに割る（レザー）
 // - `deleteSelectedSE` … 選んだ効果音を消す
-// - `rippleDeleteVideoSegments` … 本編の切片を消して後ろを詰める
-// - `toggleBlankSelectedVideo` … 映像だけ消す／戻す（音と長さは残す）
 // - `duplicateClipsFromMenu` … 右クリックからの複製（種類ごと）
-// - `duplicateSelectedSegments` … 本編の切片を複製する
-// - `setSelectedSegSpeed` … 再生速度を変える。**後ろも同量ずらして同期を保つ**
-// - `setSegRotate` … 切片の回転角を直接指定する（自由回転のつまみ用）
-// - `deleteVideoSegmentsLeavingGap` … 切片を消して**空白を残す**（詰めない）
-// - `allContentEdges` … 本編に載っている物の端の時刻を全部集める
-// - `mapContentTimes` … **5種類まとめて**時刻を付け替える。**このファイルの心臓**
-// - `collapseContent` … ある区間を捨てて後ろを詰める（`mapContentTimes` を使う）
+// ※ allContentEdges / mapContentTimes / collapseContent は state/useContentShift へ出した
+// ※ 本編の切片まわり8つ（razorSegment / rippleDeleteVideoSegments /
+//   toggleBlankSelectedVideo / duplicateSelectedSegments / setSelectedSegSpeed /
+//   setSegRotate / deleteVideoSegmentsLeavingGap / splitVideoAtPlayhead）は
+//   state/useSegmentEdit へ出した。**返す物の名前は変えていない**
 // - `rippleToPrevCut` … 前のカットまで詰める（途中に端があればそこで止まる）
 // - `rippleToNextCut` … 次のカットまで詰める
-// - `splitVideoAtPlayhead` … 再生ヘッドで本編を割る
 // - `cutAtPlayhead` … 再生ヘッドで、載っている物も含めて切る
 
 import {
-  clamp, layoutSegs, qFrame, rippleEnd, rippleShifted, rippleStart,
-  segSpeed, segTLen, tidyGaps, tToSource
+  clamp, qFrame, rippleEnd, rippleShifted, rippleStart, segSpeed
 } from '../../../shared/timeline'
 import { nextGroupId, remapGroups } from '../../../shared/group'
-import { collapseAt } from '../../../shared/ripple'
 import { shouldCut, spansCut } from '../../../shared/cutScope'
 // 重なりの解決。**呼び方は state/cueOverwrite に1つだけ**（掴む側・貼り付けも同じ）
 import { overwriteOverlapped } from './cueOverwrite'
@@ -83,6 +75,10 @@ import { overwriteOverlapped } from './cueOverwrite'
 import { useGapClose } from './useGapClose'
 // 無音を探して詰める側。**測って外した**（受け取る3・返す1＝mapContentTimes は借りるだけ）
 import { useSilenceCut } from './useSilenceCut'
+// 時刻を付け替える土台（詰める側の心臓）。**またぐからこそ土台**——先にここを出した
+import { useContentShift } from './useContentShift'
+// 本編の切片そのものの編集。**土台を先に出したら受け取る7・返す0で外れた**
+import { useSegmentEdit } from './useSegmentEdit'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, SEClip, VClip, VSeg } from '../lib/projectTypes'
 import type { SegLayout } from '../lib/projectTypes'
@@ -140,15 +136,15 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     shiftAfter, silenceCut, silenceCuts, stopPlayback, telopLocked, vcLen, videoRef
   } = deps
   const {
-    cues, setCues, cuesRef, segments, setSegments, segsRef, segIdCounter,
-    seClips, setSeClips, seClipsRef, seIdCounter, imgClips, setImgClips, imgClipsRef,
-    imgIdCounter, vClips, setVClips, vClipsRef, vClipIdCounter, setMarkers
+    cues, setCues, setSegments, segIdCounter,
+    seClips, setSeClips, seIdCounter, imgClips, setImgClips,
+    imgIdCounter, vClips, setVClips, vClipIdCounter
   } = useDoc()
   const {
-    selectedIds, setSelectedIds, selectedVideoIds, setSelectedVideoIds,
-    selectedAudioIds, setSelectedAudioIds, selectedSeIds, setSelectedSeIds,
+    selectedIds, setSelectedIds, selectedVideoIds,
+    selectedAudioIds, selectedSeIds, setSelectedSeIds,
     selectedImgIds, setSelectedImgIds, selectedVClipIds, setSelectedVClipIds,
-    selectedTrans, setSelectedTrans, isSelected, isVideoSel, clearSegSel,
+    isSelected, clearSegSel,
     clearAll: clearAllSelections
   } = useSel()
   const { trackStates } = useTracksCtx()
@@ -157,8 +153,14 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
 
   // 空きを詰める3つは state/useGapClose。**自分で心臓を見に行く**ので、
   // ここから渡すのは4つだけ（測って外した。受け取る2・返す0）
+  // 土台をいちばん先に。**名前をそのまま取り出す**ので、呼んでいる所は書き換えなくてよい
+  const { allContentEdges, mapContentTimes, collapseContent } = useContentShift({ vcLen })
   const gap = useGapClose({ mainLocked, vcLen, shiftAfter, seekTo })
-  // 無音カットも同じ形。**心臓（mapContentTimes）は連れて行かせず、貸す**
+  // 本編の切片まわり。**心臓（mapContentTimes）は貸すだけ**
+  const seg = useSegmentEdit({
+    mainLocked, makeGapSeg, segOps, segLayoutRef,
+    shiftAfter, mapContentTimes, revealPlayhead, setTime, stopPlayback
+  })
   const silence = useSilenceCut({
     mainLocked, commitPending, cutRangeFromSegs, segOps,
     silenceCut, setSilenceCut, setSilenceOpen, silenceCuts, mapContentTimes
@@ -335,32 +337,6 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     setCues(next ?? merged)
     setSelectedIds(dupes.map((d) => d.id))
   }
-  // ---- 動画セグメント編集 ----
-  // ソース時間 atSrc で切片を2つに分割
-  function razorSegment(seg: VSeg, atSrc: number): void {
-    if (mainLocked()) return
-    if (atSrc <= seg.srcStart + 0.03 || atSrc >= seg.srcEnd - 0.03) return
-    const nid = segIdCounter.current++
-    // 尻/間のトランジションは右半分へ移るので、その帯を選択中なら選択も付け替える
-    // （放置すると右パネルが空になり Delete も無反応になる）
-    if (selectedTrans?.segId === seg.id)
-      setSelectedTrans(
-        selectedTrans.kind === 'in' ? selectedTrans : { segId: nid, kind: selectedTrans.kind }
-      )
-    setSegments((prev) => {
-      const out: VSeg[] = []
-      for (const s of prev) {
-        if (s.id === seg.id) {
-          // 境界属性は分割で正しい端へ寄せる: 頭のtransIn/afadeInは左に残し、
-          // 尻のtransOut/afadeOut と 次クリップへのxfade は右半分（新しい尻）へ移す。
-          // その他のプロパティ（srcId/色調整/回転/ズーム/クロップ/音量等）は両半分に引き継ぐ。
-          out.push({ ...s, srcEnd: atSrc, transOut: undefined, xfade: undefined, afadeOut: undefined })
-          out.push({ ...s, id: nid, srcStart: atSrc, transIn: undefined, afadeIn: undefined })
-        } else out.push(s)
-      }
-      return out
-    })
-  }
   function deleteSelectedSE(): void {
     if (!selectedSeIds.length) return
     // ロック中トラックのクリップは残す
@@ -371,62 +347,6 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
   }
 
 
-  function rippleDeleteVideoSegments(): void {
-    if (mainLocked()) return
-    const ids = new Set([...selectedVideoIds, ...selectedAudioIds])
-    if (!ids.size) return
-    let tAcc = 0
-    const removals: { from: number; gap: number }[] = []
-    for (const s of segments) {
-      const len = segTLen(s)
-      if (ids.has(s.id)) removals.push({ from: tAcc, gap: len })
-      tAcc += len
-    }
-    removals.sort((a, b) => b.from - a.from) // 降順（先に後方の区間を詰める）
-    // 消した中で一番手前。詰めたあとの「消した場所」＝次に見たい所
-    const holeStart = removals.length ? Math.min(...removals.map((r) => r.from)) : null
-    setSegments((prev) => {
-      // 消す切片の左隣に付いていた「間ディゾルブ」は、そのまま残すと別の2クリップ間で
-      // 勝手に復活してしまうので掃除する。右隣の頭トランジションも同様。
-      const out: VSeg[] = []
-      for (let i = 0; i < prev.length; i++) {
-        const cur = prev[i]
-        if (ids.has(cur.id)) continue
-        let g = cur
-        if (i + 1 < prev.length && ids.has(prev[i + 1].id) && g.xfade) g = { ...g, xfade: undefined }
-        if (i > 0 && ids.has(prev[i - 1].id) && g.transIn) g = { ...g, transIn: undefined }
-        out.push(g)
-      }
-      return out
-    })
-    // 区間より後ろは詰める／区間の中にあったものは区間の頭へ寄せて、極短になったら消す
-    // （「消したシーンの字幕が次のシーンに乗り移る」のを防ぐ）
-    const clampT = (t: number): number => {
-      let v = t
-      for (const r of removals) {
-        if (v >= r.from + r.gap) v -= r.gap
-        else if (v > r.from) v = r.from
-      }
-      return v
-    }
-    // 除去区間の中に居た物は、区間の頭へ寄せる（映像との同期を保つ）
-    mapContentTimes(clampT)
-    // 消した所へ再生ヘッドを寄せる（Q/W のリップルトリムと同じ扱いに揃える）
-    if (holeStart != null) {
-      setTime(clamp(holeStart, 0, durationRef.current))
-      // 上と同じ（詰めた先が枠の外なら見せる）
-      requestAnimationFrame(revealPlayhead)
-    }
-    clearSegSel()
-  }
-  // 選択中の動画切片を「黒ブランク」にトグル（長さ維持＝詰めない。Deleteの既定動作）
-  function toggleBlankSelectedVideo(): void {
-    if (!selectedVideoIds.length || trackStates['V1']?.locked) return
-    const allBlank = segments.filter((s) => isVideoSel(s.id)).every((s) => s.videoBlank)
-    setSegments((prev) =>
-      prev.map((s) => (isVideoSel(s.id) ? { ...s, videoBlank: !allBlank } : s))
-    )
-  }
 
   /**
    * 右クリックの「複製」。選んでいるクリップを、自分のすぐ後ろに複製する。
@@ -435,7 +355,7 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
    */
   function duplicateClipsFromMenu(kind: 'seg' | 'se' | 'img' | 'vclip'): void {
     if (kind === 'seg') {
-      duplicateSelectedSegments()
+      seg.duplicateSelectedSegments()
       return
     }
     if (kind === 'vclip') {
@@ -475,127 +395,7 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     setImgClips((prev) => [...prev, ...dupes])
     setSelectedImgIds(dupes.map((d) => d.id))
   }
-  function duplicateSelectedSegments(): void {
-    if (!selectedVideoIds.length || trackStates['V1']?.locked) return
-    stopPlayback()
-    const idMap = new Map(selectedVideoIds.map((id) => [id, segIdCounter.current++]))
-    setSegments((prev) => {
-      const out: VSeg[] = []
-      for (const s of prev) {
-        if (isVideoSel(s.id)) {
-          // 複製は「元→コピー」が直後に挿入されるので、尻の境界属性(transOut/xfade)は
-          // コピー側（＝元が接していた次クリップに今接する方）へ移す。元は頭のtransInを保持。
-          // その他のプロパティ（srcId/色調整/回転/ズーム/クロップ/音量等）はコピーにも引き継ぐ
-          out.push({ ...s, transOut: undefined, xfade: undefined })
-          out.push({ ...s, id: idMap.get(s.id) as number, transIn: undefined })
-        } else out.push(s)
-      }
-      return out
-    })
-    setSelectedVideoIds([...idMap.values()])
-    setSelectedAudioIds([])
-    // 複製で伸びたぶん、最後のコピー位置より後ろの素材を後ろへずらす（挿入配置と同じ考え方）
-    const lay = layoutSegs(segsRef.current)
-    const sel = lay.filter((L) => isVideoSel(L.seg.id))
-    if (sel.length) {
-      const grow = sel.reduce((a, L) => a + L.len, 0)
-      shiftAfter(sel[sel.length - 1].tEnd, grow)
-    }
-  }
-  // 選択中の動画切片に再生速度を設定（タイムライン尺・書き出しに反映）
-  function setSelectedSegSpeed(speed: number): void {
-    if (!selectedVideoIds.length || trackStates['V1']?.locked) return
-    stopPlayback()
-    // 速度でクリップ長が変わるので、その後ろの素材も同量シフトして同期を保つ
-    const lay = layoutSegs(segsRef.current)
-    const sel = lay.filter((L) => isVideoSel(L.seg.id))
-    const before = sel.reduce((a, L) => a + L.len, 0)
-    // **正典（segTLen）に通す。**ここは 2026-08-03 まで同じ式を手書きしていて、
-    // 正典にある `Math.max(0, ...)` と `速度が0以下なら等速` が両方抜けていた
-    //（速度0で Infinity になり、後ろの素材が消し飛ぶ）。
-    const after = sel.reduce((a, L) => a + segTLen({ ...L.seg, speed }), 0)
-    setSegments((prev) => prev.map((s) => (isVideoSel(s.id) ? { ...s, speed } : s)))
-    if (sel.length) shiftAfter(sel[sel.length - 1].tEnd, after - before)
-  }
-  // 指定 seg の回転角を直接設定（自由回転ハンドル用）。deg は 0..360 に正規化。
-  function setSegRotate(segId: number, deg: number): void {
-    const d = ((Math.round(deg) % 360) + 360) % 360
-    setSegments((prev) =>
-      prev.map((s) => (s.id === segId ? { ...s, rotate: d === 0 ? undefined : d } : s))
-    )
-  }
 
-  /**
-   * 選んでいる本編クリップを消して、そこを「空き」として残す（詰めない）。
-   *
-   * 後ろのクリップもテロップも位置が動かないので、全体のタイミングを崩さずに
-   * 一部だけ抜ける。詰めたいときは F（削除して詰める）を使う。
-   */
-  function deleteVideoSegmentsLeavingGap(): void {
-    if (mainLocked()) return
-    const ids = new Set([...selectedVideoIds, ...selectedAudioIds])
-    if (!ids.size) return
-    const lay = layoutSegs(segsRef.current)
-    if (!lay.some((L) => ids.has(L.seg.id))) return
-    const next = tidyGaps(
-      lay.map((L) => (ids.has(L.seg.id) ? makeGapSeg(L.len) : L.seg)),
-      segOps
-    )
-    setSegments(next)
-    clearSegSel()
-  }
-
-  function allContentEdges(): number[] {
-    const out: number[] = []
-    for (const c of cuesRef.current) out.push(c.start, c.end)
-    for (const c of seClipsRef.current) out.push(c.tStart, c.tStart + c.duration)
-    for (const c of imgClipsRef.current) out.push(c.tStart, c.tStart + c.duration)
-    for (const c of vClipsRef.current) out.push(c.tStart, c.tStart + vcLen(c))
-    return out
-  }
-  /**
-   * 本編に載っている物の時刻を、**5種類まとめて**同じ規則で付け替える。
-   *
-   * 相手はテロップ・効果音・画像・映像クリップ・目印の5種類。
-   * **1種類でも掛け忘れると、そこだけ置き去りになる**（音や文字だけ元の位置に
-   * 残る）。編集中は気づきにくく、書き出してから分かるので1か所にまとめる。
-   * 種類が増えたときも、ここへ足せば全員に行き渡る。
-   *
-   * 渡す規則は「時刻→時刻」の関数だけ。詰める・ずらす・複数区間を畳む、
-   * どれもこの形で書ける。
-   *
-   * **端は別々に付け替える。** テロップの片端だけが対象区間にかかることが
-   * あり、まとめて動かすと残すべき尻まで消える。潰れて長さが0になった物は
-   * ここで落とす。
-   *
-   * **動かない物は同じ物のまま返す。** 作り直すと、変わっていない段まで
-   * 描き直しになる。
-   */
-  function mapContentTimes(at: (t: number) => number): void {
-    const atStart = <T extends { tStart: number }>(x: T): T => {
-      const t = at(x.tStart)
-      return t === x.tStart ? x : { ...x, tStart: t }
-    }
-    setCues((prev) =>
-      prev
-        .map((c) => ({ ...c, start: at(c.start), end: at(c.end) }))
-        .filter((c) => c.end - c.start > 0.05)
-    )
-    setSeClips((prev) => prev.map(atStart))
-    setImgClips((prev) => prev.map(atStart))
-    // 映像レイヤーも動かす（本編とズレると位置リンクが崩れる）
-    setVClips((prev) => prev.map(atStart))
-    setMarkers((prev) =>
-      prev.map((m) => {
-        const t = at(m.t)
-        return t === m.t ? m : { ...m, t }
-      })
-    )
-  }
-  /** 区間 [rmStart, rmEnd] を捨てて、後ろを詰める */
-  function collapseContent(rmStart: number, rmEnd: number, removeLen: number): void {
-    mapContentTimes((t) => collapseAt(t, rmStart, rmEnd, removeLen))
-  }
   function rippleToPrevCut(): void {
     if (mainLocked()) return
     stopPlayback()
@@ -692,15 +492,6 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     setSelectedIds([])
   }
 
-  // 再生ヘッドで動画を分割（切片版・Ctrl+K が動画選択時）
-  function splitVideoAtPlayhead(): void {
-    if (mainLocked()) return
-    // 分割はフレーム境界で（素材fpsのカット点に揃える）
-    const src = tToSource(segLayoutRef.current, qFrame(currentTimeRef.current, fpsRef.current))
-    if (!src) return
-    const seg = segLayoutRef.current[src.index]?.seg
-    if (seg) razorSegment(seg, src.srcTime)
-  }
 
   /**
    * 再生ヘッドで切る。**選んでいる物があるかどうかで意味が変わる。**
@@ -730,7 +521,7 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
       const L = segLayoutRef.current.find((x) => spans(x.tStart, x.tEnd))
       const segSel =
         selectedVideoIds.includes(L?.seg.id ?? -1) || selectedAudioIds.includes(L?.seg.id ?? -1)
-      if (L && want(segSel)) razorSegment(L.seg, L.seg.srcStart + (t - L.tStart) * segSpeed(L.seg))
+      if (L && want(segSel)) seg.razorSegment(L.seg, L.seg.srcStart + (t - L.tStart) * segSpeed(L.seg))
     }
 
     // ---- テロップ ----
@@ -836,21 +627,28 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     }
   }
 
+  // **外へ出した物も、ここから同じ名前で返す。**
+  // 受け取る側（useAppWiring・品書き・キー操作）を1行も書き換えずに済ませるため
   return {
-    deleteSelected, rippleDeleteSelected, cutSelected, duplicateSelected, razorSegment,
-    deleteSelectedSE, rippleDeleteVideoSegments,
-    // 無音カットは state/useSilenceCut へ出した（2026-08-04）
+    deleteSelected, rippleDeleteSelected, cutSelected, duplicateSelected,
+    deleteSelectedSE, duplicateClipsFromMenu,
+    rippleToPrevCut, rippleToNextCut, cutAtPlayhead,
+    // 無音カット（state/useSilenceCut）
     findSilences: silence.findSilences,
     applySilenceCut: silence.applySilenceCut,
-    toggleBlankSelectedVideo, duplicateClipsFromMenu, duplicateSelectedSegments,
-    setSelectedSegSpeed, setSegRotate, deleteVideoSegmentsLeavingGap,
-    // allContentEdges / mapContentTimes / collapseContent は返さない。
-    // 受け取る所が無かった（この中でだけ使う。return の中は noUnusedLocals が見ない）
-    //
-    // 空きを詰める3つ（closeGapAtPlayhead / closeSelectedGaps / closeGap）は
-    // **state/useGapClose へ出した**（2026-08-04。受け取る2・返す0で外れた）
+    // 空きを詰める（state/useGapClose）
     closeGapAtPlayhead: gap.closeGapAtPlayhead,
     closeSelectedGaps: gap.closeSelectedGaps,
-    rippleToPrevCut, rippleToNextCut, splitVideoAtPlayhead, cutAtPlayhead
+    // 本編の切片（state/useSegmentEdit）
+    razorSegment: seg.razorSegment,
+    rippleDeleteVideoSegments: seg.rippleDeleteVideoSegments,
+    toggleBlankSelectedVideo: seg.toggleBlankSelectedVideo,
+    duplicateSelectedSegments: seg.duplicateSelectedSegments,
+    setSelectedSegSpeed: seg.setSelectedSegSpeed,
+    setSegRotate: seg.setSegRotate,
+    deleteVideoSegmentsLeavingGap: seg.deleteVideoSegmentsLeavingGap,
+    splitVideoAtPlayhead: seg.splitVideoAtPlayhead
+    // allContentEdges / mapContentTimes / collapseContent は返さない
+    //（この中でだけ使う。return の中は noUnusedLocals が見ない）
   }
 }
