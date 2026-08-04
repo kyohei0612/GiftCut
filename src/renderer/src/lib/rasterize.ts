@@ -13,11 +13,11 @@ import {
   animTurbulence,
   buildTelopSVG,
   textRectInFrame,
-  hexToRgba,
   ICON_BASE_PX,
   LINE_BASE,
   type AnimState
 } from './telopStyle'
+import { hexToRgba } from './telopFill'
 import type { Cue } from './srt'
 
 // 本文描画は telopStyle.buildTelopSVG（本家paint-order:strokeモデル）に一本化。

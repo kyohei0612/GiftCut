@@ -5,7 +5,8 @@
 // viewBox を preserveAspectRatio=meet でカードに合わせるので、
 // 文字の大きさや装飾が変わっても、勝手に一番大きく収まる。
 import type { JSX } from 'react'
-import { buildTelopSVG, hexToRgba } from '../lib/telopStyle'
+import { buildTelopSVG } from '../lib/telopStyle'
+import { hexToRgba } from '../lib/telopFill'
 import { TELOP_CATS, type TelopTemplate } from '../lib/telopTemplates'
 // カーソルに何も握らせないための透明な1px。**消し方はここに1つだけ置いてある**
 import { EMPTY_DRAG_IMG } from '../lib/dragChip'

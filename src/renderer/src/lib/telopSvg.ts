@@ -26,9 +26,10 @@ import {
   MITER_LIMIT,
   SHADOW_BLUR_COEF,
   SHADOW_DIST_COEF,
-  SHADOW_SPREAD_COEF,
-  resolveGradMid
+  SHADOW_SPREAD_COEF
 } from './telopStyle'
+// **中間点の決め方は ./telopFill に1つだけ。** 画面（CSS）と同じ結果にするため
+import { resolveGradMid } from './telopFill'
 // 文字の実寸はブラウザに聞く（./telopMeasure）。**画面と同じ canvas を使い回す**ので、
 // SVG 側でも自前に測らない。2026-08-03 まで ./telopStyle 経由で借りていたが、
 // あちらのスタイル定数とは無関係だったので直に引く。
