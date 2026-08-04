@@ -108,7 +108,10 @@ const DEBT_INDEX = new Set([
   // ./useProjectTemplates へ出して 667 → 537 にし、取説を付けて照合下に入れた
   // telopStyle.ts は**返済済み**（2026-08-03）。測る112行を ./telopMeasure へ出して
   // 623 → 510 にし、残り10行ぶんは取説（// ## 中身）を付けて機械の照合下に入れた。
-  'src/renderer/src/state/useTimelineDrag.ts', // 577
+  // useTimelineDrag は**返済済み**（2026-08-04）。596 → 295。
+  // 掴む物で3つ: ./useTrackSelectTool（トラック選択ツール。**土台**）・
+  // ./useTelopDrag（テロップを動かす／端を摘む）・ここ（擦る／囲う／束ねる）。
+  // **どの群も連れて行く局所の名前が0**だった（受け取るのは import だけ）。
   'src/renderer/src/lib/telopSvg.ts', // 564
   'src/renderer/src/state/useClipDrag.ts', // 534
   // useLibraries は**返済済み**（2026-08-03）。整理（★・フォルダ・畳み）を
