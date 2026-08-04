@@ -67,6 +67,18 @@ function harnessNames() {
   for (const m of src.matchAll(/^(?:const|let|var)\s+(.+?)\s*=/gm))
     for (const p of m[1].split(',')) if (/^\w+$/.test(p.trim())) out.add(p.trim())
   for (const m of src.matchAll(/^(?:async )?function (\w+)/gm)) out.add(m[1])
+  // 束で受け取っている物（`const { check, section, … } = makeRunReport(…)`）。
+  //
+  // **run.mjs の道具を lib/ へ出した日から、これが無いと見張りが空になる**
+  // （2026-08-04）。`check` も `section` も宣言ではなく分割代入で入ってくるので、
+  // 上の1行ずつの形では1つも拾えない。拾えないと `have` に載らず、
+  // **受け取り忘れがあっても「書き忘れなし」と出る**——落ちない代わりに黙って死ぬ
+  // 型（CLAUDE.md 7番）。実際、出した直後は 09c / 09d の書き忘れ2件が消えていた。
+  for (const m of src.matchAll(/^const \{([^}]*)\} =/gm))
+    for (const p of m[1].split(',')) {
+      const n = p.split(':')[0].trim()
+      if (/^\w+$/.test(n)) out.add(n)
+    }
   return out
 }
 

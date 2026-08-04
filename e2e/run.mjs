@@ -26,28 +26,40 @@
 // **--only のときだけ飛ばす**（絞ると必ず赤いが通しでは緑、という嘘の赤を消す）。
 // **無条件に全部を緑にはしない**——それでは絞った確認が何も見ていないことになる。
 // ============================================================================
+//
+// ## この段取りの中身（**確認そのものは e2e/checks/*.mjs にある**）
+//
+// 1,024行あった。**500行を超えると AI は通しで読まず grep に切り替わる**ので、
+// 話題ごとに4本出した（2026-08-04）。**出した中身は1行も書き換えていない。**
+//
+//   引数を読む           ./lib/runArgs     --only / --changed / --ratio / --fast
+//   記録と札・1件を回す  ./lib/runReport   check / section / banner / 落ちた時の控え
+//   画面の状態の見張り   ./lib/runView     VIEW_STATE / 起動時との差 / 戻す
+//   最後のまとめ         ./lib/runSummary  件数・重い順・ng-report.json
+//
+// **ここに残したのは「順番」だけ**——起動して、素材を用意して、道具を束（C）に
+// まとめて、checks/*.mjs を章の順に呼ぶ。**章の順に頼っている確認があるので
+// 並べ替えないこと**（絞ると赤いが通しでは緑、という嘘の赤が出る）。
+//
+// 道具を1つずつ渡さず**束のまま渡している**のは、確認を1つ足すたびに
+// 引数の並びが伸びるのを止めるため。足す物はこのファイルの `C` に1行足す。
 import { _electron as electron } from 'playwright'
-import { spawn, execSync } from 'node:child_process'
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
-  existsSync,
-  readFileSync,
-  copyFileSync,
-  readdirSync,
-  statSync
-} from 'node:fs'
-import { tmpdir } from 'node:os'
+import { spawn } from 'node:child_process'
+import { mkdirSync, rmSync, existsSync, copyFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
-import { clearModals, watchdog } from './dismiss.mjs'
-// 素材作りと後片付けは ./lib/e2eFixture（前回の残りを消すのもここ）
-import { cleanLeftovers, makeFixture } from './lib/e2eFixture.mjs'
-// --changed（変更から確認を引く対応表）は ./lib/changedArea
-import { changedKeywords } from './lib/changedArea.mjs'
+import { watchdog } from './dismiss.mjs'
+// 素材作りと後片付けは ./lib/e2eFixture（前回の残りを消すのも makeFixture の中）
+import { makeFixture } from './lib/e2eFixture.mjs'
+// 引数の解釈（--only / --changed / --ratio …）は ./lib/runArgs
+import { readRunArgs } from './lib/runArgs.mjs'
+// 記録と札、1件を回す段取りは ./lib/runReport
+import { makeRunReport } from './lib/runReport.mjs'
+// 画面の状態（開き直しても戻らない物）の見張りは ./lib/runView
+import { makeViewState } from './lib/runView.mjs'
+// 最後のまとめは ./lib/runSummary
+import { printSummary } from './lib/runSummary.mjs'
 // 書き出し先の指定（置き場・名前・入れ物）は ./lib/exportTarget
 import { makeExportTools } from './lib/exportTarget.mjs'
 // 確認の窓をもう1枚のディスプレイへ寄せる
@@ -59,62 +71,10 @@ import { makeAppHelpers } from './lib/appHelpers.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
-const SLOW = process.argv.includes('--slow')
-// --fast: 人が眺めるための「間」を置かない（機械が回すとき用）
-const FAST = process.argv.includes('--fast')
-const KEEP = process.argv.includes('--keep')
-// 開発中は追加した項目だけ回したい。--only=キーワード で名前か章を絞る。
-// ただし前の項目の状態を引き継ぐ確認もあるので、**最終確認は必ず絞らずに通す**。
-const argAfter = (flag) => {
-  const i = process.argv.indexOf(flag)
-  return i >= 0 ? process.argv[i + 1] : null
-}
-// カンマで複数指定できる（--only=タブ,別ウィンドウ）。
-// 1つしか指定できないと、章をまたいで起きることを再現できない。
-// 実際「通しでだけ落ちる14件」の調査で、章をまたいで回せずに困った。
-const ONLY = ((process.argv.find((a) => a.startsWith('--only=')) ?? '').slice(7) ||
-  argAfter('--only') ||
-  '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean)
-const CHANGED = process.argv.includes('--changed')
-// 見た目を見たいだけのとき用。確認は一切せず、起動して復元して1枚撮って終わる。
-// これが無いと、画面を見るためだけにテストを回すことになる。
-const SHOT_ONLY = process.argv.includes('--shot')
-/**
- * 画面の縦横比。既定は 16:9。
- *
- *   npm run e2e -- --ratio=9:16   ショート（縦長）で通す
- *
- * **縦長は横長の使い回しでは通らない。** 幅と高さが入れ替わるので、
- * テロップの箱・プレビューの当たり判定・書き出しの寸法が別々の壊れ方をしうる。
- * ショートを作る人には毎回効く所なので、同じ確認を縦長でも回せるようにする。
- * 比率は「プロジェクトを戻すたび」に当て直す（読み込みで 16:9 に戻るため）。
- */
-const RATIO = (process.argv.find((a) => a.startsWith('--ratio=')) ?? '').slice(8) || '16:9'
-if (!['16:9', '9:16', '1:1'].includes(RATIO)) {
-  console.error(`知らない比率です: ${RATIO}（16:9 / 9:16 / 1:1）`)
-  process.exit(2)
-}
-// --changed で選ばれた言葉。ONLY と同じ扱いで絞る
-const CHANGED_INFO = CHANGED ? changedKeywords() : null
-if (CHANGED_INFO) {
-  ONLY.push(...CHANGED_INFO.words)
-  console.log(
-    `変更に関わる確認だけ回します: ${[...CHANGED_INFO.words].join(' / ') || '（該当なし）'}`
-  )
-  if (CHANGED_INFO.unknown.length) {
-    console.log(
-      `\x1b[33m対応表に無いファイルの変更（この実行では見ていない）:\x1b[0m\n  ${CHANGED_INFO.unknown.join('\n  ')}`
-    )
-  }
-  if (!ONLY.length) {
-    console.log('\x1b[33m選べる確認がありません。通しで回すか --only を指定してください。\x1b[0m')
-    process.exit(2)
-  }
-}
-const STEP = SLOW ? 600 : 0
+// 引数は束のまま持っておく（下の makeRunReport へそのまま渡すため。
+// 個別に配ると、フラグを1つ足すたびに渡し忘れが起きる）
+const ARGS = readRunArgs()
+const { KEEP, ONLY, SHOT_ONLY, RATIO, STEP, CHANGED_INFO } = ARGS
 
 const sh = (cmd, args) =>
   new Promise((res) => {
@@ -126,258 +86,27 @@ const sh = (cmd, args) =>
   })
 
 // ---------------------------------------------------------------------------
-// 使い捨ての素材とプロジェクトを用意する
+// 記録と札、1件ずつ回す段取り（./lib/runReport）
+//
+// 一緒に返る `*Ref` は、**check と後始末が共有する控え**。値ではなく箱で
+// 受け渡すのは、どちらも後から中身が入れ替わるため（写しを配ると古い物を見る）。
 // ---------------------------------------------------------------------------
-/**
- * 前回までの置き土産を片付ける。
- *
- * 途中で落ちたり --keep で終わった回の一時フォルダが temp に残り続ける。
- * 1回あたりは小さくても、回すたびに増えるので毎回まとめて消す。
- * 撮ったスクリーンショットも「最後に回した1回ぶん」だけ残す。
- */
-// ---------------------------------------------------------------------------
-const results = []
-// 前のリセット以降に確認を実行したか（実行していれば状態が変わっている可能性がある）
-const touchedRef = { dirty: true }
-/** 後始末で戻し切れなかった回数。最後にまとめて出す（黙って流さない） */
-const viewWarnRef = { n: 0 }
-/** 縦横比を当て直す関数の置き場（check から呼ぶ。定義は下の run の中） */
-const applyRatioRef = { fn: null }
-/**
- * **画面を寄せた／送ったまま終わった項目を、名指しで覚えておく。**
- *
- * 画面の状態を戻すのは `resetProject()` の中だけなので、寄せっぱなしは
- * **次の項目以降へそのまま漏れる**。しかも帯（クリップ）は**見えている範囲にしか
- * 作られない**ので、漏れると後ろの確認が
- *
- *   「クリップの数が変わった（3 → 1）」  ← 窓の外に居るだけ。消えていない
- *   「後ろのクリップが動いてしまった（実際: -2074）」  ← 左外へ送られただけ
- *
- * という**アプリが壊れたようにしか見えない**赤に化ける。
- *
- * 2026-08-03 に実際にこれで4件が赤くなり、**まる1日「元からある不具合」として
- * 控えられた**（リファクタ前へ戻しても同じ赤が出たので、そう見えた——
- * 原因の確認が、その戻し先にも既に入っていた）。
- *
- * 窓の閉じ忘れと同じ扱いにする＝**黙って直さず、誰の後始末かを出す。**
- * `fn` は viewDrift の置き場（定義は下の run の中）、`by` は最初に残した項目の名前。
- */
-const viewDirtyRef = { fn: null, by: null }
-/**
- * この比率では成り立たない確認を、理由付きで飛ばす。
- *
- * **黙って通さないこと。** 元動画（横長）と直接比べる作りの確認は、
- * 縦長にすると必ず食い違う（レターボックスの黒帯が入るため）。
- * 赤にしても直しようが無く、緑にすると見ていないのに見たことになる。
- */
-function skipHere(reason) {
-  const e = new Error(reason)
-  e.__skip = reason
-  throw e
-}
-let curSection = ''
-let pageRef = null
-const TOTAL_HINT = 46 // だいたいの件数（進み具合の表示用。増減しても表示が崩れないだけ）
+const {
+  results,
+  touchedRef,
+  viewWarnRef,
+  applyRatioRef,
+  viewDirtyRef,
+  TOTAL_HINT,
+  skipHere,
+  banner,
+  esc,
+  section,
+  check,
+  setPage,
+  sectionName
+} = makeRunReport({ ROOT, ...ARGS })
 
-/**
- * アプリの画面に「今なにを確認しているか」を出す。
- *
- * 操作が速すぎて何のテストか分からない、という声を受けて足した。
- * アプリのコードには一切触らず、テスト側から画面に札を貼るだけ。
- * pointer-events: none なので、テストのクリック判定には影響しない。
- */
-async function banner(state) {
-  if (!pageRef) return
-  try {
-    await pageRef.evaluate((s) => {
-      let el = document.getElementById('__e2e_banner')
-      if (!el) {
-        el = document.createElement('div')
-        el.id = '__e2e_banner'
-        el.style.cssText = [
-          'position:fixed', 'left:50%', 'top:14px', 'transform:translateX(-50%)',
-          'z-index:2147483647', 'pointer-events:none',
-          'font:13px/1.5 system-ui,sans-serif', 'color:#fff',
-          'background:#0b1220f2', 'border:1px solid #ffffff26', 'border-radius:12px',
-          'padding:10px 16px', 'min-width:420px', 'max-width:78vw',
-          'box-shadow:0 8px 30px #0009', 'text-align:center'
-        ].join(';')
-        document.body.appendChild(el)
-      }
-      const color = s.status === 'ok' ? '#4ade80' : s.status === 'ng' ? '#f87171' : '#7dd3fc'
-      const mark = s.status === 'ok' ? '✓' : s.status === 'ng' ? '✗' : '▶'
-      el.innerHTML =
-        `<div style="font-size:11px;opacity:.6;letter-spacing:.06em">${s.section} ・ ${s.done}/${s.total}</div>` +
-        `<div style="margin-top:3px;font-size:14px;font-weight:700;color:${color}">${mark} ${s.name}</div>` +
-        (s.err ? `<div style="margin-top:4px;font-size:11px;color:#fca5a5">${s.err}</div>` : '') +
-        `<div style="margin-top:8px;height:3px;background:#ffffff1a;border-radius:2px;overflow:hidden">` +
-        `<div style="height:100%;width:${Math.round((s.done / Math.max(1, s.total)) * 100)}%;background:${color}"></div></div>`
-    }, state)
-  } catch {
-    /* 画面が入れ替わった直後などは無視 */
-  }
-}
-const esc = (t) => String(t).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c])
-
-async function section(name) {
-  curSection = name
-  console.log(`\n\x1b[1m${name}\x1b[0m`)
-}
-async function check(name, fn, opts = {}) {
-  // setup:true の項目は「絞っても必ず通す」。ここを飛ばすと編集中の状態が
-  // 作られず、以降が全部こけて何を見ているのか分からなくなる。
-  // --shot は「今の画面を見たいだけ」。確認は全部飛ばす。
-  if (SHOT_ONLY && !opts.setup) {
-    results.push({ name, skipped: true })
-    return
-  }
-  if (ONLY.length && !opts.setup && !ONLY.some((w) => name.includes(w) || curSection.includes(w))) {
-    results.push({ name, skipped: true })
-    return
-  }
-  // **絞ったときは「順番に依存する項目」を見ない。** 手前が作った状態に
-  // 寄りかかっている確認は、絞ると必ず赤くなるが通しでは緑＝嘘の赤で、
-  // 見るたびに stash して変更前と比べる羽目になる（実際に何度もやった）。
-  // 印を付けるときは**なぜ順番に依存するのか**を必ずその場に書くこと。
-  if (ONLY.length && opts.orderDependent) {
-    results.push({ name, skipped: true })
-    console.log(`  \x1b[2m− ${name}（順番に依存するので、絞ったときは見ない）\x1b[0m`)
-    return
-  }
-  const total = Math.max(TOTAL_HINT, results.length + 1)
-  await banner({ status: 'run', name: esc(name), section: esc(curSection), done: results.length, total })
-  // 何を確認しているか読めるだけの間を置く（--slow ならもっと長く）
-  // **--fast なら間を置かない。** 人が眺めないなら要らない間で、221件で約70秒になる
-  if (pageRef && !FAST) await pageRef.waitForTimeout(SLOW ? 900 : 320)
-  // **前の項目が窓を開けっぱなしにしていたら、ここで閉じる。**
-  //
-  // 開いたままの窓は画面全体を覆うので、以降の項目が「押せない」で落ち続ける。
-  // 実際、通しで**1件の閉じ忘れが20件以上を巻き添え**にした。
-  // ただし黙って直すと閉じ忘れ自体が見えなくなるので、**誰の後始末かを出す**。
-  if (pageRef && !opts.setup) {
-    try {
-      if (await pageRef.locator('.export-overlay').count()) {
-        const prev = results.filter((r) => !r.skipped).slice(-1)[0]?.name ?? '（不明）'
-        console.log(
-          `  \x1b[33m※ 窓が開いたままでした。閉じて続けます（直前: ${prev}）\x1b[0m`
-        )
-        // どける手順は e2e/dismiss.mjs に1つだけ置いてある
-        // （道具ごとに書くと必ずどれかが抜ける。実際1日で4回踏んだ）
-        await clearModals(pageRef)
-      }
-    } catch {
-      /* 閉じられなくても本題は続ける */
-    }
-  }
-  // 縦横比を指定して回すときは、**各項目の頭で当て直す**。
-  // 比率はプロジェクトに入っているので、開き直すたびに 16:9 へ帰る。
-  // ここで当て直さないと、縦長で通したつもりが途中から横長になっていて、
-  // 通ったことにならない（起動直後は窓が出ていて押せないので、そこも拾い直す）
-  if (pageRef && RATIO !== '16:9' && typeof applyRatioRef.fn === 'function') {
-    await applyRatioRef.fn().catch(() => {})
-  }
-  // **1件ずつ時間を測る。**
-  // どれが重いのかを誰も知らないまま「多すぎる気がする」と削ると、
-  // 軽くて価値のある物を消して、重くて価値の低い物が残る。
-  const t0 = Date.now()
-  try {
-    touchedRef.dirty = true
-    await fn()
-    results.push({ name, ok: true, ms: Date.now() - t0, section: curSection })
-    console.log(`  \x1b[32m✓\x1b[0m ${name}`)
-    await banner({ status: 'ok', name: esc(name), section: esc(curSection), done: results.length, total })
-  } catch (e) {
-    // **「この比率では見られない」は赤にしない。**
-    // ただし黙って通すと、見ていないのに緑を見て「大丈夫」と読んでしまう。
-    // 飛ばした理由をその場に出し、最後の集計でも「見ていない」に数える。
-    if (e && e.__skip) {
-      results.push({ name, skipped: true })
-      console.log(`  \x1b[33m－\x1b[0m ${name}\n      見ていません: ${e.__skip}`)
-      return
-    }
-    const msg = String(e?.message ?? e).split('\n')[0]
-    const state = await ngState()
-    let png = null
-    if (pageRef) {
-      png = join(ROOT, 'e2e', 'shots', `NG-${String(results.length + 1).padStart(2, '0')}.png`)
-      try {
-        mkdirSync(dirname(png), { recursive: true })
-        await pageRef.screenshot({ path: png })
-      } catch {
-        png = null
-      }
-    }
-    results.push({ name, ok: false, err: String(e?.message ?? e), state, png, ms: Date.now() - t0, section: curSection })
-    // **落ちた理由はその場で1行出す。**
-    // 「回し終わってから報告書を読む」だと、読むためにもう一度回すことになる。
-    // 印を付けておけば、流しっぱなしのまま ✓ ✗ 理由 だけを拾える。
-    // 落ちた時の画面は最後の一覧にだけ出す（同じ物を2度出すと理由が埋もれる）。
-    console.log(`  \x1b[31m✗\x1b[0m ${name}\n      \x1b[31m理由:\x1b[0m ${msg}`)
-    await banner({
-      status: 'ng',
-      name: esc(name),
-      section: esc(curSection),
-      done: results.length,
-      total,
-      err: esc(msg)
-    })
-    if (pageRef) await pageRef.waitForTimeout(1200) // 失敗は読む時間を長めに
-  }
-  // 画面を寄せた／送ったまま終わったなら、**最初に残した項目の名前だけ**控える
-  //（2件目以降は、1件目の漏れを引き継いでいるだけなので上書きしない）。
-  // 出すのは restoreView。ここで出すと、正しく resetProject を呼ぶ項目まで
-  // 毎回鳴って**警告が読み飛ばされる**（効かない見張りは、あるだけ有害）。
-  if (typeof viewDirtyRef.fn === 'function' && !viewDirtyRef.by) {
-    const d = await viewDirtyRef.fn().catch(() => [])
-    if (d.length) viewDirtyRef.by = name
-  }
-  if (pageRef) await pageRef.waitForTimeout(SLOW ? 500 : 180)
-}
-/**
- * 落ちた瞬間の「画面がどうなっていたか」を残す。
- *
- * 通しでだけ落ちる項目は、単体で回すと通ってしまうので、あとから調べ直せない。
- * メッセージだけでは「押したのに効かなかった」としか分からず、
- * 前の項目が何を残したのかが読めない。撮るのは落ちたときだけ。
- */
-async function ngState() {
-  if (!pageRef) return null
-  try {
-    return await pageRef.evaluate(() => {
-      const txt = (el) => (el?.textContent ?? '').trim().replace(/\s+/g, ' ')
-      const all = (sel) => [...document.querySelectorAll(sel)]
-      return {
-        // 画面に出ているお知らせ（失敗の理由はたいていここに出る）
-        お知らせ: all('.toast, .toasts > *').map((e) => txt(e).slice(0, 160)),
-        // 開いたままの物（これが残っていると、以降のクリックが全部吸われる）
-        メニュー: all('.ctx-menu').length,
-        ダイアログ: all('.modal, .restore-box').map((e) => txt(e).slice(0, 40)),
-        // パネルの配置
-        選ばれているタブ: all('.panel-tabs-strip').map((s) => txt(s.querySelector('.tab-on'))),
-
-        パネル幅: {
-          左: localStorage.getItem('gc.leftW'),
-          右: localStorage.getItem('gc.rightW'),
-          並び: localStorage.getItem('giftcut.tabOrder')
-        },
-        モニタ: txt(document.querySelector('.panel.monitor .tab-on')),
-        // 素材ビン
-        見えている素材: all('.media-card')
-          .filter((e) => e.getBoundingClientRect().height > 0)
-          .map((e) => txt(e).slice(0, 24)),
-        折りたたみ: all('.tpl-acc').map((e) => `${txt(e).slice(0, 12)}:${e.className.includes('open') ? '開' : '閉'}`),
-        // タイムライン
-        クリップ数: all('[data-tid="V1"] .video-clip:not(.se-ghost)').length,
-        // 選ばれている印は .clip-selected（.sel という名前は今は使っていない）。
-        // 古い名前のままだと、何を選んでいても必ず 0 と出て調べる手掛かりを失う。
-        選択中: all('.clip-selected').length,
-        再生位置: txt(document.querySelector('.tc-cur'))
-      }
-    })
-  } catch {
-    return null
-  }
-}
 function assert(cond, msg) {
   if (!cond) throw new Error(msg)
 }
@@ -407,7 +136,8 @@ try {
   await placeOnOtherDisplay(app)
   // 黙って止まり続けないよう、頭打ちを決めておく（e2e/dismiss.mjs）
   watchdog(90, () => app.close())
-  pageRef = page
+  // 札・落ちた時の控えには画面が要る。**起動より後にしか無い**ので、ここで渡す
+  setPage(page)
   await page.waitForSelector('.app', { timeout: 20000 })
   page.setDefaultTimeout(8000)
 
@@ -486,284 +216,14 @@ try {
   }
   /** V1（本編）のクリップ一覧。左からの並び順で返す。 */
   const v1Clips = () => page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)')
-  // 画面の配置に関わる保存先。プロジェクトの中身ではないので、
-  // プロジェクトを開き直しても戻らない。
-  const LAYOUT_KEYS = [
-    'giftcut.tabOrder', // タブの並び順
-    'gc.leftW',
-    'gc.rightW',
-    'gc.timelineH',
-    'gc.videoTrackH',
-    'gc.audioTrackH'
-  ]
+  // 画面の状態（開き直しても戻らない物）の見張りは ./lib/runView。
+  // **足す物はあちらの VIEW_STATE の表へ。** ここに書き足すと誰も戻さない
+  const { captureViewBase, viewDrift, restoreView } = makeViewState({
+    page,
+    viewDirtyRef,
+    viewWarnRef
+  })
 
-  /**
-   * 「画面の状態」の一覧。
-   *
-   * プロジェクトの中身ではないので、**開き直しても戻らない**もの。
-   * ここに載っていないものは誰も戻さないので、前の項目の状態がそのまま
-   * 次へ渡り、通しでだけ落ちる。実際、1日で3つ（タブ・見ている場所・拡大率）
-   * 取りこぼして14件落とした。**足すならこの表に足すこと。**
-   *
-   * 各項目:
-   *   name    … 落ちたときに出す名前
-   *   read    … いまの値。比べられるように文字列で返す
-   *   restore … 'reload'（読み込み直しでしか戻らない）か、その場で戻す関数
-   */
-  const VIEW_STATE = [
-
-    {
-      name: '開いたままのメニュー',
-      // 右クリックのメニューだけでなく**ファイルメニューも数える**。
-      // ここを見ていなかったせいで、開きっぱなしのまま次の項目へ渡り、
-      // 「ファイル」をもう一度押す動き（＝閉じる）と噛み合って
-      // 「メニューに項目が無い」という別物の失敗になった。
-      read: () =>
-        page.evaluate(() =>
-          String(
-            document.querySelectorAll('.ctx-menu').length +
-              document.querySelectorAll('.menu-dropdown').length
-          )
-        ),
-      // メニューは押せば閉じる。読み込み直すほどのものではない
-      restore: async () => {
-        await page.keyboard.press('Escape')
-        await page.mouse.click(4, 4)
-        await page.waitForTimeout(200)
-      }
-    },
-    {
-      // 左パネルは プロパティ / モーション の2枚。モーションを開いたまま次の項目へ
-      // 行くと、文字の見た目をいじる欄が出ておらず、後の項目が別の物を見る。
-      name: '左パネルのタブ',
-      read: () =>
-        page.evaluate(() => {
-          const s = document.querySelectorAll('.panel-tabs')
-          return (s[0]?.querySelector('.tab-on')?.textContent ?? '').trim()
-        }),
-      restore: async () => {
-        const t = page.locator('.panel-tabs .tab', { hasText: 'プロパティ' }).first()
-        if (await t.count()) await t.click()
-        await page.waitForTimeout(200)
-      }
-    },
-    {
-      name: '右パネルのタブ',
-      // 素材ビンは右パネルが「プロジェクト」のときだけ描かれる。
-      // トランジションの持ち手を触ると勝手に「設定」へ切り替わる
-      read: () =>
-        page.evaluate(() => {
-          const s = [...document.querySelectorAll('.panel-tabs-strip')]
-          return (s[s.length - 1]?.querySelector('.tab-on')?.textContent ?? '').trim()
-        }),
-      restore: 'reload'
-    },
-    {
-      name: 'モニタのタブ',
-      read: () =>
-        page.evaluate(() =>
-          (document.querySelector('.panel.monitor .tab-on')?.textContent ?? '').trim()
-        ),
-      restore: 'reload'
-    },
-    ...LAYOUT_KEYS.map((k) => ({
-      name: k,
-      read: () => page.evaluate((key) => String(localStorage.getItem(key)), k),
-      restore: 'reload'
-    })),
-    {
-      name: 'タイムラインの見ている場所',
-      // 左へ寄せておかないと、1つ目のクリップが左端に埋もれて一部しか掴めず、
-      // 「動かせていない」という**別物の失敗**になる
-      read: () =>
-        page.evaluate(() =>
-          String(Math.round(document.querySelector('.track-scroll')?.scrollLeft ?? 0))
-        ),
-      restore: async () => {
-        await page.evaluate(() => {
-          const el = document.querySelector('.track-scroll')
-          if (el) el.scrollLeft = 0
-        })
-        await page.waitForTimeout(250)
-      }
-    },
-    {
-      name: 'タイムラインの縦の位置',
-      // 縦に送ったまま次の項目へ行くと、狙った段が枠の外にいて掴めない。
-      //
-      // ※戻す先は**0 ではなく起動時の値**。タイムラインは高さが変わるたびに
-      // 映像と音声の境目を枠に残すので、起動直後から送られていることがある
-      // （実際に 32px 送られた状態が既定だった）。0 に戻すと「戻したのに違う」
-      // となって、後始末そのものが失敗する。
-      // ※**中身が枠に収まらない間は、送られているのが正しい。**
-      // アプリは高さが変わるたびに映像と音声の境目を枠に残すので、
-      // 溢れている状態では 0 に戻しても即座に送り直される。
-      // そこを「戻せなかった」と数えると、段を高くしただけで後始末が失敗する
-      // （音声の段を既定で高くしたときに、実際にそうなった）。
-      read: () =>
-        page.evaluate(() => {
-          const el = document.querySelector('.track-scroll')
-          if (!el) return '0'
-          // **ここを甘くしないこと。**
-          // 一度「収まらない間は見ない」にしたら、送られたまま次へ進み、
-          // 座標で押している項目が3件ずれた（範囲選択・SEのまとめ移動・目盛りの印）。
-          // 送られたままなら、それは本当に直すべき状態。
-          return String(Math.round(el.scrollTop))
-        }),
-      restore: async (base) => {
-        await page.evaluate((v) => {
-          const el = document.querySelector('.track-scroll')
-          if (el) el.scrollTop = Number(v) || 0
-        }, base)
-        await page.waitForTimeout(250)
-      }
-    },
-    {
-      name: '再生位置',
-      // 前の項目が動かした再生位置が残っていると、次の項目が
-      // 「そこに映っているはずの物」を別の時刻で探すことになる
-      // 秒までで見る。**フレーム単位の差は無視する。**
-      // 目盛りを押して戻すので1フレームずれることがあり、そこで止めても意味が無い
-      // （見たいのは「5秒のまま次の項目へ行っていないか」）。
-      read: () =>
-        page.evaluate(() =>
-          (document.querySelector('.tc-cur')?.textContent ?? '').trim().split(':').slice(0, 3).join(':')
-        ),
-      restore: async () => {
-        // Home では戻らない（キーが割り当てられていない）ので目盛りの先頭を押す。
-        // **クリップの位置から計算してはいけない。** 読み込み直した直後は
-        // タイムラインが空で、クリップを探しに行くと待ち続けて実行ごと落ちる
-        // （実際、通しがここで止まった）。
-        const rb = await page.locator('.ruler').boundingBox().catch(() => null)
-        const inner = await page.locator('.track-inner').boundingBox().catch(() => null)
-        if (!rb || !inner) return
-        await page.mouse.click(inner.x + 2, rb.y + rb.height / 2)
-        await page.waitForTimeout(300)
-      }
-    },
-    {
-      name: 'タイムラインの拡大率',
-      // 積み上がると「クリップ1つぶんの幅」が変わり、同じ距離を動かしたつもりが
-      // 磁石に吸い戻される（負荷チェックでも同じ失敗をした）。
-      //
-      // **スライダーの値は読まない。** 2026-08-03 に拡大UIが下のバー
-      // （components/timeline/ZoomBar）へ移って `.tl-zoom input[type=range]` は
-      // 消えた。`?? ''` で守っていたので落ちはしないが、**いつも空文字＝
-      // 「ずれていない」**になり、この戻しが丸ごと効かなくなっていた。
-      // 中身の幅（拡大すると必ず変わる）で見て、戻すのは「↔ 全体表示」を押す
-      // ——基準は起動直後＝全体表示なので、これで同じ所へ戻る。
-      read: () =>
-        page.evaluate(
-          () => document.querySelector('.track-inner')?.style.width ?? ''
-        ),
-      restore: async () => {
-        const fit = page.locator('.tl-zoom button').first()
-        if (await fit.count()) await fit.click().catch(() => {})
-        await page.waitForTimeout(350)
-      }
-    }
-  ]
-
-  /**
-   * 起動直後の画面の状態。既定値を直接書くと、アプリ側で既定を変えた瞬間に
-   * 毎回「ずれている」と言い出すので、実際の値を控える。
-   *
-   * **取るのは起動直後の1回だけ**（遅れて取ると、ずれた状態が基準になる）。
-   */
-  let viewBase = null
-  const readView = async () => {
-    const out = []
-    for (const s of VIEW_STATE) out.push(await s.read())
-    return out
-  }
-  async function captureViewBase() {
-    viewBase = await readView()
-  }
-  /** 起動時と違っている項目を返す */
-  async function viewDrift() {
-    if (!viewBase) return []
-    const now = await readView()
-    return VIEW_STATE.map((s, i) => ({ s, now: now[i], base: viewBase[i] })).filter(
-      (x) => x.now !== x.base
-    )
-  }
-  /**
-   * 画面の状態を起動直後へ戻す。
-   *
-   * その場で戻せるものは戻し、読み込み直しでしか戻らないものが1つでもあれば
-   * 読み込み直す。**戻したあと、本当に戻ったかを確かめる**（戻せていないのに
-   * 先へ進むと、原因が分からないまま次の項目が落ちる）。
-   *
-   * @param final これが最後の一手か。**プロジェクトを開き直す前は false。**
-   *   拡大率は `.track-inner` の幅で見ている（下の VIEW_STATE 参照）が、幅は
-   *   **寄せ具合と中身の長さの両方**で決まる。SRT の入れ替えのように中身の長さが
-   *   変わった直後は、全体表示に戻しても幅が一致しない——**寄せ具合は正しいのに
-   *   「戻し切れなかった」と数えてしまう**（2026-08-03 の通しで実際に1回出た。
-   *   直後に開き直して揃うので、実害の無い嘘の警告だった）。
-   *   **鳴りっぱなしの警告は読み飛ばされる**ので、中身を戻したあとの1回だけ数える。
-   */
-  async function restoreView(drift, final = true) {
-    const why = drift.map((d) => `${d.s.name}: ${d.base} → ${d.now}`).join(' / ')
-    // **誰が残したのかを必ず出す。** ここまで来ると「戻す直前の項目」しか
-    // 分からないが、本当の犯人はもっと手前で寄せたまま終わった項目のことが多い
-    //（間に挟まった確認が全部、その画面で測られている）。
-    const by = viewDirtyRef.by ? `／残したのは「${viewDirtyRef.by}」` : ''
-    console.log(`  \x1b[90m画面の状態を戻します（${why}${by}）\x1b[0m`)
-    if (drift.some((d) => d.s.restore === 'reload')) {
-      await page.evaluate((keys) => {
-        for (const k of keys) localStorage.removeItem(k)
-        // 右パネルのタブは「前回の続き」として giftcut.session に入っている。
-        // ここを消さないと、読み込み直しても同じタブが復活する。
-        try {
-          const s = JSON.parse(localStorage.getItem('giftcut.session') || '{}')
-          delete s.tab
-          delete s.rsx
-          localStorage.setItem('giftcut.session', JSON.stringify(s))
-        } catch {
-          localStorage.removeItem('giftcut.session')
-        }
-      }, LAYOUT_KEYS)
-      await page.reload()
-      // 読み込み直すと「前回の作業が残っています」が出る。
-      // どちらを選んでもこの直後にプロジェクトを開き直すので、破棄でよい。
-      const box = page.locator('.restore-btns button', { hasText: '破棄' })
-      try {
-        await box.first().waitFor({ timeout: 20000 })
-        await box.first().click()
-      } catch {
-        /* 下書きが無ければ出ない */
-      }
-      await page.waitForTimeout(600)
-    }
-    for (const d of drift) {
-      if (typeof d.s.restore === 'function') await d.s.restore(d.base)
-    }
-    viewDirtyRef.by = null // 戻したので、次に残した項目を新しく数える
-    const left = await viewDrift()
-    // **戻し切れなくても、そこで通しを打ち切らない。**
-    // ここで例外にすると **1件の戻し漏れで残り全部が回らなくなる**
-    //（実際、通しが4回止まった）。見落とさないよう必ず出したうえで、確認は続ける。
-    //
-    // ※ **この戻しは「各項目の合間」には走らない。`resetProject()` の中だけ。**
-    //   つまり画面を寄せた／送った確認は、**自分で戻さないと次の確認へ漏れる**
-    //   （2026-08-03: 端まで引っぱる確認が寄せたまま終わり、後ろの4件が
-    //   「クリップが消えた（3 → 1）」「後ろのクリップが動いた（x = -2074）」で
-    //   赤くなった。帯は見えている範囲にしか作らないので、寄せて送るだけで
-    //   **消えたようにも動いたようにも見える**）。
-    if (left.length && final) {
-      console.log(
-        `  \x1b[33m※ 戻し切れなかった: ${left
-          .map((d) => `${d.s.name}=${d.now}（起動時 ${d.base}）`)
-          .join(' / ')}\x1b[0m`
-      )
-      viewWarnRef.n++
-    }
-  }
-  /**
-   * 用意した状態に戻す。各章の頭で呼ぶ。
-   * 前の章の操作が残っていると、失敗の原因が「今見ている物」なのか
-   * 「前の章の後始末漏れ」なのか分からなくなる。
-   */
   /**
    * トランジションタブで開けた節を畳み直す。
    *
@@ -777,6 +237,14 @@ try {
     }
   }
 
+  /**
+   * 用意した状態に戻す。各章の頭で呼ぶ。
+   * 前の章の操作が残っていると、失敗の原因が「今見ている物」なのか
+   * 「前の章の後始末漏れ」なのか分からなくなる。
+   *
+   * ※この説明は `closeTransAccs` の上に取り残されていた（本体はこちら）。
+   *   割った日に気づいたので戻した——**指す先の違う取説は、無いより悪い。**
+   */
   async function resetProject() {
     if (SHOT_ONLY) return
     // 別ウィンドウへ出したパネルが残っていると、本体からはそのパネルが
@@ -808,7 +276,8 @@ try {
     await banner({
       status: 'run',
       name: '状態を元に戻しています（確認ではありません）',
-      section: esc(curSection),
+      // 章の名前は写しを持たず、そのつど読む（章は check 側で変わる）
+      section: esc(sectionName()),
       done: results.filter((r) => !r.skipped).length,
       total: Math.max(TOTAL_HINT, results.length)
     })
@@ -940,72 +409,9 @@ try {
   console.error('\n\x1b[31m実行そのものに失敗しました:\x1b[0m', e?.message ?? e)
   results.push({ name: '（実行）', ok: false, err: String(e?.message ?? e) })
 } finally {
-  const ok = results.filter((r) => r.ok).length
-  const skipped = results.filter((r) => r.skipped).length
-  const ng = results.filter((r) => !r.ok && !r.skipped)
-  console.log(`\n\x1b[1m結果: ${ok} / ${results.length} 件が期待どおり\x1b[0m`)
-  // **重い項目を名指しで出す。**
-  //
-  // 「数が多すぎる気がする」で削ると、軽くて価値のある物を消して、
-  // 重くて価値の低い物が残る。どこに時間が乗っているかを毎回見せておく。
-  const timed = results.filter((r) => r.ms != null).sort((a, b) => b.ms - a.ms)
-  if (timed.length) {
-    const all = timed.reduce((n, r) => n + r.ms, 0)
-    console.log(`\n時間: 合計 ${(all / 60000).toFixed(1)}分。重い順に:`)
-    for (const r of timed.slice(0, 10))
-      console.log(`  ${(r.ms / 1000).toFixed(1).padStart(6)}秒  ${String(r.name).slice(0, 56)}`)
-    const bySec = new Map()
-    for (const r of timed) bySec.set(r.section, (bySec.get(r.section) ?? 0) + r.ms)
-    console.log('章ごと:')
-    for (const [name, ms] of [...bySec].sort((a, b) => b[1] - a[1]).slice(0, 6))
-      console.log(`  ${(ms / 1000).toFixed(0).padStart(5)}秒  ${String(name).slice(0, 52)}`)
-  }
-  // 戻し切れなかった回数は必ず出す。**黙って流すと、次に何かが落ちたときに
-  // 「本物か、前の項目の残りか」を毎回調べ直すことになる**
-  if (viewWarnRef.n)
-    console.log(
-      `\x1b[33m※ 画面の状態を戻し切れなかった回数: ${viewWarnRef.n}（上の「戻し切れなかった」を参照）\x1b[0m`
-    )
-  // 絞って回したときは、必ず「全部は見ていない」と出す。
-  // これが無いと、緑を見て「通った＝大丈夫」と読んでしまう。
-  if (ONLY.length && skipped) {
-    console.log(
-      `\x1b[33m※ 絞って回しました（${ONLY.join(' / ')}）。${skipped} 件は見ていません。` +
-        `最終確認は絞らずに 1 回。\x1b[0m`
-    )
-    if (CHANGED_INFO?.unknown.length) {
-      console.log(
-        `\x1b[33m※ 対応表に無いファイルの変更は見ていません: ${CHANGED_INFO.unknown.join(', ')}\x1b[0m`
-      )
-    }
-  }
-  if (ng.length) {
-    console.log('\n直すべきもの:')
-    for (const r of ng) {
-      console.log(`  ・${r.name}\n      ${r.err}`)
-      // 通しでだけ落ちるものは、あとから単体で回しても再現しない。
-      // そのときの画面を書き出しておく（読むのはこの一覧だけで済む）。
-      if (r.state) console.log(`      落ちた時: ${JSON.stringify(r.state)}`)
-      if (r.png) console.log(`      画面: ${r.png}`)
-    }
-    try {
-      writeFileSync(
-        join(ROOT, 'e2e', 'ng-report.json'),
-        JSON.stringify(ng.map(({ name, err, state, png }) => ({ name, err, state, png })), null, 2),
-        'utf-8'
-      )
-      console.log('\n落ちた項目の詳細を e2e/ng-report.json に書き出しました。')
-    } catch {
-      /* 書けなくても実行結果には影響しない */
-    }
-  } else {
-    // 落ちなかったのに前回の記録が残っていると、それを今回の結果だと読んでしまう
-    try {
-      rmSync(join(ROOT, 'e2e', 'ng-report.json'), { force: true })
-    } catch {
-      /* 無ければ何もしない */
-    }
-  }
+  // まとめは ./lib/runSummary。**アプリを落とす前に出し切る**
+  //（窓を閉じてからだと、落ちた時の画面も件数も出せずに終わる）
+  const ngCount = printSummary({ results, ONLY, CHANGED_INFO, viewWarnRef, ROOT })
   if (app && !KEEP) {
     try {
       await app.evaluate(({ app: a }) => a.exit(0))
@@ -1020,5 +426,5 @@ try {
       /* 使用中なら残す */
     }
   }
-  process.exit(ng.length ? 1 : 0)
+  process.exit(ngCount ? 1 : 0)
 }
