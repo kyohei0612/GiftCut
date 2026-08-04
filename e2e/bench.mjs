@@ -47,6 +47,8 @@ import { CACHE, TELOPS, PROFILES, pickSource, makeLongVideo, makeStyle, makeCues
 // 一時フォルダが5GBを超えていたら、ここでまとめて捨てる（決まりは ./lib/e2eFixture）
 import { cleanBigTemp } from './lib/e2eFixture.mjs'
 import { similarity, brightness, meanVolume, silentSec, frameStats } from './lib/measure.mjs'
+// 画面を触る道具（寄せる・送る・時刻で指す）。**本体は「何を測るか」だけ持つ**
+import { makeViewTools } from './lib/benchView.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
@@ -499,46 +501,17 @@ try {
    * 「掴める幅の◯◯が画面に無い」で落ちていた——**負荷ではなく測定側の穴**。
    * `bench-limits` の probe と同じ物（2026-08-04 に両方直した）。
    */
-  const scrollToFirst = async (sel) => {
-    await page.evaluate((s) => {
-      const sc = document.querySelector('.track-scroll')
-      if (!sc) return
-      const el = document.querySelector(s)
-      // **見つからないときは先頭へ戻す。**
-      // 帯は「見えている範囲」にしか作られない（TelopBands の絞り込み）。
-      // 物の無い所に居ると querySelector は null を返すので、
-      // 「送り先が分からない → そのまま → やはり何も無い」で詰む。
-      // 素材はどの基準でも頭の方から並ぶので、先頭へ戻せば必ず何か入る。
-      sc.scrollLeft = el ? Math.max(0, el.offsetLeft - sc.clientWidth / 3) : 0
-    }, sel)
-    await page.waitForTimeout(200)
-  }
-  /**
-   * **掴める幅の帯が画面に出るまで寄せる。**
-   *
-   * 固定回数（10ノッチ）で寄せていたが、**60分の素材だとそれでは足りない**。
-   * 全体表示は 0.36px/秒で、10ノッチ寄せても 1.46px/秒＝2.4秒の帯が**3.5px**。
-   * 「幅20px以上」の条件を満たせず、`light` でも `tv` でも
-   * 「掴める幅のテロップが画面に無い」で落ちていた
-   * ——**負荷ではなく測定側**（2026-08-04）。
-   *
-   * 寄せるたびに送り直すのは、寄せると見える範囲が狭まるから。
-   * **足りなければ落とす**（黙って進むと、掴めていないのに「軽い」と出る）。
-   */
-  const zoomUntilGrabbable = async (sel, minW = 20) => {
-    const widest = () =>
-      page.evaluate((s) => {
-        const els = [...document.querySelectorAll(s)]
-        return els.reduce((m, e) => Math.max(m, e.getBoundingClientRect().width), 0)
-      }, sel)
-    for (let i = 0; i < 12; i++) {
-      await scrollToFirst(sel)
-      if ((await widest()) >= minW) return
-      await zoomIn(visMid, visY(40), 4)
-    }
-    const w = await widest()
-    throw new Error(`寄せても掴める幅にならない（いちばん広い帯で ${fmt(w)}px／要 ${minW}px）`)
-  }
+  // 画面を触る道具（寄せる・送る・時刻で指す）は ./lib/benchView。
+  // **本体は「何を測るか」だけ持つ**（2026-08-04 に上限へ当たって分けた）。
+  const { pxPerSec, headX, headSec, scrollToFirst, zoomUntilGrabbable, seekAt } = makeViewTools({
+    page,
+    totalSec: MINUTES * 60,
+    zoomIn,
+    visMid: () => visMid,
+    visY,
+    ruler: () => page.locator('.ruler').boundingBox(),
+    fmt
+  })
   const timelineWidth = () =>
     page.locator('.track-inner').evaluate((e) => Math.round(e.getBoundingClientRect().width))
   /** 先頭へ頭出し（プレビューの絵を揃えたいとき） */
@@ -670,16 +643,6 @@ try {
    *
    * **無ければ落とす。** 再生ヘッドが無い画面は、そもそも測る意味が無い。
    */
-  const headX = async () => {
-    const v = await page.evaluate(() => {
-      const el = document.querySelector('.playhead')
-      if (!el) return null
-      const l = parseFloat(el.style.left || '')
-      return Number.isFinite(l) ? l : null
-    })
-    if (v === null) throw new Error('再生ヘッドが見つからない（測れていない）')
-    return v
-  }
   await measure(
     '再生ヘッドを掴んで動かす',
     async () => {
@@ -1013,11 +976,19 @@ try {
   // ---- 4. 動作: 50回編集して元に戻す -----------------------------------
   const rb = await page.locator('.ruler').boundingBox()
   /** タイムラインの真ん中あたりに再生位置を移す（前後で同じ絵を見くらべるため） */
-  const seekMid = async () => {
-    await page.keyboard.press('Escape')
-    await page.mouse.click(visL + (visR - visL) * 0.5, rb.y + rb.height / 2)
-    await page.waitForTimeout(900) // プレビューが描き変わるのを待つ
-  }
+  /**
+   * **決まった時刻へ移る。画面上の位置では指さない。**
+   *
+   * 前は「見えている範囲の真ん中」を押していた。だが前後の項目で拡大率も
+   * 横位置も変わるので、**同じ画面位置＝違う時刻**になる。
+   * 「元に戻したら映像も戻る」で**違う時刻どうしを見くらべて 0.745**と出て、
+   * 「元に戻したのに絵が違う」というアプリの不具合に見えた（2026-08-04）。
+   *
+   * 横位置を先頭へ戻し、拡大率（＝中身の幅÷尺）から時刻を px に直して押す。
+   */
+  /** 見くらべに使う時刻。**画面上の位置ではなく秒で指す**（理由は ./lib/benchView） */
+  const SEEK_SEC = 20
+  const seekMid = () => seekAt(SEEK_SEC)
   /** クリップの位置と幅の一覧。元に戻したときに並びが復元したかを見る。 */
   const clipLayout = async () => {
     const boxes = await page.locator('[data-tid="V1"] .video-clip').evaluateAll((els) =>
@@ -1030,6 +1001,8 @@ try {
   }
   await seekMid()
   const shotPvBefore = await shot('編集前のプレビュー', prev)
+  // 見くらべる相手の時刻を控える（下の「元に戻したら映像も戻る」で照合する）
+  const seekedSec = await headSec()
   const layoutBefore = await clipLayout()
 
   const before = await page.locator('[data-tid="V1"] .video-clip').count()
@@ -1087,7 +1060,17 @@ try {
   // 画面全体を見くらべると、再生ヘッドの位置や選択の枠まで差として出てしまう。
   // 「戻ったか」を見たいので、同じ時点のプレビューの絵と、クリップの並びで見る。
   await say('目', '元に戻したら映像も戻る', '同じ位置のプレビューを見くらべる')
+  const tBefore = seekedSec
   await seekMid()
+  const tAfter = await headSec()
+  // **同じ時刻を見ていることを先に確かめる。** ここがずれていると、
+  // 「元に戻したのに絵が違う」という**アプリの不具合に見える**
+  //（2026-08-04 に実際そう報告しかけた。素材にテロップが焼かれていたので、
+  //  撮った画面を並べて初めて「違うのは時刻だ」と分かった）。
+  if (Math.abs(tAfter - tBefore) > 0.5)
+    throw new Error(
+      `見くらべる時刻がずれている（${fmt(tBefore)}秒 → ${fmt(tAfter)}秒）。絵の違いではない`
+    )
   const shotPvAfter = await shot('元に戻したあとのプレビュー', prev)
   const sim = await similarity(shotPvBefore, shotPvAfter)
   await done(
