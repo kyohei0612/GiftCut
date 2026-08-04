@@ -2,7 +2,8 @@
 //
 // ## ここに無い物
 //
-// **フィルタグラフの組み立ては ./exportGraph にある。** 受け口（IPC・出す先を
+// **フィルタグラフの組み立ては ./exportOverlays ・ ./exportSegments ・ ./exportAudioMix
+// にある。** 受け口（IPC・出す先を
 // 決める・PNG を焼く）は ./exportRun。ここは「組み上がった引数を渡されて、
 // 走らせて、結果を返す」だけを持つ。
 //

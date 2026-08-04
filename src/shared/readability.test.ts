@@ -50,6 +50,10 @@
 // 1つでも欠けたら赤。存在しない名前が載っていても赤。
 // 定数（`const TRIM_PX = 7` のような物）は載せなくてよい。
 //
+// **型（`interface` / `type`）と目印の定数は「載せてもよい」**（義務ではない）。
+// 渡す形を探して開くことは多いので、載せたければ載せられる。ただし**嘘は赤**——
+// 引っ越したら説明も連れて行くのは関数と同じ。
+//
 // ## 赤くなったら
 //
 // **DEBT から消す方向にだけ動かす。足さない。**
@@ -88,13 +92,16 @@ const DEBT_INDEX = new Set([
   // **取説の道が塞がっていたので、先に割るしか無かった**——top-level の callable が
   // `isExporting` と `registerExportHandlers` の2つしか無く（1,012行が `export:run` の
   // 中の1コールバック）、取説を書いても2行で「これしか無い」という嘘の案内になる。
-  // → 話題で3つに割った: ./exportGraph（組み立て・893行・取説あり）と
-  //   ./exportSpawn（走らせる・258行・取説あり）。詳しくは `引き継ぎ-読める形.md`
+  // → 話題で3つに割った（08-04 に組み立てをさらに4つへ。どれも500行未満）。
+  //   詳しくは `引き継ぎ-読める形.md`
   'src/renderer/src/state/useAppWiring.tsx', // 1,213
-  // useTimelineEdit は**返済済み**（2026-08-03）。896行のままだが取説を付けた。
-  // 切り口を探して見つからなかった——mapContentTimes（5種類まとめて時刻を
-  // 付け替える）が群をまたいで4か所から使われていて、どこで切っても導管になる。
-  // **割るなら mapContentTimes の置き場を先に決めること。**
+  // useTimelineEdit は**返済済み**（08-03 に取説 → 08-04 に4つへ割って 959 → 654）。
+  //
+  // **08-03 に書いた「切り口が見つからなかった」は、測っていなかった。**
+  // 「mapContentTimes が4群からまたいで使われるので、どこで切っても導管になる」と
+  // 書いてあったが**逆だった**——またぐなら**それこそが土台**で、先に
+  // ./useContentShift として出したら、次の群の「返す」が 1 → 0 になった。
+  // 目で探して諦めたら、必ず記号解決で測り直すこと（`引き継ぎ-心臓の分け直し.md`）。
   // StylePanel は**返済済み**（2026-08-03）。アピアランス225行を
   // ./StyleAppearance へ出して 679 → 451。冒頭コメントも付けた
   // useProjectFile は**返済済み**（2026-08-03）。テンプレート141行を
@@ -187,6 +194,30 @@ function topLevelCallables(lines: string[]): string[] {
   return out
 }
 
+/**
+ * top-level で**名前を付けている物**（`interface` `type` `class` と、矢印でない `const`）。
+ *
+ * ## これは「並べてよい」の判定であって「並べろ」ではない（2026-08-04 に足した）
+ *
+ * 取説は目次なので、**要件は「嘘を書かないこと」**。並べる義務は関数だけに
+ * 掛けてある（`topLevelCallables`）——型まで必須にすると、フックの `*Deps` が
+ * 全部並んで目次が読めなくなる（実測12ファイルが赤くなった）。
+ *
+ * 足した理由: `main/exportGraph.ts` を4つへ割ったとき、渡す形（`ExportPayload`）や
+ * 目印（`RAW_BASE_A`）を並べたら「**本体が無い**」と**嘘の赤**が出た。本体はある。
+ * 探す物は関数だけではない——「渡す形が知りたい」で開くほうがむしろ多い。
+ */
+function topLevelNamed(lines: string[]): string[] {
+  const out: string[] = []
+  for (const l of lines) {
+    const m = l.match(
+      /^(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(?:interface|type|class|const|let)\s+([A-Za-z_$][\w$]*)/
+    )
+    if (m) out.push(m[1])
+  }
+  return out
+}
+
 /** 「## 中身」の節に並んだ名前（バッククォートで囲った物だけ拾う） */
 function indexedNames(lines: string[]): string[] | null {
   const start = lines.findIndex((l) => /^\s*\/\/\s*##\s*中身\s*$/.test(l))
@@ -239,8 +270,10 @@ describe('AI が余裕を持って読める形', () => {
       const listed = indexedNames(f.lines)
       if (listed === null) continue
       const actual = topLevelCallables(f.lines)
+      // 並べる**義務**は関数だけ。型や目印は「並べてもよい」（`topLevelNamed` の真上）
+      const mayList = [...actual, ...topLevelNamed(f.lines)]
       const missing = actual.filter((n) => !listed.includes(n))
-      const ghost = listed.filter((n) => !actual.includes(n))
+      const ghost = listed.filter((n) => !mayList.includes(n))
       if (missing.length) bad.push(`${f.path}  取説に無い: ${missing.join(', ')}`)
       if (ghost.length) bad.push(`${f.path}  **本体が無い**: ${ghost.join(', ')}`)
     }

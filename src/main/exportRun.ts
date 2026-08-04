@@ -1,22 +1,31 @@
 // 書き出しの**受け口**。**このアプリでいちばん取り返しがつかない処理。**
 //
-// ## 書き出しは3つのファイルに分かれている（2026-08-03）
+// ## 書き出しは7つのファイルに分かれている（2026-08-03 に3つ / 08-04 に組み立てを4つへ）
 //
-//   ./exportRun    ここ。IPC を受け、出す先を決め、テロップPNGを焼き、
-//                  組み上がったグラフを ffmpeg の引数にして渡す
-//   ./exportGraph  フィルタグラフを組む（切片・重ねる段・受け取る形の型）
-//   ./exportSpawn  走らせる（起動・進捗・中止・GPU で失敗したら CPU でやり直す）
+//   ./exportRun       ここ。IPC を受け、出す先を決め、テロップPNGを焼き、
+//                     組み上がったグラフを ffmpeg の引数にして渡す
+//   ./exportTypes     受け取る形（型だけ。関数は無い）
+//   ./exportFilters   共通の小道具（切り抜き・色調整の要否・不透明度）
+//   ./exportOverlays  [base] の上へ1段ずつ重ねる（映像レイヤー・画像・テロップ）
+//   ./exportSegments  本編の切片を横に並べて [vcat] / [acat] を作る
+//   ./exportAudioMix  効果音と映像レイヤーの音を混ぜ、ラウドネスを揃える
+//   ./exportSpawn     走らせる（起動・進捗・中止・GPU で失敗したら CPU でやり直す）
 //
-// 分けた理由: **1,229行のうち 1,012行が `export:run` の中の1つのコールバック**
+// 最初に割った理由: **1,229行のうち 1,012行が `export:run` の中の1つのコールバック**
 // だったので、取説（`// ## 中身`）を書いても2行にしかならなかった。
 // 「このファイルにはこれしか無い」という**ほぼ嘘の案内**になるので、先に割った。
 //
+// 08-04 に組み立て（946行）をさらに4つへ割った。**測ったら話題が4つとも
+// 独立していた**（連れて行く名前 0〜1／`引き継ぎ-心臓の分け直し.md`）。
+//
 // ## この順でしか読めない（依存の向き）
 //
-//   exportRun → exportGraph（型と組み立て）
+//   exportRun → exportOverlays / exportSegments / exportAudioMix（組み立て）
 //   exportRun → exportSpawn（走らせる）
+//   組み立ての3つ → exportFilters → exportTypes
 //
-// exportGraph と exportSpawn は互いを知らない。**組み立てと実行を混ぜない**のが、
+// **組み立ての3つは互いを知らない**（重ねる段は切片を知らない）。共通の物は
+// 下の2つへ落としてあるので、横のつながりが生えない。組み立てと実行を混ぜないのが、
 // 「グラフが悪いのか ffmpeg が悪いのか」を切り分けられる形の条件。
 //
 // ## 直すときに必ず気をつけること
@@ -50,15 +59,12 @@ import {
   validateFilterGraph,
   type GraphInput
 } from '../shared/filterGraph'
-// フィルタグラフを組む側。**受け取る形（ExportPayload など）もあちらが持っている**
-// ——グラフを組むのに要る形なので、そこにあるのが一番近い
-import {
-  buildAudioMix,
-  buildOverlays,
-  buildSegments,
-  RAW_BASE_A,
-  type ExportPayload
-} from './exportGraph'
+// フィルタグラフを組む側。**話題ごとに分かれていて、互いを知らない。**
+// 受け取る形（ExportPayload など）は、3つとも同じ物を見るので下（./exportTypes）にある
+import { buildAudioMix, RAW_BASE_A } from './exportAudioMix'
+import { buildOverlays } from './exportOverlays'
+import { buildSegments } from './exportSegments'
+import type { ExportPayload } from './exportTypes'
 // 書き出し先が素材と同じだと ffmpeg は必ず失敗する。始める前に気づいて日本語で言う
 import { clashingSource } from '../shared/exportTarget'
 import { uniqueName } from '../shared/exportDefaults'
@@ -308,7 +314,7 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   })()
   // ---- カットを反映（残った切片を出力解像度に揃えて連結する）----
   if (segs) {
-    // 切片を並べて [vcat] / [acat] を作るのは ./exportGraph。
+    // 切片を並べて [vcat] / [acat] を作るのは ./exportSegments。
     // **ベース映像のラベルがここで [vcat] に差し替わる**（カット無しなら元動画のまま）
     const built = buildSegments(
       { width, height, outFps, fpsArg, useV, useA, ssOffsetOf },
@@ -320,7 +326,7 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   }
 
   // ---- 音のミックス（ベース音声＋効果音＋映像レイヤーの音 → ラウドネス正規化）----
-  // 組み立ては ./exportGraph
+  // 組み立ては ./exportAudioMix
   const mixed = buildAudioMix(
     { useA, ssOffsetOf },
     {
@@ -340,7 +346,7 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   audioMap = mixed.audioMap
 
   // ---- 重ねる段（下から 本編 → 映像レイヤー → 画像 → テロップ）----
-  // 組み立ては ./exportGraph。**出口は必ず [v]。**
+  // 組み立ては ./exportOverlays。**出口は必ず [v]。**
   filter += buildOverlays(
     { width, height, outFps, fpsArg, useV, ssOffsetOf },
     {
