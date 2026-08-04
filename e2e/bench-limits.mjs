@@ -100,7 +100,8 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
         }
         requestAnimationFrame(tick)
       })
-      const MOVES = 30
+      // **長く動かす**（掴む側と同じ理由。240ミリ秒では引っかかりを見る時間が無い）
+      const MOVES = 160
       const SLEEP = 8
       // 画面上の位置ではなくタイムライン上の位置で見る。
       // 拡大していると再生ヘッドが画面の外に出て、位置が読めなくなるため。
@@ -132,10 +133,20 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
         window.__sampling = false
         return window.__frames
       })
-      const st = frameStats(fr) ?? { worst: NaN }
+      const st = frameStats(fr) ?? { p95: NaN, worst: NaN, janky: 0 }
       const hh = await heap()
       const lg = (sec * 1000 - MOVES * SLEEP) / MOVES
-      return { openSec, lag: lg, worst: st.worst, heap: hh, ok: openSec <= 30 && lg <= 50, note: '' }
+      // 合否は 95% で決める（掴む側と同じ理由。引っかかりは尾にしか出ない）
+      return {
+        openSec,
+        lag: lg,
+        p95: st.p95,
+        janky: st.janky,
+        worst: st.worst,
+        heap: hh,
+        ok: openSec <= 30 && st.p95 <= 50,
+        note: ''
+      }
     }
     const sel = {
       clip: '[data-tid="V1"] .video-clip',
@@ -239,14 +250,40 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
     const before = await layout()
     // 掴む点は「クリップの上」かつ「見えている範囲」に収める
     const x0 = Math.min(Math.max(c.x + 12, visLeft + 10), Math.min(c.x + c.width - 12, visRight - 260))
-    const MOVES = 30
+    /**
+     * **長く動かす。往復させる。**
+     *
+     * 2026-08-04 まで 30回×8ms＝**約240ミリ秒**しか動かしていなかった。
+     * 一方で本体側は26秒ぶん動かしていて、そこでは **26秒に165回**の
+     * 引っかかりが出ている。**240ミリ秒では、それを見る時間がそもそも無い。**
+     * だからここは「全軸で平気」と出し、本体は「95% が 162ms」と出していた。
+     *
+     * 往復にするのは、片道だと 200回も動かすとクリップが画面の外へ出るから
+     *（外へ出ると掴んだ相手が見えなくなり、測っている物が変わる）。
+     */
+    const MOVES = 160
     const SLEEP = 8
-    const dx = Math.max(4, Math.min(8, (c.width * 1.5) / MOVES)) // 1.5個ぶん動かす
+    const amp = Math.max(40, Math.min(200, c.width * 1.5)) // 往復の幅
+    /**
+     * 往復して、**最後はずらして終える**。
+     *
+     * ぴったり往復させると元の位置に戻るので、「動かせたか」の判定
+     *（並びが変わったか）が**全部「掴めなかった」になる**。
+     * 2026-08-04 に実際そうなった——長く動かすようにした最初の1回で、
+     * 19軸のうち14軸が偽の赤になった。
+     */
+    const TAIL = 12 // 最後のこの回数は、ずらした位置で止める
+    const at = (i) => {
+      if (i > MOVES - TAIL) return x0 + amp
+      const t = (i / (MOVES - TAIL)) * 4 // 0→4 で1往復（三角波）
+      const u = t < 1 ? t : t < 3 ? 2 - t : t - 4
+      return x0 + u * amp
+    }
     await page.mouse.move(x0, c.y + c.height / 2)
     await page.mouse.down()
     const tDrag = nowSec()
     for (let i = 1; i <= MOVES; i++) {
-      await page.mouse.move(x0 + i * dx, c.y + c.height / 2)
+      await page.mouse.move(at(i), c.y + c.height / 2)
       await page.waitForTimeout(SLEEP)
     }
     const dragSec = nowSec() - tDrag
@@ -266,9 +303,30 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
     // 1回のマウス移動あたり、待ち時間を差し引いて何ミリ秒余計にかかったか。
     // これがアプリ側の手間そのもの（コマ落ちの分布より素直に効く）。
     const lag = (dragSec * 1000 - MOVES * SLEEP) / MOVES
-    // 開くのに30秒／1操作あたり50ms超かかるようなら、そこから先は実用に耐えない
-    const ok = moved && openSec <= 30 && lag <= 50
-    return { openSec, lag, worst: s.worst, heap: h, ok, note: moved ? '' : '掴めなかった' }
+    /**
+     * **合否は 95% で決める。平均では決めない。**
+     *
+     * 引っかかりは**尾にしか出ない**。中央値は重い条件でも 4.2ms（60fps）の
+     * ままで、跳ねるのは上位数%だけ。平均（`lag`）で見ていたせいで、
+     * 本体が「95% 162ms・26秒に165回」と言っている裏で、ここは
+     * **全軸「平気」と報告していた**（2026-08-04）。
+     *
+     * 50ms＝3コマ落ち。人が「引っかかった」と感じ始める所。
+     */
+    const ok = moved && openSec <= 30 && s.p95 <= 50
+    return {
+      openSec,
+      lag,
+      p95: s.p95,
+      janky: s.janky,
+      worst: s.worst,
+      heap: h,
+      ok,
+      // **掴めなかったのは限界ではない。** 数字が出ていても「その数だと重い」
+      // ではなく「動かせていないので測っていない」。下の notMeasured がこれを見る
+      note: moved ? '' : '掴めなかった（＝**測れていない**。限界ではない）',
+      moved
+    }
   }
 
   // **実物の画像と動画を先に用意する**（初回だけ ffmpeg が走る。以降は .cache から）。
@@ -508,10 +566,14 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
       // ここを合わせないと「置いてあるだけの重さ」しか測れない。
       const r = await probe(p, sw.grab ?? 'telop')
       const line =
-        `${sw.label(v)}: 開く ${fmt(r.openSec)}秒 / 1操作 ${fmt(r.lag)}ms` +
-        ` / 最悪のコマ ${fmt(r.worst)}ms / メモリ ${mb(r.heap)}`
+        // **95% を先に出す。** 引っかかりは尾にしか出ないので、
+        // 平均（1操作）を頭に置くと「平気」に見えてしまう
+        `${sw.label(v)}: 開く ${fmt(r.openSec)}秒 / **95% ${fmt(r.p95)}ms**` +
+        ` / 引っかかり ${r.janky ?? '—'}回 / 最悪 ${fmt(r.worst)}ms` +
+        ` / 平均 ${fmt(r.lag)}ms / メモリ ${mb(r.heap)}`
       console.log(`    ${r.ok ? '·' : '×'} ${line}${r.note ? ' … ' + r.note : ''}`)
-      if (Number.isFinite(r.lag)) pts.push({ v, lag: r.lag, heap: r.heap })
+      // **傾きも 95% で取る**（平均で取ると、引っかかりが増えても平らに見える）
+      if (Number.isFinite(r.p95)) pts.push({ v, lag: r.p95, heap: r.heap })
       if (r.ok) lastOk = { v, r }
       else {
         broke = { v, r }
@@ -545,16 +607,17 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
      * 測っていない**。2026-08-04 に、後者が「20個で崩れる」と限界の顔で
      * 3軸ぶん出ていた——**限界だと思って直しにいくと、丸ごと無駄になる。**
      */
-    const notMeasured = broke && !Number.isFinite(broke.r.lag)
+    // 数字が出ていない、または掴めていない＝**測っていない**。どちらも限界ではない
+    const notMeasured = broke && (!Number.isFinite(broke.r.p95) || broke.r.moved === false)
     const detail =
       (notMeasured
         ? `**測れていない**（${sw.label(broke.v)} で ${broke.r.note}）` +
           `${lastOk ? ` ／ ${sw.label(lastOk.v)} までは平気` : ''}`
         : broke
           ? `${lastOk ? sw.label(lastOk.v) : '最小の設定'} までは平気 / ${sw.label(broke.v)} で崩れる` +
-            `（開く ${fmt(broke.r.openSec)}秒・1操作 ${fmt(broke.r.lag)}ms${broke.r.note ? '・' + broke.r.note : ''}）`
+            `（開く ${fmt(broke.r.openSec)}秒・**95% ${fmt(broke.r.p95)}ms**・引っかかり ${broke.r.janky ?? '—'}回${broke.r.note ? '・' + broke.r.note : ''}）`
           : `試した上限 ${sw.label(sw.values[sw.values.length - 1])} まで平気` +
-            `（そこで 開く ${fmt(lastOk.r.openSec)}秒・1操作 ${fmt(lastOk.r.lag)}ms・メモリ ${mb(lastOk.r.heap)}）`) +
+            `（そこで 開く ${fmt(lastOk.r.openSec)}秒・**95% ${fmt(lastOk.r.p95)}ms**・引っかかり ${lastOk.r.janky ?? '—'}回・メモリ ${mb(lastOk.r.heap)}）`) +
       slope
     // 測れていないものは **問題あり（ng）**。△ にすると「まあ動いた」に見える
     await done('動作', `どこまで耐えるか: ${sw.name}`, detail, notMeasured ? 'ng' : broke ? 'warn' : 'ok')
