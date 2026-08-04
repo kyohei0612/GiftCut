@@ -93,8 +93,17 @@ const DEBT_INDEX = new Set([
   // `isExporting` と `registerExportHandlers` の2つしか無く（1,012行が `export:run` の
   // 中の1コールバック）、取説を書いても2行で「これしか無い」という嘘の案内になる。
   // → 話題で3つに割った（08-04 に組み立てをさらに4つへ。どれも500行未満）。
-  //   詳しくは `引き継ぎ-読める形.md`
-  'src/renderer/src/state/useAppWiring.tsx', // 1,213
+  //   詳しくは `引き継ぎ-心臓の分け直し.md`
+  // useAppWiring は**返済済み**（2026-08-04）。1,229 → 362。
+  //
+  // **3回「割れない」と測って、3回とも結論が間違っていた。** 測ったのは
+  // 「横に切ったとき境目をまたぐ名前の数」（300〜506個）で、数字は正しい。
+  // だが**割る向きが違った**——横に切るのではなく、フックを1本ずつ
+  // 囲い（`state/*Context.tsx`）へ上げて、使う側に自分で見に行かせる。
+  // またぐ数は関係なくなる（配線を経由しないので）。
+  //
+  // 順番は `npm run passthrough` が出す（詰まりの根＝上げるのを止めている名前）。
+  // 太り直さないよう `state/wiringSize.test.ts` が見張っている。
   // useTimelineEdit は**返済済み**（08-03 に取説 → 08-04 に4つへ割って 959 → 654）。
   //
   // **08-03 に書いた「切り口が見つからなかった」は、測っていなかった。**
@@ -129,7 +138,6 @@ const DEBT_INDEX = new Set([
   // **同じ場所に並べて置くことは、写しを1本にすることの代わりにならない。**
   // 決め事そのものを外へ出した: lib/clipDragLoop（段取り）・shared/lanes の
   // canDropOn（落としてよい段か）・shared/clipEdit の shiftGroup（束をずらす）。
-  'src/renderer/src/state/useClipDrag.ts', // 431（もう500未満だが、経緯を残すため置いておく）
   // useLibraries は**返済済み**（2026-08-03）。整理（★・フォルダ・畳み）を
   // ./useLibraryOrganize へ出して 530 → 210。JSX が無くなったので .ts になった
   // useMediaDrop は**返済済み**（2026-08-04）。533 → 243。
@@ -221,7 +229,8 @@ function topLevelCallables(lines: string[]): string[] {
  *
  * ## 字下げされた物も数える（2026-08-04 に広げた）
  *
- * フックの中にしか実体が無い物がある。`useAppWiring` の糊14本がそれで、
+ * フックの中にしか実体が無い物がある。当時の `useAppWiring` の糊14本がそれで、
+ * （08-04 に剥がして4本になったが、形は同じ）
  * **どこからも見つけられない状態だった**——`npm run index` は1行目しか出さず、
  * 取説も無かったので、`shiftAfter` を知らずに同じ物を新規で書く事故が起きうる。
  *
@@ -348,6 +357,17 @@ describe('AI が余裕を持って読める形', () => {
           ]
           if (!cands.some((p) => existsSync(p))) bad.push(`${f.path}:${i + 1}  → ${ref}`)
         }
+        // **引き継ぎ（.md）への案内も見る。** 2026-08-04 に .md を13本 → 8本へ
+        // 畳んだとき、**コードのコメント8か所が消えた4本を指したまま**になった。
+        // .md は `noUnusedLocals` にも取説の照合にも一切かからないので、
+        // **ここで見ないと永久に気づかない**（しかも引き継ぎは「次に読む物」なので
+        // 案内が切れると一番困る）。
+        for (const m of l.matchAll(/(?<![\w/])([^\s`「（(]*\.md)\b/g)) {
+          const ref = m[1]
+          if (ref.startsWith('http') || ref.includes('*')) continue
+          const cands = [join(REPO, ref), join(REPO, '.company', ref)]
+          if (!cands.some((p) => existsSync(p))) bad.push(`${f.path}:${i + 1}  → ${ref}`)
+        }
       }
     }
     expect(
@@ -362,8 +382,41 @@ describe('AI が余裕を持って読める形', () => {
   it('DEBT は減らす方向にだけ動かす（この数を増やしたら赤くする）', () => {
     // 増やしたくなったら、それは「割るか取説を書くか」を先送りしているだけ。
     // 2026-08-03 に 13 で始めて、その日のうちに telopStyle / useLibraries /
-    // useProjectFile を返して 10。
-    expect(DEBT_INDEX.size).toBeLessThanOrEqual(8)
+    // useProjectFile を返して 10。**08-04 に 0 になった。**
+    expect(DEBT_INDEX.size).toBeLessThanOrEqual(0)
     expect(DEBT_HEAD.size).toBeLessThanOrEqual(10)
+  })
+
+  /**
+   * **返し終わった物が、載ったまま残っていないか。**
+   *
+   * 2026-08-04 に実際に2件残っていた（`useAppWiring` 362行・`useClipDrag` 431行）。
+   * どちらもとっくに 500 未満なのに、名簿には「まだ割れていない物」として
+   * 並んでいた。**片方は「割らない」という判断の根拠として読まれていた。**
+   *
+   * 名簿は載せた日しか更新されないので、**減った側は誰も直さない。**
+   * 数（上の検査）は「増やすな」しか見ないから、これは永久に見つからない。
+   */
+  it('**返済済みが名簿に残っていない**（免除が要らなくなったら消す）', () => {
+    const stale: string[] = []
+    for (const p of DEBT_INDEX) {
+      const f = files.find((x) => x.path === p)
+      if (!f) stale.push(`${p} … もう無いファイル`)
+      else if (f.lines.length <= NEED_INDEX) stale.push(`${p} … ${f.lines.length}行（免除が不要）`)
+    }
+    for (const p of DEBT_HEAD) {
+      const f = files.find((x) => x.path === p)
+      if (!f) stale.push(`${p} … もう無いファイル`)
+      else if (/^\s*(\/\/|\/\*)/.test(f.lines.find((l) => l.trim().length > 0) ?? ''))
+        stale.push(`${p} … 冒頭コメントが付いている（免除が不要）`)
+    }
+    expect(
+      stale,
+      '\n免除の名簿に、もう免除が要らない物が残っている:\n  ' +
+        stale.join('\n  ') +
+        '\n\n**消すこと。** 残すと「まだ割れていない物」として読まれる——\n' +
+        '実際に `useAppWiring` は「割らない判断の根拠」として引用されていた。\n' +
+        '経緯を残したいなら、名簿から出してコメントとして書く'
+    ).toEqual([])
   })
 })

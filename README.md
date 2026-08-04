@@ -47,7 +47,7 @@
 npm install
 npm run dev                 開発中の起動
 npm run verify              型と単体テスト（コミット前に自動で走る）
-npm run e2e                 通しの動作確認（約185項目）
+npm run e2e                 通しの動作確認（256項目・約13分）
 npm run walk                使用感チェック
 npm run bench               負荷と限界の測定
 npm run dist                インストーラを作る
