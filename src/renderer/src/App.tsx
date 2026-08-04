@@ -100,6 +100,14 @@ import { AutosaveMarkProvider } from './state/autosaveMarkContext'
 import { TelopTemplateProvider } from './state/telopTemplateContext'
 import { ExportRunProvider } from './state/exportRunContext'
 import { ProjectGuardProvider } from './state/projectGuardContext'
+import { MediaDropProvider } from './state/mediaDropContext'
+import { TimelineEditProvider } from './state/timelineEditContext'
+import { ProjectFileProvider } from './state/projectFileContext'
+import { ProjectIOProvider } from './state/projectIOContext'
+import { SegmentDragProvider } from './state/segmentDragContext'
+import { IconLibraryProvider } from './state/iconLibraryContext'
+import { PreviewManipProvider } from './state/previewManipContext'
+import { ProjectTemplatesProvider } from './state/projectTemplatesContext'
 
 import { AppHeader } from './components/panels/AppHeader'
 import { Workspace } from './components/panels/Workspace'
@@ -323,7 +331,15 @@ export default function App(): React.JSX.Element {
       (c) => <AutosaveMarkProvider>{c}</AutosaveMarkProvider>,
       (c) => <TelopTemplateProvider>{c}</TelopTemplateProvider>,
       (c) => <ExportRunProvider>{c}</ExportRunProvider>,
-      (c) => <ProjectGuardProvider>{c}</ProjectGuardProvider>
+      (c) => <ProjectGuardProvider>{c}</ProjectGuardProvider>,
+      (c) => <MediaDropProvider>{c}</MediaDropProvider>,
+      (c) => <TimelineEditProvider>{c}</TimelineEditProvider>,
+      (c) => <ProjectFileProvider>{c}</ProjectFileProvider>,
+      (c) => <ProjectIOProvider>{c}</ProjectIOProvider>,
+      (c) => <SegmentDragProvider>{c}</SegmentDragProvider>,
+      (c) => <IconLibraryProvider>{c}</IconLibraryProvider>,
+      (c) => <PreviewManipProvider>{c}</PreviewManipProvider>,
+      (c) => <ProjectTemplatesProvider>{c}</ProjectTemplatesProvider>
     ],
     <AppInner />
   )

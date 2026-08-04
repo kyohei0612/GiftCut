@@ -11,7 +11,8 @@
 // 本編の上に落とすと、そこにあった物が**丸ごと消える**。
 // 離す前に赤い縁で知らせないと、消えてから気づくことになる。
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import type { MediaItem } from '../components/panels/ProjectBinTab'
 import type { SegDropMode } from '../../../shared/dragMode'
 
 /** 効果音を置こうとしている所に出す影 */
@@ -50,6 +51,14 @@ export interface Marquee {
 }
 
 export interface DragPreview {
+  /**
+   * いま掴んでいる素材と、その尺。**指を離した時に確定するので ref。**
+   *
+   * 配線から移した（2026-08-04）。上の影（`*Ghost`）はこの2つから作るのに、
+   * **持ち主が別々**だった＝「離したら消える物」が2か所に散っていた。
+   */
+  draggingMediaRef: React.MutableRefObject<MediaItem | null>
+  dragSeDurRef: React.MutableRefObject<number>
   seGhost: SeGhost | null
   setSeGhost: React.Dispatch<React.SetStateAction<SeGhost | null>>
   videoGhost: VideoGhost | null
@@ -72,6 +81,9 @@ export interface DragPreview {
 }
 
 export function useDragPreview(): DragPreview {
+  const draggingMediaRef = useRef<MediaItem | null>(null)
+  /** 掴んでいる最中の効果音の尺（影の幅に使う。掴んだ時に測って入れる） */
+  const dragSeDurRef = useRef(2)
   const [seGhost, setSeGhost] = useState<SeGhost | null>(null)
   const [videoGhost, setVideoGhost] = useState<VideoGhost | null>(null)
   const [imgGhost, setImgGhost] = useState<ImgGhost | null>(null)
@@ -81,6 +93,8 @@ export function useDragPreview(): DragPreview {
   const [overwriteIds, setOverwriteIds] = useState<number[]>([])
 
   return {
+    draggingMediaRef,
+    dragSeDurRef,
     seGhost,
     setSeGhost,
     videoGhost,

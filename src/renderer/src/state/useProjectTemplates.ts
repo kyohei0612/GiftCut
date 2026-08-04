@@ -32,6 +32,7 @@
 // - `saveAsTemplateFn` … 名前を尋ねて雛形として保存する
 // - `openTemplateFn` … 雛形の一覧を出す（無ければその旨を言う）
 // - `pickTemplate` … 一覧で選ばれた1つを読んで当てる
+import { useState } from 'react'
 import { toGcUrl } from '../lib/gcUrl'
 import { mergeAssignments, mergeFavorites, mergeFolders, mergeNamed } from '../../../shared/templateMerge'
 // ※ ここでは lib/telopTemplates と lib/iconLibrary の save* を**呼ばない**。
@@ -69,12 +70,18 @@ export interface UseProjectTemplatesDeps {
   applyLayout: (l: any) => void
   /** 名前を尋ねる小窓 */
   askText: (title: string, def: string, onOk: (v: string) => void) => void
-  setTemplatePicker: React.Dispatch<React.SetStateAction<TemplatePickerState | null>>
   saveLS: (key: string, v: unknown) => void
 }
 
 export function useProjectTemplates(deps: UseProjectTemplatesDeps) {
-  const { kindOf, layoutNow, applyLayout, askText, setTemplatePicker, saveLS } = deps
+  const { kindOf, layoutNow, applyLayout, askText, saveLS } = deps
+  /**
+   * 雛形を選ぶ窓（起動時と手動の両方）。**当てても原本は汚さない**＝新規扱いで開く。
+   *
+   * **配線から引き取った（2026-08-04）。** 開けるのはここだけで、配線は
+   * `useState` を持って渡していただけだった。閉じるのと中身を出すのは画面（束）。
+   */
+  const [templatePicker, setTemplatePicker] = useState<TemplatePickerState | null>(null)
   const { showToast } = useToastCtx()
   const { ratio, setRatio } = useExportCtx()
   const { mediaItems, setMediaItems, mediaIdCounter } = useMediaCtx()
@@ -240,5 +247,5 @@ export function useProjectTemplates(deps: UseProjectTemplatesDeps) {
   // **templateJson / applyProjectTemplate は返さない。** 受け取る所が無い
   // （この中でだけ使う。return の中は noUnusedLocals が見ないので、
   //   放っておくと「返しているのに誰も取らない」物が静かに増える）。
-  return { saveAsTemplateFn, openTemplateFn, pickTemplate }
+  return { saveAsTemplateFn, openTemplateFn, pickTemplate, templatePicker, setTemplatePicker }
 }

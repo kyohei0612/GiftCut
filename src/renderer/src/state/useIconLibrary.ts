@@ -17,7 +17,8 @@
 // 取り込む時点で切り抜いておけば、後から全部やり直さずに済む。
 
 import { clamp } from '../../../shared/timeline'
-import { fileToDataUrl } from '../lib/iconLibrary'
+import { useState } from 'react'
+import { fileToDataUrl, loadIconLibrary } from '../lib/iconLibrary'
 import { saveIconAssign, saveIconLibrary, type IconItem } from '../lib/iconLibrary'
 import { useIconsCtx } from './iconsContext'
 import { useDoc } from './contentContext'
@@ -27,11 +28,6 @@ import { usePlaybackCtx } from './playbackContext'
 import type { Cue } from '../lib/srt'
 
 export interface UseIconLibraryDeps {
-  /** 取り込んである絵の一覧。App が持っている */
-  iconLibrary: IconItem[]
-  setIconLibrary: React.Dispatch<React.SetStateAction<IconItem[]>>
-  /** 取り込んだ絵を切り抜く画面を開く */
-  setCropSrc: (v: { src: string; onDone: (img: string) => void } | null) => void
   /** 段ごと・色ごとの割り当ての置き場 */
   setIconAssignState: React.Dispatch<React.SetStateAction<Record<string, string>>>
   setLaneIconAssign: React.Dispatch<React.SetStateAction<Record<string, string>>>
@@ -51,8 +47,18 @@ export interface UseIconLibraryDeps {
 }
 
 export function useIconLibrary(deps: UseIconLibraryDeps) {
+  /**
+   * 取り込んである絵の一覧と、切り抜く画面。
+   *
+   * **配線から引き取った（2026-08-04）。** 作って渡していただけで、
+   * 触るのはここだけだった。読むのは画面（束）。
+   */
+  const [iconLibrary, setIconLibrary] = useState<IconItem[]>(loadIconLibrary)
+  const [cropSrc, setCropSrc] = useState<{ src: string; onDone: (img: string) => void } | null>(
+    null
+  )
   const {
-    iconLibrary, setIconLibrary, setCropSrc, setIconAssignState, setLaneIconAssign,
+    setIconAssignState, setLaneIconAssign,
     setIconOv, setIconFavs, applyIconAutoLeft, setOpenAccSec, saveLS, screenRef,
     seekTo, stopPlayback, selected
   } = deps
@@ -215,6 +221,7 @@ export function useIconLibrary(deps: UseIconLibraryDeps) {
   }
 
   return {
+    iconLibrary, setIconLibrary, cropSrc, setCropSrc,
     setIconForLane, changeIconAuto, setIconForColor, appendIconImage,
     addIconFiles, addIconImages, removeIconImage, setPersonIconForSelected
   }
