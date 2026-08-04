@@ -164,21 +164,23 @@ export async function makeFixture() {
     ? join(cacheDir, `src-${realVideo.split(/[\\/]/).pop().replace(/[^\w.]/g, '_')}-${statSync(realVideo).size}.mp4`)
     : null
 
+  // 素の20秒（まだ黙らせていない）。仕上げは下の「無音を仕込む」でやる
+  const raw = join(dir, 'test_video_raw.mp4')
   let r = { code: 1 }
   if (realVideo && cached && existsSync(cached)) {
     console.log(`実素材（作成済みを再利用）: ${realVideo.split(/[\\/]/).pop()}`)
-    copyFileSync(cached, video)
+    copyFileSync(cached, raw)
     r = { code: 0 }
   } else if (realVideo) {
     console.log(`実素材を使用: ${realVideo.split(/[\\/]/).pop()}（冒頭20秒を切り出し。次回からは再利用）`)
     r = await sh('ffmpeg', [
       '-y', '-t', '20', '-i', realVideo,
       '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
-      '-vf', 'scale=640:-2', '-c:a', 'aac', '-ac', '2', '-ar', '48000', video
+      '-vf', 'scale=640:-2', '-c:a', 'aac', '-ac', '2', '-ar', '48000', raw
     ])
     if (r.code === 0 && cached) {
       try {
-        copyFileSync(video, cached)
+        copyFileSync(raw, cached)
       } catch {
         /* 保存できなくても動作には影響しない */
       }
@@ -188,10 +190,47 @@ export async function makeFixture() {
     r = await sh('ffmpeg', [
       '-y', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=30:duration=20',
       '-f', 'lavfi', '-i', 'sine=frequency=440:duration=20',
-      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', video
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', raw
     ])
   }
   if (r.code !== 0) throw new Error('テスト用の動画を作れませんでした（ffmpeg が必要）: ' + r.err.slice(-300))
+
+  // ---- 無音を仕込む（**素材まかせにしない**）----
+  //
+  // 無音カットとダッキングは「声の切れ目」が素材に無いと何一つ測れない。
+  // ところが素材は Downloads にある**いちばん小さい動画**から取るので、
+  // どんな音が入っているかは運まかせだった。2026-08-04、そこへ新しい動画が
+  // 増えて選ばれる物が入れ替わり、**無音が1か所も無い20秒**になって3項目が同時に落ちた:
+  //
+  //   ✗ 余白の設定が効く          理由「余白なしでも切る所が無い（0秒）」
+  //   ✗ 無音カットを実行すると…   理由「切る所が見つからない」
+  //   ✗ ダッキング…               理由「書き出しに声の音量指定が渡っていない」
+  //
+  // **どれもアプリの不具合の顔をして出てくる**（3つ目は useSilenceDuck が
+  // 「無音0か所 → 曲線は空」なので、書き出しに volume=eval=frame が載らない）。
+  // 半日かけて「今日の src/ が原因か」を切り分ける羽目になった。
+  //
+  // 作り物のフォールバック（途切れない 440Hz のサイン波）にも無音は無いので、
+  // **この検査は最初から Downloads の中身の運で通っていた。**
+  //
+  // 絵も音も本物のまま、決まった3か所だけを黙らせる。20秒より短い素材でも
+  // 収まるよう 11秒までに置く。-c:v copy なので絵は焼き直さない（速い）。
+  const GAPS = [[2.5, 3.0], [6.0, 6.6], [10.0, 10.4]]
+  r = await sh('ffmpeg', [
+    '-y', '-i', raw, '-c:v', 'copy',
+    '-af', GAPS.map(([a, b]) => `volume=enable='between(t,${a},${b})':volume=0`).join(','),
+    '-c:a', 'aac', '-ac', '2', '-ar', '48000', video
+  ])
+  if (r.code !== 0) throw new Error('確認用の素材に無音を仕込めませんでした: ' + r.err.slice(-300))
+  // **成立しなければ落ちる。** ここで数えずに進むと、素材が短すぎた日に
+  // また「アプリが壊れた」に見える形で出てくる（上の3件がまさにそれ）。
+  const det = await sh('ffmpeg', ['-hide_banner', '-i', video, '-af', 'silencedetect=n=-25dB:d=0.2', '-f', 'null', '-'])
+  const gaps = (det.err.match(/silence_start/g) || []).length
+  if (gaps < GAPS.length)
+    throw new Error(
+      `確認用の素材に無音が ${gaps} か所しかありません（${GAPS.length} か所要る）。` +
+        '素材が短すぎるか、音が入っていない可能性があります: ' + (realVideo ?? '作り物')
+    )
 
   r = realImage
     ? await sh('ffmpeg', ['-y', '-i', realImage, '-vf', 'scale=320:-2', '-frames:v', '1', image])

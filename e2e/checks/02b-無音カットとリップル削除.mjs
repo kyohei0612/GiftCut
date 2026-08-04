@@ -33,8 +33,9 @@ export default async function (C) {
       await page.locator('.tool-wide', { hasText: '無音カット' }).click()
       await page.waitForSelector('.sil-box', { timeout: 10000 })
     }
-    // 確認用の素材は20秒で、無音も0.2〜0.36秒と短い。
-    // 既定値のままでは1つも残らないので、ゆるめて使う（本来の流れもこれ）。
+    // 確認用の素材は20秒で、無音は 0.4〜0.6秒の3か所（`e2e/lib/e2eFixture.mjs` が
+    // わざと仕込んでいる。素材まかせにしたら、無音ゼロの動画に入れ替わった日に
+    // 3項目がまとめて落ちた）。既定値のままでは1つも残らないので、ゆるめて使う。
     await setSlider('これより静かなら無音', -25)
     await setSlider('この長さ以上を無音とみなす', 0.2)
     await setSlider('前後に残す余白', 0.02)
@@ -50,11 +51,17 @@ export default async function (C) {
     if (await btn.count()) await btn.click()
     await page.waitForTimeout(300)
   }
-  /** いまの見積もり（合計秒） */
+  /**
+   * いまの見積もり（合計秒）。
+   *
+   * **読めなければ落とす。** 0 を返していたせいで「切る所が本当に0秒」なのか
+   * 「文が読めていない」のかが区別できず、原因を追うのに半日かかった。
+   */
   const cutSecs = async () => {
     const t = await page.locator('.sil-result').textContent()
     const m = /合計 ([\d.]+) 秒/.exec(t)
-    return m ? Number(m[1]) : 0
+    if (!m) throw new Error(`見積もりの文が読めない（.sil-result = ${JSON.stringify(t)}）`)
+    return Number(m[1])
   }
 
   await check('無音カットは、切る前に「どこを何秒切るか」を出す', async () => {
