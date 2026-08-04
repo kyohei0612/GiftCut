@@ -63,6 +63,17 @@ import { ProxyProvider } from './state/proxyContext'
 import { SnapProvider } from './state/snapContext'
 import { SegOpsProvider } from './state/segOpsContext'
 import { NowShowingProvider } from './state/nowShowingContext'
+import { EditProvider } from './state/editContext'
+import { TelopLookProvider } from './state/telopLookContext'
+import { LabelsPresetsProvider } from './state/labelsPresetsContext'
+import { SilenceDuckProvider } from './state/silenceDuckContext'
+import { VClipElsProvider } from './state/vClipElsContext'
+import { TemplateShelfProvider } from './state/templateShelfContext'
+import { TelopEditProvider } from './state/telopEditContext'
+import { AttrCopyProvider } from './state/attrCopyContext'
+import { LaneResizeProvider } from './state/laneResizeContext'
+import { CurrentLookProvider } from './state/currentLookContext'
+import { HistoryProvider } from './state/historyContext'
 
 import { AppHeader } from './components/panels/AppHeader'
 import { Workspace } from './components/panels/Workspace'
@@ -222,7 +233,29 @@ export default function App(): React.JSX.Element {
                                                             <SnapProvider>
                                                               <SegOpsProvider>
                                                                 <NowShowingProvider>
-                                                                  <AppInner />
+                                                                  <EditProvider>
+                                                                    <TelopLookProvider>
+                                                                      <LabelsPresetsProvider>
+                                                                        <SilenceDuckProvider>
+                                                                          <VClipElsProvider>
+                                                                            <TemplateShelfProvider>
+                                                                              <TelopEditProvider>
+                                                                                <AttrCopyProvider>
+                                                                                  <LaneResizeProvider>
+                                                                                    <CurrentLookProvider>
+                                                                                      <HistoryProvider>
+                                                                                        <AppInner />
+                                                                                      </HistoryProvider>
+                                                                                    </CurrentLookProvider>
+                                                                                  </LaneResizeProvider>
+                                                                                </AttrCopyProvider>
+                                                                              </TelopEditProvider>
+                                                                            </TemplateShelfProvider>
+                                                                          </VClipElsProvider>
+                                                                        </SilenceDuckProvider>
+                                                                      </LabelsPresetsProvider>
+                                                                    </TelopLookProvider>
+                                                                  </EditProvider>
                                                                 </NowShowingProvider>
                                                               </SegOpsProvider>
                                                             </SnapProvider>

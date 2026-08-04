@@ -71,11 +71,36 @@ const isCtxCall = (init) =>
   ts.isIdentifier(init.expression) &&
   CTX_HOOKS.has(init.expression.text)
 
+// **心臓を「変数に受けてから配る」形も数える。**
+//   const sel = useSel()          ← これも心臓
+//   const { selectedIds } = sel   ← だから selectedIds も心臓から取った物
+// 見ていなかった頃は、これを「配線が自分で書いた物」と数えて
+// **上げられるフックを『待ち』に見せていた**（2026-08-04）。
+const ctxAlias = new Set()
+for (const st of fn.body.statements) {
+  if (!ts.isVariableStatement(st)) continue
+  for (const d of st.declarationList.declarations)
+    if (d.initializer && ts.isIdentifier(d.name) && isCtxCall(d.initializer))
+      ctxAlias.add(d.name.text)
+}
+
 // **心臓から取り出した物と、フックが返した物の両方**を数える。
 // 前者は「渡すのをやめて向こうに見に行かせる」、後者は「向こうに心臓へ書かせる」。
 for (const st of fn.body.statements) {
   if (!ts.isVariableStatement(st)) continue
   for (const d of st.declarationList.declarations) {
+    // 心臓を受けた変数からの分割代入（`const { x } = sel`）も心臓扱い
+    if (
+      d.initializer &&
+      ts.isObjectBindingPattern(d.name) &&
+      ts.isIdentifier(d.initializer) &&
+      ctxAlias.has(d.initializer.text)
+    ) {
+      for (const el of d.name.elements)
+        if (ts.isIdentifier(el.name))
+          fromCtx.set(el.name.getStart(), { name: el.name.text, ctx: d.initializer.text, kind: '心臓' })
+      continue
+    }
     if (!d.initializer || !ts.isObjectBindingPattern(d.name)) continue
     const isCall =
       ts.isCallExpression(d.initializer) && ts.isIdentifier(d.initializer.expression)
@@ -290,6 +315,25 @@ const blocker = new Map()
 for (const [, i] of blocked) for (const d of i.deps) blocker.set(d, (blocker.get(d) ?? 0) + 1)
 for (const [h, n] of [...blocker.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6))
   console.log(`     ${String(n).padStart(2)} 本が待っている: ${h}${hookOf.get(h)?.deps.size ? '（これも待ち）' : ''}`)
+
+// **上げられる物が無くなったら、詰まりの「根」を出す。**
+// 根＝フック待ちが1つも無く、**配線が自分で書いた物だけ**を待っている物。
+// そこは囲いでは解けない——その物を先に外へ出すか、囲いの中で作り直すしかない。
+if (!ready.length && blocked.length) {
+  const roots = blocked.filter(([, i]) => !i.deps.size)
+  console.log(`\n\x1b[1m   剥き終わり。詰まりの根: ${roots.length} 本\x1b[0m`)
+  console.log('   （フック待ちが無く、**配線が自分で書いた物**だけを待っている）')
+  console.log('   → その物を心臓へ出すか、囲いの中で作り直すしかない\n')
+  const need = new Map()
+  for (const [h, i] of roots.sort((a, b) => b[1].names - a[1].names)) {
+    console.log(`  ${String(i.names).padStart(3)} 個  ${h}`)
+    console.log(`         待っている物: ${[...i.local].join(' ')}`)
+    for (const l of i.local) need.set(l, (need.get(l) ?? 0) + 1)
+  }
+  console.log('\n   **何本が同じ物を待っているか**（ここを先に外へ出すと一番効く）:')
+  for (const [n, c] of [...need.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10))
+    console.log(`     ${String(c).padStart(2)} 本: ${n}`)
+}
 
 console.log(`\n\x1b[1m④ ここで実際に使っている\x1b[0m（残る）: ${kept.length} 個`)
 console.log(`  ${kept.join(' ')}\n`)
