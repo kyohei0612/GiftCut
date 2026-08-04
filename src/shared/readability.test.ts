@@ -112,13 +112,26 @@ const DEBT_INDEX = new Set([
   // 掴む物で3つ: ./useTrackSelectTool（トラック選択ツール。**土台**）・
   // ./useTelopDrag（テロップを動かす／端を摘む）・ここ（擦る／囲う／束ねる）。
   // **どの群も連れて行く局所の名前が0**だった（受け取るのは import だけ）。
-  'src/renderer/src/lib/telopSvg.ts', // 564
-  'src/renderer/src/state/useClipDrag.ts', // 534
+  // telopSvg は**割らない判断**（2026-08-04）。566 → 594（説明を足したぶん増えた）。
+  // 448行が1つのパイプラインで、後ろが前の全部に乗っている。記号解決の実測:
+  // **94行を出すのに 連れて行く文33／受け取る15／返す21**。導管21本は割に合わない。
+  // 割るなら「行を動かす」ではなく作り直し（組版の下ごしらえを1つの値にまとめ、
+  // 段を4枚返す形）。**画素の突き合わせ（npm run frames）が要る**ので別の作業。
+  // 数字と理由はあのファイルの冒頭にそのまま書いてある。
+  'src/renderer/src/lib/telopSvg.ts', // 594
+  // useClipDrag は**わざと割らない**（2026-08-04 に測ったうえで見送り）。
+  // 効果音・画像・映像クリップの3つは**やっていることが同じ**で、
+  // バラバラに置いていた頃に「端の伸ばし方が2通り」になった事故が頭に書いてある。
+  // 割ると、このリポジトリが最優先にしている「②直し漏れが出ない」を自分から壊す。
+  'src/renderer/src/state/useClipDrag.ts', // 524
   // useLibraries は**返済済み**（2026-08-03）。整理（★・フォルダ・畳み）を
   // ./useLibraryOrganize へ出して 530 → 210。JSX が無くなったので .ts になった
-  'src/renderer/src/state/useMediaDrop.ts', // 524
-  'src/renderer/src/state/usePlaybackEngine.ts', // 516
-  'src/renderer/src/state/usePreviewManip.ts' // 516
+  // useMediaDrop は**返済済み**（2026-08-04）。533 → 243。
+  // 「落とし先を決めて置く」13個を ./useMediaPlace へ（受け取る5・返す1）。
+  // usePlaybackEngine は**返済済み**（2026-08-04）。521 → 282。
+  // 切片をまたぐ時計（A面/B面）を ./useSegClock へ（受け取る4・返す2）。
+  // usePreviewManip は**返済済み**（2026-08-04）。526 → 413。
+  // 拡大の基準点を ./usePreviewAnchor へ（**どの話題もこれを土台にしていた**）。
 ])
 
 /**
