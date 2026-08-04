@@ -108,3 +108,36 @@ export function splitAt(
 export function toggleSelect(ids: readonly number[], id: number): number[] {
   return ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]
 }
+
+/**
+ * **束をまとめてずらす。段を変えるのは掴んだ1つだけ。**
+ *
+ * 全部を同じ段へ寄せると重なって壊れる（掴んだ物だけ動かし、
+ * 残りは元の段に置いていく）。位置は**掴んだ時の控え**から測る——
+ * 動かしている最中の値を起点にすると、じわじわ流れていく。
+ *
+ * ## なぜ1か所に寄せたか（2026-08-04）
+ *
+ * `state/useClipDrag` の3か所（効果音・画像・映像レイヤー）に、
+ * **同じ12行が3回**書かれていた。
+ *
+ * @param base 掴んだ時の tStart（id → 秒）
+ * @param lane 落とし先。null なら段を変えない
+ */
+export function shiftGroup<T extends { id: number; tStart: number; track: string }>(
+  list: readonly T[],
+  grpIds: readonly number[],
+  base: ReadonlyMap<number, number>,
+  shift: number,
+  grabbedId: number,
+  lane: string | null
+): T[] {
+  return list.map((c) => {
+    if (!grpIds.includes(c.id)) return c
+    return {
+      ...c,
+      tStart: Math.max(0, (base.get(c.id) ?? c.tStart) + shift),
+      track: lane && c.id === grabbedId ? lane : c.track
+    }
+  })
+}

@@ -4,7 +4,7 @@
 // 特に「外したときに本編へ落とさない」は、間違えると元の映像が消える。
 
 import { describe, expect, it } from 'vitest'
-import { dropLaneAt, laneAtY, laneRows, pickAudioLane, avoidBusyLane } from './lanes'
+import { dropLaneAt, laneAtY, laneRows, pickAudioLane, avoidBusyLane, canDropOn } from './lanes'
 
 /** V1 V2 V3 / A1 A2 の5段。映像40px・音声30px・目盛り24px */
 const TRACKS = [
@@ -136,5 +136,42 @@ describe('埋まっている段を避ける', () => {
 
   it('並びに無い段は触らない', () => {
     expect(avoidBusyLane(order, busy, 1, 'V1')).toBe('V1')
+  })
+})
+
+describe('落としてよい段か（canDropOn）', () => {
+  // **3種類（効果音・画像・映像レイヤー）が同じ判定を通ることを、ここで固定する。**
+  // 2026-08-04 まで useClipDrag に同じ判定が3回手書きしてあり、
+  // 除く段（A1 / V1）も別々に書かれていた。
+  const tracks = [
+    { id: 'V1', kind: 'video' },
+    { id: 'V2', kind: 'video' },
+    { id: 'A1', kind: 'audio' },
+    { id: 'A2', kind: 'audio' }
+  ]
+  const nolock = (): boolean => false
+
+  it('その種類の段なら落とせる', () => {
+    expect(canDropOn('V2', 'video', tracks, nolock)).toBe(true)
+    expect(canDropOn('A2', 'audio', tracks, nolock)).toBe(true)
+  })
+
+  it('**本編の段には落とさない**（音は A1・映像は V1）', () => {
+    expect(canDropOn('V1', 'video', tracks, nolock)).toBe(false)
+    expect(canDropOn('A1', 'audio', tracks, nolock)).toBe(false)
+  })
+
+  it('種類が違う段には落とさない', () => {
+    expect(canDropOn('A2', 'video', tracks, nolock)).toBe(false)
+    expect(canDropOn('V2', 'audio', tracks, nolock)).toBe(false)
+  })
+
+  it('鍵の掛かった段には落とさない', () => {
+    expect(canDropOn('V2', 'video', tracks, (id) => id === 'V2')).toBe(false)
+  })
+
+  it('段が無い／外したときは落とさない', () => {
+    expect(canDropOn(null, 'video', tracks, nolock)).toBe(false)
+    expect(canDropOn('V9', 'video', tracks, nolock)).toBe(false)
   })
 })

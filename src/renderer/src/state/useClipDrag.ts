@@ -3,23 +3,45 @@
 // ## なぜ3つまとめて置くか
 //
 // **やっていることが同じだから。** 掴む→端なら伸ばす／真ん中なら動かす→
-// 縦に振れば段を変える。違うのは「何を書き換えるか」だけで、決め事は共通:
+// 縦に振れば段を変える。違うのは「何を書き換えるか」だけ。
 //
-//   ・鍵の掛かった段は触らない
-//   ・押しただけの震えでは動かさない（shared/dragMode）
-//   ・端の伸ばし方は元の音・映像の残りを超えない（shared/clipEdit）
-//   ・落とし先は必ず1つ返す。外したら本編には落とさない（shared/lanes）
+// バラバラのファイルに置いていた頃は、片方だけ直して片方が置き去りになっていた。
 //
-// バラバラに置いていたので、片方だけ直して片方が置き去りになっていた
-//（実際、端の伸ばし方が2通りに書かれていた）。
+// ## **同じ場所に置くだけでは、ズレは止まらなかった**（2026-08-04 に読んで分かった）
+//
+// ここには「決め事は共通」と書いてあったが、**中で3通りに割れていた**:
+//
+//   レザーの分け方   効果音 `splitAt` ／ 画像 手書き ／ 映像 手書き
+//   右端の伸ばし方   効果音 `trimRight` ／ **画像 手書き**（`Math.max(0.2, …)`） ／ 映像 `trimRight`
+//   左端の伸ばし方   効果音 `trimLeft` ／ **画像 手書き**（`clamp`） ／ 映像 `trimLeft`
+//
+// 頭で「共通」と宣言しても、**中身が3回書いてあれば3通りに育つ**。
+// 並べて置くことは、写しを1本にすることの代わりにならない。
+//
+// ## だから決め事そのものを外へ出した（3か所 → 1か所）
+//
+//   掴んでから離すまでの段取り  `lib/clipDragLoop` の `startClipDragLoop`
+//   落としてよい段か            `shared/lanes` の `canDropOn`
+//   束をずらす／段を変える      `shared/clipEdit` の `shiftGroup`
+//   端の伸ばし方                `shared/clipEdit` の `trimLeft` / `trimRight`
+//
+// **この4つは、もうここに書き写せない。** 下の3つが同じ物を呼んでいる形になった
+// ので、直せば3種類とも直る（524 → 431行）。
+//
+// ※ **残っている写し**: レザーの分け方が画像・映像でまだ手書き。効果音の `splitAt` は
+//   「元の音のどこから鳴らすか」を持つので、画像（持たない）とは形が違う。
+//   寄せるなら先に `splitAt` の受け取る形を見直すこと（`やること.md`）。
 //
 // ## 受け取っている物
 //
 // 画面に触る所（タイムラインの実体・吹き出し・吸い付きの縦線）と、
 // 位置の計算（吸い付き先）は App 側にある。ここはそれを借りて動く。
 
-import { splitAt, toggleSelect, trimLeft, trimRight } from '../../../shared/clipEdit'
-import { startEdgeScroll } from '../lib/edgeScroller'
+import { shiftGroup, splitAt, toggleSelect, trimLeft, trimRight } from '../../../shared/clipEdit'
+// 落としてよい段かの判定。**3種類とも同じ物を通す**（前は3回手書きしてあった）
+import { canDropOn } from '../../../shared/lanes'
+// 掴んでから離すまでの段取り。**同上**
+import { startClipDragLoop } from '../lib/clipDragLoop'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
@@ -159,29 +181,13 @@ export function useClipDrag(deps: ClipDragDeps) {
     setSelectedSeIds(grpIds)
     const partners = partnersOf('se', grpIds)
     const inner = trackInnerRef.current
-    // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
-    // 指は止まったままでも物は進むべきなので、そのぶん戻す）
-    let sx = e.clientX
-    // **縦の動き出しも見る。** 横だけを見ていたので、真上・真下へ振っても
-    // 「まだ動いていない」と判定され、段を変える所まで一度も進まなかった
-    //（＝置いた段から動かせない。テロップだけは元から縦も見ていた）
-    const sy = e.clientY
-    let lastEv: PointerEvent | null = null
-    const es = startEdgeScroll(scrollRef.current, (dv) => {
-      sx -= dv
-      if (lastEv) onMove(lastEv)
-    })
     const s0 = clip.tStart
     const d0 = clip.duration
     const off0 = clip.srcOffset ?? 0
-    let moved = false
-    const onMove = (ev: PointerEvent): void => {
-      lastEv = ev
-      es.track(ev.clientX)
-      if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 3) return
-      moved = true
+    // 掴んでいる間の段取り（動き出しの判定・景色送り・後片付け）は
+    // lib/clipDragLoop に1つだけ。**3種類とも同じ物を通す**
+    const onMove = (dt: number, ev: PointerEvent): void => {
       if (!inner) return
-      const dt = (ev.clientX - sx) / zoomRef.current
       // 掴んだ時点の姿。動かしている間の途中経過ではなく、ここから測る
       const base = { tStart: s0, duration: d0, srcOffset: off0, srcDur: clip.srcDur }
       if (edge === 'r') {
@@ -208,39 +214,24 @@ export function useClipDrag(deps: ClipDragDeps) {
         // 縦方向で別の音声トラックへ移動（テロップの上下移動と同じ操作感）
         const irect = inner.getBoundingClientRect()
         const lane = laneAtY(ev.clientY - irect.top)
-        // 移動先がロック中なら受け付けない
-        const laneOk =
-          lane &&
-          lane !== 'A1' &&
-          tracks.some((t) => t.id === lane && t.kind === 'audio') &&
-          !trackStates[lane]?.locked
+        // 落としてよい段か（種類・本編でない・鍵）。**判定は shared/lanes に1つだけ**
+        const laneOk = canDropOn(lane, 'audio', tracks, (id) => !!trackStates[id]?.locked)
         const shift = nt - s0
         shiftPartners(partners, shift) // 組の相手（テロップ・画像・映像レイヤー）も一緒に
-        setSeClips((prev) =>
-          prev.map((c) => {
-            if (!grpIds.includes(c.id)) return c
-            const base = grpBase.get(c.id) ?? c.tStart
-            return {
-              ...c,
-              tStart: Math.max(0, base + shift),
-              // トラック移動は掴んだ1つだけ（全部同じ行へ寄せると重なって壊れる）
-              track: laneOk && c.id === clip.id ? lane : c.track
-            }
-          })
-        )
+        // 束をずらす／**段を変えるのは掴んだ1つだけ**。決まりは shared/clipEdit に1つ
+        setSeClips((prev) => shiftGroup(prev, grpIds, grpBase, shift, clip.id, laneOk ? lane : null))
       }
     }
-    const onUp = (): void => {
-      es.stop()
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-      setSnapLineX(null)
-      setDragTip(null)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
+    startClipDragLoop({
+      e,
+      scrollEl: scrollRef.current,
+      zoomRef,
+      onMove,
+      onEnd: () => {
+        setSnapLineX(null)
+        setDragTip(null)
+      }
+    })
   }
 
   // 画像クリップ: クリック選択 / 本体ドラッグで移動 / 右端ドラッグで長さ変更
@@ -290,27 +281,10 @@ export function useClipDrag(deps: ClipDragDeps) {
     )
     // 吸い付ける相手は束の全体（上の spanOf）
     const grpSpan = spanOf(imgClips.filter((c) => grpIds.includes(c.id)), (c) => c.duration)
-    // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
-    // 指は止まったままでも物は進むべきなので、そのぶん戻す）
-    let sx = e.clientX
-    // **縦の動き出しも見る。** 横だけを見ていたので、真上・真下へ振っても
-    // 「まだ動いていない」と判定され、段を変える所まで一度も進まなかった
-    //（＝置いた段から動かせない。テロップだけは元から縦も見ていた）
-    const sy = e.clientY
-    let lastEv: PointerEvent | null = null
-    const es = startEdgeScroll(scrollRef.current, (dv) => {
-      sx -= dv
-      if (lastEv) onMove(lastEv)
-    })
     const s0 = clip.tStart
     const d0 = clip.duration
-    let moved = false
-    const onMove = (ev: PointerEvent): void => {
-      lastEv = ev
-      es.track(ev.clientX)
-      if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 3) return
-      moved = true
-      const dt = (ev.clientX - sx) / zoomRef.current
+    // 段取りは lib/clipDragLoop に1つだけ（上と同じ物を通す）
+    const onMove = (dt: number, ev: PointerEvent): void => {
       if (edge === 'r') {
         // 右端もスナップ（カット点/他クリップ端に吸着）＋長さツールチップ
         const ne = snapTime(s0 + d0 + dt, [], [], [clip.id])
@@ -336,40 +310,25 @@ export function useClipDrag(deps: ClipDragDeps) {
         // 縦方向に動かしたら別の映像トラックへ移動（テロップの上下移動と同じ操作感）
         const irect = trackInnerRef.current?.getBoundingClientRect()
         const lane = irect ? laneAtY(ev.clientY - irect.top) : null
-        // 移動先がロック中なら受け付けない（映像レイヤー側は既にそうしている）
-        const laneOk =
-          lane &&
-          lane !== 'V1' &&
-          tracks.some((t) => t.id === lane && t.kind === 'video') &&
-          !trackStates[lane]?.locked
+        // 落としてよい段か。**判定は shared/lanes に1つだけ**（効果音と同じ物）
+        const laneOk = canDropOn(lane, 'video', tracks, (id) => !!trackStates[id]?.locked)
         // 掴んだクリップのずれ量を選択全体に同じだけ適用する
         const shift = nt - s0
         shiftPartners(partners, shift) // 組の相手（テロップ・効果音・映像レイヤー）も一緒に
-        setImgClips((prev) =>
-          prev.map((c) => {
-            if (!grpIds.includes(c.id)) return c
-            const base = grpBase.get(c.id) ?? c.tStart
-            return {
-              ...c,
-              tStart: Math.max(0, base + shift),
-              // トラック移動は掴んだ1つだけ（全部同じ行へ寄せると重なって壊れる）
-              track: laneOk && c.id === clip.id ? lane : c.track
-            }
-          })
-        )
+        // 束をずらす／**段を変えるのは掴んだ1つだけ**。決まりは shared/clipEdit に1つ
+        setImgClips((prev) => shiftGroup(prev, grpIds, grpBase, shift, clip.id, laneOk ? lane : null))
       }
     }
-    const onUp = (): void => {
-      es.stop()
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-      setSnapLineX(null)
-      setDragTip(null)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
+    startClipDragLoop({
+      e,
+      scrollEl: scrollRef.current,
+      zoomRef,
+      onMove,
+      onEnd: () => {
+        setSnapLineX(null)
+        setDragTip(null)
+      }
+    })
   }
 
   // 映像レイヤークリップの操作: 本体ドラッグ=移動 / 左右端=トリム / レザー=分割。
@@ -422,28 +381,11 @@ export function useClipDrag(deps: ClipDragDeps) {
     )
     setSelectedVClipIds(grpIds)
     const partners = partnersOf('vclip', grpIds)
-    // 掴み始めは動かせるようにしておく（端まで持っていって景色が送られたら、
-    // 指は止まったままでも物は進むべきなので、そのぶん戻す）
-    let sx = e.clientX
-    // **縦の動き出しも見る。** 横だけを見ていたので、真上・真下へ振っても
-    // 「まだ動いていない」と判定され、段を変える所まで一度も進まなかった
-    //（＝置いた段から動かせない。テロップだけは元から縦も見ていた）
-    const sy = e.clientY
-    let lastEv: PointerEvent | null = null
-    const es = startEdgeScroll(scrollRef.current, (dv) => {
-      sx -= dv
-      if (lastEv) onMove(lastEv)
-    })
     const t0 = clip.tStart
     const s0 = clip.srcStart
     const e0 = clip.srcEnd
-    let moved = false
-    const onMove = (ev: PointerEvent): void => {
-      lastEv = ev
-      es.track(ev.clientX)
-      if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 3) return
-      moved = true
-      const dt = (ev.clientX - sx) / zoomRef.current
+    // 段取りは lib/clipDragLoop に1つだけ（上と同じ物を通す）
+    const onMove = (dt: number, ev: PointerEvent): void => {
       // 端の計算は効果音と同じ規則（shared/clipEdit）。
       // **持ち方が違うだけ**——こちらは「元動画のイン点・アウト点」、
       // 向こうは「使い始め＋長さ」。同じ話を2通りに書いていたので、片方へ寄せる。
@@ -478,46 +420,31 @@ export function useClipDrag(deps: ClipDragDeps) {
         // 縦方向で別の映像トラックへ移動（V1は切片専用なので不可）
         const irect = trackInnerRef.current?.getBoundingClientRect()
         const lane = irect ? laneAtY(ev.clientY - irect.top) : null
-        const laneOk =
-          lane &&
-          lane !== 'V1' &&
-          tracks.some((t) => t.id === lane && t.kind === 'video') &&
-          !trackStates[lane]?.locked
+        const laneOk = canDropOn(lane, 'video', tracks, (id) => !!trackStates[id]?.locked)
         // ここではトラックを作らない。以前はポインタが動くたびに確保していたため、
         // ドラッグ中にトラックが次々増えて画面が上へ暴走していた。
         // 実際に移す時（指を離した時）にまとめて確保する。
         if (laneOk && lane !== clip.track) pendingLaneRef.current = lane
         const shift = nt - t0
         shiftPartners(partners, shift) // 組の相手（テロップ・効果音・画像）も一緒に
-        setVClips((prev) =>
-          prev.map((c) => {
-            if (!grpIds.includes(c.id)) return c
-            const base = grpBase.get(c.id) ?? c.tStart
-            return {
-              ...c,
-              tStart: Math.max(0, base + shift),
-              // トラック移動は掴んだ1つだけ（対の音声トラック確保も1つ分で済む）
-              track: laneOk && c.id === clip.id ? lane : c.track
-            }
-          })
-        )
+        // 束をずらす／**段を変えるのは掴んだ1つだけ**。決まりは shared/clipEdit に1つ
+        setVClips((prev) => shiftGroup(prev, grpIds, grpBase, shift, clip.id, laneOk ? lane : null))
       }
     }
-    const onUp = (): void => {
-      es.stop()
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-      setDragTip(null)
-      // 移し終えた時にだけ、対の音声トラックを確保する
-      // （確保しないと A{n} が無く無音になり、音声の帯も消える）
-      const lane = pendingLaneRef.current
-      pendingLaneRef.current = null
-      if (lane) reserveTrackPairForVideo(lane)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
+    startClipDragLoop({
+      e,
+      scrollEl: scrollRef.current,
+      zoomRef,
+      onMove,
+      onEnd: () => {
+        setDragTip(null)
+        // 移し終えた時にだけ、対の音声トラックを確保する
+        // （確保しないと A{n} が無く無音になり、音声の帯も消える）
+        const lane = pendingLaneRef.current
+        pendingLaneRef.current = null
+        if (lane) reserveTrackPairForVideo(lane)
+      }
+    })
   }
   return { onSePointerDown, onImgPointerDown, onVClipPointerDown }
 }

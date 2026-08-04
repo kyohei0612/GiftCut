@@ -4,7 +4,7 @@
 // 音がずれる・切ったのに元の所から鳴る、は全部この計算の間違い。
 
 import { describe, expect, it } from 'vitest'
-import { MIN_CLIP, splitAt, toggleSelect, trimLeft, trimRight } from './clipEdit'
+import { MIN_CLIP, shiftGroup, splitAt, toggleSelect, trimLeft, trimRight } from './clipEdit'
 
 /** 5秒の音源のうち、1秒目から3秒ぶんを 10秒の位置に置いたクリップ */
 const clip = { tStart: 10, duration: 3, srcOffset: 1, srcDur: 5 }
@@ -91,5 +91,48 @@ describe('Ctrl クリックの選び足し', () => {
 
   it('同じ物を2回入れない（まとめて動かすとき二重にずれる）', () => {
     expect(toggleSelect(toggleSelect([1], 2), 2)).toEqual([1])
+  })
+})
+
+describe('束をまとめてずらす（shiftGroup）', () => {
+  // **段を変えるのは掴んだ1つだけ。** 全部を同じ段へ寄せると重なって壊れる。
+  // 2026-08-04 まで useClipDrag に同じ12行が3回書いてあった。
+  const list = [
+    { id: 1, tStart: 10, track: 'A2' },
+    { id: 2, tStart: 14, track: 'A2' },
+    { id: 3, tStart: 20, track: 'A3' } // 束の外
+  ]
+  const base = new Map([
+    [1, 10],
+    [2, 14]
+  ])
+
+  it('束の中身だけ、同じだけずれる', () => {
+    const out = shiftGroup(list, [1, 2], base, 2.5, 1, null)
+    expect(out.map((c) => c.tStart)).toEqual([12.5, 16.5, 20])
+  })
+
+  it('**段が変わるのは掴んだ1つだけ**', () => {
+    const out = shiftGroup(list, [1, 2], base, 0, 1, 'A4')
+    expect(out.map((c) => c.track)).toEqual(['A4', 'A2', 'A3'])
+  })
+
+  it('落とし先が無ければ段は変えない', () => {
+    const out = shiftGroup(list, [1, 2], base, 0, 1, null)
+    expect(out.map((c) => c.track)).toEqual(['A2', 'A2', 'A3'])
+  })
+
+  it('**0より手前へは出さない**', () => {
+    const out = shiftGroup(list, [1, 2], base, -100, 1, null)
+    expect(out.map((c) => c.tStart)).toEqual([0, 0, 20])
+  })
+
+  it('**動かしている最中の値ではなく、掴んだ時の控えから測る**（流れていかない）', () => {
+    const moved = [
+      { id: 1, tStart: 99, track: 'A2' },
+      { id: 2, tStart: 99, track: 'A2' }
+    ]
+    const out = shiftGroup(moved, [1, 2], base, 1, 1, null)
+    expect(out.map((c) => c.tStart)).toEqual([11, 15])
   })
 })

@@ -160,3 +160,28 @@ export function avoidBusyLane(
   for (let i = at; i >= 0; i--) if (free(order[i])) return order[i]
   return picked
 }
+
+/**
+ * **掴んだクリップを、その段へ落としてよいか。**
+ *
+ * 判定は3つ: ①その種類の段であること ②本編の段ではないこと ③鍵が掛かっていないこと。
+ *
+ * ## なぜ1か所に寄せたか（2026-08-04）
+ *
+ * `state/useClipDrag` の3か所（効果音・画像・映像レイヤー）に**同じ判定が
+ * 3回書かれていた**。除く段が `'A1'` / `'V1'` と別々に手書きしてあり、
+ * 段の種類を増やすときに**片方だけ直す形**になっていた。
+ *
+ * 本編の段は種類から決まる（音なら A1・映像なら V1）ので、呼ぶ側は渡さない。
+ */
+export function canDropOn(
+  lane: string | null | undefined,
+  kind: 'video' | 'audio',
+  tracks: readonly { id: string; kind: string }[],
+  locked: (id: string) => boolean
+): boolean {
+  if (!lane) return false
+  if (lane === (kind === 'audio' ? 'A1' : 'V1')) return false // 本編の段には落とさない
+  if (!tracks.some((t) => t.id === lane && t.kind === kind)) return false
+  return !locked(lane)
+}
