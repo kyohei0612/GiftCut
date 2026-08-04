@@ -104,9 +104,14 @@ export const CANON: Canon[] = [
     use: 'clipXform(c, localT) を import する',
     // 08-03 に clipXform の**並べる順**を直した（反転で左右が真逆になっていた）。
     // 残る2か所は直していない。**同じ間違いが2つ残っている。**
+    //
+    // ※ 08-04 に片方の置き場が変わった（usePlaybackEngine → useSegClock）。
+    //   **中身は1文字も変えていない**——借金の付け先だけ移した。
+    //   直すには `clipXform(c, localT)` ではなく「Zoom 1つを transform にする」
+    //   下位の物が要る（ここが持っているのは切片ではなく `xf.bZoom`）。
     re: /translate\(\$\{[^}]*\*\s*100\)\.toFixed\(3\)\}%/,
     debt: {
-      'src/renderer/src/state/usePlaybackEngine.ts': 1,
+      'src/renderer/src/state/useSegClock.ts': 1,
       'src/renderer/src/state/usePreviewFrame.ts': 1
     }
   },
