@@ -156,13 +156,47 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
         },
         { minW, l: visLeft, r: visRight }
       )
+    /**
+     * **1個目の所まで横に送る。**
+     *
+     * `findPick` は「いま画面に見えている範囲」からしか選ばない。素材はタイムライン
+     * 全体（1時間）へ散らばるので、**数が少ないほど画面に1個も入らない**——
+     * 20個なら180秒に1個、拡大30px/秒で見えるのは約33秒ぶん。
+     *
+     * しかも見つからないと拡大率を上げる作りで、**寄るほど見える範囲は狭くなる**。
+     * 既存の軸（テロップ4000枚など）が通っていたのは、単に密度が高くて
+     * 偶然入っていただけだった。
+     *
+     * 2026-08-04 に、これで3軸（本物の画像・動画クリップ・その元ファイル数）が
+     * **「20個で崩れる」と限界のような顔で出ていた**。限界ではなく未測定。
+     */
+    const scrollToFirst = async () => {
+      await page.evaluate((s) => {
+        const el = document.querySelector(s)
+        const sc = document.querySelector('.track-scroll')
+        if (!el || !sc) return
+        // 中身の左端からの距離。画面のだいたい真ん中へ来るように送る
+        sc.scrollLeft = Math.max(0, el.offsetLeft - sc.clientWidth / 3)
+      }, sel[what] ?? sel.clip)
+      await page.waitForTimeout(120)
+    }
+    await scrollToFirst()
     for (const z of [30, 50, 80, 120]) {
       if ((await findPick(24)) >= 0) break
       await setZoom(z)
+      await scrollToFirst() // 寄せると見える範囲が狭まるので、そのたびに送り直す
     }
     const pick = await findPick(20)
     if (pick < 0)
-      return { openSec, lag: NaN, worst: NaN, heap: NaN, ok: false, note: '掴める物が画面に無い' }
+      return {
+        openSec,
+        lag: NaN,
+        worst: NaN,
+        heap: NaN,
+        ok: false,
+        // **「崩れた」と読ませない。** 限界ではなく測れていない、と分かる文言にする
+        note: `掴める物が画面に無い（${nClips}個あるのに選べなかった＝**測れていない**。限界ではない）`
+      }
     const target = clips.nth(pick)
     const c = await target.boundingBox()
     if (!c) return { openSec, lag: NaN, worst: NaN, heap: NaN, ok: false, note: '掴む物が見つからない' }
@@ -485,14 +519,27 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
           (Math.abs(ms) < 2 ? '（ほぼ変わらない）' : '')
       }
     }
+    /**
+     * **「重かった」と「測れなかった」を混ぜない。**
+     *
+     * 1操作の重さが数字で出ていれば、それは測ったうえで重かった＝限界。
+     * 数字が出ていない（NaN）のは、掴む相手を選べなかった等で**そもそも
+     * 測っていない**。2026-08-04 に、後者が「20個で崩れる」と限界の顔で
+     * 3軸ぶん出ていた——**限界だと思って直しにいくと、丸ごと無駄になる。**
+     */
+    const notMeasured = broke && !Number.isFinite(broke.r.lag)
     const detail =
-      (broke
-        ? `${lastOk ? sw.label(lastOk.v) : '最小の設定'} までは平気 / ${sw.label(broke.v)} で崩れる` +
-          `（開く ${fmt(broke.r.openSec)}秒・1操作 ${fmt(broke.r.lag)}ms${broke.r.note ? '・' + broke.r.note : ''}）`
-        : `試した上限 ${sw.label(sw.values[sw.values.length - 1])} まで平気` +
-          `（そこで 開く ${fmt(lastOk.r.openSec)}秒・1操作 ${fmt(lastOk.r.lag)}ms・メモリ ${mb(lastOk.r.heap)}）`) +
+      (notMeasured
+        ? `**測れていない**（${sw.label(broke.v)} で ${broke.r.note}）` +
+          `${lastOk ? ` ／ ${sw.label(lastOk.v)} までは平気` : ''}`
+        : broke
+          ? `${lastOk ? sw.label(lastOk.v) : '最小の設定'} までは平気 / ${sw.label(broke.v)} で崩れる` +
+            `（開く ${fmt(broke.r.openSec)}秒・1操作 ${fmt(broke.r.lag)}ms${broke.r.note ? '・' + broke.r.note : ''}）`
+          : `試した上限 ${sw.label(sw.values[sw.values.length - 1])} まで平気` +
+            `（そこで 開く ${fmt(lastOk.r.openSec)}秒・1操作 ${fmt(lastOk.r.lag)}ms・メモリ ${mb(lastOk.r.heap)}）`) +
       slope
-    await done('動作', `どこまで耐えるか: ${sw.name}`, detail, broke ? 'warn' : 'ok')
+    // 測れていないものは **問題あり（ng）**。△ にすると「まあ動いた」に見える
+    await done('動作', `どこまで耐えるか: ${sw.name}`, detail, notMeasured ? 'ng' : broke ? 'warn' : 'ok')
   }
 
   // 元のプロジェクトに戻しておく（このあとの書き出しを本来の条件でやるため）
