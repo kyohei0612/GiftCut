@@ -6,7 +6,7 @@
 // ここで固定しているのは境目そのもの。**根拠は `perfMonitor.ts` の `verdicts` に書いてある。**
 
 import { describe, expect, it } from 'vitest'
-import { verdicts, type PerfSample } from './perfMonitor'
+import { READING, verdicts, type PerfSample } from './perfMonitor'
 
 /** 何も問題が出ていない1秒（ここから1つだけ崩して、その1つが言い当てられるかを見る） */
 const ok = (over: Partial<PerfSample> = {}): PerfSample => ({
@@ -69,6 +69,21 @@ describe('いちばん疑わしいものを言い当てる', () => {
     const v = verdicts([ok({ fps: 12 }), ok({ fps: 14 })])
     expect(v.length).toBe(1)
     expect(v[0]).toContain('描画側')
+  })
+
+  it('**読み方と判定の出どころが1つ**（規則を足したら両方に出る）', () => {
+    // 2026-08-04、同じ規則が**文章とコードに二重**にあった。知識は同じなのに
+    // 形が似ていないので `noDuplicate` では拾えず、**片方だけ古くなる**型だった。
+    // 表（`RULES`）から両方を作るようにしたので、数が食い違ったら規則を
+    // 表の外に書いた合図。
+    //
+    // ※ 「どれにも当てはまらないのに遅い」だけは表の外にある——
+    //   他の全部が外れたときにだけ意味を持つので、1行の条件では書けない。
+    expect(READING.length).toBe(4)
+    // 読み方の一行は、判定が言う症状と同じ言葉を含むこと（別々に書いていない印）
+    expect(READING.some((r) => r.includes('計算が重い'))).toBe(true)
+    expect(READING.some((r) => r.includes('デコードが重い'))).toBe(true)
+    expect(READING.some((r) => r.includes('画面の作りが重い'))).toBe(true)
   })
 
   it('少し超えたくらいでは言わない（境目のすぐ内側）', () => {
