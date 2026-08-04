@@ -36,6 +36,9 @@ import { AppChromeProvider } from './state/appChromeContext'
 import { BandDragProvider } from './state/bandDragContext'
 import { SubtitlePrefsProvider } from './state/subtitlePrefsContext'
 import { ShortcutPrefsProvider } from './state/shortcutPrefsContext'
+import { LaneHeightsProvider } from './state/laneHeightsContext'
+import { SegLayoutProvider } from './state/segLayoutContext'
+import { TrackGeomProvider } from './state/trackGeomContext'
 import { IconsProvider } from './state/iconsContext'
 import { PlaybackProvider } from './state/playbackContext'
 import { ExportProvider } from './state/exportContext'
@@ -51,6 +54,15 @@ import { RightPanelProvider } from './state/rightPanelContext'
 import { HeaderProvider } from './state/headerContext'
 import { MenusProvider } from './state/menusContext'
 import { DialogsProvider } from './state/dialogsContext'
+import { TimelineBoxProvider } from './state/timelineBoxContext'
+import { VideoElsProvider } from './state/videoElsContext'
+import { SeAudioProvider } from './state/seAudioContext'
+import { TracksAdminProvider } from './state/tracksAdminContext'
+import { TimelineSpanProvider } from './state/timelineSpanContext'
+import { ProxyProvider } from './state/proxyContext'
+import { SnapProvider } from './state/snapContext'
+import { SegOpsProvider } from './state/segOpsContext'
+import { NowShowingProvider } from './state/nowShowingContext'
 
 import { AppHeader } from './components/panels/AppHeader'
 import { Workspace } from './components/panels/Workspace'
@@ -198,7 +210,31 @@ export default function App(): React.JSX.Element {
                                     <BandDragProvider>
                                       <SubtitlePrefsProvider>
                                         <ShortcutPrefsProvider>
-                                          <AppInner />
+                                          <LaneHeightsProvider>
+                                            <SegLayoutProvider>
+                                              <TrackGeomProvider>
+                                                <TimelineBoxProvider>
+                                                  <VideoElsProvider>
+                                                    <SeAudioProvider>
+                                                      <TracksAdminProvider>
+                                                        <TimelineSpanProvider>
+                                                          <ProxyProvider>
+                                                            <SnapProvider>
+                                                              <SegOpsProvider>
+                                                                <NowShowingProvider>
+                                                                  <AppInner />
+                                                                </NowShowingProvider>
+                                                              </SegOpsProvider>
+                                                            </SnapProvider>
+                                                          </ProxyProvider>
+                                                        </TimelineSpanProvider>
+                                                      </TracksAdminProvider>
+                                                    </SeAudioProvider>
+                                                  </VideoElsProvider>
+                                                </TimelineBoxProvider>
+                                              </TrackGeomProvider>
+                                            </SegLayoutProvider>
+                                          </LaneHeightsProvider>
                                         </ShortcutPrefsProvider>
                                       </SubtitlePrefsProvider>
                                     </BandDragProvider>

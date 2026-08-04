@@ -26,7 +26,7 @@
 // **①が大きいフックから順に直せば、1つ直すごとに配線が縮む。**
 // 一度に全部やる必要はない（`引き継ぎ-心臓の分け直し.md`）。
 import ts from 'typescript'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
@@ -55,10 +55,21 @@ const fromCtx = new Map() // pos -> { name, ctx }
 /** フックの呼び出し → その deps の中に現れる識別子 */
 const hookCalls = [] // { hook, line, argIdents: Set<pos> }
 
+// **心臓の一覧は名前で決めない。** `state/*Context.tsx` が実際に export している
+// 「見に行く関数」を読む。名前の形（`…Ctx`）で判定していた頃は `useLaneHeights` を
+// 心臓と数えていて、**上げられないフックを「上げられる」と出していた**（2026-08-04）。
+const CTX_HOOKS = new Set()
+for (const f of readdirSync(join(ROOT, 'src/renderer/src/state'))) {
+  if (!f.endsWith('Context.tsx')) continue
+  const src = readFileSync(join(ROOT, 'src/renderer/src/state', f), 'utf8')
+  for (const m of src.matchAll(/^export function (use\w+)\s*\(/gm)) CTX_HOOKS.add(m[1])
+}
+if (CTX_HOOKS.size < 10) throw new Error(`心臓が ${CTX_HOOKS.size} 個しか見つからない（探し方が壊れている）`)
+
 const isCtxCall = (init) =>
   ts.isCallExpression(init) &&
   ts.isIdentifier(init.expression) &&
-  /^use([A-Z].*Ctx|Doc|Sel|Layout|LaneHeights)$/.test(init.expression.text)
+  CTX_HOOKS.has(init.expression.text)
 
 // **心臓から取り出した物と、フックが返した物の両方**を数える。
 // 前者は「渡すのをやめて向こうに見に行かせる」、後者は「向こうに心臓へ書かせる」。
@@ -204,25 +215,81 @@ for (const [owner, names] of [...byOwner.entries()].sort((a, b) => b[1].length -
   console.log(`         ${names.join(' ')}`)
 }
 
-// ---- ③ いま上げられるフック（引数ゼロ＝**葉**。囲いへ上げるのに何も要らない）
-const leaves = new Map() // hook -> 名前の数
+// ---- ③ いま囲いへ上げられるフック
+//
+// **基準は「引数ゼロ」ではない。** 要る物が全部**心臓から取れる**なら上げられる。
+// だから**葉を上げると、次の層が葉になる**（玉ねぎを剥く形で終わりまで進む）。
+//
+//   心臓から取れる物   … 心臓の分割代入・import・上げ済みのフック
+//   まだ取れない物     … 配線の中の別のフックが作った物・配線が自分で書いた関数
+const fromHook = new Map() // declPos -> そのフック名
+const hookOf = new Map() // フック名 -> { names: 個数, deps: Set<フック名>, local: Set<名前> }
 for (const st of fn.body.statements) {
   if (!ts.isVariableStatement(st)) continue
   for (const d of st.declarationList.declarations) {
     if (!d.initializer || !ts.isObjectBindingPattern(d.name)) continue
     if (!ts.isCallExpression(d.initializer) || !ts.isIdentifier(d.initializer.expression)) continue
-    const name = d.initializer.expression.text
-    if (!/^use[A-Z]/.test(name) || isCtxCall(d.initializer)) continue
-    if (d.initializer.arguments.length !== 0) continue // 引数があるなら、まだ上げられない
-    leaves.set(name, d.name.elements.length)
+    const h = d.initializer.expression.text
+    if (!/^use[A-Z]/.test(h) || isCtxCall(d.initializer)) continue
+    hookOf.set(h, { names: d.name.elements.length, deps: new Set(), local: new Set(), node: d })
+    for (const el of d.name.elements) if (ts.isIdentifier(el.name)) fromHook.set(el.name.getStart(), h)
   }
 }
-if (leaves.size) {
-  console.log(`\n\x1b[1m③ いま囲いへ上げられるフック\x1b[0m（引数ゼロ＝何も要らない）: ${leaves.size} 本`)
-  console.log('   → 上げれば、その名前は配線を1つも通らなくなる\n')
-  for (const [h, n] of [...leaves.entries()].sort((a, b) => b[1] - a[1]))
-    console.log(`  ${String(n).padStart(3)} 個  ${h}`)
+for (const [h, info] of hookOf) {
+  const walkArgs = (n) => {
+    if (ts.isIdentifier(n)) {
+      let pos = null
+      if (ts.isShorthandPropertyAssignment(n.parent)) {
+        const sym = checker.getShorthandAssignmentValueSymbol(n.parent)
+        const dd = sym?.declarations?.[0]
+        const nn = dd && (ts.isBindingElement(dd) || ts.isVariableDeclaration(dd)) ? dd.name : dd
+        pos = nn && ts.isIdentifier(nn) ? nn.getStart() : null
+      } else pos = declPosOf(n)
+      if (pos != null) {
+        if (fromHook.has(pos) && fromHook.get(pos) !== h) info.deps.add(fromHook.get(pos))
+        else if (!uses.has(pos)) {
+          // 心臓でもフックでもない＝配線が自分で書いた物か import。
+          // **配線の中で宣言された物だけ**を「まだ取れない」に数える
+          const inWiring = pos > fn.body.getStart() && pos < fn.body.getEnd()
+          if (inWiring) info.local.add(n.text)
+        }
+      }
+    }
+    n.forEachChild(walkArgs)
+  }
+  for (const a of info.node.initializer.arguments) walkArgs(a)
 }
+const ready = [...hookOf.entries()].filter(([, i]) => !i.deps.size && !i.local.size)
+const blocked = [...hookOf.entries()].filter(([, i]) => i.deps.size || i.local.size)
+
+// **どれだけ先を解くか**を数える（直接だけでなく、その先まで辿る）。
+// 数の多い名前から片付けるより、**詰まりを解く順**の方が早く終わる。
+const unlockCount = (start) => {
+  const seen = new Set()
+  const stack = [start]
+  while (stack.length) {
+    const cur = stack.pop()
+    for (const [h, i] of hookOf) {
+      if (seen.has(h) || !i.deps.has(cur)) continue
+      seen.add(h)
+      stack.push(h)
+    }
+  }
+  return seen.size
+}
+
+console.log(`\n\x1b[1m③ いま囲いへ上げられるフック\x1b[0m（要る物が全部 心臓から取れる）: ${ready.length} 本`)
+console.log('   **順番は「名前の多さ」ではなく「どれだけ先を解くか」。** 上から片付ける\n')
+const withUnlock = ready.map(([h, i]) => [h, i, unlockCount(h)])
+withUnlock.sort((a, b) => b[2] - a[2] || b[1].names - a[1].names)
+for (const [h, i, u] of withUnlock)
+  console.log(`  ${String(i.names).padStart(3)} 個 ／ 先を ${String(u).padStart(2)} 本 解く   ${h}`)
+
+console.log(`\n   待ち: ${blocked.length} 本。**何が来るのを待っているか**（多い順）:`)
+const blocker = new Map()
+for (const [, i] of blocked) for (const d of i.deps) blocker.set(d, (blocker.get(d) ?? 0) + 1)
+for (const [h, n] of [...blocker.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6))
+  console.log(`     ${String(n).padStart(2)} 本が待っている: ${h}${hookOf.get(h)?.deps.size ? '（これも待ち）' : ''}`)
 
 console.log(`\n\x1b[1m④ ここで実際に使っている\x1b[0m（残る）: ${kept.length} 個`)
 console.log(`  ${kept.join(' ')}\n`)

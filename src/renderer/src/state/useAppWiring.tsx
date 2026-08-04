@@ -58,30 +58,31 @@ import { useViewCtx } from './viewContext'
 import { useTelopLook } from './useTelopLook'
 import { useAskCtx } from './askContext'
 import { useMarkers } from './useMarkers'
-import { useSnap } from './useSnap'
+import { useSnapCtx } from './snapContext'
 import { useShortcutPrefsCtx } from './shortcutPrefsContext'
-import { useSeAudio } from './useSeAudio'
-import { useVideoEls } from './useVideoEls'
+import { useSeAudioCtx } from './seAudioContext'
+import { useVideoElsCtx } from './videoElsContext'
 import { useVClipEls } from './useVClipEls'
 import { useMediaMeta } from './useMediaMeta'
-import { useProxy } from './useProxy'
+import { useProxyCtx } from './proxyContext'
 import { useSilenceDuck } from './useSilenceDuck'
 import { useCurrentLook } from './useCurrentLook'
 import { useWindowDrop } from './useWindowDrop'
 import { useAutosaveMark } from './useAutosaveMark'
 import { TELOP_MOTIONS, motionLabel, useLabelsPresets } from './useLabelsPresets'
-import { useTrackGeom } from './useTrackGeom'
+import { useTrackGeomCtx } from './trackGeomContext'
 import { useMainEvents } from './useMainEvents'
-import { useTimelineSpan } from './useTimelineSpan'
+import { useTimelineSpanCtx } from './timelineSpanContext'
 import { useBandDragCtx } from './bandDragContext'
 import { useAppChromeCtx } from './appChromeContext'
 import type { Ratio } from './useExportSettings'
 import { useSubtitlePrefsCtx } from './subtitlePrefsContext'
-import { useTimelineBox } from './useTimelineBox'
+import { useTimelineBoxCtx } from './timelineBoxContext'
 import { useTemplateShelf } from './useTemplateShelf'
-import { useSegLayout } from './useSegLayout'
-import { kindOf, useSegOps } from './useSegOps'
-import { useNowShowing } from './useNowShowing'
+import { useSegLayoutCtx } from './segLayoutContext'
+import { kindOf } from './useSegOps'
+import { useSegOpsCtx } from './segOpsContext'
+import { useNowShowingCtx } from './nowShowingContext'
 import { useTimelineWheel } from './useTimelineWheel'
 import { audioLaneFor } from '../../../shared/lanes'
 import { useDismissOnOutside } from './useDismissOnOutside'
@@ -91,7 +92,7 @@ import { useViewNav } from './useViewNav'
 import { useTransitions } from './useTransitions'
 import { useMotion } from './useMotion'
 import { useTimelineEdit } from './useTimelineEdit'
-import { useTracksAdmin } from './useTracksAdmin'
+import { useTracksAdminCtx } from './tracksAdminContext'
 import { useMediaDrop } from './useMediaDrop'
 import { usePreviewManip } from './usePreviewManip'
 import { useScreenshot } from './useScreenshot'
@@ -135,7 +136,7 @@ import { useLaneResize } from './useLaneResize'
 import { startFader } from '../lib/faderDrag'
 import { clipXform } from '../lib/clipXform'
 import { useClipboardCtx } from './clipboardContext'
-import { useLaneHeights } from './useLaneHeights'
+import { useLaneHeightsCtx } from './laneHeightsContext'
 import { usePlaybackCtx } from './playbackContext'
 import { shiftRange, shiftStart } from '../../../shared/ripple'
 import { useKeyboard } from './useKeyboard'
@@ -170,7 +171,7 @@ export function useAppWiring() {
   const {
     videoSrc, videoPath, videoName,
     videoDuration, proxyPct, setProxyPct,
-    sources, srcOfSeg,
+ srcOfSeg,
     activeSrcId, mediaItems
   } = useMediaCtx()
   // 書き出しの設定と進み具合（設定はプロジェクトの一部、進み具合は画面の一部）
@@ -182,12 +183,12 @@ export function useAppWiring() {
   // 段の高さ（種類ごと＋段ごと）。state と ref を1か所で面倒を見る
   const {
     videoTrackH, setVideoTrackH, audioTrackH, setAudioTrackH,
-    videoTrackHRef, audioTrackHRef, laneH, setLaneH, resetLaneH,
-  } = useLaneHeights()
+    videoTrackHRef, audioTrackHRef, setLaneH, resetLaneH,
+  } = useLaneHeightsCtx()
   // 再生の「今」（時刻・流しているか・速さ）。**追いかけの仕組みは動かしていない**
   const {
     currentTime, currentTimeRef, durationRef,
-    playing, playRateUI, playRateRef,
+    playing, playRateUI,
     fps, fpsRef,
     // 追いかけの時計まわりも心臓が持っている。**App で別に宣言しないこと**
     //（同じ名前の入れ物が2つできて、「消す方」と「読む方」が食い違う）
@@ -286,7 +287,7 @@ export function useAppWiring() {
   const dragSeDurRef = useRef(2)
 
   // 効果音を鳴らす物（置いた物・試聴の物）は state/useSeAudio
-  const { seAudioRefs, seRefCb, sePreviewRef, previewSE } = useSeAudio()
+  const { seAudioRefs, seRefCb, sePreviewRef, previewSE } = useSeAudioCtx()
 
   useEffect(() => {
     vClipsRef.current = vClips
@@ -296,20 +297,20 @@ export function useAppWiring() {
 
   // 映像を映す <video> の台帳（1本につきA面/B面を持つ理由も中に）は state/useVideoEls
   const { videoRef, videoBRef, videoElsRef, elKey, activeHalf, setActiveHalf, halfOf, elOf } =
-    useVideoEls()
+    useVideoElsCtx()
 
   // 段の数え方・太さ・どの段に居るかは state/useTrackGeom
   const {
-    nVideoTracks, nAudioTracks, v1Index, a1Index,
-    trackHOf, trackNum, pairedAudioOf, cueTrack, vcLen, anyAudioSolo
-  } = useTrackGeom({ tracks, trackStates, laneH, videoTrackH, audioTrackH })
+    v1Index, a1Index,
+    trackHOf, trackNum, pairedAudioOf, cueTrack, vcLen
+  } = useTrackGeomCtx()
 
   // 段（トラック）の足す・消す・選ぶ・鍵・音量は state/useTracksAdmin
   const {
     trackFromEvent, mainLocked, fallbackTrack, insertTrackOrdered,
     reserveTrackPairForVideo, setClipLabel, addVideoTrack, addAudioTrack,
     telopLocked, deleteTrack, selectTrack, audioTrackGain, setTrackVolume
-  } = useTracksAdmin({ anyAudioSolo, cueTrack, trackNum, nVideoTracks, nAudioTracks })
+  } = useTracksAdminCtx()
   // 段見出しの境目を掴んで高さを変えるのは state/useLaneResize
   const { startGroupResize } = useLaneResize({
     trackHOf, videoTrackHRef, audioTrackHRef, setVideoTrackH, setAudioTrackH, setLaneH
@@ -371,12 +372,12 @@ export function useAppWiring() {
   // 残りは束へ詰め直して心臓へ戻す往復だったので、使う側に直に見に行かせた
   //（2026-08-04。数え方は ）
   const {
-    localTemplates, refreshPresets, openTplSec, setOpenAccSec, loadLS, saveLS,
+    localTemplates, refreshPresets, openTplSec, setOpenAccSec, saveLS,
     setIconFavs, setIconOv
   } = useLibraryCtx()
   // プレビューの画質と、焼き直した映像（プロキシ）は state/useProxy
   const { previewRes, setPreviewRes, previewResRef, lastPreviewResRef, proxyMap, previewUrl } =
-    useProxy({ loadLS, saveLS, playRateRef, sources, vClips, proxyForPathRef, setProxyPct })
+    useProxyCtx()
   // 見本帳の棚まわり（右クリックの品書き・開いたら先頭へ送る）は state/useTemplateShelf
   const { tplMenu, setTplMenu, tplSecRefs, rightBodyRef } = useTemplateShelf({
     openTplSec,
@@ -413,7 +414,7 @@ export function useAppWiring() {
   const {
     screenRef, trackInnerRef, scrollRef, thBodyRef,
     syncTimelineVScroll, fitTimelineAroundVA, revealPlayhead, inView
-  } = useTimelineBox()
+  } = useTimelineBoxCtx()
 
   // 画面の配置は state/usePanelLayout が持つ（大きさの限界と、掴んで動かす所も一緒）
   const {
@@ -481,7 +482,7 @@ export function useAppWiring() {
   const selected = cues.find((c) => c.id === primaryId) ?? null
 
   // 本編の切片の並びと、その「いまこの瞬間」用の写しは state/useSegLayout
-  const { segLayout, videoTLen, segLayoutRef, videoTLenRef } = useSegLayout(segments)
+  const { segLayout, videoTLen, segLayoutRef, videoTLenRef } = useSegLayoutCtx()
 
   // 動きの計測と不具合の記録は state/useDiagnostics
   useDiagnostics({
@@ -490,8 +491,7 @@ export function useAppWiring() {
 
   // タイムラインの長さ（出す長さ／本当の終わり）と、ものさしの目盛りは
   // state/useTimelineSpan（長さが2つある理由も中にある）
-  const { seEnd, duration, contentEndRef, rulerTicks } =
-    useTimelineSpan({ videoTLen, zoom, fps, scrollRef })
+  const { seEnd, duration, contentEndRef, rulerTicks } = useTimelineSpanCtx()
 
   // 再生の心臓（流す・止める・飛ぶ・コマ送り）は state/usePlaybackEngine。
   // **素材の読み込み（下）より先に呼ぶ。** 以前は逆で、読み込む側が「止める物」を
@@ -527,9 +527,7 @@ export function useAppWiring() {
 
   // いま出ているテロップと、映す素材の一覧は state/useNowShowing
   // （先頭だけ特別扱いする理由・開始ちょうどから出す理由も中にある）
-  const { activeCues, previewSources } = useNowShowing({
-    cues, currentTime, tracks, cueTrack, sources, videoSrc, videoDuration, fps
-  })
+  const { activeCues, previewSources } = useNowShowingCtx()
 
   // 「いまこの瞬間」を見る側のために、state を写しへ移す
   useEffect(() => {
@@ -580,7 +578,7 @@ export function useAppWiring() {
   }
 
   // 切片の切り方・空きの作り方（切り口に演出を残さない理由も中に）は state/useSegOps
-  const { segSplit, makeGapSeg, segOps } = useSegOps({ segIdCounter })
+  const { segSplit, makeGapSeg, segOps } = useSegOpsCtx()
   // 本編の切片をどこへ置くか（動かす・新しく置く・落とした所へ）は state/useSegmentPlace
   const { cutRangeFromSegs, moveSegmentTo, placeVideoAtDrop } = useSegmentPlace({
     mainLocked, segOps, segSplit, shiftAfter, loadVideo, registerSource
@@ -705,7 +703,7 @@ export function useAppWiring() {
   const { labelGroups, setLabelFor, selectByLabel, savePreset } = useLabelsPresets()
 
   // マグネット（吸着）は state/useSnap
-  const { snapTime, snapClipStart } = useSnap({ snap, segLayoutRef })
+  const { snapTime, snapClipStart } = useSnapCtx()
 
   // 素材を掴んで落とす（どの段の、どこへ置くか）は state/useMediaDrop
   const {
