@@ -1,6 +1,7 @@
 // テロップを（プレビューと同じ見た目で）PNG画像にラスタライズする。
 // SVG foreignObject にHTMLを埋め込み → Image化 → canvasに描画 → PNG。
 
+import { opaqueBounds } from './opaqueBounds'
 import {
   anchorFlex,
   anchorTranslate,
@@ -221,6 +222,100 @@ export function renderCueToPng(
       ctx.drawImage(img, 0, 0, width, height)
       try {
         resolve(canvas.toDataURL('image/png'))
+      } catch (e) {
+        reject(e as Error)
+      }
+    }
+    img.onerror = (): void => reject(new Error('テロップ画像化に失敗'))
+    img.src = cueToSvgDataUrl(cue, width, height, avatar, avatarScale, anim, iconSide, iconOffsetX, iconOffsetY, iconAuto)
+  })
+}
+
+/** 切り詰めたテロップ1枚。`x`/`y` は元の画面での左上（overlay へそのまま渡す） */
+export interface CuePng {
+  png: string
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * テロップ1枚を**文字の大きさに切り詰めた**透過PNGにする（書き出し用）。
+ *
+ * ## なぜ切り詰めるか
+ *
+ * 全画面（1920x1080）のまま重ねると、ffmpeg が**透明な部分まで毎コマ合成する**。
+ * 2026-08-04 の実測（1080p60・30秒・テロップ100枚）:
+ *
+ *   重ねない 3.6秒 ／ **全画面 7.8秒** ／ **文字ぶんだけ 4.0秒**
+ *
+ * ＝書き出し時間のおよそ半分が、透明な所の合成に使われていた。
+ *
+ * ## 枠は描いてから探す（数式では出せない）
+ *
+ * 中身は `foreignObject` の HTML で、位置も大きさも CSS レイアウトが決める。
+ * 折り返し・縁取り・影・アイコンまで入るので、手で計算すると必ずズレる。
+ * → 一度全画面に描いて、`opaqueBounds` で中身のある所を探す。
+ *
+ * **返した `x`/`y` を overlay にそのまま渡せば、合成結果は1画素も変わらない**
+ *（足し算そのものは `opaqueBounds.test.ts` の最後の1件が固定している）。
+ *
+ * ## 1画素も描かれていなければ null
+ *
+ * 重ねる必要が無いので、**入力ごと省ける**（＝ffmpeg の段が1つ減る）。
+ * 空文字のテロップや、アニメで消えている瞬間がこれに当たる。
+ */
+export function renderCueToPngBox(
+  cue: Cue,
+  width: number,
+  height: number,
+  avatar?: string,
+  avatarScale = 1,
+  anim?: AnimState,
+  iconSide: 'left' | 'right' | 'top' | 'bottom' = 'left',
+  iconOffsetX = 0,
+  iconOffsetY = 0,
+  iconAuto = false
+): Promise<CuePng | null> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = (): void => {
+      const full = document.createElement('canvas')
+      full.width = width
+      full.height = height
+      const fctx = full.getContext('2d')
+      if (!fctx) {
+        reject(new Error('canvas context 取得失敗'))
+        return
+      }
+      fctx.drawImage(img, 0, 0, width, height)
+      try {
+        const box = opaqueBounds(fctx.getImageData(0, 0, width, height).data, width, height)
+        if (!box) {
+          resolve(null)
+          return
+        }
+        // 全画面のままなら切り出す意味が無い（写す手間だけ増える）
+        if (box.w === width && box.h === height) {
+          resolve({ png: full.toDataURL('image/png'), x: 0, y: 0, w: width, h: height })
+          return
+        }
+        const cut = document.createElement('canvas')
+        cut.width = box.w
+        cut.height = box.h
+        const cctx = cut.getContext('2d')
+        if (!cctx) {
+          reject(new Error('canvas context 取得失敗'))
+          return
+        }
+        // **元の絵から直接ずらして描く（全画面の canvas からは写さない）。**
+        // canvas → canvas の描き写しは、半透明の画素を premultiplied alpha の
+        // 往復で丸める。縁のなめらか処理と影が該当し、実測で書き出しが
+        // **PSNR 43.8dB ぶん変わった**（同じコードを2回走らせると inf＝完全一致
+        // なので、これは本物の差）。`img` から1回で描けば往復が起きない。
+        cctx.drawImage(img, -box.x, -box.y, width, height)
+        resolve({ png: cut.toDataURL('image/png'), ...box })
       } catch (e) {
         reject(e as Error)
       }

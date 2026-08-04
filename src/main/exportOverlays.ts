@@ -263,7 +263,11 @@ export function overlayTelopFrames(
   frames.forEach((f, i) => {
     const out = i === frames.length - 1 ? '[v]' : `[o${i}]`
     // テロップPNGは1枚1入力（重複なし）。
-    filter += `${last}${useV(pngInput[i])}overlay=0:0:enable=${overlayEnableExpr(f.start, f.end)}${out};`
+    // **x/y は焼いたときの左上**（切り詰めてあるぶんだけ右下へずらす）。
+    // 省略されていれば 0:0＝全画面PNG。経緯は ./exportTypes の ExportFrame。
+    filter +=
+      `${last}${useV(pngInput[i])}` +
+      `overlay=${f.x ?? 0}:${f.y ?? 0}:enable=${overlayEnableExpr(f.start, f.end)}${out};`
     last = out
   })
   return { filter, last }

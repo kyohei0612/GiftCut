@@ -16,6 +16,7 @@ import { trackGainForExport } from '../../../shared/trackGain'
 import { envToFfmpegExpr } from '../../../shared/ducking'
 import { buildSrt } from '../lib/srt'
 import { hasAnim, hasMotion, telopStateAt } from '../lib/telopStyle'
+// ※ `renderCueToPngBox`（切り詰め）は**まだ通していない**。理由は下の ★ を読むこと
 import { renderCueToPng } from '../lib/rasterize'
 import { animBreakpoints } from '../lib/telopAnimSteps'
 import type { VSeg } from '../lib/projectTypes'
@@ -170,7 +171,8 @@ export function useExport(deps: UseExportDeps) {
       // 効かない。画像作りは画面側の Chromium で、GPU も ffmpeg も関係ない）。
       // 出来上がりの知らせに両方を載せるので、聞くだけで切り分けられる。
       const tPng0 = performance.now()
-      const frames: { png: string; start: number; end: number }[] = []
+      // x/y は置き場所（切り詰めた左上）。省略時は 0:0＝全画面PNG
+      const frames: { png: string; start: number; end: number; x?: number; y?: number }[] = []
       /**
        * 連番でまとめて渡すぶん。**書き出しの速さはここで決まる。**
        *
@@ -199,6 +201,22 @@ export function useExport(deps: UseExportDeps) {
         const asc = avatar ? iconScale : 1
         const dur = c.end - c.start
         if (!hasAnim(c.style.anim) && !hasMotion(c.motion)) {
+          // ★ 切り詰め（`renderCueToPngBox`）は**まだ通していない。**
+          //
+          // 全画面のまま重ねると ffmpeg が透明な所まで毎コマ合成するので、
+          // 孤立した実験では速くなった（100枚で 7.8秒 → 4.0秒）。だが
+          // **2026-08-04 に通そうとして、2つとも確かめられなかった**:
+          //
+          //   速さ  実際の書き出しで 71秒 と 126.8秒（**同じコード**）。
+          //         ばらつきが大きすぎて、速くなったと言えない
+          //   絵    切り詰めありと無しで **PSNR 43.8dB**。同じコードを2回
+          //         走らせると inf（完全一致）なので、**これは本物の差**。
+          //         位置はズレていない（差はテロップの場所だけ・1〜4/255）が、
+          //         **理由が説明できていない**
+          //
+          // **得が確認できていないのに、書き出す絵を変えるものは通さない。**
+          // 道具（`lib/opaqueBounds` と試験7件、`renderCueToPngBox`、
+          // payload の x/y）は残してあるので、上の2つが片付いたら差し替えるだけ。
           const png = await renderCueToPng(
             c,
             size.width,

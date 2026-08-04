@@ -113,8 +113,12 @@ export interface BuildInput {
   /** 入力に使う元動画。切片の srcId をこの並びの index に対応させる */
   sources: { id: number; path: string }[]
   size: { width: number; height: number }
-  /** テロップを画像にした物（すでに焼いてある） */
-  frames: { png: string; start: number; end: number }[]
+  /**
+   * テロップを画像にした物（すでに焼いてある）。
+   * `x`/`y` は置き場所（左上・画素）。**省略時は 0:0＝全画面PNG**
+   *（切り詰めの経緯は `main/exportTypes.ts` の `ExportFrame`）。
+   */
+  frames: { png: string; start: number; end: number; x?: number; y?: number }[]
   segments: Seg[]
   seClips: SeClip[]
   vClips: VClip[]

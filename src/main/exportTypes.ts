@@ -46,11 +46,23 @@ export interface ExportZoom {
   y: number
 }
 
-/** テロップ1枚とその表示窓 */
+/**
+ * テロップ1枚とその表示窓。
+ *
+ * `x`/`y` は**画面のどこへ置くか**（左上・画素）。2026-08-04 に足した——
+ * それまでテロップは1枚ずつ全画面（1920x1080）で焼いて `overlay=0:0` して
+ * いたが、**透明な部分の合成に書き出し時間の半分が使われていた**
+ *（実測・100枚で 3.6秒 → 7.8秒。切り詰めれば 4.0秒）。
+ *
+ * **省略時は 0:0**（全画面PNG）。古いプロジェクトの再現や、
+ * 切り詰めても得しない全面テロップはこちらのまま。
+ */
 export interface ExportFrame {
   png: string
   start: number
   end: number
+  x?: number
+  y?: number
 }
 
 export interface ExportSeg {
