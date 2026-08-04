@@ -82,6 +82,20 @@ const PROFILE = (process.argv.find((a) => a.startsWith('--profile=')) ?? '').sli
  * 数える相手と、期待する数は同じ所から取ること。
  */
 const WANT_TELOPS = PROFILES[PROFILE]?.telops ?? TELOPS
+/**
+ * **基準から1種類だけ抜く**（`--minus=vids,imgs`）。
+ *
+ * 軸ごとに1つずつ増やす測り方（`bench-limits`）では、どの軸も傾きがほぼゼロだった。
+ * ところが**全部同時（tv）にすると 95% が 4.4ms → 162.5ms（37倍）に跳ねる**。
+ * 足し合わせても +10ms 程度にしかならないので、**組み合わせたときだけ出る何か**がある。
+ *
+ * 1つずつ増やしても出ないなら、**全部乗せから1つずつ抜く**しかない。
+ * 抜いて軽くなった物が原因。
+ */
+const MINUS = (process.argv.find((a) => a.startsWith('--minus=')) ?? '')
+  .slice(8)
+  .split(',')
+  .filter(Boolean)
 
 
 const nowSec = () => Date.now() / 1000
@@ -212,7 +226,12 @@ try {
     )
   } else {
     video = await makeLongVideo(MINUTES)
-    const prof = PROFILES[PROFILE]
+    const baseProf = PROFILES[PROFILE]
+    // 抜く指定があれば 0 にする（上の MINUS の説明を読むこと）
+    const prof =
+      baseProf && MINUS.length
+        ? { ...baseProf, ...Object.fromEntries(MINUS.map((k) => [k, 0])) }
+        : baseProf
     if (!prof) {
       console.error(
         `--profile=${PROFILE} は知らない名前です（${Object.keys(PROFILES).join(' / ')}）`
@@ -228,7 +247,7 @@ try {
     fx = makeProject(video, totalSec, { ...prof, imgFiles, vidFiles })
     const n = (k) => prof[k] ?? 0
     console.log(
-      `  基準 ${PROFILE}${PROFILE === 'tv' ? '（テレビの編集マン1時間ぶん）' : '（2026-08-03 までの基準）'}
+      `  基準 ${PROFILE}${PROFILE === 'tv' ? '（テレビの編集マン1時間ぶん）' : '（2026-08-03 までの基準）'}${MINUS.length ? ` − ${MINUS.join(',')} を抜いた` : ''}
   テロップ${n('telops')}枚 / カット${n('clips')} / 効果音${n('se')} / 画像${n('imgs')} / 動画クリップ${n('vids')}
   動き${n('motions')} / 切り替え効果${n('trans')} / めじるし${n('marks')} / 素材ビン${n('media')}`
     )
