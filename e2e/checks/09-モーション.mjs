@@ -766,18 +766,57 @@ export default async function (C) {
     await page.keyboard.press('Control+c') // ← 動きを写す
     await page.waitForTimeout(400)
 
+    // **帯は見えている範囲にしか作らない**（TelopBands の inView）。
+    // 数えるときは必ず左端へ戻す——戻さないと「貼ったのに増えない」と
+    // 「送った先に居るだけ」の区別が付かない（2026-08-04 に実際に混同した）。
+    const toLeft = async () => {
+      await page.evaluate(() => {
+        const el = document.querySelector('.track-scroll')
+        if (el) el.scrollLeft = 0
+      })
+      await page.waitForTimeout(200)
+    }
     // そのあとテロップ本体を写して貼る＝1つ増えるはず
+    await toLeft()
     const before = await telops.count()
     await telops.nth(0).click()
     await page.waitForTimeout(300)
+    // **成立の assert。** モーションの枠の外を触ったら項目の選択は解ける決まり
+    //（MotionTab の pointerdown）。ここが解けていないと、次の Ctrl+C は
+    // クリップではなく**また動きを写す**ので、この確認は「貼り付けの不具合」に
+    // 見えて実は別の話になる。どちらなのかをここで分ける。
+    const stillSel = await page.locator('.mo-row.mo-picked').count()
+    assert(
+      stillSel === 0,
+      `枠の外を触っても項目の選択が解けていない（${stillSel}行）＝この後の Ctrl+C は動き側に取られる`
+    )
+    // **成立の assert その2。** 写す物が選ばれていなければ `copySelected` は
+    // 何も控えずに帰る（しかも `lastCopyRef` は 'clip' に書き換わる）ので、
+    // 貼り付けは空振りする。「貼り付けが壊れている」と見分けが付かない。
+    const selCount = await page.locator('.telop-clip.clip-selected').count()
+    assert(selCount === 1, `写す前にテロップが選ばれていない（${selCount}個）`)
     await page.keyboard.press('Control+c') // ← クリップを写す
     await page.waitForTimeout(300)
-    await seekTo(6)
+    // **貼る場所は「空いている所」でなければならない。**
+    //
+    // 下書きのテロップは 1.0-3.0 と 6.0-8.0。写したのは 1.0-3.0（長さ2秒）なので、
+    // 6秒で貼ると **6.0-8.0 にぴったり重なって、負けた側が丸ごと消える**
+    //（`shared/overwrite` の決まりどおり）＝**数が増えない**。
+    // それを「貼り付けが効いていない」と読んで丸一日追った（2026-08-04）。
+    //
+    // 上書きが入る前は数が増えていたので、この確認は
+    // **「貼り付けは上書きしない」に黙って寄りかかっていた**。3.5秒なら
+    // 3.5-5.5 で、どちらとも重ならない。
+    await seekTo(3.5)
     await page.keyboard.press('Control+v')
     await page.waitForTimeout(600)
+    await toLeft()
     const after = await telops.count()
+    // **増えていればよい**（＝クリップの貼り付けが走った）。
+    // 何個になるかは貼る場所しだいで変わる（上書きで負けた側が割れれば2個増える）。
+    // ここが見たいのは「動き側に取られていないか」なので、増減だけを見る。
     assert(
-      after === before + 1,
+      after > before,
       `クリップの貼り付けが効いていない（${before}個 → ${after}個）＝動きの貼り付けに取られたまま`
     )
     touchedRef.dirty = true
