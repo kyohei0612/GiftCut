@@ -17,6 +17,54 @@ export const CACHE = join(ROOT, 'e2e', '.cache')
 /** 測るときに載せるテロップの枚数（前回と比べるので変えないこと） */
 export const TELOPS = 200
 
+/**
+ * **どれくらい編集された物を基準にするか。**
+ *
+ * ## 既定を `tv` にした理由（2026-08-04）
+ *
+ * それまでの基準は「1時間の素材＋テロップ200枚・カット1個」だった。
+ * **これは編集していないのとほぼ同じ**で、軽くて当たり前の状態を
+ * 「問題なし」と記録し続けていた。
+ *
+ * 本当に守りたいのは**めちゃくちゃ編集したとき**なので、
+ * テレビの編集（1時間のバラエティ）を既定にする。
+ *
+ * ## 比べるときは `light` を使う
+ *
+ * 2026-08-03 までの数字（19 良好 / 0 問題あり・止まり0ms）は **`light` で
+ * 測った物**。プロファイルが違う数字を並べて「重くなった」と言わないこと。
+ *
+ * ## 目指す形
+ *
+ * **`light` と `tv` で1操作の重さが変わらないのが正解。** 差が出たら、それは
+ * 「見えていない物まで作っている」印（`bench-limits.mjs` の頭にある考え方と同じ）。
+ * 限界値を探すより、**傾きがゼロか**を見る。
+ */
+export const PROFILES = {
+  /** 2026-08-03 まではこれが既定だった。過去の数字と比べるとき用 */
+  light: { telops: 200, clips: 1, se: 0, imgs: 0, vids: 0, marks: 0, motions: 0, trans: 0 },
+  /**
+   * テレビの編集マン（1時間のバラエティ1本ぶん）。
+   * カットが細かく、テロップが常時出ていて、フリップとインサートが頻繁に入る。
+   */
+  tv: {
+    telops: 1200, // 常時テロップ。1時間なら1000枚超はふつう
+    chars: 14,
+    clips: 600, // 細かいカット割り（平均6秒）
+    se: 200, // ジングル・効果音
+    imgs: 120, // フリップ・写真
+    vids: 80, // インサート映像・ワイプ
+    marks: 150, // めじるし
+    motions: 100, // 寄り・引き（キーフレーム）
+    motionKeys: 4,
+    trans: 80, // 切り替え効果
+    media: 40, // 素材ビン
+    strokes: 2,
+    shadows: 1,
+    kinds: 6
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 /** Downloads から一番大きい動画を選ぶ。作り物では出ない問題があるので実素材を使う。 */
@@ -129,8 +177,16 @@ export function makeStyle(i, { strokes = 1, shadows = 0, kinds = 1 } = {}) {
   }
 }
 
-export function makeCues(count, totalSec, chars = 12, styleOpts = null) {
-  const gap = totalSec / count
+/**
+ * @param {boolean} overlap **同じ時刻に重ねる**（0〜10秒へ寄せる）。
+ *   既定（false）は尺全体へばらけさせるので、再生ヘッドの位置には常に
+ *   1〜2枚しか居ない。**「1200枚置いた」と「1200枚同時に見えている」は別物**で、
+ *   描く重さが出るのは後者。
+ *   ※ ここを入れ忘れて、「同時に見えている数」の軸が**1枚も重ねずに緑**に
+ *     なっていた（2026-08-04・使い捨ての確認で捕まえた）。
+ */
+export function makeCues(count, totalSec, chars = 12, styleOpts = null, overlap = false) {
+  const gap = overlap ? 10 / count : totalSec / count
   const words = ['ここ大事', 'なるほど', 'えっ', 'そういうこと', '待って', '結論から言うと']
   const fill = (i) => {
     let t = ''
@@ -143,7 +199,12 @@ export function makeCues(count, totalSec, chars = 12, styleOpts = null) {
   return Array.from({ length: count }, (_, i) => ({
     id: i + 1,
     start: +(i * gap + 0.2).toFixed(2),
-    end: +(i * gap + 0.2 + Math.min(gap * 0.8, 1.2 + (i % 5) * 0.4)).toFixed(2),
+    // 重ねるときは長さを gap に縛らない（縛ると隣り合うだけで重ならない）
+    end: +(
+      i * gap +
+      0.2 +
+      (overlap ? 8 : Math.min(gap * 0.8, 1.2 + (i % 5) * 0.4))
+    ).toFixed(2),
     text: fill(i),
     track: 'V2',
     ...(styleOpts ? { style: makeStyle(i, styleOpts) } : {})
@@ -161,6 +222,100 @@ export function makeSegments(count, totalSec) {
   }))
 }
 
+/**
+ * **本物の画像を作る**（枚数と解像度を指定）。
+ *
+ * ## なぜ要るか
+ *
+ * 2026-08-04 まで、「画像の数」の軸は `path` に**元動画**を指していた
+ * （下の buildProject のコメントに「読み込みに失敗しても帯は並ぶ」とある）。
+ * つまり測っていたのは**タイムラインに帯が並ぶ重さだけ**で、
+ * **デコードもサムネ生成もメモリも1度も測っていなかった。**
+ *
+ * ## 1枚ずつ中身を変える
+ *
+ * 同じファイルだと、アプリは「同じ物のサムネは作り直さない」ので
+ * **1枚ぶんの手間しかかからず、実際より軽く出る**（素材ビンの軸で踏んだのと同じ穴）。
+ * `testsrc2` は時間で絵が変わるので、`-ss` をずらして別の絵を切り出す。
+ * 模様が入っているぶん PNG が縮まないので、**容量の軸としても本物に近い。**
+ */
+export async function makeImages(count, px = 1920) {
+  const dir = join(CACHE, `imgs-${px}`)
+  mkdirSync(dir, { recursive: true })
+  const h = Math.round((px * 9) / 16 / 2) * 2
+  const out = []
+  for (let i = 0; i < count; i++) {
+    const p = join(dir, `img${i}.png`)
+    out.push(p)
+    if (existsSync(p) && statSync(p).size > 1000) continue
+    const r = await sh('ffmpeg', [
+      '-v', 'error', '-y',
+      '-f', 'lavfi', '-ss', String(i % 60), '-i', `testsrc2=size=${px}x${h}:rate=1`,
+      '-frames:v', '1', p
+    ])
+    if (r.code !== 0) {
+      console.error(`画像の作成に失敗しました（${px}px）:\n` + r.err.slice(0, 400))
+      process.exit(2)
+    }
+  }
+  return out
+}
+
+/**
+ * **本物の短い動画を作る**（タイムラインへ置く動画クリップ用）。
+ *
+ * ## なぜ要るか
+ *
+ * `buildProject` は長らく `vClips: []` を固定していた。つまり
+ * **V2/V3 に別素材の動画を置く形は、負荷を1度も測っていない。**
+ * 動画クリップは拡大・動き・切り抜き・色調整を持てるので、画像より重いはず。
+ *
+ * **1本ずつ別ファイルにする。** 同じファイルを何本も置くと、デコーダが
+ * 使い回されて実際より軽く出る（画像と同じ理由）。
+ */
+export async function makeClipVideos(count, sec = 3) {
+  const dir = join(CACHE, `vids-${sec}s`)
+  mkdirSync(dir, { recursive: true })
+  const out = []
+  for (let i = 0; i < count; i++) {
+    const p = join(dir, `vid${i}.mp4`)
+    out.push(p)
+    if (existsSync(p) && statSync(p).size > 10000) continue
+    const r = await sh('ffmpeg', [
+      '-v', 'error', '-y',
+      '-f', 'lavfi', '-ss', String(i % 60), '-i', 'testsrc2=size=1280x720:rate=30',
+      '-f', 'lavfi', '-i', `sine=frequency=${440 + i * 7}`,
+      '-t', String(sec),
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26',
+      '-c:a', 'aac', '-b:a', '96k', '-shortest',
+      p
+    ])
+    if (r.code !== 0) {
+      console.error('動画クリップの作成に失敗しました:\n' + r.err.slice(0, 400))
+      process.exit(2)
+    }
+  }
+  return out
+}
+
+/**
+ * 動き（キーフレーム）を1本ぶん作る。
+ *
+ * `keys` は**打つ印の数**。書き出しでは印の数だけ式が伸びる（`keysToExpr`）ので、
+ * 画面より書き出しの方に効く可能性がある。両方測ること。
+ */
+export function makeMotion(keys, dur) {
+  const at = (i) => +((dur * i) / Math.max(1, keys - 1)).toFixed(2)
+  return {
+    sc: Array.from({ length: keys }, (_, i) => ({ t: at(i), v: 1 + (i % 3) * 0.15, e: 'ease' })),
+    x: Array.from({ length: keys }, (_, i) => ({ t: at(i), v: ((i % 5) - 2) * 0.04, e: 'ease' })),
+    y: Array.from({ length: keys }, (_, i) => ({ t: at(i), v: ((i % 3) - 1) * 0.03, e: 'ease' }))
+  }
+}
+
+/** 切り替え効果（エフェクト）の種類。どれも頭・尻・間のどこにでも置ける */
+const TRANS_KINDS = ['fade', 'dipblack', 'dipwhite', 'wipeleft', 'slideup']
+
 /** プロジェクトの中身を組み立てる（種類ごとに数を変えられる） */
 export function buildProject(
   video,
@@ -177,15 +332,46 @@ export function buildProject(
     mediaFiles = null,
     strokes = 0,
     shadows = 0,
-    kinds = 0
+    kinds = 0,
+    /** タイムラインへ置く動画クリップの数（V2/V3） */
+    vids = 0,
+    /** 動画クリップの元ファイル一覧（`makeClipVideos`）。省略すると元動画を指す */
+    vidFiles = null,
+    /**
+     * 動画クリップ1本の長さ（秒）。**元ファイルの尺と合わせること。**
+     * 長く取ると素材の終わりを越えて、実際より軽く出る（読む物が無いので）。
+     */
+    vidSec = 3,
+    /** 画像クリップの元ファイル一覧（`makeImages`）。省略すると元動画を指す */
+    imgFiles = null,
+    /** 動き（キーフレーム）を持たせる数。切片→画像→動画クリップの順に配る */
+    motions = 0,
+    /** 動き1本あたりに打つ印の数 */
+    motionKeys = 4,
+    /** 切り替え効果（エフェクト）を付ける切片の数 */
+    trans = 0,
+    /**
+     * **同じ時刻に重ねるか。**
+     *
+     * 既定（false）は尺全体へばらけさせるので、再生ヘッドの位置には常に1〜2個しか
+     * 居ない。**「200枚置いた」と「200枚同時に見えている」は別物**なので、
+     * 描画の重さを見たいときは true にして 0〜10秒へ寄せる。
+     */
+    overlap = false
   } = {}
 ) {
   const styleOpts =
     strokes || shadows || kinds
       ? { strokes: strokes || 1, shadows: shadows || 0, kinds: kinds || 1 }
       : null
+  // overlap:true のときは 0〜10秒へ寄せる（同時に見えている数を測るため）
   const spread = (n, make) =>
-    Array.from({ length: n }, (_, i) => make(i, (totalSec * (i + 0.3)) / Math.max(1, n)))
+    Array.from({ length: n }, (_, i) =>
+      make(i, overlap ? (i % 10) * 0.5 : (totalSec * (i + 0.3)) / Math.max(1, n))
+    )
+  // 動きを配る枚数。切片 → 画像 → 動画クリップ の順に埋める
+  let motionLeft = motions
+  const takeMotion = (dur) => (motionLeft-- > 0 ? makeMotion(motionKeys, dur) : undefined)
   const project = {
     version: 1,
     videoPath: video,
@@ -201,9 +387,17 @@ export function buildProject(
       { id: 'A3', name: 'A3', kind: 'audio' }
     ],
     trackStates: {},
-    segments: makeSegments(clips, totalSec),
-    cues: makeCues(telops, totalSec, chars, styleOpts),
-    // 効果音・画像は素材ファイルが要るが、ここで見たいのは「並んでいる数の重さ」。
+    segments: makeSegments(clips, totalSec).map((s, i) => ({
+      ...s,
+      // 動きは切片から先に配る（本編に付くのが一番ふつうの使い方なので）
+      ...(motionLeft > 0 ? { motion: takeMotion(s.srcEnd - s.srcStart) } : {}),
+      // 切り替え効果は「間（xfade）」に置く。最後の切片には次が無いので付けない
+      ...(i < trans && i < clips - 1
+        ? { xfade: { type: TRANS_KINDS[i % TRANS_KINDS.length], dur: 0.5 } }
+        : {})
+    })),
+    cues: makeCues(telops, totalSec, chars, styleOpts, overlap),
+    // 効果音は素材ファイルが要るが、ここで見たいのは「並んでいる数の重さ」。
     // 元動画を指しておけば、読み込みに失敗しても帯は並ぶ。
     seClips: spread(se, (i, t) => ({
       id: i + 1,
@@ -213,15 +407,28 @@ export function buildProject(
       duration: 1.5,
       track: 'A2'
     })),
+    // **画像は imgFiles を渡すと本物になる**（デコード・サムネ・メモリが初めて効く）。
+    // 渡さないときは今までどおり元動画を指す＝帯の数だけを見る。
     imgClips: spread(imgs, (i, t) => ({
       id: i + 1,
-      path: video,
-      name: 'img.png',
+      path: imgFiles?.[i % imgFiles.length] ?? video,
+      name: imgFiles ? `img${i}.png` : 'img.png',
       tStart: +t.toFixed(2),
       duration: 2,
-      track: 'V3'
+      track: 'V3',
+      ...(motionLeft > 0 ? { motion: takeMotion(2) } : {})
     })),
-    vClips: [],
+    // **動画クリップ。** 2026-08-04 まで常に空だった＝この形は未測定だった。
+    vClips: spread(vids, (i, t) => ({
+      id: i + 1,
+      path: vidFiles?.[i % vidFiles.length] ?? video,
+      name: vidFiles ? `vid${i}.mp4` : 'bench.mp4',
+      track: 'V2',
+      tStart: +t.toFixed(2),
+      srcStart: 0,
+      srcEnd: vidSec,
+      ...(motionLeft > 0 ? { motion: takeMotion(vidSec) } : {})
+    })),
     markers: spread(marks, (i, t) => ({ id: i + 1, t: +t.toFixed(2), label: 'め' + i })),
     // 素材ビンの中身。
     //
@@ -241,14 +448,18 @@ export function buildProject(
   return project
 }
 
-export function makeProject(video, totalSec) {
+export function makeProject(video, totalSec, opts = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'giftcut-bench-'))
   const userData = join(dir, 'userData')
   mkdirSync(userData, { recursive: true })
   // 1分に1カットくらいは入っている想定にする。クリップが1つだけだと、
   // 掴んで動かしても磁石で元の位置へ戻るので「動かせていない」ことに気づけない。
+  // ※ プロファイル（PROFILES）が clips を持っていればそちらが勝つ。
   const json = JSON.stringify(
-    buildProject(video, totalSec, { clips: Math.max(6, Math.round(totalSec / 60)) })
+    buildProject(video, totalSec, {
+      clips: Math.max(6, Math.round(totalSec / 60)),
+      ...opts
+    })
   )
   // 自動保存から復元する経路で開く。ファイル選択ダイアログを触らずに済み、
   // しかも本番と同じ読み込み経路をそのまま通せる。

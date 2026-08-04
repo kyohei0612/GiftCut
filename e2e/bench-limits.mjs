@@ -10,7 +10,7 @@
 // 本体の途中で呼ばれるので、要る物は引数で受ける（本体の局所変数を触らない）。
 import { copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { buildProject } from './lib/fixture.mjs'
+import { buildProject, makeImages, makeClipVideos } from './lib/fixture.mjs'
 import { frameStats } from './lib/measure.mjs'
 import { fmt, mb } from './lib/fmt.mjs'
 
@@ -123,7 +123,10 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
       clip: '[data-tid="V1"] .video-clip',
       telop: '.telop-clip',
       se: '[data-tid="A2"] .se-clip',
-      img: '[data-tid="V3"] .img-clip'
+      img: '[data-tid="V3"] .img-clip',
+      // 動画クリップ（V2 に置いた別素材）。2026-08-04 に足した——それまで
+      // fixture が vClips を1本も作っていなかったので、掴む相手も無かった。
+      vid: '[data-tid="V2"] .vclip'
     }
     const clips = page.locator(sel[what] ?? sel.clip)
     const nClips = await clips.count()
@@ -216,6 +219,16 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
     return { openSec, lag, worst: s.worst, heap: h, ok, note: moved ? '' : '掴めなかった' }
   }
 
+  // **実物の画像と動画を先に用意する**（初回だけ ffmpeg が走る。以降は .cache から）。
+  // 元ファイルの本数は 40 / 20 に抑えて使い回す——ここで測りたいのは
+  // 「タイムラインに置いた数」で、ディスク上のファイル数ではないため。
+  // ファイル数そのものの軸は「元ファイル数（全部が別）」で別に持っている。
+  await say('動作', '素材の用意', '本物のPNGと動画クリップを作る（初回だけ時間がかかる）')
+  const imgsByPx = {}
+  for (const px of [512, 1920, 4096]) imgsByPx[px] = await makeImages(20, px)
+  const imgs1920 = imgsByPx[1920]
+  const vids3s = await makeClipVideos(20, 3)
+
   const sweeps = [
     {
       name: 'テロップの枚数',
@@ -304,6 +317,92 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
       label: (v) => `${v}件`,
       base: { telops: 50, clips: 12, mediaFiles: makeDistinctMedia(2000) },
       grab: 'clip'
+    },
+
+    // -----------------------------------------------------------------------
+    // ここから 2026-08-04 に足した軸。**画像と動画は実物を読ませる。**
+    //
+    // それまでの「画像の数」は path に元動画を指していて、**帯が並ぶ重さしか
+    // 測っていなかった**（デコードもサムネもメモリも0回）。動画クリップに
+    // 至っては fixture が1本も作っていなかった＝軸そのものが無かった。
+    // -----------------------------------------------------------------------
+    {
+      name: '画像の数（本物のPNG・1920px）',
+      key: 'imgs',
+      values: [50, 200, 500, 1000],
+      label: (v) => `${v}枚`,
+      base: { telops: 50, clips: 12, imgFiles: imgs1920 },
+      grab: 'img'
+    },
+    {
+      // **枚数と解像度を分ける。** 混ぜると「重いのは枚数か大きさか」が出ない。
+      name: '画像1枚の大きさ（100枚で固定）',
+      key: 'imgPx',
+      values: [512, 1920, 4096],
+      label: (v) => `${v}px 幅`,
+      base: { telops: 50, clips: 12, imgs: 100 },
+      // 解像度は buildProject の引数ではないので、値ごとに別のファイル一覧を渡す
+      makeBase: (v) => ({ imgFiles: imgsByPx[v] }),
+      grab: 'img'
+    },
+    {
+      name: '動画クリップの数',
+      key: 'vids',
+      values: [20, 80, 200, 500],
+      label: (v) => `${v}個`,
+      base: { telops: 50, clips: 12, vidFiles: vids3s },
+      grab: 'vid'
+    },
+    {
+      // 同じファイルを並べるとデコーダが使い回されて実際より軽く出る。
+      // 素材ビンの軸で踏んだのと同じ穴なので、別ファイル版を必ず持つ。
+      name: '動画クリップの元ファイル数（全部が別）',
+      key: 'vids',
+      values: [20, 80, 200],
+      label: (v) => `${v}個`,
+      base: { telops: 50, clips: 12, vidFiles: null },
+      grab: 'vid'
+    },
+    {
+      name: '動き（キーフレーム）を持つ数',
+      key: 'motions',
+      values: [50, 200, 500, 1000],
+      label: (v) => `${v}本`,
+      base: { telops: 50, clips: 1000, motionKeys: 4 },
+      grab: 'clip'
+    },
+    {
+      // 印の数は書き出しの式の長さに直に効く（`keysToExpr`）。
+      // 画面が軽くても書き出しが死ぬ形があるので、別の軸にしてある。
+      name: '動き1本あたりの印の数（200本で固定）',
+      key: 'motionKeys',
+      values: [2, 8, 30, 100],
+      label: (v) => `1本 ${v}印`,
+      base: { telops: 50, clips: 500, motions: 200 },
+      grab: 'clip'
+    },
+    {
+      name: '切り替え効果（エフェクト）の数',
+      key: 'trans',
+      values: [50, 200, 500, 1000],
+      label: (v) => `${v}個`,
+      base: { telops: 50, clips: 1000 },
+      grab: 'clip'
+    },
+    {
+      /**
+       * **同じ時刻に重ねる。**
+       *
+       * 他の軸は素材を尺全体へばらけさせるので、再生ヘッドの位置には常に
+       * 1〜2個しか居ない。**「200枚置いた」と「200枚同時に見えている」は
+       * 別物**で、描画の重さが出るのは後者。ここだけ 0〜10秒へ寄せる。
+       */
+      name: '同時に見えている数（テロップ＋画像を重ねる）',
+      key: 'telops',
+      values: [50, 200, 500, 1000],
+      label: (v) => `${v}枚が同時`,
+      base: { clips: 12, imgs: 100, imgFiles: imgs1920, overlap: true },
+      grab: 'scrub'
     }
   ]
 
@@ -347,7 +446,9 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
     let broke = null
     const pts = [] // 1つあたりの重さを出すために全部の点を残す
     for (const v of sw.values) {
-      const opts = { ...sw.base, [sw.key]: v }
+      // makeBase: 値そのものが buildProject の引数にならない軸（解像度など）で、
+      // 値ごとに別の素材一覧を差し替えるための口
+      const opts = { ...sw.base, ...(sw.makeBase?.(v) ?? {}), [sw.key]: v }
       const p = join(fx.dir, `limit-${sw.key}-${v}.gcproj`)
       writeFileSync(p, JSON.stringify(buildProject(video, totalSec, opts)), 'utf-8')
       await say('動作', `どこまで耐えるか: ${sw.name}`, `${sw.label(v)} を開いて触ってみる`)

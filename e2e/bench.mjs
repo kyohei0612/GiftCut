@@ -43,7 +43,7 @@ import { watchdog } from './dismiss.mjs'
 import { sh } from './lib/shell.mjs'
 import { fmt, mb } from './lib/fmt.mjs'
 import { findLimits } from './bench-limits.mjs'
-import { CACHE, TELOPS, pickSource, makeLongVideo, makeStyle, makeCues, makeSegments, buildProject, makeProject, useRealProject } from './lib/fixture.mjs'
+import { CACHE, TELOPS, PROFILES, pickSource, makeLongVideo, makeStyle, makeCues, makeSegments, buildProject, makeProject, useRealProject, makeImages, makeClipVideos } from './lib/fixture.mjs'
 // 一時フォルダが5GBを超えていたら、ここでまとめて捨てる（決まりは ./lib/e2eFixture）
 import { cleanBigTemp } from './lib/e2eFixture.mjs'
 import { similarity, brightness, meanVolume, silentSec, frameStats } from './lib/measure.mjs'
@@ -63,6 +63,25 @@ const REAL = (process.argv.find((a) => a.startsWith('--project=')) ?? '').slice(
 // （実際、拡大していない・掴めていないのに合格していた項目が5つあった）。
 const SELFCHECK = process.argv.includes('--selfcheck')
 const EDITS = 50
+/**
+ * **どれくらい編集された物を基準にするか**（`--profile=tv|light`。既定 tv）。
+ *
+ * 2026-08-03 まではテロップ200枚・カット1個で測っていた。**それは編集して
+ * いないのとほぼ同じ**なので、既定を「テレビの編集マン1時間ぶん」にした。
+ * 過去の数字と比べたいときだけ `--profile=light`。
+ *
+ * **目指すのは `light` と `tv` で1操作の重さが変わらないこと。**
+ * 差が出たら「見えていない物まで作っている」印（限界値より傾きを見る）。
+ */
+const PROFILE = (process.argv.find((a) => a.startsWith('--profile=')) ?? '').slice(10) || 'tv'
+/**
+ * いま測っている基準のテロップ枚数。
+ *
+ * **`TELOPS`（=200）を直に見てはいけない。** プロファイルを足した日に、
+ * 「1200枚あるのに 1200 / 200 枚 ＝ 合格」と出す形になっていた。
+ * 数える相手と、期待する数は同じ所から取ること。
+ */
+const WANT_TELOPS = PROFILES[PROFILE]?.telops ?? TELOPS
 
 
 const nowSec = () => Date.now() / 1000
@@ -185,7 +204,26 @@ try {
     )
   } else {
     const video = await makeLongVideo(MINUTES)
-    fx = makeProject(video, totalSec)
+    const prof = PROFILES[PROFILE]
+    if (!prof) {
+      console.error(
+        `--profile=${PROFILE} は知らない名前です（${Object.keys(PROFILES).join(' / ')}）`
+      )
+      process.exit(2)
+    }
+    // **本物の画像と動画を用意する。** ここを渡さないと path が元動画を指したままで、
+    // デコードもサムネもメモリも1度も測らないまま「軽い」と出る
+    //（2026-08-04 まで実際そうだった）。
+    // 枚数は元ファイルの上限。置く数は prof.imgs / prof.vids で、使い回して並べる。
+    const imgFiles = prof.imgs ? await makeImages(Math.min(prof.imgs, 40), 1920) : null
+    const vidFiles = prof.vids ? await makeClipVideos(Math.min(prof.vids, 20), 3) : null
+    fx = makeProject(video, totalSec, { ...prof, imgFiles, vidFiles })
+    const n = (k) => prof[k] ?? 0
+    console.log(
+      `  基準 ${PROFILE}${PROFILE === 'tv' ? '（テレビの編集マン1時間ぶん）' : '（2026-08-03 までの基準）'}
+  テロップ${n('telops')}枚 / カット${n('clips')} / 効果音${n('se')} / 画像${n('imgs')} / 動画クリップ${n('vids')}
+  動き${n('motions')} / 切り替え効果${n('trans')} / めじるし${n('marks')} / 素材ビン${n('media')}`
+    )
     console.log(
       `
 [1m負荷チェック[0m  ${MINUTES}分 / テロップ${TELOPS}枚 / プロジェクト ${fmt(fx.bytes / 1024, 0)} KB` +
@@ -301,7 +339,7 @@ try {
   }
 
   // ---- 1. 読み込み -----------------------------------------------------
-  await say('動作', 'プロジェクトを開く', `${MINUTES}分・テロップ${TELOPS}枚を復元中`)
+  await say('動作', 'プロジェクトを開く', `${MINUTES}分・テロップ${WANT_TELOPS}枚を復元中`)
   const restore = page.locator('.restore-btns button', { hasText: '復元' }).first()
   await restore.waitFor({ timeout: 30000 })
   const tOpen = nowSec()
@@ -328,8 +366,8 @@ try {
   await done(
     '動作',
     'テロップが全部読み込まれている',
-    `${telopCount} / ${TELOPS} 枚（画面に出ている帯は ${telopBands} 本）`,
-    telopCount >= TELOPS ? 'ok' : telopCount > 0 ? 'warn' : 'ng'
+    `${telopCount} / ${WANT_TELOPS} 枚（画面に出ている帯は ${telopBands} 本）`,
+    telopCount >= WANT_TELOPS ? 'ok' : telopCount > 0 ? 'warn' : 'ng'
   )
 
   const shotTl = await shot('タイムライン', page.locator('.track-inner').first())
@@ -981,7 +1019,9 @@ try {
   const warn = rows.filter((r) => r.verdict === 'warn').length
   // **本物のプロジェクトで測ったときに「60分・テロップ200枚」と出さない。**
   // 見出しが嘘だと、あとで数字を読み返したときに何を測ったのか分からなくなる。
-  const head = REAL ? `本物のプロジェクト・編集${EDITS}回` : `${MINUTES}分・テロップ${TELOPS}枚・編集${EDITS}回`
+  const head = REAL
+    ? `本物のプロジェクト・編集${EDITS}回`
+    : `${MINUTES}分・基準${PROFILE}・テロップ${WANT_TELOPS}枚・編集${EDITS}回`
   // **1つも測れていないなら落とす。** 「0 良好 / 0 問題あり」は緑に見えるが、
   // 測っていないだけ。決まりは CLAUDE.md の7番:
   // 「測る側は**成立しなければ落ちる**に倒すこと」（stutter 側にも同じ穴があった）
