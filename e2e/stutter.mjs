@@ -530,10 +530,25 @@ for (const r of results) {
 const bad = results.filter(
   (r) => r.played && (r.worstMs > 100 || (r.audio?.gaps.length ?? 0) > 0)
 )
+// **1つも測れていないなら落とす。** 以前はここが緑になっていた——
+// 映像の無い下書きで走ると各画質が「プレビューに映像がありません」で continue し、
+// results が空のまま「どの画質も、絵は止まらず音も抜けませんでした」と出ていた。
+// 測っていないのに「問題なし」は、測って問題なしより悪い（信じて先へ進む）。
+// 決まりは CLAUDE.md の7番:「測る側は**成立しなければ落ちる**に倒すこと」。
+if (!results.length) {
+  console.error(
+    '\n**1つも測れませんでした。** どの画質でもプレビューに映像がありませんでした。\n' +
+      '  下書き（自動保存）に動画が入っていないと、この測定は何も測れません。\n' +
+      '  アプリで動画を読み込んでから測るか、`--project=<path>` で本物のプロジェクトを渡してください。'
+  )
+  await app.close().catch(() => {})
+  rmSync(tmp, { recursive: true, force: true })
+  process.exit(1)
+}
 console.log(
   bad.length
     ? `\nだめだった画質: ${bad.map((r) => r.res + 'p').join(', ')}`
-    : '\nどの画質も、絵は止まらず音も抜けませんでした'
+    : `\n${results.length}画質すべてで、絵は止まらず音も抜けませんでした`
 )
 
 await app.close().catch(() => {})
