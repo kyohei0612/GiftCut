@@ -102,6 +102,13 @@ export async function runOpsChecks(ctx) {
   void clip
 
   await measure('タイムラインを拡大・縮小する', async () => {
+    // **入口を自分で決める。** 前の項目（掴んで動かす）が残した拡大率から始めると、
+    // 同じ10ノッチでも通る倍率の帯が毎回変わり、**コードを何も変えていないのに
+    // 95% が 45.9 → 108.3ms まで揺れた**（2026-08-04、4回の実測）。
+    // 全体表示から10ノッチ寄せて10ノッチ戻す、と決めれば毎回同じ道を通る。
+    const fit = page.locator('.tl-zoom button').first()
+    if (await fit.count()) await fit.click().catch(() => {})
+    await page.waitForTimeout(500)
     const w0 = await timelineWidth()
     await zoomIn(visMid, visY(40), 10)
     const w1 = await timelineWidth()
@@ -143,6 +150,13 @@ export async function runOpsChecks(ctx) {
   await measure(
     '再生ヘッドを掴んで動かす',
     async () => {
+      // **入口を自分で決める。** 前の項目（拡大・縮小）が残した倍率のまま掴むと、
+      // 全体表示のときに再生ヘッドが動かず「動いていない」で落ちる
+      //（2026-08-04、拡大の項目を全体表示から始めるよう直した途端に壊れた）。
+      // **bench は項目どうしが状態を引き継ぐ**ので、直した先の次が壊れる。
+      // 触る項目は、掴める太さまで自分で寄せてから始めること。
+      await zoomUntilGrabbable('[data-tid="V1"] .video-clip', 20)
+      await seekTo0()
       const rb = await page.locator('.ruler').boundingBox()
       const step = (visR - visL) / 40
       const x0 = await headX()
@@ -349,6 +363,16 @@ export async function runOpsChecks(ctx) {
     if (await fit.count()) await fit.click().catch(() => {})
     await page.waitForTimeout(500)
     await page.keyboard.press('Escape')
+    // **戻したあと、掴める太さまで寄せる。**
+    //
+    // 全体表示は「基準」としては正しいが、**そのままでは掴めない**。
+    // 60分・カット600 だと 0.33px/秒しかなく、1本の帯が **約2px**。
+    // 2px の真ん中を押しても帯に当たらず、下地から範囲選択が始まって
+    // **選択が消える**＝何も動かない。それが「まとめて動かせていない」の正体だった
+    //（2026-08-04。`light` はカット1本＝画面いっぱいなので、ここだけ通っていた）。
+    //
+    // CLAUDE.md 7番の同型が、これで4件目。**細さで測定が死ぬ**ことを毎回忘れている。
+    await zoomUntilGrabbable('[data-tid="V1"] .video-clip', 20)
     const all = page.locator('[data-tid="V1"] .video-clip')
     // 画面に見えていて掴める幅のものを選ぶ（拡大率は前の項目で変わっている）
     const vw2 = (page.viewportSize() ?? { width: 1280 }).width
@@ -423,6 +447,16 @@ export async function runOpsChecks(ctx) {
   await measure(
     '再生してみる（3秒）',
     async () => {
+      // **自分で見え方を決める（全体表示）。**
+      //
+      // 再生の重さは「同時に何本の帯が見えているか」で決まる。前の項目が残した
+      // 拡大率に任せると、**アプリを1行も変えていないのに 104.2ms → 25.1ms** になる
+      //（2026-08-04、前の項目を寄せた状態で終わるよう直したとき実際にそうなった）。
+      // ここは**いちばん重い側＝全部見えている状態**で測る。編集し終えて
+      // 全体を見ながら流す、という実際によくやる形でもある。
+      const fit = page.locator('.tl-zoom button').first()
+      if (await fit.count()) await fit.click().catch(() => {})
+      await page.waitForTimeout(500)
       await seekTo0()
       // **Space を押す前に、文字入力から手を離す。**
       // 直前の項目でテロップの文字を打ち直しているので、focus が入力欄に
