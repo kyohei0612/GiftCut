@@ -27,6 +27,20 @@ function loadSize(key: string, def: number): number {
 
 /** 切り離せるパネル */
 export type PaneId = 'left' | 'right' | 'preview' | 'timeline'
+
+/**
+ * 切り離した窓の題。
+ *
+ * **配線から出した（2026-08-04）。** 配線が持っていたせいで、束（`menus` /
+ * `rightPanel`）と `Workspace` の prop を通って画面へ降りていた——**ただの
+ * 文字の表なのに、経路が3つ**あった。使う側が直に import する。
+ */
+export const PANE_LABEL: Record<PaneId, string> = {
+  left: 'プロパティ',
+  right: 'プロジェクト',
+  preview: 'プレビュー',
+  timeline: 'タイムライン'
+}
 // 窓の大きさ・位置の形は、窓を出す側（PanelChrome）が持っている物をそのまま使う。
 // ここで似た型を作ると、片方だけ直したときに食い違う
 

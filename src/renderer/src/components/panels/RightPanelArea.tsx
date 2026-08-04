@@ -28,6 +28,7 @@ import { IconLibraryTab } from './IconLibraryTab'
 import { SeLibraryTab } from './SeLibraryTab'
 import { TransitionsTab } from './TransitionsTab'
 import { useLayout } from '../../state/layoutContext'
+import { PANE_LABEL } from '../../state/usePanelLayout'
 import { useRightPanel } from '../../state/rightPanelContext'
 // タブごとの配線。**何が要るかの一覧は、それぞれのフックの返り値**
 import { useIconTab } from '../../state/useIconTab'
@@ -46,7 +47,7 @@ export function RightPanelArea(): JSX.Element {
   // **受け取らず、心臓から自分で見に行く**（他の区画と同じ流儀）
   // タブ帯に要る物だけ（**中身の物は1つも受け取らない**）
   const {
-    PANE_LABEL, orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow, rightTab
+    orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow, rightTab
   } = useRightPanel()
   const { isPopped, paneGeom, unpopPane, rightW } = useLayout()
   // **タブごとの配線は state/use*Tab に1つずつ。** 何が要るかの一覧はそれぞれの返り値。

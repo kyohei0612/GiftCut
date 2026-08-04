@@ -26,7 +26,7 @@
 // **①が大きいフックから順に直せば、1つ直すごとに配線が縮む。**
 // 一度に全部やる必要はない（`引き継ぎ-心臓の分け直し.md`）。
 import ts from 'typescript'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
@@ -77,11 +77,15 @@ const isCtxCall = (init) =>
 // 見ていなかった頃は、これを「配線が自分で書いた物」と数えて
 // **上げられるフックを『待ち』に見せていた**（2026-08-04）。
 const ctxAlias = new Set()
+/** 受けた変数の名前 → 本当の心臓の名前（`sel` → `useSel`）。囲いを作るのに要る */
+const aliasHook = new Map()
 for (const st of fn.body.statements) {
   if (!ts.isVariableStatement(st)) continue
   for (const d of st.declarationList.declarations)
-    if (d.initializer && ts.isIdentifier(d.name) && isCtxCall(d.initializer))
+    if (d.initializer && ts.isIdentifier(d.name) && isCtxCall(d.initializer)) {
       ctxAlias.add(d.name.text)
+      aliasHook.set(d.name.text, d.initializer.expression.text)
+    }
 }
 
 // **心臓から取り出した物と、フックが返した物の両方**を数える。
@@ -154,14 +158,33 @@ function bundleOwner(node) {
   return null
 }
 
+/**
+ * 宣言から「名前の位置」を出す。
+ *
+ * **`function foo() {}` を数え落としていた**（2026-08-04）。名前を取るのを
+ * `const` と分割代入だけにしていたので、関数宣言では `d.name` ではなく `d` を
+ * そのまま見て `isIdentifier` が false になり、**何も数えずに素通り**していた。
+ * その結果 `blurActiveInput`（配線の中の関数）を待っている `useTimelineDrag` が
+ * 「いま上げられる」と出て、囲いを作ったら型検査で落ちた。
+ * → **名前を持つ宣言はここに1本化する。** 増やすときはここへ足すこと。
+ */
+const nameStart = (d) => {
+  if (!d) return null
+  const nameNode =
+    ts.isBindingElement(d) ||
+    ts.isVariableDeclaration(d) ||
+    ts.isFunctionDeclaration(d) ||
+    ts.isParameter(d)
+      ? d.name
+      : d
+  return nameNode && ts.isIdentifier(nameNode) ? nameNode.getStart() : null
+}
+
 const declPosOf = (node) => {
   let sym = checker.getSymbolAtLocation(node)
   if (!sym) return null
   if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
-  const d = sym.declarations?.[0]
-  if (!d) return null
-  const nameNode = ts.isBindingElement(d) || ts.isVariableDeclaration(d) ? d.name : d
-  return ts.isIdentifier(nameNode) ? nameNode.getStart() : null
+  return nameStart(sym.declarations?.[0])
 }
 
 const walk = (n) => {
@@ -267,8 +290,7 @@ for (const [h, info] of hookOf) {
       if (ts.isShorthandPropertyAssignment(n.parent)) {
         const sym = checker.getShorthandAssignmentValueSymbol(n.parent)
         const dd = sym?.declarations?.[0]
-        const nn = dd && (ts.isBindingElement(dd) || ts.isVariableDeclaration(dd)) ? dd.name : dd
-        pos = nn && ts.isIdentifier(nn) ? nn.getStart() : null
+        pos = nameStart(dd)
       } else pos = declPosOf(n)
       if (pos != null) {
         if (fromHook.has(pos) && fromHook.get(pos) !== h) info.deps.add(fromHook.get(pos))
@@ -333,6 +355,104 @@ if (!ready.length && blocked.length) {
   console.log('\n   **何本が同じ物を待っているか**（ここを先に外へ出すと一番効く）:')
   for (const [n, c] of [...need.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10))
     console.log(`     ${String(c).padStart(2)} 本: ${n}`)
+}
+
+// ---- 囲いを作る（`node scripts/passthrough.mjs --gen useViewNav`）
+//
+// **手で書くと、要る物の出どころを1つ取り違えるだけで画面が undefined になる**
+// （型は通る。実際 `headerContext` でそれを踏んだ）。ここは既に
+// 「どの名前がどの心臓から来たか」を記号解決で知っているので、そのまま吐かせる。
+//
+// deps の中身は**呼び出し側の文字をそのまま写す**（並べ替えない）。
+// 写し間違いが起きようがない形にしてある。
+const genArg = process.argv.indexOf('--gen')
+if (genArg >= 0) {
+  const hook = process.argv[genArg + 1]
+  const info = hookOf.get(hook)
+  if (!info) throw new Error(`${hook} は配線が呼んでいない`)
+  if (info.deps.size || info.local.size)
+    throw new Error(`${hook} はまだ上げられない（待ち: ${[...info.deps, ...info.local].join(' ')}）`)
+  /** 要る名前を、出どころの心臓ごとにまとめる */
+  const byCtx = new Map()
+  const seen = new Set()
+  const collect = (n) => {
+    if (ts.isIdentifier(n)) {
+      let pos = null
+      if (ts.isShorthandPropertyAssignment(n.parent)) {
+        const sym = checker.getShorthandAssignmentValueSymbol(n.parent)
+        const dd = sym?.declarations?.[0]
+        pos = nameStart(dd)
+      } else pos = declPosOf(n)
+      const src = pos != null ? fromCtx.get(pos) : null
+      if (src && !seen.has(src.name)) {
+        seen.add(src.name)
+        const ctx = aliasHook.get(src.ctx) ?? src.ctx
+        if (!byCtx.has(ctx)) byCtx.set(ctx, [])
+        byCtx.get(ctx).push(src.name)
+      }
+    }
+    n.forEachChild(collect)
+  }
+  for (const a of info.node.initializer.arguments) collect(a)
+  // 3つ目の引数で名前を変えられる（`--gen useExport ExportRun`）。
+  // **既にある囲いと名前がぶつかるのを黙って上書きしていた**（2026-08-04 に
+  // `exportContext.tsx` を実際に潰した）。下の existsSync がそれを止める。
+  const base = process.argv[genArg + 2]?.match(/^[A-Z]/)
+    ? process.argv[genArg + 2]
+    : hook.replace(/^use/, '')
+  const file = `src/renderer/src/state/${base[0].toLowerCase()}${base.slice(1)}Context.tsx`
+  if (existsSync(join(ROOT, file)))
+    throw new Error(`既にある: ${file}（別の名前を3つ目の引数で渡す）`)
+  const ctxFileOf = (h) => {
+    for (const f of readdirSync(join(ROOT, 'src/renderer/src/state'))) {
+      if (!f.endsWith('Context.tsx')) continue
+      if (readFileSync(join(ROOT, 'src/renderer/src/state', f), 'utf8').includes(`export function ${h}(`))
+        return './' + f.replace(/\.tsx$/, '')
+    }
+    return null
+  }
+  const ctxList = [...byCtx.keys()].sort()
+  const lines = [
+    `// ${base} を、どの区画からでも触れるようにする。`,
+    '//',
+    '// ## なぜ囲いにしたか（2026-08-04）',
+    '//',
+    `// \`${hook}\` が要る物は**全部すでに心臓から取れる**のに、配線が取り出して渡し、`,
+    '// 返ってきた物を束へ詰め直して心臓へ戻していた（`npm run passthrough`）。',
+    '//',
+    '// **中身はここで作る。** 上で作って渡すと、囲いを描き直すたびに作り直される。',
+    '//',
+    '// ## 中身',
+    '//',
+    `// - \`${base}Value\` … \`${hook}\` が返す物（**手で書かず実体から引く**）`,
+    `// - \`${base}Provider\` … 囲い。中で \`${hook}()\` を1回だけ呼ぶ`,
+    `// - \`use${base}Ctx\` … 見に行く。囲いの外で呼んだら、その場で落とす`,
+    "import { createContext, useContext, type ReactNode } from 'react'",
+    ...ctxList.map((h) => `import { ${h} } from '${ctxFileOf(h) ?? './' + h}'`),
+    `import { ${hook} } from './${hook}'`,
+    '',
+    '/** **手で書かない。** 作っている側から引く（ズレようがない） */',
+    `export type ${base}Value = ReturnType<typeof ${hook}>`,
+    '',
+    `const Ctx = createContext<${base}Value | null>(null)`,
+    '',
+    `export function ${base}Provider({ children }: { children: ReactNode }): React.JSX.Element {`,
+    ...ctxList.map((h) => `  const { ${byCtx.get(h).join(', ')} } = ${h}()`),
+    `  const value = ${hook}(${info.node.initializer.arguments.map((a) => a.getText()).join(', ')})`,
+    '  return <Ctx.Provider value={value}>{children}</Ctx.Provider>',
+    '}',
+    '',
+    `/** ${base} を見に行く。囲いの外で呼んだら、その場で落とす */`,
+    `export function use${base}Ctx(): ${base}Value {`,
+    '  const v = useContext(Ctx)',
+    `  if (!v) throw new Error('use${base}Ctx は ${base}Provider の中でしか使えません')`,
+    '  return v',
+    '}'
+  ]
+  writeFileSync(join(ROOT, file), lines.join('\n') + '\n', 'utf8')
+  console.log(`\n作った: ${file}`)
+  console.log(`  App.tsx へ <${base}Provider> を足し、配線の ${hook}(...) を use${base}Ctx() に替える`)
+  process.exit(0)
 }
 
 console.log(`\n\x1b[1m④ ここで実際に使っている\x1b[0m（残る）: ${kept.length} 個`)

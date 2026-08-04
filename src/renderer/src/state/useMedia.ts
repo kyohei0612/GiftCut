@@ -15,7 +15,7 @@
 //
 // 一緒にすると、焼き直した粗い映像で書き出してしまう。
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Source, VSeg } from '../lib/projectTypes'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 
@@ -37,6 +37,13 @@ export interface Media {
   setVideoName: React.Dispatch<React.SetStateAction<string | null>>
   videoDuration: number
   setVideoDuration: React.Dispatch<React.SetStateAction<number>>
+  /**
+   * 「いまこの瞬間」の元動画の尺。**指を離した時の処理が古い値を読まないように。**
+   *
+   * 配線が持っていたのを移した（2026-08-04）。ここを待っていたのが
+   * `usePlaybackEngine` で、**その先で12本が詰まっていた**（`npm run passthrough`）。
+   */
+  videoDurationRef: React.MutableRefObject<number>
   /** 焼き直しの進み具合（null＝やっていない／終わった） */
   proxyPct: number | null
   setProxyPct: React.Dispatch<React.SetStateAction<number | null>>
@@ -49,6 +56,13 @@ export interface Media {
   sources: Source[]
   setSources: React.Dispatch<React.SetStateAction<Source[]>>
   sourcesRef: React.MutableRefObject<Source[]>
+  /**
+   * 元動画を登録した時刻。掃除が「置く直前の物」を消す競合を防ぐ猶予に使う。
+   *
+   * 配線が持っていたのを移した（2026-08-04）。見るのは登録する側（`useMediaOps`）と
+   * 掃除する側（`useVideoSync`）の**2つ**で、どちらも元動画の話。持ち主はここ。
+   */
+  srcAddedAtRef: React.MutableRefObject<Map<number, number>>
   sourceIdCounter: React.MutableRefObject<number>
   /** いま <video> に読み込まれている元動画の id */
   curSourceIdRef: React.MutableRefObject<number | null>
@@ -76,12 +90,17 @@ export function useMedia(): Media {
   const [videoPath, setVideoPath] = useState<string | null>(null)
   const [videoName, setVideoName] = useState<string | null>(null)
   const [videoDuration, setVideoDuration] = useState(0)
+  const videoDurationRef = useRef(0)
+  useEffect(() => {
+    videoDurationRef.current = videoDuration
+  }, [videoDuration])
   const [proxyPct, setProxyPct] = useState<number | null>(null)
   const [waveform, setWaveform] = useState<Waveform | null>(null)
   const [thumbnailSrc, setThumbnailSrc] = useState<string | null>(null)
 
   const [sources, setSourcesState] = useState<Source[]>([])
   const sourcesRef = useRef<Source[]>([])
+  const srcAddedAtRef = useRef<Map<number, number>>(new Map())
   /**
    * 元動画の一覧を書き換える。**写し（sourcesRef）も同じ場で更新する。**
    *
@@ -129,6 +148,8 @@ export function useMedia(): Media {
     setVideoName,
     videoDuration,
     setVideoDuration,
+    videoDurationRef,
+    srcAddedAtRef,
     proxyPct,
     setProxyPct,
     waveform,

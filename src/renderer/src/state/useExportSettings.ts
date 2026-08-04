@@ -13,6 +13,8 @@
 // 読み替えは**書き出す直前**に行う（素材を差し替えても付いてくる）。
 
 import { useEffect, useState } from 'react'
+import { FPS_FALLBACK } from '../../../shared/timeline'
+import { usePlaybackCtx } from './playbackContext'
 import type { ExportOpts } from '../components/dialogs/ProjectDialogs'
 
 /**
@@ -40,6 +42,15 @@ export interface ExportSettings {
   /** 解像度・fps・画質 */
   exportOpts: ExportOpts
   setExportOpts: React.Dispatch<React.SetStateAction<ExportOpts>>
+  /**
+   * 書き出しに使う fps を、**押した瞬間に**決める3つ。
+   *
+   * 配線から移した（2026-08-04）。設定（`exportOpts.fps`）と素材の fps を
+   * 突き合わせるだけで、**両方ともここが持っている**——配線に置く理由が無かった。
+   */
+  srcFpsForExport: () => number
+  fpsLabel: (v: number) => string
+  resolveExportFps: () => number
   /** 出す先のフォルダ（空＝まだ決まっていない。決まるまで書き出させない） */
   exportDir: string
   setExportDir: React.Dispatch<React.SetStateAction<string>>
@@ -94,7 +105,19 @@ export function useExportSettings(): ExportSettings {
     if (exportDir) localStorage.setItem(EXPORT_DIR_KEY, exportDir)
   }, [exportDir])
 
+  // 素材の fps。取れなければ既定へ落とす（**「素材と同じ」の実体はこれ**）
+  const { fps } = usePlaybackCtx()
+  const srcFpsForExport = (): number =>
+    Number.isFinite(fps) && fps > 0 ? fps : FPS_FALLBACK
+  /** 表示用。整数なら「60」、そうでなければ「29.97」 */
+  const fpsLabel = (v: number): string => (Number.isInteger(v) ? String(v) : v.toFixed(2))
+  const resolveExportFps = (): number =>
+    exportOpts.fps === 'source' ? srcFpsForExport() : exportOpts.fps
+
   return {
+    srcFpsForExport,
+    fpsLabel,
+    resolveExportFps,
     exportDir,
     setExportDir,
     exportName,

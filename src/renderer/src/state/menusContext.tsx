@@ -33,8 +33,7 @@ export interface MenusValue {
   setTplMenu: W['setTplMenu']
   /** 画面の端からはみ出さない位置へ寄せる */
   clampMenu: W['clampMenu']
-  /** 区画（パネル）まわり */
-  PANE_LABEL: W['PANE_LABEL']
+  /** 区画（パネル）まわり。題（`PANE_LABEL`）は state/usePanelLayout から直に引く */
   TAB_DEFS: W['TAB_DEFS']
   orderedTabs: W['orderedTabs']
   pickTab: W['pickTab']

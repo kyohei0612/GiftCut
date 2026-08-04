@@ -74,6 +74,14 @@ export function useTracksAdmin(deps: UseTracksAdminDeps) {
   function mainLocked(): boolean {
     return !!trackStates['V1']?.locked || !!trackStates['A1']?.locked
   }
+  /**
+   * 本編の段が隠されているか（隠していたら書き出しにも出さない）。
+   *
+   * 配線が自分で書いていたのを移した（2026-08-04）。2本のフックがこれを待って
+   * 上げられずにいた。鍵（`mainLocked`）と同じ「段の状態を1つに畳んだ物」なので、
+   * 置き場もここに揃える。
+   */
+  const v1Hidden = !!trackStates['V1']?.hidden
   function fallbackTrack(id: string, kind: 'video' | 'audio'): string {
     if (tracks.some((t) => t.id === id && t.kind === kind)) return id
     const cands = tracks.filter((t) => t.kind === kind && t.id !== (kind === 'video' ? 'V1' : 'A1'))
@@ -302,7 +310,7 @@ export function useTracksAdmin(deps: UseTracksAdminDeps) {
   //    出したことで deps が 11個 → 5個 に減っている。
 
   return {
-    trackFromEvent, mainLocked, fallbackTrack, audioTrackFromEvent, insertTrackOrdered,
+    trackFromEvent, mainLocked, v1Hidden, fallbackTrack, audioTrackFromEvent, insertTrackOrdered,
     reserveTrackPairForVideo, setClipLabel, addVideoTrack, addAudioTrack, trackHasContent,
     telopLocked, trackHasContentInner, canDeleteTrack, deleteTrack, selectTrack,
     audioTrackGain, setTrackVolume

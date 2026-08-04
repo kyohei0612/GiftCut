@@ -27,15 +27,34 @@ import { useProjectStateCtx } from './projectStateContext'
 import type { RestoreState } from '../components/dialogs/ProjectDialogs'
 
 export interface UseAutosaveMarkDeps {
-  /** 置いてある物が1つでもあるか（空なら「＊」は出さない） */
-  hasProjectContent: () => boolean
-  setUnsaved: (v: boolean) => void
   /** 画面の配置も保存の中身。変わったら「＊」が出る */
   layout: unknown[]
 }
 
 export function useAutosaveMark(deps: UseAutosaveMarkDeps) {
-  const { hasProjectContent, setUnsaved, layout } = deps
+  const { layout } = deps
+  /**
+   * 保存していない変更があるか（題名の「＊」用）。
+   *
+   * **配線から移した（2026-08-04）。** 立てるのはここ1か所だけで、配線は
+   * `useState` を持って渡していただけだった。読むのは題名（束）。
+   */
+  const [unsaved, setUnsaved] = useState(false)
+  /**
+   * 何か作りかけの物があるか（空なら「＊」は出さない／捨てる前に聞くかの判断）。
+   *
+   * **配線から移した（2026-08-04）。** 見る6種類＋素材は、下でどのみち
+   * このフックが読んでいる物ばかりだった＝渡してもらう必要が無かった。
+   */
+  const hasProjectContent = (): boolean =>
+    !!videoPath ||
+    cues.length > 0 ||
+    segments.length > 0 ||
+    seClips.length > 0 ||
+    imgClips.length > 0 ||
+    markers.length > 0 ||
+    vClips.length > 0 ||
+    mediaItems.length > 0
   const { cues, segments, seClips, imgClips, vClips, markers } = useDoc()
   const { tracks, trackStates } = useTracksCtx()
   const { videoPath, sources, mediaItems } = useMediaCtx()
@@ -151,6 +170,8 @@ export function useAutosaveMark(deps: UseAutosaveMarkDeps) {
   const [autosaveNg, setAutosaveNg] = useState(false)
 
   return {
+    unsaved,
+    hasProjectContent,
     lastAutosaveRef,
     hasContentRef,
     savedJsonRef,

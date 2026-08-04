@@ -16,6 +16,7 @@
 // 段の合計が伸びて、タイムラインを縮めたときに縦へ溢れる。要る1本だけにしておく。
 
 import { useEffect, useRef, useState } from 'react'
+import { TRACK_PAD_ROWS } from '../lib/appConst'
 
 /** 段の高さの下限・上限（px） */
 export const TRACK_H_MIN = 26
@@ -52,6 +53,9 @@ export function loadLaneH(raw: string | null): Record<string, number> {
 export interface LaneHeights {
   videoTrackH: number
   setVideoTrackH: React.Dispatch<React.SetStateAction<number>>
+  /** 段の上下の余白（高さから決まる。理由は下の宣言の真上） */
+  padTop: number
+  padBottom: number
   audioTrackH: number
   setAudioTrackH: React.Dispatch<React.SetStateAction<number>>
   /** 掴んでいる最中に読む用（描き直しを待たない） */
@@ -123,9 +127,20 @@ export function useLaneHeights(): LaneHeights {
     setLaneH({ ...DEFAULT_LANE_H })
   }
 
+  // 上下の余白。段の高さを変えたら一緒に変わる。
+  // 上はゆったり、下は1段ぶん。下も同じだけ取ると、その分だけ段が画面から
+  // はみ出して「下がかつかつ」になる（実際にそうなった）。
+  //
+  // **配線が自分で書いていたのを移した（2026-08-04）。** 段の高さから決まる物
+  // なので持ち主はこちら。配線に置いていたせいで `useLaneGeometry` が上げられずにいた。
+  const padTop = TRACK_PAD_ROWS * videoTrackH
+  const padBottom = videoTrackH
+
   return {
     videoTrackH,
     setVideoTrackH,
+    padTop,
+    padBottom,
     audioTrackH,
     setAudioTrackH,
     videoTrackHRef,

@@ -329,8 +329,11 @@ describe('未保存の「＊」と自動保存', () => {
    *
    * **2か所の合わせ技になっている。** 中身（テロップ・クリップ等）は心臓から
    * 直に読めるので state/useAutosaveMark の依存配列にそのまま並ぶ。
-   * 画面の配置だけはフックが持っていて心臓に無いので、App から `layout: [...]`
+   * 画面の配置だけはフックが持っていて心臓に無いので、囲いから `layout: [...]`
    * として渡している。**どちらか片方しか見ないと、見張りに穴があく。**
+   *
+   * ※ `layout: [...]` は 2026-08-04 に配線から **state/autosaveMarkContext** へ
+   *   引っ越した。ここが「見つからない」で落ちたら、また移されたということ。
    */
   function dirtyDeps(mark: string, wiring: string): string[] {
     const anchor = mark.indexOf('const projectRevRef = useRef(0)')
@@ -358,9 +361,13 @@ describe('未保存の「＊」と自動保存', () => {
     const proj = await import('./state/useProjectFile?raw').then((m) => m.default as string)
     const lay = await import('./state/useAppLayout?raw').then((m) => m.default as string)
     const mark = await import('./state/useAutosaveMark?raw').then((m) => m.default as string)
-    const src = [wiring, proj, lay, mark].join(String.fromCharCode(10))
+    // 画面の配置を渡している所。**配線ではなく囲いに移った**（2026-08-04）
+    const markCtx = await import('./state/autosaveMarkContext.tsx?raw').then(
+      (m) => m.default as string
+    )
+    const src = [wiring, proj, lay, mark, markCtx].join(String.fromCharCode(10))
     const fields = savedFields(src)
-    const deps = dirtyDeps(mark, wiring)
+    const deps = dirtyDeps(mark, markCtx)
 
     expect(fields.length, '保存項目を1つも読み取れていない（書式が変わった？）').toBeGreaterThan(20)
     expect(deps.length, '依存配列を読み取れていない（書式が変わった？）').toBeGreaterThan(20)

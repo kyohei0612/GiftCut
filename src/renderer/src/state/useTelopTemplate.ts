@@ -24,6 +24,7 @@
 
 import type { TelopStyle, TextRun } from '../lib/telopStyle'
 // **保存は「その1件の操作」だけ**（画面の一覧を丸ごと書かない。理由は lib 側の説明）
+import { runColorFromStyle } from '../lib/telopFill'
 import { persistUserTemplateAdd, persistUserTemplateRemove } from '../lib/telopTemplates'
 import { useDoc } from './contentContext'
 import { useProjectStateCtx } from './projectStateContext'
@@ -37,7 +38,6 @@ export interface UseTelopTemplateDeps {
   selected: Cue | null
   /** 打ち直し中に選んでいる文字の範囲 */
   curSel: () => { start: number; end: number }
-  runColorFromStyle: (st: TelopStyle) => string | undefined
   applyRunRange: (
     cueId: number,
     start: number,
@@ -47,7 +47,7 @@ export interface UseTelopTemplateDeps {
 }
 
 export function useTelopTemplate(deps: UseTelopTemplateDeps) {
-  const { askText, selected, curSel, runColorFromStyle, applyRunRange } = deps
+  const { askText, selected, curSel, applyRunRange } = deps
   const { cues, setCues } = useDoc()
   const { userTemplates, setUserTemplates, newTelopStyle, setNewTelopStyle } = useProjectStateCtx()
   const { editingId, selectedIds, setSelectedIds, setEditingId, isSelected } = useSel()

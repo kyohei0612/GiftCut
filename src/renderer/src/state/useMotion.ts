@@ -17,12 +17,14 @@
 // 付けるのは印を1つ置くだけで見た目も変わらないが、消すと打った分が失われる。
 // 数が多いときは聞く（確認なしで全部消えると、何を失ったのかも分からない）。
 
+import { useRef } from 'react'
 import { clamp } from '../../../shared/timeline'
 import { hasKeys, putKey, removeKey, valueAt, type Keys } from '../../../shared/keyframes'
 import { hasClipMotion, type ClipMotion } from '../../../shared/clipMotion'
 import { hasMotion, sanitizeMotion, type Motion } from '../lib/telopStyle'
 import { DEFAULT_ZOOM, isNeutralZoom } from '../lib/clipLook'
 import type { MotionPresetFile } from '../../../shared/telopMotion'
+import type { MotionRow } from '../components/panels/MotionTab'
 import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
 import { useSel } from './selectionContext'
@@ -61,6 +63,16 @@ export function useMotion(deps: UseMotionDeps) {
   const { selectedIds, selectedVideoIds, selectedImgIds, selectedVClipIds, selectedTelopTrans } = useSel()
   const { currentTimeRef } = usePlaybackCtx()
   const { trackStates } = useTracksCtx()
+
+  // 動きの表（左パネル）で「いま何を選んでいるか」。
+  //
+  // **配線が持っていたのを引き取った（2026-08-04）。** 見るのは表そのものと
+  // 「動きのコピー」で、どちらも動きの話。配線に置いていたせいで
+  // `useCopyPaste` が上げられずにいた。
+  /** 選んでいる行（コピーする項目） */
+  const motionSelRef = useRef<string[]>([])
+  /** いま出ている行。コピーが「印の無い項目」も写せるように使う */
+  const motionRowsRef = useRef<MotionRow[]>([])
 
   /**
    * テロップの動きを丸ごと入れ替える（見本帳から選んだとき・消すとき）。
@@ -319,5 +331,8 @@ export function useMotion(deps: UseMotionDeps) {
   //    ここは**編集の操作**を集めた所で、あれだけが書き出しの下ごしらえだった。
   //    使う側（useExport）が直接読むので、ここから中継する必要も無くなった。
 
-  return { setMotion, removeKeyAtTime, resetClipChannel, clearClipMotions, toggleKeys, nudgeClips, applyMotionPreset }
+  return {
+    setMotion, removeKeyAtTime, resetClipChannel, clearClipMotions, toggleKeys, nudgeClips,
+    applyMotionPreset, motionSelRef, motionRowsRef
+  }
 }

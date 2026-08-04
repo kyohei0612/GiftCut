@@ -17,12 +17,13 @@ import type { JSX } from 'react'
 import { ContextMenu } from '../ContextMenu'
 import { TabSortList } from '../TabSortList'
 import { useMenus } from '../../state/menusContext'
+import { PANE_LABEL } from '../../state/usePanelLayout'
 import type { PaneId } from '../../state/usePanelLayout'
 
 export function TabMenus(): JSX.Element {
   // **受け取らず、心臓から自分で見に行く**（区画と同じ流儀）
   const {
-    tabMenu, setTabMenu, tabOverflow, setTabOverflow, clampMenu, PANE_LABEL, TAB_DEFS,
+    tabMenu, setTabMenu, tabOverflow, setTabOverflow, clampMenu, TAB_DEFS,
     orderedTabs, pickTab, setTabOrder, isPopped, popPane, unpopPane, monitorTab, rightTab
   } = useMenus()
   return (

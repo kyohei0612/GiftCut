@@ -29,6 +29,7 @@
 // 「いま縦のどこか」は state/useLaneGeometry が持つ。ここは受け取るだけ
 // （画面のあちこちから同じ問いが飛ぶので、掴む操作の持ち物にはしない）。
 
+import { useRef } from 'react'
 import { startEdgeScroll } from '../lib/edgeScroller'
 import { type Cue } from '../lib/srt'
 import { type SegLayout } from '../lib/projectTypes'
@@ -94,7 +95,6 @@ export interface UseTimelineDragDeps {
   reserveTrackPairForVideo: (vTrack: string) => string
   /** 一番上より更に上へテロップを運んだときに、映像の段を1本足す */
   addVideoTrack: () => void
-  pendingLaneRef: React.MutableRefObject<string | null>
   /** 右クリックの品書きを出す */
   setMenu: React.Dispatch<React.SetStateAction<ContextMenu | null>>
 }
@@ -106,8 +106,15 @@ export function useTimelineDrag(deps: UseTimelineDragDeps) {
     segLayout, segLayoutRef, v1Index, a1Index,
     cueTrack, telopLocked, trackNum, vcLen, idCounter,
     setDragTip, setMarquee, setSnapLineX, snapClipStart, snapTime,
-    scrubFromClientX, reserveTrackPairForVideo, addVideoTrack, pendingLaneRef, setMenu
+    scrubFromClientX, reserveTrackPairForVideo, addVideoTrack, setMenu
   } = deps
+  /**
+   * 縦に動かして移す先の段。**指を離した時にだけ**段を確保する。
+   *
+   * 配線が作って渡していたのを、こちらへ引き取った（2026-08-04）。
+   * **使うのはここだけ**で、配線は作って渡していただけだった。
+   */
+  const pendingLaneRef = useRef<string | null>(null)
   const { cues, seClips, imgClips, vClips } = useDoc()
   const {
     setSelectedIds, setSelectedVideoIds, setSelectedAudioIds,

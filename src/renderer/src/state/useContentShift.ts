@@ -20,7 +20,7 @@
 //
 // 測ったら **受け取る1（`collapseAt` の import だけ）・返す0**。
 // 出したあと「本編の切片」の返すも 1 → 0 になった（測り方は `引き継ぎ-心臓の分け直し.md`）。
-import { collapseAt } from '../../../shared/ripple'
+import { collapseAt, shiftRange, shiftStart } from '../../../shared/ripple'
 import { useDoc } from './contentContext'
 import type { VClip } from '../lib/projectTypes'
 
@@ -83,5 +83,30 @@ export function useContentShift(deps: UseContentShiftDeps) {
     mapContentTimes((t) => collapseAt(t, rmStart, rmEnd, removeLen))
   }
 
-  return { allContentEdges, mapContentTimes, collapseContent }
+  /**
+   * 境目より後ろにある物を、まとめてずらす（＝詰まる）。
+   *
+   * 端を摘む・複製する・速さを変える——**長さが変わる操作の後に必ず要る**。
+   * これが無いと「動画を短くしたら字幕が全部ズレた」になる。
+   *
+   * **配線から移した（2026-08-04）。** 上の「5種類まとめてしか触らない」を
+   * 配線側でもう一度書いていた＝**種類が増えたときに直す場所が2つ**あった。
+   * テロップだけ `shiftRange`（頭と尻の両方）で、残り4種類は頭だけなのが違い。
+   */
+  function shiftAfter(boundaryT: number, delta: number): void {
+    if (Math.abs(delta) < 1e-4) return
+    setCues((prev) => prev.map((c) => ({ ...c, ...shiftRange(c, boundaryT, delta) })))
+    setSeClips((prev) =>
+      prev.map((c) => ({ ...c, tStart: shiftStart(c.tStart, boundaryT, delta) }))
+    )
+    setImgClips((prev) =>
+      prev.map((c) => ({ ...c, tStart: shiftStart(c.tStart, boundaryT, delta) }))
+    )
+    setMarkers((prev) => prev.map((m) => ({ ...m, t: shiftStart(m.t, boundaryT, delta) })))
+    setVClips((prev) =>
+      prev.map((c) => ({ ...c, tStart: shiftStart(c.tStart, boundaryT, delta) }))
+    )
+  }
+
+  return { allContentEdges, mapContentTimes, collapseContent, shiftAfter }
 }

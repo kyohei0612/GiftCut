@@ -10,10 +10,10 @@ import { LeftPanel } from '../LeftPanel'
 import { PreviewArea } from './PreviewArea'
 import { RightPanelArea } from './RightPanelArea'
 import { TimelineArea } from '../timeline/TimelineArea'
+import { PANE_LABEL } from '../../state/usePanelLayout'
 import type { PaneId } from '../../state/usePanelLayout'
 
 export interface WorkspaceProps {
-  PANE_LABEL: Record<PaneId, string>
   isPopped: (id: PaneId) => boolean
   paneGeom: Record<string, unknown>
   unpopPane: (id: PaneId) => void
@@ -21,7 +21,6 @@ export interface WorkspaceProps {
 }
 
 export function Workspace({
-  PANE_LABEL,
   isPopped,
   paneGeom,
   unpopPane,

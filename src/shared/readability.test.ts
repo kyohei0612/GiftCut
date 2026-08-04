@@ -217,7 +217,17 @@ function topLevelCallables(lines: string[]): string[] {
 }
 
 /**
- * top-level で**名前を付けている物**（`interface` `type` `class` と、矢印でない `const`）。
+ * **名前を付けている物**（`interface` `type` `class` と `const` / `let`）。
+ *
+ * ## 字下げされた物も数える（2026-08-04 に広げた）
+ *
+ * フックの中にしか実体が無い物がある。`useAppWiring` の糊14本がそれで、
+ * **どこからも見つけられない状態だった**——`npm run index` は1行目しか出さず、
+ * 取説も無かったので、`shiftAfter` を知らずに同じ物を新規で書く事故が起きうる。
+ *
+ * 取説を付けようとしたら、`iconForCue` のような**字下げされた矢印 `const` を
+ * 「本体が無い」と言われた**（本体はある）。並べさせたいのに並べられない。
+ * → **許可の側だけ広げた**（義務は今までどおり top-level の関数だけ）。
  *
  * ## これは「並べてよい」の判定であって「並べろ」ではない（2026-08-04 に足した）
  *
@@ -233,7 +243,7 @@ function topLevelNamed(lines: string[]): string[] {
   const out: string[] = []
   for (const l of lines) {
     const m = l.match(
-      /^(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(?:interface|type|class|const|let)\s+([A-Za-z_$][\w$]*)/
+      /^\s*(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(?:interface|type|class|const|let)\s+([A-Za-z_$][\w$]*)/
     )
     if (m) out.push(m[1])
   }

@@ -8,6 +8,8 @@
 // 境目が読めなくなる。保存しない物は、まとめてここに置く。
 import { useEffect, useRef, useState } from 'react'
 import type { UpdateState } from '../../../preload/index.d'
+// 形は置き場（useAppLayout）が持っている。**写さずに引く**
+import type { RightTab } from './useAppLayout'
 
 /** いま持っている道具 */
 export type Tool = 'select' | 'razor' | 'trackFwd' | 'trackBack'
@@ -34,6 +36,15 @@ export function useAppChrome() {
   const idCounter = useRef(1)
 
   const [tool, setTool] = useState<Tool>('select')
+
+  /**
+   * 右パネルのいま開いている見出し。
+   *
+   * **配線から移した（2026-08-04）。** ここを待っているフックが5本あり、
+   * どれも「動きを付けたら動きのタブへ切り替える」ために書くだけだった。
+   * 配線が持っていると、その5本を囲いへ上げられない。
+   */
+  const [rightTab, setRightTab] = useState<RightTab>('project')
 
   /**
    * マグネット（吸着）の入切。**PCに覚えさせる。**
@@ -109,6 +120,8 @@ export function useAppChrome() {
     idCounter,
     tool,
     setTool,
+    rightTab,
+    setRightTab,
     snap,
     toggleSnap,
     perfOpen,

@@ -53,7 +53,7 @@ import { useGapClose } from './useGapClose'
 // 無音を探して詰める側。**測って外した**（受け取る3・返す1＝mapContentTimes は借りるだけ）
 import { useSilenceCut } from './useSilenceCut'
 // 時刻を付け替える土台（詰める側の心臓）。**またぐからこそ土台**——先にここを出した
-import { useContentShift } from './useContentShift'
+import { useContentShiftCtx } from './contentShiftContext'
 // 本編の切片そのものの編集。**土台を先に出したら受け取る7・返す0で外れた**
 import { useSegmentEdit } from './useSegmentEdit'
 // 選んでいる物を消す・切る・複製する（受け取る6・返す1）
@@ -116,7 +116,8 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
   // 空きを詰める3つは state/useGapClose。**自分で心臓を見に行く**ので、
   // ここから渡すのは4つだけ（測って外した。受け取る2・返す0）
   // 土台をいちばん先に。**名前をそのまま取り出す**ので、呼んでいる所は書き換えなくてよい
-  const { allContentEdges, mapContentTimes, collapseContent } = useContentShift({ vcLen })
+  // **呼ぶのは囲いの中の1回だけ**（state/contentShiftContext。理由もそちら）
+  const { allContentEdges, mapContentTimes, collapseContent } = useContentShiftCtx()
   const gap = useGapClose({ mainLocked, vcLen, shiftAfter, seekTo })
   // 本編の切片まわり。**心臓（mapContentTimes）は貸すだけ**
   const seg = useSegmentEdit({

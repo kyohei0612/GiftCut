@@ -29,6 +29,7 @@
 // - `gradientStopStr` … グラデのストップ列を CSS の文字列にする
 // - `isVerticalGrad` … 縦向きのグラデか（縦だけ文字の実描画範囲へ写す）
 // - `fillCss` … 塗り（単色 or グラデ）の CSS
+// - `runColorFromStyle` … その見た目は「何色か」を1つに決める（グラデなら端の色）
 import type { TelopStyle } from './telopStyle'
 
 /** #rrggbb + 不透明度(0-100) → rgba() */
@@ -128,4 +129,21 @@ export function fillCss(
     }
   }
   return { color: fill.color }
+}
+
+/**
+ * その見た目は「何色か」を1つに決める（見本や設定の丸い色見本に出す用）。
+ *
+ * グラデは**端（最後のストップ）の色**を代表にする。真ん中を代表にすると
+ * 自動で寄せた中間点（`resolveGradMid`）に引きずられて、見本と実物がずれる。
+ *
+ * **配線（useAppWiring）から移した（2026-08-04）。** 引数の `TelopStyle` だけで
+ * 決まる純粋な関数で、状態も心臓も1つも要らなかった。
+ */
+export function runColorFromStyle(st: TelopStyle): string | undefined {
+  const f = st.fill
+  if (!f?.enabled) return undefined
+  if (f.color) return f.color
+  const stops = f.gradient?.stops
+  return stops && stops.length ? stops[stops.length - 1].color : undefined
 }

@@ -28,6 +28,7 @@
 import { useEffect, useState } from 'react'
 import { readPaneGeometry } from '../components/PaneWindow'
 import type { PaneGeom } from '../components/PaneWindow'
+import { PANE_LABEL } from './usePanelLayout'
 import type { PaneId } from './usePanelLayout'
 import { useToastCtx } from './toastContext'
 
@@ -35,8 +36,6 @@ import { useToastCtx } from './toastContext'
 // 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
 // 型は推測せず、呼び出し側が実際に渡している物をそのまま写した。
 export interface UseAppLayoutDeps {
-  /** 区画の名前（画面に出す文言） */
-  PANE_LABEL: Record<PaneId, string>
   /** 切り離している区画と、その窓の大きさ・位置 */
   popped: Partial<Record<PaneId, true>>
   setPopped: React.Dispatch<React.SetStateAction<Partial<Record<PaneId, true>>>>
@@ -71,7 +70,7 @@ export type MonitorTab = 'program' | 'mixer'
 
 export function useAppLayout(deps: UseAppLayoutDeps) {
   const {
-    PANE_LABEL, popped, setPopped, paneGeom, setPaneGeom,
+    popped, setPopped, paneGeom, setPaneGeom,
     leftW, setLeftW, rightW, setRightW, timelineH, setTimelineH,
     videoTrackH, setVideoTrackH, audioTrackH, setAudioTrackH,
     tabOrder, setTabOrder, rightTab, setRightTab, monitorTab, setMonitorTab

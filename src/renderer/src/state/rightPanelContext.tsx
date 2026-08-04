@@ -20,7 +20,6 @@ type W = Wired<'rightPanel'>
 export interface RightPanelValue {
   // 区画へ prop で渡していた物。**心臓を持っているのに prop も受ける**という
   // 二重の受け渡しになっていたので、こちらへ寄せた。
-  PANE_LABEL: W['PANE_LABEL']
   orderedTabs: W['orderedTabs']
   TAB_DEFS: W['TAB_DEFS']
   pickTab: W['pickTab']
