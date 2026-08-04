@@ -491,6 +491,54 @@ try {
     // 「掴む物が画面に無い」と出て、原因が拡大側だと分からなくなる。
     throw new Error(`拡大率を ${v}px/秒 にできなかった（いま ${z.toFixed(1)}）`)
   }
+  /**
+   * **その種類の1個目が見える所まで、横に送る。**
+   *
+   * 素材はタイムライン全体（1時間）に散らばるので、**寄せるほど画面に入らなくなる**。
+   * 基準 light（3600秒に200枚＝18秒に1枚）では1枚も入らず、
+   * 「掴める幅の◯◯が画面に無い」で落ちていた——**負荷ではなく測定側の穴**。
+   * `bench-limits` の probe と同じ物（2026-08-04 に両方直した）。
+   */
+  const scrollToFirst = async (sel) => {
+    await page.evaluate((s) => {
+      const sc = document.querySelector('.track-scroll')
+      if (!sc) return
+      const el = document.querySelector(s)
+      // **見つからないときは先頭へ戻す。**
+      // 帯は「見えている範囲」にしか作られない（TelopBands の絞り込み）。
+      // 物の無い所に居ると querySelector は null を返すので、
+      // 「送り先が分からない → そのまま → やはり何も無い」で詰む。
+      // 素材はどの基準でも頭の方から並ぶので、先頭へ戻せば必ず何か入る。
+      sc.scrollLeft = el ? Math.max(0, el.offsetLeft - sc.clientWidth / 3) : 0
+    }, sel)
+    await page.waitForTimeout(200)
+  }
+  /**
+   * **掴める幅の帯が画面に出るまで寄せる。**
+   *
+   * 固定回数（10ノッチ）で寄せていたが、**60分の素材だとそれでは足りない**。
+   * 全体表示は 0.36px/秒で、10ノッチ寄せても 1.46px/秒＝2.4秒の帯が**3.5px**。
+   * 「幅20px以上」の条件を満たせず、`light` でも `tv` でも
+   * 「掴める幅のテロップが画面に無い」で落ちていた
+   * ——**負荷ではなく測定側**（2026-08-04）。
+   *
+   * 寄せるたびに送り直すのは、寄せると見える範囲が狭まるから。
+   * **足りなければ落とす**（黙って進むと、掴めていないのに「軽い」と出る）。
+   */
+  const zoomUntilGrabbable = async (sel, minW = 20) => {
+    const widest = () =>
+      page.evaluate((s) => {
+        const els = [...document.querySelectorAll(s)]
+        return els.reduce((m, e) => Math.max(m, e.getBoundingClientRect().width), 0)
+      }, sel)
+    for (let i = 0; i < 12; i++) {
+      await scrollToFirst(sel)
+      if ((await widest()) >= minW) return
+      await zoomIn(visMid, visY(40), 4)
+    }
+    const w = await widest()
+    throw new Error(`寄せても掴める幅にならない（いちばん広い帯で ${fmt(w)}px／要 ${minW}px）`)
+  }
   const timelineWidth = () =>
     page.locator('.track-inner').evaluate((e) => Math.round(e.getBoundingClientRect().width))
   /** 先頭へ頭出し（プレビューの絵を揃えたいとき） */
@@ -612,7 +660,26 @@ try {
   })
 
   /** 再生ヘッドの画面上の位置（動いたかを確かめるのに使う） */
-  const headX = async () => (await page.locator('.playhead').first().boundingBox())?.x ?? NaN
+  /**
+   * 再生ヘッドの位置。**タイムライン上の位置（style.left）で読む。**
+   *
+   * 前は画面上の座標（`boundingBox()?.x ?? NaN`）だった。寄せていると
+   * 再生ヘッドは**画面の外へ出る**ので `null` → `NaN` になり、
+   * `Math.abs(NaN - x0) < 5` は **false ＝「動いた」** で素通りする。
+   * CLAUDE.md 7番の「消えた物を `?? ''` で守らない」そのもの。
+   *
+   * **無ければ落とす。** 再生ヘッドが無い画面は、そもそも測る意味が無い。
+   */
+  const headX = async () => {
+    const v = await page.evaluate(() => {
+      const el = document.querySelector('.playhead')
+      if (!el) return null
+      const l = parseFloat(el.style.left || '')
+      return Number.isFinite(l) ? l : null
+    })
+    if (v === null) throw new Error('再生ヘッドが見つからない（測れていない）')
+    return v
+  }
   await measure(
     '再生ヘッドを掴んで動かす',
     async () => {
@@ -685,7 +752,15 @@ try {
     // 狙った帯ではなく手前の帯を掴んでしまう。まず拡大してから、
     // 「いま画面に見えていて掴める幅のもの」を選び直す。
     // （拡大すると狙った帯が画面外へ出るので、先に決めておくと空振りする）
-    await zoomIn(visMid, visY(40), 10)
+    await zoomUntilGrabbable('.telop-clip')
+    // **寄せたあと、テロップの所まで送る。**
+    //
+    // テロップは尺全体（1時間）に散らばるので、寄せるほど画面に入らなくなる。
+    // 基準 light（3600秒に200枚＝18秒に1枚）だと**1枚も入らず**、
+    // 「掴める幅のテロップが画面に無い」で落ちていた。
+    // **これは負荷のせいではなく測定側**——tv でも light でも同じように落ちる、
+    // で見分けが付いた（2026-08-04）。`bench-limits` の probe と同じ穴。
+    await scrollToFirst('.telop-clip')
     const vw = (page.viewportSize() ?? { width: 1280 }).width
     const idx = await tel.evaluateAll((els, w) => {
       for (let i = 0; i < els.length; i++) {
@@ -694,7 +769,7 @@ try {
       }
       return -1
     }, vw)
-    if (idx < 0) throw new Error('掴める幅のテロップが画面に無い')
+    if (idx < 0) throw new Error(`掴める幅のテロップが画面に無い（${n}枚あるのに選べなかった）`)
     const t = tel.nth(idx)
     let b = await t.boundingBox()
     await t.click() // 掴む前に選んでおく
@@ -744,6 +819,17 @@ try {
     // 帯そのものを押して選び、その中身の時刻へ移る。
     const band = page.locator('.telop-clip').nth(1)
     await page.keyboard.press('Escape')
+    // **押す前に、その帯が見える所まで送る。**
+    // 手前の項目が寄せた／送った状態を引き継ぐので、帯が画面の外にいることがある。
+    // 外にいると押せず、そのあと「プレビューに文字が出ていない」で落ちる
+    // ——**負荷ではなく測定側**（light でも同じように落ちていた。2026-08-04）。
+    // ※ 帯は見えている範囲にしか作られないので、まず先頭へ戻してから探す
+    //   （`scrollIntoViewIfNeeded` は、その帯が**作られていない**と効かない）。
+    // ※ 幅も要る。細い帯の真ん中を押すと、ずれた時刻へ再生ヘッドが行って
+    //   「プレビューに文字が出ていない」になる（60分だと数秒ぶんずれる）。
+    await zoomUntilGrabbable('.telop-clip')
+    await band.scrollIntoViewIfNeeded()
+    await page.waitForTimeout(150)
     await band.click()
     await page.waitForTimeout(400)
     // 選んだテロップの開始時刻＋わずかに後ろ（確実に表示される所）へ。
@@ -878,12 +964,33 @@ try {
     '再生してみる（3秒）',
     async () => {
       await seekTo0()
+      // **Space を押す前に、文字入力から手を離す。**
+      // 直前の項目でテロップの文字を打ち直しているので、focus が入力欄に
+      // 残っていると Space は**空白を打つだけ**で再生が始まらない。
+      // 「再生が進んでいない」＝アプリの不具合、と読み違える所だった
+      //（light でも同じように落ちていた。2026-08-04）。
+      await page.evaluate(() => document.activeElement?.blur?.())
+      await page.waitForTimeout(150)
       const x0 = await headX()
       await page.keyboard.press('Space')
       await page.waitForTimeout(3000)
       await page.keyboard.press('Space')
       await page.waitForTimeout(300)
-      if (Math.abs((await headX()) - x0) < 5) throw new Error('再生が進んでいない')
+      const moved = (await headX()) - x0
+      // **「何px 動いたか」で判定しない。** 引いた状態だと 3秒＝1.2px にしかならず、
+      // 5px のしきい値に届かない。**再生は動いているのに「進んでいない」と出て、
+      // アプリの不具合に見えた**（2026-08-04。light でも同じように落ちていた）。
+      // 動くはずの量（3秒 × 拡大率）に対する割合で見れば、拡大率に左右されない。
+      const zoom = await page.evaluate(() => {
+        const inner = document.querySelector('.track-inner')
+        return inner ? parseFloat(inner.style.width || '0') : 0
+      })
+      const want = (zoom / Math.max(1, MINUTES * 60)) * 3 // 3秒ぶんの px
+      if (!(want > 0)) throw new Error('拡大率が読めない（測れていない）')
+      if (moved < want * 0.5)
+        throw new Error(
+          `再生が進んでいない（${fmt(moved)}px しか動かなかった。3秒なら ${fmt(want)}px のはず）`
+        )
     },
     // わざと間違える: 再生を始めずに待つだけ
     async () => {
