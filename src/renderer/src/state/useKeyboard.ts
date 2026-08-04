@@ -32,6 +32,29 @@ import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { usePlaybackCtx } from './playbackContext'
+// 下は `useKeyboardDeps` が集める先。**配線を通さず自分で見に行く**（2026-08-04）
+import { useAppChromeCtx } from './appChromeContext'
+import { useAskCtx } from './askContext'
+import { useAttrCopyCtx } from './attrCopyContext'
+import { useAutosaveMarkCtx } from './autosaveMarkContext'
+import { useCopyPasteCtx } from './copyPasteContext'
+import { useExportCtx } from './exportContext'
+import { useExportRunCtx } from './exportRunContext'
+import { useIconLibraryCtx } from './iconLibraryContext'
+import { useIconsCtx } from './iconsContext'
+import { useHistoryCtx } from './historyContext'
+import { useMarkersCtx } from './markersContext'
+import { useMediaDropCtx } from './mediaDropContext'
+import { usePlaybackEngineCtx } from './playbackEngineContext'
+import { useProjectFileCtx } from './projectFileContext'
+import { useProjectTemplatesCtx } from './projectTemplatesContext'
+import { useShortcutPrefsCtx } from './shortcutPrefsContext'
+import { useTelopAnimCtx } from './telopAnimContext'
+import { useTelopEditCtx } from './telopEditContext'
+import { useTimelineEditCtx } from './timelineEditContext'
+import { useTimelineSpanCtx } from './timelineSpanContext'
+import { useTracksAdminCtx } from './tracksAdminContext'
+import { useTransitionsCtx } from './transitionsContext'
 
 export interface UseKeyboardDeps {
   /** いま押せる状態か。何かを開いている間は Esc 以外を通さない */
@@ -91,7 +114,68 @@ export interface UseKeyboardDeps {
   openExportDialog: () => void
 }
 
-export function useKeyboard(deps: UseKeyboardDeps): void {
+/**
+ * 要る47個を**心臓から自分で集める**（2026-08-04）。
+ *
+ * 前は配線（`useAppWiring`）が47個を取り出して渡していた。**1つ残らず
+ * 素通し**で、配線はキーの話を何も決めていなかった（`npm run passthrough` の①）。
+ *
+ * **開いている間は Esc 以外を通さない**の判定だけはここで組む。
+ * 「何かが開いている」は8か所に散っているので、**足したらここへも足すこと**
+ * ——忘れると、その窓を開けている間だけ裏のタイムラインが勝手に動く。
+ */
+function useKeyboardDeps(): UseKeyboardDeps {
+  const { shortcuts, prefsOpen, capturingId } = useShortcutPrefsCtx()
+  const { setTool, toggleSnap } = useAppChromeCtx()
+  const { togglePlay, shuttleForward, shuttleReverse, stopPlayback, seekTo } =
+    usePlaybackEngineCtx()
+  const { contentEndRef } = useTimelineSpanCtx()
+  const { copySelected, pasteClipboard } = useCopyPasteCtx()
+  const { copyAttributes, pasteAttributes } = useAttrCopyCtx()
+  const {
+    cutSelected, deleteSelected, deleteSelectedSE, deleteVideoSegmentsLeavingGap,
+    closeSelectedGaps, closeGapAtPlayhead, rippleDeleteVideoSegments,
+    rippleToPrevCut, rippleToNextCut, duplicateSelected, duplicateSelectedSegments,
+    cutAtPlayhead
+  } = useTimelineEditCtx()
+  const { undo, redo } = useHistoryCtx()
+  const { removeMedia, deleteSelectedImg, deleteSelectedVClip } = useMediaDropCtx()
+  const { deleteMarker, addMarkerAtPlayhead } = useMarkersCtx()
+  const { deleteSelectedTrans } = useTransitionsCtx()
+  const { deleteSelectedTelopTrans } = useTelopAnimCtx()
+  const { deleteTrack } = useTracksAdminCtx()
+  const { addTelop } = useTelopEditCtx()
+  const { saveProjectFn, openProjectFn } = useProjectFileCtx()
+  const { openExportDialog } = useExportRunCtx()
+  const { restorePrompt } = useAutosaveMarkCtx()
+  const { templatePicker } = useProjectTemplatesCtx()
+  const { cropSrc } = useIconLibraryCtx()
+  const { showExportDialog, exportStatus } = useExportCtx()
+  const { promptState, confirmState } = useAskCtx()
+  const { iconSettingsOpen } = useIconsCtx()
+  return {
+    modalOpen: !!(
+      restorePrompt || templatePicker || cropSrc || showExportDialog ||
+      prefsOpen || promptState || confirmState || iconSettingsOpen
+    ),
+    capturing: !!capturingId,
+    exporting: !!exportStatus,
+    shortcuts,
+    setTool, toggleSnap,
+    togglePlay, shuttleForward, shuttleReverse, stopPlayback, seekTo, contentEndRef,
+    copyAttributes, pasteAttributes, copySelected, cutSelected, pasteClipboard, undo, redo,
+    removeMedia, deleteMarker, deleteSelectedTrans, deleteSelectedTelopTrans, deleteTrack,
+    deleteSelected, deleteSelectedSE, deleteSelectedImg, deleteSelectedVClip,
+    deleteVideoSegmentsLeavingGap,
+    closeSelectedGaps, closeGapAtPlayhead, rippleDeleteVideoSegments,
+    rippleToPrevCut, rippleToNextCut,
+    duplicateSelected, duplicateSelectedSegments, cutAtPlayhead, addTelop, addMarkerAtPlayhead,
+    saveProjectFn, openProjectFn, openExportDialog
+  }
+}
+
+export function useKeyboard(): void {
+  const deps = useKeyboardDeps()
   const { cues, segments, seClips, setSeClips, seIdCounter, imgClips, setImgClips, imgIdCounter, vClips, setVClips, vClipIdCounter } = useDoc()
   const {
     selectedIds, setSelectedIds, setSelectedVideoIds, setSelectedAudioIds,

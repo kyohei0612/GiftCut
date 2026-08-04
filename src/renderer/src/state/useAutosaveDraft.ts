@@ -25,6 +25,11 @@ import { useToastCtx } from './toastContext'
 import type { Ask } from './useAsk'
 import type { RestoreState } from '../components/dialogs/ProjectDialogs'
 import type { TemplatePickerState } from './useProjectTemplates'
+import { useAskCtx } from './askContext'
+import { useAutosaveMarkCtx } from './autosaveMarkContext'
+import { useProjectFileCtx } from './projectFileContext'
+import { useProjectIOCtx } from './projectIOContext'
+import { useProjectTemplatesCtx } from './projectTemplatesContext'
 
 // **`any` で受けない。** ここは呼ぶ側（`useAppWiring`）が実物を渡す入口なので、
 // 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
@@ -51,11 +56,16 @@ export interface UseAutosaveDraftDeps {
   setTemplatePicker: React.Dispatch<React.SetStateAction<TemplatePickerState | null>>
 }
 
-export function useAutosaveDraft(deps: UseAutosaveDraftDeps): void {
+export function useAutosaveDraft(): void {
+  // **要る10個は心臓から自分で取る**（2026-08-04。配線はただの素通しだった）
+  const { writeAutosave } = useProjectIOCtx()
   const {
-    writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef, lastAutosaveRef,
-    hasContentRef, applyProjectData, askConfirm, setRestorePrompt, setTemplatePicker
-  } = deps
+    currentJsonRef, projectRevRef, autosavedRevRef, lastAutosaveRef,
+    hasContentRef, setRestorePrompt
+  } = useAutosaveMarkCtx()
+  const { applyProjectData } = useProjectFileCtx()
+  const { askConfirm } = useAskCtx()
+  const { setTemplatePicker } = useProjectTemplatesCtx()
   const { showToast } = useToastCtx()
 
   useEffect(() => {

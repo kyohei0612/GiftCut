@@ -31,6 +31,18 @@ import type { PreviewRes } from '../components/panels/PreviewBars'
 import type { Snap } from './useHistory'
 import type { usePreviewFrame } from './usePreviewFrame'
 import { useDoc } from './contentContext'
+// 要る物の取り先。**配線を通さず自分で見に行く**（2026-08-04）
+import { useHistoryCtx } from './historyContext'
+import { useMediaDropCtx } from './mediaDropContext'
+import { usePreviewFrameCtx } from './previewFrameContext'
+import { useProxyCtx } from './proxyContext'
+import { useSeAudioCtx } from './seAudioContext'
+import { useSegLayoutCtx } from './segLayoutContext'
+import { useSilenceDuckCtx } from './silenceDuckContext'
+import { useTrackGeomCtx } from './trackGeomContext'
+import { useTracksAdminCtx } from './tracksAdminContext'
+import { useVClipElsCtx } from './vClipElsContext'
+import { useVideoElsCtx } from './videoElsContext'
 import { useTracksCtx } from './tracksContext'
 import { useMediaCtx } from './mediaContext'
 import { usePlaybackCtx } from './playbackContext'
@@ -80,13 +92,21 @@ export interface UseVideoSyncDeps {
   redoStackRef: React.MutableRefObject<Snap[]>
 }
 
-export function useVideoSync(deps: UseVideoSyncDeps): void {
-  const {
-    videoRef, videoBRef, videoElsRef, halfOf, elKey, elOf, seAudioRefs, vcElsRef,
-    xfPreview, segLayout, srcOfSeg, previewUrl, proxyMap, previewRes,
-    lastPreviewResRef, srcAddedAtRef, audioTrackGain, duckGainAt, seFadeGain, vcFadeGain,
-    trackNum, undoStackRef, redoStackRef
-  } = deps
+export function useVideoSync(): void {
+  // **要る22個は心臓から自分で取る**（2026-08-04）。前は配線が取り出して
+  // 渡していたが、1つ残らず素通しだった（`npm run passthrough` の①）
+  const { videoRef, videoBRef, videoElsRef, halfOf, elKey, elOf } = useVideoElsCtx()
+  const { seAudioRefs } = useSeAudioCtx()
+  const { vcElsRef } = useVClipElsCtx()
+  const { xfPreview } = usePreviewFrameCtx()
+  const { segLayout } = useSegLayoutCtx()
+  const { srcOfSeg, srcAddedAtRef } = useMediaCtx()
+  const { previewUrl, proxyMap, previewRes, lastPreviewResRef } = useProxyCtx()
+  const { audioTrackGain } = useTracksAdminCtx()
+  const { duckGainAt } = useSilenceDuckCtx()
+  const { seFadeGain, vcFadeGain } = useMediaDropCtx()
+  const { trackNum } = useTrackGeomCtx()
+  const { undoStackRef, redoStackRef } = useHistoryCtx()
   const { segments, seClips, vClips, vClipsRef } = useDoc()
   const { trackStates } = useTracksCtx()
   const {

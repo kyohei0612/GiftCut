@@ -34,6 +34,10 @@ import { useToastCtx } from './toastContext'
 import type { Marquee } from './useDragPreview'
 import type { SegLayout } from '../lib/projectTypes'
 import type { PreviewRes } from '../components/panels/PreviewBars'
+import { useAppChromeCtx } from './appChromeContext'
+import { useProxyCtx } from './proxyContext'
+import { useSegLayoutCtx } from './segLayoutContext'
+import { useVideoElsCtx } from './videoElsContext'
 
 export interface UseDiagnosticsDeps {
   /** 計測の小窓を開いているか */
@@ -46,10 +50,12 @@ export interface UseDiagnosticsDeps {
   videoRef: React.MutableRefObject<HTMLVideoElement | null>
 }
 
-export function useDiagnostics(deps: UseDiagnosticsDeps): void {
-  const {
-    setPerfOpen,   segLayoutRef, previewResRef, videoRef
-  } = deps
+export function useDiagnostics(): void {
+  // **要る物は心臓から自分で取る**（2026-08-04。配線はただの素通しだった）
+  const { setPerfOpen } = useAppChromeCtx()
+  const { segLayoutRef } = useSegLayoutCtx()
+  const { previewResRef } = useProxyCtx()
+  const { videoRef } = useVideoElsCtx()
   const { cuesRef, segsRef } = useDoc()
   const { setSnapLineX } = useDragPreviewCtx()
   const {

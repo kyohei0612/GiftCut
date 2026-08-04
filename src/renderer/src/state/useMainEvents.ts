@@ -14,6 +14,11 @@
 import { useEffect } from 'react'
 import type { SubtitlePhase } from '../components/dialogs/SubtitleDialog'
 import type { UpdateState } from '../../../preload/index.d'
+import { useAppChromeCtx } from './appChromeContext'
+import { useExportCtx } from './exportContext'
+import { useMediaCtx } from './mediaContext'
+import { useProjectFileCtx } from './projectFileContext'
+import { useSubtitlePrefsCtx } from './subtitlePrefsContext'
 
 export interface UseMainEventsDeps {
   /** いま「プレビュー最適化中」を出している原本のパス */
@@ -31,11 +36,13 @@ export interface UseMainEventsDeps {
   projectJson: () => string
 }
 
-export function useMainEvents(deps: UseMainEventsDeps) {
-  const {
-    proxyForPathRef, setProxyPct, setExportPct, setSubtitleState, setUpdateState,
-    packBusyRef, setPackPct, openProjectFn, projectJson
-  } = deps
+export function useMainEvents() {
+  // **要る9個は心臓から自分で取る**（2026-08-04。配線はただの素通しだった）
+  const { proxyForPathRef, setUpdateState, packBusyRef, setPackPct } = useAppChromeCtx()
+  const { setProxyPct } = useMediaCtx()
+  const { setExportPct } = useExportCtx()
+  const { setSubtitleState } = useSubtitlePrefsCtx()
+  const { openProjectFn, projectJson } = useProjectFileCtx()
 
   // 焼き直しの進み具合。**いま読み込み中の原本のぶんだけ**出す
   useEffect(() => {

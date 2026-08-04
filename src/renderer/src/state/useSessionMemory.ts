@@ -32,6 +32,11 @@ import { useSel } from './selectionContext'
 import { useViewCtx } from './viewContext'
 import { clampZoom } from './useView'
 import { usePlaybackCtx } from './playbackContext'
+import { useAppChromeCtx } from './appChromeContext'
+import { useHistoryCtx } from './historyContext'
+import { useLibraryCtx } from './libraryContext'
+import { useTemplateShelfCtx } from './templateShelfContext'
+import { useTimelineBoxCtx } from './timelineBoxContext'
 import type { RightTab } from './useAppLayout'
 import type { TelopTemplate } from '../lib/telopTemplates'
 
@@ -72,8 +77,13 @@ export function takeRestoredView(): boolean {
   return v
 }
 
-export function useSessionMemory(deps: UseSessionMemoryDeps): void {
-  const { setTime, scrollRef, rightBodyRef, rightTab, setRightTab, localTemplates } = deps
+export function useSessionMemory(): void {
+  // **要る6個は心臓から自分で取る**（2026-08-04。配線はただの素通しだった）
+  const { setTime } = useHistoryCtx()
+  const { scrollRef } = useTimelineBoxCtx()
+  const { rightBodyRef } = useTemplateShelfCtx()
+  const { rightTab, setRightTab } = useAppChromeCtx()
+  const { localTemplates } = useLibraryCtx()
   // 読み終わるまで待たせてある「前回の続き」。**読み終わるまで書かない**ための札で、
   // 外からは触らないのでここで持つ（App に置くと、渡すだけの行が増える）
   const pendingSelRef = useRef<number[] | null>(null)

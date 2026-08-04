@@ -18,6 +18,11 @@ import { clamp } from '../../../shared/timeline'
 // 「バーでは引けるのにホイールでは引けない」という食い違いになる
 //（shared/zoomBar の冒頭が、まさにその型を警告している）
 import { minZoom } from '../../../shared/zoomBar'
+import { ZOOM_MAX, ZOOM_MIN } from './useView'
+import { usePlaybackCtx } from './playbackContext'
+import { useTimelineBoxCtx } from './timelineBoxContext'
+import { useTimelineSpanCtx } from './timelineSpanContext'
+import { useViewCtx } from './viewContext'
 
 export interface UseTimelineWheelDeps {
   scrollRef: { current: HTMLDivElement | null }
@@ -33,9 +38,13 @@ export interface UseTimelineWheelDeps {
   zoom: number
 }
 
-export function useTimelineWheel(deps: UseTimelineWheelDeps) {
-  const { scrollRef, zoomRef, setZoom, ZOOM_MIN, ZOOM_MAX, contentEndRef } = deps
-  const { playing, currentTime, zoom } = deps
+export function useTimelineWheel() {
+  // **要る物は心臓から自分で取る**（2026-08-04。配線はただの素通しだった）。
+  // 上限・下限は state/useView の定数なので、ここで直に import する
+  const { scrollRef } = useTimelineBoxCtx()
+  const { zoom, setZoom, zoomRef } = useViewCtx()
+  const { contentEndRef } = useTimelineSpanCtx()
+  const { playing, currentTime } = usePlaybackCtx()
 
   useEffect(() => {
     const el = scrollRef.current

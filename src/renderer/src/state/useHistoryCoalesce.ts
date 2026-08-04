@@ -20,6 +20,7 @@ import { useEffect } from 'react'
 import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
 import { useExportCtx } from './exportContext'
+import { useHistoryCtx } from './historyContext'
 import type { Snap } from './useHistory'
 import type { Ratio } from './useExportSettings'
 
@@ -45,11 +46,13 @@ export interface UseHistoryCoalesceDeps {
   ratioRef: React.MutableRefObject<Ratio>
 }
 
-export function useHistoryCoalesce(deps: UseHistoryCoalesceDeps): void {
+export function useHistoryCoalesce(): void {
+  // **要る9個は全部 履歴の心臓にある**（2026-08-04）。配線は取り出して
+  // 渡していただけだった（`npm run passthrough` の①）
   const {
     isDirty, snapNow, pushUndo, baselineRef, pendingTimerRef, suppressHistoryRef,
-    redoStackRef, setHistTick, ratioRef
-  } = deps
+    redoStackRef, bumpHist: setHistTick, ratioRef
+  } = useHistoryCtx()
   const {
     cues, cuesRef, segments, segsRef, seClips, seClipsRef, imgClips, imgClipsRef,
     vClips, vClipsRef, markers, markersRef

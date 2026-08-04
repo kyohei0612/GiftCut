@@ -12,6 +12,8 @@
 // 一度だけ登録した関数はクロージャに古い中身が焼き付くので、**毎回の描き直しで
 // 中身だけ差し替え**、window に登録する関数そのものは1回きりにする。
 import { useEffect, useRef } from 'react'
+import { useDragPreviewCtx } from './dragPreviewContext'
+import { useMediaDropCtx } from './mediaDropContext'
 
 export interface UseWindowDropDeps {
   /** いま掴んでいる素材（掴んでいなければ null） */
@@ -29,8 +31,10 @@ export interface UseWindowDropDeps {
   dropMediaNearest: (m: never, x: number, y: number) => void
 }
 
-export function useWindowDrop(deps: UseWindowDropDeps) {
-  const { draggingMediaRef, updateDropGhost, clearDropGhosts, dropMediaNearest } = deps
+export function useWindowDrop() {
+  // **要る4個は心臓から自分で取る**（2026-08-04。配線はただの素通しだった）
+  const { draggingMediaRef } = useDragPreviewCtx()
+  const { updateDropGhost, clearDropGhosts, dropMediaNearest } = useMediaDropCtx()
 
   const winDragRef = useRef({
     enter: (_e: DragEvent): void => {},

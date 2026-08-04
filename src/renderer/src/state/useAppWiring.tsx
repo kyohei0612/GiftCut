@@ -87,7 +87,6 @@ import { useSel } from './selectionContext'
 import { useCueIcon } from './cueIconContext'
 import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
-import { useViewCtx } from './viewContext'
 import { useTelopLookCtx } from './telopLookContext'
 import { useAskCtx } from './askContext'
 import { useMarkersCtx } from './markersContext'
@@ -143,9 +142,7 @@ import { useAppLayoutCtx } from './appLayoutContext'
 import { useLibraryCtx } from './libraryContext'
 
 import { useSegmentPlaceCtx } from './segmentPlaceContext'
-import { ZOOM_MAX, ZOOM_MIN } from './useView'
 import { useToastCtx } from './toastContext'
-import { useIconsCtx } from './iconsContext'
 import { useExportCtx } from './exportContext'
 import { useMediaCtx } from './mediaContext'
 import { useHistoryCtx } from './historyContext'
@@ -177,7 +174,7 @@ import type { OpenClipMenu } from '../components/timeline/ClipBand'
 export function useAppWiring() {
   // 掴んでいる最中に出す物（影・吹き出し・吸い付きの線・囲い）と、コピーの控え
   const {
-    draggingMediaRef, dragSeDurRef, dragTip, marquee
+    draggingMediaRef, dragSeDurRef, dragTip
   } = useDragPreviewCtx()
   const {
     copiedAttrs,
@@ -193,7 +190,7 @@ export function useAppWiring() {
   // videoPath は原本なので差し替えない（焼き直した粗い映像で書き出さないため）
   const {
     videoSrc, videoPath,
-    videoDuration, srcAddedAtRef, proxyPct, setProxyPct,
+    videoDuration, proxyPct,
     srcOfSeg
   } = useMediaCtx()
   // 書き出しの設定と進み具合（設定はプロジェクトの一部、進み具合は画面の一部）
@@ -201,7 +198,7 @@ export function useAppWiring() {
     ratio, setRatio, masterVolume, setMasterVolume,
     srcFpsForExport, fpsLabel,
     showExportDialog, setShowExportDialog,
-    exportStatus, setExportStatus, exportPct, setExportPct
+    exportStatus, setExportStatus, exportPct
   } = useExportCtx()
   // 段の高さ（種類ごと＋段ごと）。state と ref を1か所で面倒を見る
   const {
@@ -216,13 +213,7 @@ export function useAppWiring() {
     // 追いかけの時計まわりも心臓が持っている。**App で別に宣言しないこと**
     //（同じ名前の入れ物が2つできて、「消す方」と「読む方」が食い違う）
   } = usePlaybackCtx()
-  // アイコンの出し方（どちら側・ずらし・大きさ・揃えるか）
-  const icons = useIconsCtx()
-  const {
-    iconSettingsOpen,
-  } = icons
   // 見え方（拡大率）とお知らせ
-  const { zoom, setZoom, zoomRef } = useViewCtx()
   const { toasts } = useToastCtx()
   // 段（トラック）と鍵。**鍵はあらゆる編集の手前で見る**ので心臓に置く
   const { tracks, setTracks, toggleTrack } =
@@ -251,12 +242,12 @@ export function useAppWiring() {
   // state/useAppChrome。**保存しない物**をまとめてある
   const {
     menu, setMenu, clipMenu, setClipMenu, tool, setTool, snap, toggleSnap,
-    setPerfOpen, setPackPct, packBusyRef, rightTab, setRightTab,
-    setUpdateState, proxyForPathRef, initializedForPathRef, appVersion
+    rightTab, setPerfOpen, setUpdateState,
+    initializedForPathRef, appVersion
   } = useAppChromeCtx()
   // 字幕づくりの設定と進み具合は state/useSubtitlePrefs
   const {
- setSubtitleOpen, setSubtitleState,
+ setSubtitleOpen,
     subMaxChars, subReplace
   } = useSubtitlePrefsCtx()
 
@@ -292,15 +283,14 @@ export function useAppWiring() {
 
 
   // 効果音を鳴らす物（置いた物・試聴の物）は state/useSeAudio
-  const { seAudioRefs, seRefCb, previewSE } = useSeAudioCtx()
+  const { seRefCb, previewSE } = useSeAudioCtx()
 
   useEffect(() => {
     vClipsRef.current = vClips
   }, [vClips])
 
   // 映像を映す <video> の台帳（1本につきA面/B面を持つ理由も中に）は state/useVideoEls
-  const { videoRef, videoBRef, videoElsRef, elKey, activeHalf, halfOf, elOf } =
-    useVideoElsCtx()
+  const { videoRef, videoBRef, videoElsRef, elKey, activeHalf } = useVideoElsCtx()
 
   // 段の数え方・太さ・どの段に居るかは state/useTrackGeom
   const {
@@ -311,7 +301,7 @@ export function useAppWiring() {
   const {
     v1Hidden, fallbackTrack,
     setClipLabel, addVideoTrack, addAudioTrack,
-    deleteTrack, selectTrack, audioTrackGain, setTrackVolume
+    selectTrack, setTrackVolume
   } = useTracksAdminCtx()
   // 段見出しの境目を掴んで高さを変えるのは state/useLaneResize
   const { startGroupResize } = useLaneResizeCtx()
@@ -326,7 +316,7 @@ export function useAppWiring() {
 
   // 人に聞く（文字を入れてもらう・はい/いいえ）は state/askContext。
   // **配線は作らない。** 使う側が直に見に行く（2026-08-04）
-  const { promptState, setPromptState, confirmState, askText, askConfirm, closeConfirm } = useAskCtx()
+  const { promptState, setPromptState, confirmState, askText, closeConfirm } = useAskCtx()
 
   // 最近開いたプロジェクトの控え。**書けなくても動作には影響しない**ので握りつぶす
   useEffect(() => {
@@ -345,8 +335,7 @@ export function useAppWiring() {
     localTemplates, refreshPresets, openTplSec, saveLS
   } = useLibraryCtx()
   // プレビューの画質と、焼き直した映像（プロキシ）は state/useProxy
-  const { previewRes, setPreviewRes, previewResRef, lastPreviewResRef, proxyMap, previewUrl } =
-    useProxyCtx()
+  const { previewRes, setPreviewRes, previewUrl } = useProxyCtx()
   // 見本帳の棚まわり（右クリックの品書き・開いたら先頭へ送る）は state/useTemplateShelf
   const { tplMenu, setTplMenu, tplSecRefs, rightBodyRef } = useTemplateShelfCtx()
   // 帯になる物（つなぎ目の演出・テロップの出入り・見本・色）を運んでいる最中の
@@ -405,10 +394,8 @@ export function useAppWiring() {
 
   // 元に戻す・やり直す（控えと、時刻の入れ替え）は state/useHistory
   const {
-    undoStackRef, redoStackRef, baselineRef, suppressHistoryRef, pendingTimerRef,
-    bumpHist: setHistTick,
-    setTime, isDirty, snapNow, pushUndo, undo, redo,
-    ratioRef
+    undoStackRef, redoStackRef, suppressHistoryRef,
+    isDirty, undo, redo
   } = useHistoryCtx()
 
   // 素材の下ごしらえ（尺・波形の控え、二重解析よけ）は state/mediaMetaContext。
@@ -421,13 +408,11 @@ export function useAppWiring() {
   const { segLayout, videoTLen, segLayoutRef } = useSegLayoutCtx()
 
   // 動きの計測と不具合の記録は state/useDiagnostics
-  useDiagnostics({
-    setPerfOpen, dragTip, marquee, segLayoutRef, previewResRef, videoRef
-  })
+  useDiagnostics()
 
   // タイムラインの長さ（出す長さ／本当の終わり）と、ものさしの目盛りは
   // state/useTimelineSpan（長さが2つある理由も中にある）
-  const { duration, contentEndRef, rulerTicks } = useTimelineSpanCtx()
+  const { duration, rulerTicks } = useTimelineSpanCtx()
 
   // 再生の心臓（流す・止める・飛ぶ・コマ送り）は state/usePlaybackEngine。
   // **素材の読み込み（下）より先に呼ぶ。** 以前は逆で、読み込む側が「止める物」を
@@ -435,7 +420,7 @@ export function useAppWiring() {
   // 引くだけの srcOfSeg を素材の心臓へ移したので、いまは片道になっている。
   const {
     stopPlayback,
-    togglePlay, shuttleForward, shuttleReverse, handleVideoEnded,
+    togglePlay, handleVideoEnded,
     seekTo, seekAndReveal, xfBStyle, skipSec, stepFrame
   } = usePlaybackEngineCtx()
 
@@ -461,7 +446,7 @@ export function useAppWiring() {
   useNestSelectSync()
 
   // 重ねる動画の <video>（窓で区切って残す理由も中に）は state/useVClipEls
-  const { windowVClips, vcElsRef, vcRefCb } = useVClipElsCtx()
+  const { windowVClips, vcRefCb } = useVClipElsCtx()
   // 再生ヘッドの位置の見た目と、リフレーム枠の相手は state/useCurrentLook
   const {
     effActiveSrcId, curBlank, curAdjustCss,
@@ -495,9 +480,8 @@ export function useAppWiring() {
   // （何と比べて決めるか・なぜ変わったときだけ見直すかも中にある）
   const {
     unsaved,
-    lastAutosaveRef, hasContentRef, restorePrompt, setRestorePrompt, projectJsonRef,
-    currentJsonRef, projectRevRef,
-    autosavedRevRef, autosaveNg
+    restorePrompt, setRestorePrompt, projectJsonRef,
+    autosaveNg
   } = useAutosaveMarkCtx()
 
 
@@ -511,7 +495,7 @@ export function useAppWiring() {
   // 静かな所を切る・声の間だけ BGM を下げる（同じ解析結果を使う）は state/useSilenceDuck
   const {
     silenceCut, setSilenceCut, silenceOpen, setSilenceOpen,
-    duckOpts, setDuckOpts, duckOpen, setDuckOpen, duckEnv, duckGainAt, silenceCuts
+    duckOpts, setDuckOpts, duckOpen, setDuckOpen, duckEnv, silenceCuts
   } = useSilenceDuckCtx()
 
   // 動き（キーフレーム）を付ける・消す・配るのは state/useMotion
@@ -548,8 +532,8 @@ export function useAppWiring() {
   // 素材を掴んで落とす（どの段の、どこへ置くか）は state/useMediaDrop
   const {
     prepareMediaMeta, beginMediaDrag, placeImage, deleteSelectedImg,
-    updateDropGhost, clearDropGhosts, dropMediaNearest, videoDropLane, placeVClip,
-    deleteSelectedVClip, vcFadeGain, placeSE, addBgm, seFadeGain, removeMedia, imgLaneAt, placeDropped
+    updateDropGhost, clearDropGhosts, videoDropLane, placeVClip,
+    deleteSelectedVClip, placeSE, addBgm, removeMedia, imgLaneAt, placeDropped
   } = useMediaDropCtx()
 
   /**
@@ -575,23 +559,16 @@ export function useAppWiring() {
   }
 
   // 画面の <video> / <audio> を「いま」に追従させるのは state/useVideoSync
-  useVideoSync({
-    videoRef, videoBRef, videoElsRef, halfOf, elKey, elOf, seAudioRefs, vcElsRef,
-    xfPreview, segLayout, srcOfSeg, previewUrl, proxyMap, previewRes,
-    lastPreviewResRef, srcAddedAtRef, audioTrackGain, duckGainAt, seFadeGain, vcFadeGain,
-    trackNum, undoStackRef, redoStackRef
-  })
+  useVideoSync()
 
   // 見ている場所を動かす（寄る・引く・連れてくる）は state/useViewNav
   const { fitTimelineZoom } = useViewNavCtx()
 
   // タイムライン上の目印（頭出し・メモ）は state/useMarkers
-  const { addMarkerAtPlayhead, deleteMarker, jumpMarker, onMarkerPointerDown } = useMarkersCtx()
+  const { addMarkerAtPlayhead, jumpMarker, onMarkerPointerDown } = useMarkersCtx()
 
   // ホイールの割り当てと、再生ヘッドの追いかけは state/useTimelineWheel
-  useTimelineWheel({
-    scrollRef, zoomRef, setZoom, ZOOM_MIN, ZOOM_MAX, contentEndRef, playing, currentTime, zoom
-  })
+  useTimelineWheel()
 
   // 品書きは、外を押す・Escape で閉じる（閉じ方は state/useDismissOnOutside に1つ）
   useDismissOnOutside(!!clipMenu, () => setClipMenu(null))
@@ -632,7 +609,7 @@ export function useAppWiring() {
 
   // 素材のドラッグはウィンドウ全体で受け取る（1pxでも取りこぼすと駐禁が出る）。
   // 実体と理由は state/useWindowDrop
-  useWindowDrop({ draggingMediaRef, updateDropGhost, clearDropGhosts, dropMediaNearest })
+  useWindowDrop()
 
   /**
    * 入力欄から手を離させる。
@@ -692,19 +669,18 @@ export function useAppWiring() {
   } = useTelopAnimCtx()
 
   // コピーと貼り付け（クリップと動きだけ）は state/useCopyPaste
-  const { copySelected, pasteClipboard } = useCopyPasteCtx()
+  const { copySelected } = useCopyPasteCtx()
   // 「設定だけ」（属性のコピー・貼り付け）は state/useAttrCopy
   const { attrSummary, copyAttributes, pasteAttributes } =
     useAttrCopyCtx()
 
   // 消す・切る・複製する・詰める（タイムラインを縮める側）は state/useTimelineEdit
   const {
-    deleteSelected, rippleDeleteSelected, cutSelected, duplicateSelected,
+    deleteSelected, rippleDeleteSelected,
     deleteSelectedSE, findSilences, applySilenceCut, rippleDeleteVideoSegments,
-    toggleBlankSelectedVideo, duplicateClipsFromMenu, duplicateSelectedSegments,
-    setSelectedSegSpeed, closeGapAtPlayhead, deleteVideoSegmentsLeavingGap,
-    closeSelectedGaps,
-    rippleToPrevCut, rippleToNextCut, splitVideoAtPlayhead, cutAtPlayhead
+    toggleBlankSelectedVideo, duplicateClipsFromMenu,
+    setSelectedSegSpeed, deleteVideoSegmentsLeavingGap,
+    splitVideoAtPlayhead, cutAtPlayhead
   } = useTimelineEditCtx()
 
   // ここから下の3つは、**useTimelineEdit と usePlaybackEngine の後でなければ呼べない**。
@@ -743,7 +719,7 @@ export function useAppWiring() {
   const {
     handleReplaceVideo, handleAppendVideo,
     genThumbFor, addFilesToProject, addFolderToProject,
-    packProjectFn, openPackFn, writeAutosave
+    packProjectFn, openPackFn
   } = useProjectIOCtx()
 
   // 覚えておく物は3つ。**この順に呼ぶこと**（2026-08-03 に1つを3つへ分けた）。
@@ -753,75 +729,20 @@ export function useAppWiring() {
   // useHistoryCoalesce を先に呼ぶと、起動直後に空でセッションを上書きしうる。**
   // 同じ型の事故を1度やっていて、e2e が `7613 → 0` で捕まえた
   //（16-仕上げ「前回の続きを開くと、タイムラインの横位置も戻る」）。
-  useSessionMemory({ setTime, scrollRef, rightBodyRef, rightTab, setRightTab, localTemplates })
-  useHistoryCoalesce({
-    isDirty, snapNow, pushUndo, baselineRef, pendingTimerRef,
-    suppressHistoryRef, redoStackRef, setHistTick, ratioRef
-  })
-  useAutosaveDraft({
-    writeAutosave, currentJsonRef, projectRevRef, autosavedRevRef, lastAutosaveRef,
-    hasContentRef, applyProjectData, askConfirm, setRestorePrompt, setTemplatePicker
-  })
+  useSessionMemory()
+  useHistoryCoalesce()
+  useAutosaveDraft()
   projectJsonRef.current = projectJson
 
   // メインからの知らせ（進み具合・更新・関連付けで開く）は state/useMainEvents。
   // **ここで呼ぶのは、下書きに書く projectJson が出来た後だから。**
-  useMainEvents({
-    proxyForPathRef, setProxyPct, setExportPct, setSubtitleState, setUpdateState,
-    packBusyRef, setPackPct, openProjectFn, projectJson
-  })
+  useMainEvents()
 
   // キーを押したときに何が起きるか（state/useKeyboard）。
   // **ここで呼ぶ。** 渡す物のうち addTelop・saveProjectFn などは、この上の
   // フックが返す物なので、上の方で呼ぶと初期化前参照になる。
-  useKeyboard({
-    // 何かを開いている間は Esc 以外を通さない（裏のタイムラインが勝手に動かないように）
-    modalOpen: !!(
-      restorePrompt || templatePicker || cropSrc || showExportDialog ||
-      prefsOpen || promptState || confirmState || iconSettingsOpen
-    ),
-    capturing: !!capturingId,
-    exporting: !!exportStatus,
-    shortcuts,
-    setTool,
-    toggleSnap,
-    togglePlay,
-    shuttleForward,
-    shuttleReverse,
-    stopPlayback,
-    seekTo,
-    contentEndRef,
-    copyAttributes,
-    pasteAttributes,
-    copySelected,
-    cutSelected,
-    pasteClipboard,
-    undo,
-    redo,
-    removeMedia,
-    deleteMarker,
-    deleteSelectedTrans,
-    deleteSelectedTelopTrans,
-    deleteTrack,
-    deleteSelected,
-    deleteSelectedSE,
-    deleteSelectedImg,
-    deleteSelectedVClip,
-    deleteVideoSegmentsLeavingGap,
-    closeSelectedGaps,
-    closeGapAtPlayhead,
-    rippleDeleteVideoSegments,
-    rippleToPrevCut,
-    rippleToNextCut,
-    duplicateSelected,
-    duplicateSelectedSegments,
-    cutAtPlayhead,
-    addTelop,
-    addMarkerAtPlayhead,
-    saveProjectFn,
-    openProjectFn,
-    openExportDialog,
-  })
+  useKeyboard()
+
 
   // 帯を右クリック。**選んでいない物を押したときだけ**選び直す（前の選択が残っていると、
   // 押した物ではない方へ操作が飛ぶ）。**既に選ばれている物なら選択はそのまま残す**——
