@@ -439,17 +439,38 @@ try {
    * ※range に fill() は使えない（Malformed value）。値を入れて input を起こす。
    */
   const setZoom = async (v) => {
-    const inp = page.locator('input[type="range"][title*="拡大率"]').first()
-    await inp.evaluate((el, val) => {
-      const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLInputElement.prototype,
-        'value'
-      ).set
-      setter.call(el, String(val))
-      el.dispatchEvent(new Event('input', { bubbles: true }))
-      el.dispatchEvent(new Event('change', { bubbles: true }))
-    }, v)
-    await page.waitForTimeout(250)
+    // **いまの拡大率は `.track-inner` の幅から読む**（幅 = 尺 × 拡大率）。
+    //
+    // 前は `input[type="range"][title*="拡大率"]` へ直に値を入れていたが、
+    // **そのUIは 2026-08-03 に消えている**（`components/timeline/ZoomBar` へ移った）。
+    // 限界さがしは `video is not defined` で手前で落ちていたので、
+    // ここが死んでいることに **1年ぶん誰も気づかなかった**。
+    // CLAUDE.md の7番「消えた物を守らない。成立しなければ落ちる」そのもの。
+    const nowZoom = async () => {
+      const w = await page.evaluate(
+        () => parseFloat(document.querySelector('.track-inner')?.style.width || '0') || 0
+      )
+      return w / Math.max(1, totalSec)
+    }
+    const sc = await page.locator('.track-scroll').boundingBox()
+    if (!sc) throw new Error('タイムラインが見つからない（.track-scroll）')
+    const cx = sc.x + sc.width / 2
+    const cy = sc.y + sc.height / 2
+    await page.mouse.move(cx, cy)
+    // Ctrl+ホイール1ノッチで ×1.15 / ×0.87。近づくまで回す
+    for (let i = 0; i < 80; i++) {
+      const z = await nowZoom()
+      if (!(z > 0)) throw new Error('拡大率が読めない（.track-inner の幅が0）')
+      if (Math.abs(z - v) / v < 0.06) return
+      await page.keyboard.down('Control')
+      await page.mouse.wheel(0, z < v ? -120 : 120)
+      await page.keyboard.up('Control')
+      await page.waitForTimeout(30)
+    }
+    const z = await nowZoom()
+    // **届かなかったら落とす。** 黙って進むと、拡大していないまま
+    // 「掴む物が画面に無い」と出て、原因が拡大側だと分からなくなる。
+    throw new Error(`拡大率を ${v}px/秒 にできなかった（いま ${z.toFixed(1)}）`)
   }
   const timelineWidth = () =>
     page.locator('.track-inner').evaluate((e) => Math.round(e.getBoundingClientRect().width))
