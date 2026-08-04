@@ -71,7 +71,7 @@
 // **だからこの検査そのものを入口にしている。** 赤くなったら上のファイルを読むこと。
 // （`.company/` は .gitignore なので、clone しただけでは無い。
 //   無ければこのファイルの説明だけで足りるように書いてある）
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -314,6 +314,48 @@ describe('AI が余裕を持って読める形', () => {
       '\n取説と中身がズレている:\n' +
         bad.join('\n') +
         '\n\n**腐った取説は無いより悪い。** 引っ越したら説明も連れて行くこと'
+    ).toEqual([])
+  })
+
+  it('**説明が指しているファイルが実在する**（案内先が消えても誰も気づかない）', () => {
+    // 2026-08-04 に見つかった穴: `useAppWiring.tsx` の頭が
+    // 「大きさは state/wiringSize.test.ts が見張っている」と書いていたが、
+    // **そのファイルは存在しなかった**。上の「取説が腐っていない」は名前しか
+    // 照合しないので、**行き先が嘘でも素通りする**。
+    //
+    // 見るのは「拡張子まで書いてある物」だけ。`state/useTimelineDrag` のような
+    // 拡張子なしの案内は、`.ts` `.tsx` の両方を試して、無ければ見逃す
+    //（フォルダ名や章タイトルを誤って拾わないため）。
+    const bad: string[] = []
+    for (const f of files) {
+      for (let i = 0; i < f.lines.length; i++) {
+        const l = f.lines[i]
+        if (!/^\s*(\/\/|\s*\*)/.test(l)) continue // コメント行だけ
+        // **`tsx` を先に試して `\b` で締める。** `ts` を先にすると
+        // `layoutContext.tsx` を `layoutContext.ts` で切って、嘘の赤が18件出た
+        // 手前が `/` や英数字なら拾わない。`renderer/src/lib/srt.ts` の途中から
+        // `src/lib/srt.ts` を切り出して、嘘の赤が出た
+        for (const m of l.matchAll(
+          /(?<![\w/])((?:src\/|shared\/|state\/|lib\/|main\/|components\/|e2e\/)[\w/.-]+\.(?:tsx|ts|mjs))\b/g
+        )) {
+          const ref = m[1]
+          // 書き方が2通りある（リポジトリの頭から／`src/renderer/src` からの相対）
+          const cands = [
+            join(REPO, ref),
+            join(REPO, 'src', ref),
+            join(REPO, 'src/renderer/src', ref),
+            join(REPO, 'src/shared', ref)
+          ]
+          if (!cands.some((p) => existsSync(p))) bad.push(`${f.path}:${i + 1}  → ${ref}`)
+        }
+      }
+    }
+    expect(
+      bad,
+      '\n説明が指している先が無い:\n' +
+        bad.join('\n') +
+        '\n\n**案内が嘘だと、読む人はその先を探しに行って時間を落とす。**\n' +
+        '引っ越したなら行き先を直す。まだ無いなら「作る」と書く'
     ).toEqual([])
   })
 
