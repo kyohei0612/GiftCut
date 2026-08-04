@@ -56,7 +56,7 @@ import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
 import { useViewCtx } from './viewContext'
 import { useTelopLook } from './useTelopLook'
-import { useAsk } from './useAsk'
+import { useAskCtx } from './askContext'
 import { useMarkers } from './useMarkers'
 import { useSnap } from './useSnap'
 import { useShortcutPrefs } from './useShortcutPrefs'
@@ -109,8 +109,8 @@ import { useSelectionCleanup } from './useSelectionCleanup'
 import { useNestSelectSync } from './useNest'
 import { useDiagnostics } from './useDiagnostics'
 import { useAppLayout } from './useAppLayout'
-import { useLibraries } from './useLibraries'
-import { useLibraryOrganize } from './useLibraryOrganize'
+import { useLibraryCtx } from './libraryContext'
+
 import { useSegmentPlace } from './useSegmentPlace'
 import { ZOOM_MAX, ZOOM_MIN } from './useView'
 import { useToastCtx } from './toastContext'
@@ -343,8 +343,9 @@ export function useAppWiring() {
   const resolveExportFps = (): number =>
     exportOpts.fps === 'source' ? srcFpsForExport() : exportOpts.fps
 
-  // 人に聞く（文字を入れてもらう・はい/いいえ）は state/useAsk
-  const { promptState, setPromptState, confirmState, askText, askConfirm, closeConfirm } = useAsk()
+  // 人に聞く（文字を入れてもらう・はい/いいえ）は state/askContext。
+  // **配線は作らない。** 使う側が直に見に行く（2026-08-04）
+  const { promptState, setPromptState, confirmState, askText, askConfirm, closeConfirm } = useAskCtx()
 
   /** 切り離した窓の題（切り離す仕組みそのものは state/usePanelLayout） */
   const PANE_LABEL: Record<PaneId, string> = {
@@ -367,23 +368,14 @@ export function useAppWiring() {
     'project' | 'telop' | 'icon' | 'se' | 'transition'
   >('project')
 
-  // 置き場（効果音・テロップの見本・動きの見本帳）は state/useLibraries。
-  // それをどう並べるか（★・フォルダ・畳み）は state/useLibraryOrganize。
-  // **2つはまたぐ名前が0個**なので、呼ぶ順にも決まりは無い（2026-08-03 に分けた）。
+  // 置き場（効果音・見本・動きの見本帳）と並べ方（★・フォルダ・畳み）は
+  // state/libraryContext。**34個のうち、ここで使うのはこれだけ。**
+  // 残りは束へ詰め直して心臓へ戻す往復だったので、使う側に直に見に行かせた
+  //（2026-08-04。数え方は ）
   const {
-    seLibrary, refreshSE, importSeInto, localTemplates, refreshPresets,
-    motionPresets, refreshMotionPresets, importMotionPresets,
-    myMotions, saveMyMotion, deleteMyMotion
-  } = useLibraries({ askText })
-  const {
-    isFav, toggleFav, setTplCat, openTplSec, toggleTplSec,
-     setOpenAccSec, accSec, loadLS, saveLS,
-    seFavs, seFolders, seOv,
-    iconFavs, setIconFavs, iconFolders, iconOv, setIconOv,
-    toggleSeFav, toggleIconFav, setSeFolderOf, setIconFolderOf,
-    addSeFolder, deleteSeFolder, addIconFolder, deleteIconFolder,
-    orgMenu, setOrgMenu, allCats, catOf, addCustomCat, deleteCustomCat
-  } = useLibraryOrganize({ askText })
+    localTemplates, refreshPresets, openTplSec, setOpenAccSec, loadLS, saveLS,
+    setIconFavs, setIconOv
+  } = useLibraryCtx()
   // プレビューの画質と、焼き直した映像（プロキシ）は state/useProxy
   const { previewRes, setPreviewRes, previewResRef, lastPreviewResRef, proxyMap, previewUrl } =
     useProxy({ loadLS, saveLS, playRateRef, sources, vClips, proxyForPathRef, setProxyPct })
@@ -1159,27 +1151,26 @@ export function useAppWiring() {
   const leftPanel: LeftPanelValue = {
     alignTelop, applyTemplate, changeIconAuto, clearClipMotions, currentTime,
     motionSelRef, motionRowsRef, nudgeClips, pairedAudioOf, panelStyleFor, reframeTarget, resetClipChannel,
-    resetCount, saveMyMotion, savePreset, seekTo, setBoxAnchor, setPersonIconForSelected,
+    resetCount, savePreset, seekTo, setBoxAnchor, setPersonIconForSelected,
     setSelectedSegSpeed, toggleKeys, updateSelectedStyle, updateSelectedText, userTemplates,
     iconForCue
   }
 
   const rightPanel = {
     PANE_LABEL, orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow,
-    setTplMenu, setOrgMenu, rightTab, setTransDrop, draggingTransRef, draggingTelopAnimRef,
-    setTelopDrop, toggleTelopEmphasis, myMotions, motionPresets, applyMotionPreset,
-    deleteMyMotion,
-    accSec, rightBodyRef, importSeInto, addMediaAtPlayhead, catOf, srtPath,
-    labelGroups, removeMedia, beginMediaDrag, draggingMediaRef, localTemplates, isFav,
+    setTplMenu, rightTab, setTransDrop, draggingTransRef, draggingTelopAnimRef,
+    // 動きの見本を当てるのは state/useMotion（置き場そのものは state/libraryContext）
+    applyMotionPreset,
+    setTelopDrop, toggleTelopEmphasis,
+ rightBodyRef, addMediaAtPlayhead, srtPath,
+    labelGroups, removeMedia, beginMediaDrag, draggingMediaRef, localTemplates,
     // 掴んで運ぶ物は並べて置く（見本帳・アイコン・強調。落とし先は帯と文字の上）
     draggingTemplateRef, draggingIconRef, draggingEmphasisRef,
-    iconFavs, toggleIconFav, seLibrary, seFavs,
-    setSeFolderOf, toggleSeFav, TELOP_MOTIONS, addFilesToProject, addFolderToProject, handleImportSrt,
-    loadVideo, selectByLabel, genThumbFor, prepareMediaMeta, allCats, openTplSec,
-    tplSecRefs, toggleTplSec, saveCurrentAsTemplate, addCustomCat, deleteCustomCat, refreshPresets,
-    applyTemplate, deleteUserTemplate, toggleFav, setTplCat, iconLibrary, iconFolders,
-    iconOv, addIconImages, addIconFiles, addIconFolder, deleteIconFolder, removeIconImage,
-    setIconFolderOf, seFolders, seOv, addSeFolder, deleteSeFolder, refreshSE,
+ TELOP_MOTIONS, addFilesToProject, addFolderToProject, handleImportSrt,
+    loadVideo, selectByLabel, genThumbFor, prepareMediaMeta, openTplSec,
+    tplSecRefs, saveCurrentAsTemplate, refreshPresets,
+    applyTemplate, deleteUserTemplate, iconLibrary,
+ addIconImages, addIconFiles, removeIconImage,
     previewSE, setSelectedTransType, updateSelectedTransDur, deleteSelectedTrans, setTelopTransType, updateTelopTransDur,
     deleteSelectedTelopTrans
   }
@@ -1190,16 +1181,16 @@ export function useAppWiring() {
   const header: HeaderValue = {
     updateState, setUpdateState, fileMenuOpen, setFileMenuOpen, shortcuts, appVersion, unsaved,
     saveProjectFn, openProjectFn, packProjectFn, openPackFn, saveAsTemplateFn, openTemplateFn,
-    handleAppendVideo, handleReplaceVideo, handleImportSrt, exportSrtFn, importMotionPresets,
-    refreshSE, refreshPresets, refreshMotionPresets, setPrefsOpen, setSubtitleOpen,
+    handleAppendVideo, handleReplaceVideo, handleImportSrt, exportSrtFn,
+ refreshPresets, setPrefsOpen, setSubtitleOpen,
     openExportDialog, addTelop, changeRatio, projectPath
   }
 
   const menus = {
     menu, setMenu, clipMenu, setClipMenu, tabMenu, setTabMenu, tabOverflow, setTabOverflow,
-    tplMenu, setTplMenu, orgMenu, setOrgMenu, clampMenu, PANE_LABEL, TAB_DEFS, orderedTabs,
-    pickTab, setTabOrder, isPopped, popPane, unpopPane, monitorTab, rightTab, allCats, customCats,
-    setTplCat, isFav, toggleFav, setLabelFor, selectByLabel, setClipLabel, deleteSelected,
+    tplMenu, setTplMenu, clampMenu, PANE_LABEL, TAB_DEFS, orderedTabs,
+    pickTab, setTabOrder, isPopped, popPane, unpopPane, monitorTab, rightTab, customCats,
+ setLabelFor, selectByLabel, setClipLabel, deleteSelected,
     rippleDeleteSelected, deleteSelectedSE, deleteSelectedImg, deleteSelectedVClip,
     deleteVideoSegmentsLeavingGap, rippleDeleteVideoSegments, duplicateClipsFromMenu,
     splitVideoAtPlayhead, toggleBlankSelectedVideo, findSilences, silenceCut, setDuckOpen,

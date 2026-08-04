@@ -6,16 +6,21 @@
 // ※ **効果音は「素材」として掴ませる。** 掴む・置くの入口は素材ビンと同じ物を通す
 //   （`beginMediaDrag` / `addMediaAtPlayhead`）。別の道を作ると、
 //   置ける段の決まりが2つになる。
+import { useLibraryCtx } from './libraryContext'
 import { seMoveTarget, type SeItem } from '../components/panels/SeLibraryTab'
 import { useRightPanel } from './rightPanelContext'
 import { useDragPreviewCtx } from './dragPreviewContext'
 
 export function useSeTab() {
   const {
-    seLibrary, seFolders, seOv, seFavs, rightBodyRef, accSec,
-    addSeFolder, deleteSeFolder, refreshSE, importSeInto, previewSE,
-    setSeFolderOf, toggleSeFav, beginMediaDrag, addMediaAtPlayhead, draggingMediaRef, setOrgMenu
+    rightBodyRef, previewSE, beginMediaDrag, addMediaAtPlayhead, draggingMediaRef
   } = useRightPanel()
+  // 置き場（★・フォルダ・畳み）は**配線を通さず、直に見に行く**
+  //（2026-08-04。往復していた34個を state/libraryContext へ寄せた）
+  const {
+    seLibrary, seFolders, seOv, seFavs, accSec, addSeFolder, deleteSeFolder, refreshSE,
+    importSeInto, setSeFolderOf, toggleSeFav, setOrgMenu
+  } = useLibraryCtx()
   const { setSeGhost } = useDragPreviewCtx()
 
   /** 効果音を「素材」として扱うときの形（掴む・置くは素材ビンと同じ道を通る） */

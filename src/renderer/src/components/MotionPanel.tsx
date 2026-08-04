@@ -16,6 +16,8 @@
 // 置き先も違う。行を作るローカル関数 `row()` が2つあるのはそのため
 // （署名が違うので共通化できない。無理に1つにすると、どちらの印か分からなくなる）。
 
+// 動きの見本を残すのは置き場の側。**配線を通さず直に見に行く**（2026-08-04）
+import { useLibraryCtx } from '../state/libraryContext'
 import type { JSX } from 'react'
 import { MotionTab, type MotionRow } from './panels/MotionTab'
 import type { MotionKeyName } from '../../../shared/telopMotion'
@@ -32,8 +34,10 @@ import { clamp } from '../../../shared/timeline'
 export function MotionPanel(): JSX.Element {
   const {
     clearClipMotions, currentTime, motionSelRef, motionRowsRef, nudgeClips,
-    reframeTarget, resetClipChannel, resetCount, saveMyMotion, seekTo, toggleKeys
+    reframeTarget, resetClipChannel, resetCount, seekTo, toggleKeys
   } = useLeftPanel()
+  // 動きの見本を残すのは置き場の側（state/libraryContext）
+  const { saveMyMotion } = useLibraryCtx()
   const { selectedIds } = useSel()
   const { showToast } = useToastCtx()
   const {

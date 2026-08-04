@@ -28,6 +28,9 @@ import { ContentProvider } from './state/contentContext'
 import { TracksProvider } from './state/tracksContext'
 import { ViewProvider } from './state/viewContext'
 import { ToasterProvider } from './state/toastContext'
+// 人に聞く物と、置き場（★・フォルダ）。**配線を通さず、使う側が直に見に行く**
+import { AskProvider } from './state/askContext'
+import { LibraryProvider } from './state/libraryContext'
 import { IconsProvider } from './state/iconsContext'
 import { PlaybackProvider } from './state/playbackContext'
 import { ExportProvider } from './state/exportContext'
@@ -184,7 +187,11 @@ export default function App(): React.JSX.Element {
                         <ProjectStateProvider value={projectState}>
                           <ClipboardProvider>
                             <DragPreviewProvider value={dragPreview}>
-                              <AppInner />
+                              <AskProvider>
+                                <LibraryProvider>
+                                  <AppInner />
+                                </LibraryProvider>
+                              </AskProvider>
                             </DragPreviewProvider>
                           </ClipboardProvider>
                         </ProjectStateProvider>

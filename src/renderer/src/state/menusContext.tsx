@@ -31,8 +31,6 @@ export interface MenusValue {
   setTabOverflow: W['setTabOverflow']
   tplMenu: W['tplMenu']
   setTplMenu: W['setTplMenu']
-  orgMenu: W['orgMenu']
-  setOrgMenu: W['setOrgMenu']
   /** 画面の端からはみ出さない位置へ寄せる */
   clampMenu: W['clampMenu']
   /** 区画（パネル）まわり */
@@ -46,12 +44,7 @@ export interface MenusValue {
   unpopPane: W['unpopPane']
   monitorTab: W['monitorTab']
   rightTab: W['rightTab']
-  /** テロップのフォルダ（カテゴリ）まわり */
-  allCats: W['allCats']
   customCats: W['customCats']
-  setTplCat: W['setTplCat']
-  isFav: W['isFav']
-  toggleFav: W['toggleFav']
   /** ラベル色 */
   setLabelFor: W['setLabelFor']
   selectByLabel: W['selectByLabel']

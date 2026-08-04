@@ -71,7 +71,6 @@ export interface LeftPanelProps {
   resetClipChannel: (key: keyof ClipMotion) => void
   /** 元に戻せる項目がいくつあるか（「リセット」の出し分けに使う） */
   resetCount: () => number
-  saveMyMotion: () => void
   savePreset: (name: string) => void
   seekTo: (t: number) => void
   /** 文字の入る枠の基準点を決める */

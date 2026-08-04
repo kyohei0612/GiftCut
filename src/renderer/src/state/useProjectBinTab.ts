@@ -8,6 +8,7 @@
 //
 // そのままの順でタイムラインへ並べるため。範囲（Shift）と全部は
 // **画面に並んでいる順**＝名前順で若い方から入れる。
+import { useLibraryCtx } from './libraryContext'
 import { toggleSelect } from '../../../shared/clipEdit'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 import { useRightPanel } from './rightPanelContext'
@@ -19,10 +20,15 @@ import { useDragPreviewCtx } from './dragPreviewContext'
 
 export function useProjectBinTab() {
   const {
-    rightBodyRef, accSec, srtPath, labelGroups, addFilesToProject, addFolderToProject,
-    handleImportSrt, addMediaAtPlayhead, loadVideo, removeMedia, importSeInto,
-    beginMediaDrag, draggingMediaRef, selectByLabel, genThumbFor, prepareMediaMeta, setOrgMenu
+    rightBodyRef, srtPath, labelGroups, addFilesToProject, addFolderToProject,
+    handleImportSrt, addMediaAtPlayhead, loadVideo, removeMedia, beginMediaDrag,
+    draggingMediaRef, selectByLabel, genThumbFor, prepareMediaMeta
   } = useRightPanel()
+  // 置き場（★・フォルダ・畳み）は**配線を通さず、直に見に行く**
+  //（2026-08-04。往復していた34個を state/libraryContext へ寄せた）
+  const {
+    accSec, importSeInto, setOrgMenu
+  } = useLibraryCtx()
   const { cues } = useDoc()
   const { selectedMediaIds, setSelectedMediaIds } = useSel()
   const { videoPath, mediaItems } = useMediaCtx()

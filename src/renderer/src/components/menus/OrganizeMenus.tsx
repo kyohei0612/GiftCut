@@ -6,6 +6,7 @@
 // ## 押したら必ず閉じる
 //
 // 閉じ忘れると、次にどこかを押したとき「まだ開いている品書き」に取られる。
+import { useLibraryCtx } from '../../state/libraryContext'
 import type { JSX } from 'react'
 import { ContextMenu } from '../ContextMenu'
 import { useMenus } from '../../state/menusContext'
@@ -13,9 +14,13 @@ import { useMenus } from '../../state/menusContext'
 export function OrganizeMenus(): JSX.Element {
   // **受け取らず、心臓から自分で見に行く**（区画と同じ流儀）
   const {
-    tplMenu, setTplMenu, orgMenu, setOrgMenu, clampMenu, allCats, customCats, setTplCat,
-    isFav, toggleFav
+    tplMenu, setTplMenu, clampMenu, customCats
   } = useMenus()
+  // 置き場（★・フォルダ・畳み）は**配線を通さず、直に見に行く**
+  //（2026-08-04。往復していた34個を state/libraryContext へ寄せた）
+  const {
+    orgMenu, setOrgMenu, allCats, setTplCat, isFav, toggleFav
+  } = useLibraryCtx()
   return (
     <>
       {/* テロップカード: フォルダ（カテゴリ）へ移動 */}
