@@ -16,6 +16,9 @@
 //
 // 覆い固有の物は state/dialogsContext。**props で配ると70個近くになる。**
 
+import { useSubtitlePrefsCtx } from '../../state/subtitlePrefsContext'
+import { useShortcutPrefsCtx } from '../../state/shortcutPrefsContext'
+import { useAppChromeCtx } from '../../state/appChromeContext'
 import { toGcUrl } from '../../lib/gcUrl'
 import { lazy, Suspense, type JSX } from 'react'
 
@@ -48,18 +51,21 @@ import { useDialogs } from '../../state/dialogsContext'
 
 export function AppDialogs(): JSX.Element {
 const {
-    silenceCut, perfStopped, templatePicker, setTemplatePicker, cropSrc, setShowExportDialog,
+    silenceCut, templatePicker, setTemplatePicker, cropSrc, setShowExportDialog,
     exportStatus, restorePrompt, setRestorePrompt, silenceCuts, findSilences, shortcuts,
-    capturingId, setCapturingId, setCropSrc, promptState, setPromptState, confirmState,
+    capturingId, setCropSrc, promptState, setPromptState, confirmState,
     showExportDialog, fpsLabel, srcFpsForExport, exportProject, exportPct, setExportStatus,
-    applyProjectData, subtitleOpen, subModel, subtitleState, subMaxChars, setSubMaxChars,
-    saveLS, subReplace, setSubReplace, runSubtitles, setSubtitleOpen, pickTemplate,
+    applyProjectData, subMaxChars,
+    saveLS, subReplace, runSubtitles, setSubtitleOpen, pickTemplate,
     silenceOpen, setSilenceCut, applySilenceCut, setSilenceOpen, duckOpen, duckOpts,
-    setDuckOpts, duckEnv, setDuckOpen, seRefCb, prefsOpen, resetShortcuts,
-    setPrefsOpen, setIconForColor, setIconForLane, perfOpen, setPerfOpen, setPerfStopped,
+    setDuckOpts, duckEnv, setDuckOpen, seRefCb, prefsOpen,
+ setIconForColor, setIconForLane, setPerfOpen,
     toasts, closeConfirm
     , iconAssign, laneIconAssign, iconLibrary
   } = useDialogs()
+  const { perfStopped, perfOpen, setPerfStopped } = useAppChromeCtx()
+  const { setCapturingId, resetShortcuts, setPrefsOpen } = useShortcutPrefsCtx()
+  const { subtitleOpen, subModel, subtitleState, setSubMaxChars, setSubReplace } = useSubtitlePrefsCtx()
   const { cues, segments, seClips } = useDoc()
   const { tracks } = useTracksCtx()
   const { currentTime } = usePlaybackCtx()

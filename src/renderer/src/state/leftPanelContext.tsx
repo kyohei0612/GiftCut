@@ -10,9 +10,10 @@
 // 取り残されていた。**4つの区画で受け渡し方が揃っていない**と、次に触る人が
 // 「ここはどっちの流儀か」を毎回確かめることになる。
 import { createContext, useContext } from 'react'
-import type { LeftPanelProps } from '../components/LeftPanel'
+// **部品の props 型に別名付けしない**（shared/ctxTypes.test.ts の R4）
+import type { Wired } from './wiredValue'
 
-export type LeftPanelValue = LeftPanelProps
+export type LeftPanelValue = Wired<'leftPanel'>
 
 const Ctx = createContext<LeftPanelValue | null>(null)
 

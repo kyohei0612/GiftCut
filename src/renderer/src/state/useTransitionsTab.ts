@@ -12,6 +12,7 @@
 //
 // ※ 揃えるのをやめると、画面側に「動画のときは…テロップのときは…」が生えて、
 //   片方だけ直す事故が起きる（このリポジトリで一番多い型）。
+import { useBandDragCtx } from './bandDragContext'
 import { useLibraryCtx } from './libraryContext'
 import { EMPTY_DRAG_IMG, setDragChip } from '../lib/dragChip'
 import { TRANS_TYPES, type TransType } from '../lib/transitions'
@@ -24,11 +25,12 @@ import { useProjectStateCtx } from './projectStateContext'
 
 export function useTransitionsTab() {
   const {
-    rightBodyRef, TELOP_MOTIONS, draggingTransRef, setTransDrop, draggingTelopAnimRef,
-    setTelopDrop, toggleTelopEmphasis, draggingEmphasisRef, applyMotionPreset,
+    rightBodyRef, TELOP_MOTIONS, draggingTransRef, draggingTelopAnimRef,
+ toggleTelopEmphasis, applyMotionPreset,
     setSelectedTransType, updateSelectedTransDur, deleteSelectedTrans, setTelopTransType,
     updateTelopTransDur, deleteSelectedTelopTrans
   } = useRightPanel()
+  const { setTransDrop, setTelopDrop, draggingEmphasisRef } = useBandDragCtx()
   // 置き場（★・フォルダ・畳み）は**配線を通さず、直に見に行く**
   //（2026-08-04。往復していた34個を state/libraryContext へ寄せた）
   const {

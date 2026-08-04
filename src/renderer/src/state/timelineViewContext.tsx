@@ -53,11 +53,6 @@ export interface TimelineView {
   setHoverX: W['setHoverX']
   /** 印を出し直す間隔を頭打ちにするための記録（秒60回で足りる） */
   lastHoverPaintRef: W['lastHoverPaintRef']
-  /** 落とそうとしている先の予告 */
-  telopDrop: W['telopDrop']
-  setTelopDrop: W['setTelopDrop']
-  transDrop: W['transDrop']
-  setTransDrop: W['setTransDrop']
 
   // ---- 測り物 ----
   /** 切片の位置（秒）。横位置はここから決まる */

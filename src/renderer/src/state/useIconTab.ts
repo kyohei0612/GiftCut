@@ -21,6 +21,7 @@
 // ※ **名前の付け替えはここでやる。** 画面側は `library` / `folders` / `moved` と
 //   自分の言葉で受けており、配線側の `iconLibrary` / `iconOv` とは別の語彙。
 //   混ぜると、どちらかの都合でもう片方の名前が変わる。
+import { useBandDragCtx } from './bandDragContext'
 import { useLibraryCtx } from './libraryContext'
 import { ICON_LIB, type IconItem } from '../components/panels/IconLibraryTab'
 import { useRightPanel } from './rightPanelContext'
@@ -29,8 +30,9 @@ import { useSel } from './selectionContext'
 
 export function useIconTab() {
   const {
-    iconLibrary, rightBodyRef, addIconImages, addIconFiles, removeIconImage, draggingIconRef
+    iconLibrary, rightBodyRef, addIconImages, addIconFiles, removeIconImage
   } = useRightPanel()
+  const { draggingIconRef } = useBandDragCtx()
   // 置き場（★・フォルダ・畳み）は**配線を通さず、直に見に行く**
   //（2026-08-04。往復していた34個を state/libraryContext へ寄せた）
   const {

@@ -15,6 +15,9 @@
 //
 // どちらも「書き出しの結果が変わる」設定なので、作業中に触る物とは離してある。
 
+import { useAppChromeCtx } from '../../state/appChromeContext'
+import { useShortcutPrefsCtx } from '../../state/shortcutPrefsContext'
+import { useLibraryCtx } from '../../state/libraryContext'
 import { useHeader } from '../../state/headerContext'
 import type { JSX } from 'react'
 import { MenuBar } from '../MenuBar'
@@ -34,12 +37,15 @@ export interface AppHeaderProps {
 export function AppHeader(): JSX.Element {
   // **受け取らず、心臓から自分で見に行く**（区画・品書きと同じ流儀）
   const {
-    updateState, setUpdateState, fileMenuOpen, setFileMenuOpen, shortcuts, appVersion,
+    shortcuts, appVersion,
     unsaved, saveProjectFn, openProjectFn, packProjectFn, openPackFn, saveAsTemplateFn,
     openTemplateFn, handleAppendVideo, handleReplaceVideo, handleImportSrt, exportSrtFn,
-    importMotionPresets, refreshSE, refreshPresets, refreshMotionPresets, setPrefsOpen,
-    setSubtitleOpen, openExportDialog, addTelop, changeRatio, projectPath
+    refreshPresets, setSubtitleOpen, openExportDialog, addTelop, changeRatio, projectPath
   } = useHeader()
+  // **配線を通さず、元の心臓を直に見に行く**（2026-08-04。npm run passthrough）
+  const { updateState, setUpdateState } = useAppChromeCtx()
+  const { fileMenuOpen, setFileMenuOpen, setPrefsOpen } = useShortcutPrefsCtx()
+  const { importMotionPresets, refreshSE, refreshMotionPresets } = useLibraryCtx()
   const { showToast } = useToastCtx()
   const { ratio, loudnormLUFS, setLoudnormLUFS } = useExportCtx()
   const { recentProjects, newTelopStyle, setNewTelopStyle } = useProjectStateCtx()

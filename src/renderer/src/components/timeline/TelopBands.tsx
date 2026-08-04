@@ -19,6 +19,7 @@
 // 帯は最低 12px で描かれるので、引いた状態で文字を出すと
 // 「ろ」「ク」のような読めない断片が並ぶだけになる。
 
+import { useBandDragCtx } from '../../state/bandDragContext'
 import { bandWidth } from '../../lib/bandGeom'
 import type { JSX } from 'react'
 import { ClipBand } from './ClipBand'
@@ -57,7 +58,7 @@ export function TelopBands({
   draggingTelopAnimRef,
   resolveTelopTransDrop,
   applyTelopTransDrop,
-  setTelopDrop,
+
   stopPlayback,
   seekTo,
   motionLabel,
@@ -93,13 +94,14 @@ export function TelopBands({
   patchCueAnim: (cueId: number, patch: Partial<TelopAnim>) => void
 }): JSX.Element {
   const { cues } = useDoc()
+  const { setTelopDrop, draggingTemplateRef, draggingIconRef, draggingEmphasisRef } = useBandDragCtx()
   const { isSelected, setSelectedIds, setEditingId, selectedTelopTrans } = useSel()
   // 見本帳・アイコンを帯へ落とすための物。**受け取らず自分で見に行く**
   //（プレビューの文字側と同じ物を使う＝落とし方が2通りにならない）
   const {
-    draggingTemplateRef,
-    draggingIconRef,
-    draggingEmphasisRef,
+
+
+
     applyTemplateToCue,
     applyIconToCue
   } = usePreviewCtx()

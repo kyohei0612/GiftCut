@@ -5,6 +5,7 @@
 //
 // ※ **名前の付け替えはここ。** 画面は `categories` / `openSection` と自分の言葉で受け、
 //   配線側は `allCats` / `openTplSec`。混ぜると、どちらかの都合でもう片方が変わる。
+import { useBandDragCtx } from './bandDragContext'
 import { useLibraryCtx } from './libraryContext'
 import { BUILTIN_TEMPLATES, type TelopTemplate } from '../lib/telopTemplates'
 import { useRightPanel } from './rightPanelContext'
@@ -14,8 +15,9 @@ import { useSel } from './selectionContext'
 export function useTelopTab() {
   const {
     rightBodyRef, localTemplates, openTplSec, tplSecRefs, saveCurrentAsTemplate,
-    refreshPresets, applyTemplate, deleteUserTemplate, setTplMenu, draggingTemplateRef
+    refreshPresets, applyTemplate, deleteUserTemplate, setTplMenu
   } = useRightPanel()
+  const { draggingTemplateRef } = useBandDragCtx()
   // 置き場（★・フォルダ・畳み）は**配線を通さず、直に見に行く**
   //（2026-08-04。往復していた34個を state/libraryContext へ寄せた）
   const {

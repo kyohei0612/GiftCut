@@ -93,7 +93,6 @@ export interface PreviewCtxValue {
   iconForCue: W['iconForCue']
   /** 焼き直し・持ち出しの進み具合 */
   proxyPct: W['proxyPct']
-  packPct: W['packPct']
 
   // ---- 掴む・押す ----
   /** 映像そのものを掴む（動かす・拡げる・回す） */
@@ -118,11 +117,6 @@ export interface PreviewCtxValue {
   updateCueText: W['updateCueText']
   setEditorSel: W['setEditorSel']
   clearRunsInSelection: W['clearRunsInSelection']
-  /** 落として付ける（テンプレ・アイコン） */
-  draggingTemplateRef: W['draggingTemplateRef']
-  draggingIconRef: W['draggingIconRef']
-  /** 強調（揺れ・脈打ち）を運んでいる最中。持ち物は state/useBandDrag */
-  draggingEmphasisRef: W['draggingEmphasisRef']
   applyTemplateToCue: W['applyTemplateToCue']
   applyIconToCue: W['applyIconToCue']
   /** 再生の操作 */

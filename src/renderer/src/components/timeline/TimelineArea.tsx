@@ -22,6 +22,7 @@
 // 掴む操作は state/timelineOpsContext、見え方は state/timelineViewContext。
 // **props で配ると約130個になる**ので、そちらを見に行く形にしてある。
 
+import { useBandDragCtx } from '../../state/bandDragContext'
 import type { JSX } from 'react'
 import { TimelineToolbar } from './TimelineToolbar'
 import { ZoomBar } from './ZoomBar'
@@ -74,11 +75,12 @@ export function TimelineArea(): JSX.Element {
     findSilences, setSilenceOpen, toggleSnap, selectTrack, toggleTrack, addVideoTrack,
     addAudioTrack, addBgm, resetLaneH, setTracks, askText, stopPlayback, seekTo
   } = useTimelineOps()
+  const { telopDrop, setTelopDrop, transDrop, setTransDrop } = useBandDragCtx()
   const {
     cueTrack, vcLen, mediaMeta, srcOfSeg, pairedAudioOf, trackNum, motionLabel,
     silenceCut, shortcuts, duration,
-    tool, setTool, snap, hoverX, setHoverX, lastHoverPaintRef, telopDrop, setTelopDrop,
-    transDrop, setTransDrop, segLayout, rulerTicks, padTop, padBottom, trackHOf, inView,
+    tool, setTool, snap, hoverX, setHoverX, lastHoverPaintRef,
+ segLayout, rulerTicks, padTop, padBottom, trackHOf, inView,
     scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll,
     fitTimelineZoom
   } = useTimelineView()

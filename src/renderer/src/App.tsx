@@ -31,6 +31,11 @@ import { ToasterProvider } from './state/toastContext'
 // 人に聞く物と、置き場（★・フォルダ）。**配線を通さず、使う側が直に見に行く**
 import { AskProvider } from './state/askContext'
 import { LibraryProvider } from './state/libraryContext'
+// 引数ゼロの葉。**配線を通さず、使う側が直に見に行く**（npm run passthrough）
+import { AppChromeProvider } from './state/appChromeContext'
+import { BandDragProvider } from './state/bandDragContext'
+import { SubtitlePrefsProvider } from './state/subtitlePrefsContext'
+import { ShortcutPrefsProvider } from './state/shortcutPrefsContext'
 import { IconsProvider } from './state/iconsContext'
 import { PlaybackProvider } from './state/playbackContext'
 import { ExportProvider } from './state/exportContext'
@@ -189,7 +194,15 @@ export default function App(): React.JSX.Element {
                             <DragPreviewProvider value={dragPreview}>
                               <AskProvider>
                                 <LibraryProvider>
-                                  <AppInner />
+                                  <AppChromeProvider>
+                                    <BandDragProvider>
+                                      <SubtitlePrefsProvider>
+                                        <ShortcutPrefsProvider>
+                                          <AppInner />
+                                        </ShortcutPrefsProvider>
+                                      </SubtitlePrefsProvider>
+                                    </BandDragProvider>
+                                  </AppChromeProvider>
                                 </LibraryProvider>
                               </AskProvider>
                             </DragPreviewProvider>

@@ -59,7 +59,7 @@ import { useTelopLook } from './useTelopLook'
 import { useAskCtx } from './askContext'
 import { useMarkers } from './useMarkers'
 import { useSnap } from './useSnap'
-import { useShortcutPrefs } from './useShortcutPrefs'
+import { useShortcutPrefsCtx } from './shortcutPrefsContext'
 import { useSeAudio } from './useSeAudio'
 import { useVideoEls } from './useVideoEls'
 import { useVClipEls } from './useVClipEls'
@@ -73,17 +73,15 @@ import { TELOP_MOTIONS, motionLabel, useLabelsPresets } from './useLabelsPresets
 import { useTrackGeom } from './useTrackGeom'
 import { useMainEvents } from './useMainEvents'
 import { useTimelineSpan } from './useTimelineSpan'
-import { useBandDrag } from './useBandDrag'
-import { useAppChrome } from './useAppChrome'
+import { useBandDragCtx } from './bandDragContext'
+import { useAppChromeCtx } from './appChromeContext'
 import type { Ratio } from './useExportSettings'
-import { useSubtitlePrefs } from './useSubtitlePrefs'
+import { useSubtitlePrefsCtx } from './subtitlePrefsContext'
 import { useTimelineBox } from './useTimelineBox'
 import { useTemplateShelf } from './useTemplateShelf'
 import { useSegLayout } from './useSegLayout'
 import { kindOf, useSegOps } from './useSegOps'
 import { useNowShowing } from './useNowShowing'
-import { type LeftPanelValue } from './leftPanelContext'
-import { type HeaderValue } from './headerContext'
 import { useTimelineWheel } from './useTimelineWheel'
 import { audioLaneFor } from '../../../shared/lanes'
 import { useDismissOnOutside } from './useDismissOnOutside'
@@ -240,14 +238,14 @@ export function useAppWiring() {
   // state/useAppChrome。**保存しない物**をまとめてある
   const {
     menu, setMenu, clipMenu, setClipMenu, idCounter, tool, setTool, snap, toggleSnap,
-    perfOpen, setPerfOpen, perfStopped, setPerfStopped, packPct, setPackPct, packBusyRef,
-    updateState, setUpdateState, proxyForPathRef, initializedForPathRef, appVersion
-  } = useAppChrome()
+ setPerfOpen, setPackPct, packBusyRef,
+ setUpdateState, proxyForPathRef, initializedForPathRef, appVersion
+  } = useAppChromeCtx()
   // 字幕づくりの設定と進み具合は state/useSubtitlePrefs
   const {
-    subtitleOpen, setSubtitleOpen, subtitleState, setSubtitleState,
-    subMaxChars, setSubMaxChars, subReplace, setSubReplace, subModel
-  } = useSubtitlePrefs()
+ setSubtitleOpen, setSubtitleState,
+    subMaxChars, subReplace
+  } = useSubtitlePrefsCtx()
 
   // ---- 編集状態 ----
   // 比率を変更する。テロップの箱(box)と文字サイズは「フレーム高さ1080基準の絶対値」なので、
@@ -387,9 +385,9 @@ export function useAppWiring() {
   // 帯になる物（つなぎ目の演出・テロップの出入り・見本・色）を運んでいる最中の
   // 持ち物は state/useBandDrag（ref と state に分ける理由も中にある）
   const {
-    draggingIconRef, draggingTransRef, transDrop, setTransDrop,
-    draggingTelopAnimRef, telopDrop, setTelopDrop, draggingTemplateRef, draggingEmphasisRef
-  } = useBandDrag()
+ draggingTransRef,
+    draggingTelopAnimRef
+  } = useBandDragCtx()
 
   // ---- アイコン画像ライブラリ（単純な画像置き場。追加時にクロップ）----
   const [iconLibrary, setIconLibrary] = useState<IconItem[]>(loadIconLibrary)
@@ -406,14 +404,9 @@ export function useAppWiring() {
   // キーの割り当てと、環境設定・ファイルメニューの開け閉めは state/useShortcutPrefs
   const {
     shortcuts,
-    resetShortcuts,
     prefsOpen,
-    setPrefsOpen,
-    fileMenuOpen,
-    setFileMenuOpen,
     capturingId,
-    setCapturingId
-  } = useShortcutPrefs()
+  } = useShortcutPrefsCtx()
 
   // タイムラインの箱への参照と、追従（縦は「ついていく側3つ」、横は revealPlayhead）は
   // state/useTimelineBox
@@ -1118,7 +1111,6 @@ export function useAppWiring() {
     silenceCut, shortcuts, duration,
     tool, setTool, snap,
     hoverX, setHoverX, lastHoverPaintRef,
-    telopDrop, setTelopDrop, transDrop, setTransDrop,
     segLayout, rulerTicks, padTop, padBottom, trackHOf, inView,
     scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll,
     fitTimelineZoom
@@ -1134,13 +1126,13 @@ export function useAppWiring() {
     previewSources, previewUrl, monitorAspect,
     xfPreview, xfBStyle, xfNextBUrl, xfDipOverlay, transOverlay, videoMainStyle,
     curAdjustCss, curBlank, v1Hidden, videoTLen, activeCues, windowVClips,
-    vcRefCb, clipXform, vcLen, iconForCue, proxyPct, packPct,
+    vcRefCb, clipXform, vcLen, iconForCue, proxyPct,
     onVideoReframeStart, onVideoRotateStart, resetVideoZoom, resetCount,
     zoomAnchor, toggleZoomAnchor, onZoomAnchorStart,
     resetSelectedTelops, telopResetCount,
     selectPreviewOverlay, reframeTarget, onTelopPointerDown, onTelopResizeStart,
     editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
-    draggingTemplateRef, draggingIconRef, draggingEmphasisRef, applyTemplateToCue, applyIconToCue,
+ applyTemplateToCue, applyIconToCue,
     togglePlay, skipSec, stepFrame, jumpMarker, addMarkerAtPlayhead, captureScreenshot,
     seekAndReveal, handleVideoEnded, startFader, setTrackVolume, setMasterVolume,
     transportInfo
@@ -1148,7 +1140,7 @@ export function useAppWiring() {
 
   // 右パネルまわり。中身は state/rightPanelContext.tsx
   // 左パネルが要る物（右・プレビュー・タイムラインと同じ流儀）
-  const leftPanel: LeftPanelValue = {
+  const leftPanel = {
     alignTelop, applyTemplate, changeIconAuto, clearClipMotions, currentTime,
     motionSelRef, motionRowsRef, nudgeClips, pairedAudioOf, panelStyleFor, reframeTarget, resetClipChannel,
     resetCount, savePreset, seekTo, setBoxAnchor, setPersonIconForSelected,
@@ -1158,14 +1150,13 @@ export function useAppWiring() {
 
   const rightPanel = {
     PANE_LABEL, orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow,
-    setTplMenu, rightTab, setTransDrop, draggingTransRef, draggingTelopAnimRef,
+    setTplMenu, rightTab, draggingTransRef, draggingTelopAnimRef,
     // 動きの見本を当てるのは state/useMotion（置き場そのものは state/libraryContext）
     applyMotionPreset,
-    setTelopDrop, toggleTelopEmphasis,
+ toggleTelopEmphasis,
  rightBodyRef, addMediaAtPlayhead, srtPath,
     labelGroups, removeMedia, beginMediaDrag, draggingMediaRef, localTemplates,
     // 掴んで運ぶ物は並べて置く（見本帳・アイコン・強調。落とし先は帯と文字の上）
-    draggingTemplateRef, draggingIconRef, draggingEmphasisRef,
  TELOP_MOTIONS, addFilesToProject, addFolderToProject, handleImportSrt,
     loadVideo, selectByLabel, genThumbFor, prepareMediaMeta, openTplSec,
     tplSecRefs, saveCurrentAsTemplate, refreshPresets,
@@ -1178,11 +1169,11 @@ export function useAppWiring() {
   // 覆い（ダイアログ）まわり。中身は state/dialogsContext.tsx
   // 右クリックの品書きが要る物（区画と同じ流儀で心臓へ）
   // 画面のいちばん上が要る物（区画・品書きと同じ流儀で心臓へ）
-  const header: HeaderValue = {
-    updateState, setUpdateState, fileMenuOpen, setFileMenuOpen, shortcuts, appVersion, unsaved,
+  const header = {
+ setUpdateState, shortcuts, appVersion, unsaved,
     saveProjectFn, openProjectFn, packProjectFn, openPackFn, saveAsTemplateFn, openTemplateFn,
     handleAppendVideo, handleReplaceVideo, handleImportSrt, exportSrtFn,
- refreshPresets, setPrefsOpen, setSubtitleOpen,
+ refreshPresets, setSubtitleOpen,
     openExportDialog, addTelop, changeRatio, projectPath
   }
 
@@ -1198,15 +1189,15 @@ export function useAppWiring() {
   }
 
   const dialogs = {
-    silenceCut, perfStopped, templatePicker, setTemplatePicker, cropSrc, setShowExportDialog,
+    silenceCut, templatePicker, setTemplatePicker, cropSrc, setShowExportDialog,
     exportStatus, restorePrompt, setRestorePrompt, silenceCuts, findSilences, shortcuts,
-    capturingId, setCapturingId, setCropSrc, promptState, setPromptState, confirmState,
+    capturingId, setCropSrc, promptState, setPromptState, confirmState,
     showExportDialog, fpsLabel, srcFpsForExport, exportProject, exportPct, setExportStatus,
-    applyProjectData, subtitleOpen, subModel, subtitleState, subMaxChars, setSubMaxChars,
-    saveLS, subReplace, setSubReplace, runSubtitles, setSubtitleOpen, pickTemplate,
+    applyProjectData, subMaxChars,
+    saveLS, subReplace, runSubtitles, setSubtitleOpen, pickTemplate,
     silenceOpen, setSilenceCut, applySilenceCut, setSilenceOpen, duckOpen, duckOpts,
-    setDuckOpts, duckEnv, setDuckOpen, seRefCb, prefsOpen, resetShortcuts,
-    setPrefsOpen, setIconForColor, setIconForLane, perfOpen, setPerfOpen, setPerfStopped,
+    setDuckOpts, duckEnv, setDuckOpen, seRefCb, prefsOpen,
+ setIconForColor, setIconForLane, setPerfOpen,
     toasts, closeConfirm, iconAssign, laneIconAssign, iconLibrary
   }
 

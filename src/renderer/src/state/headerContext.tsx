@@ -3,9 +3,12 @@
 // メニューバーは「ファイル」「編集」…の中身をすべて呼ぶので、素直に渡すと
 // 24個の受け渡しが App の JSX に並ぶ。区画・品書きと同じ流儀に揃えてある。
 import { createContext, useContext } from 'react'
-import type { AppHeaderProps } from '../components/panels/AppHeader'
+// **部品の props 型に別名付けしない。** あちらの `[k: string]: any` が
+// そのまま抜け道になり、束から名前を外しても型検査が1件も出なかった
+//（2026-08-04。決まりは shared/ctxTypes.test.ts の R4）
+import type { Wired } from './wiredValue'
 
-export type HeaderValue = AppHeaderProps
+export type HeaderValue = Wired<'header'>
 
 const Ctx = createContext<HeaderValue | null>(null)
 

@@ -21,6 +21,8 @@
 //
 // プレビュー固有の物は state/previewContext。**props で配ると100個を超える。**
 
+import { useBandDragCtx } from '../../state/bandDragContext'
+import { useAppChromeCtx } from '../../state/appChromeContext'
 import { useState, type JSX } from 'react'
 import { PanelTabs } from '../PanelTabs'
 import { AudioMixer, PreviewScrub, TransportBar } from './PreviewBars'
@@ -62,17 +64,19 @@ export function PreviewArea(): JSX.Element {
     previewSources, previewUrl, monitorAspect, xfPreview, xfBStyle, xfNextBUrl,
     xfDipOverlay, transOverlay, videoMainStyle, curAdjustCss, curBlank, v1Hidden,
     videoTLen, activeCues, windowVClips, vcRefCb, clipXform, vcLen, iconForCue,
-    proxyPct, packPct, onVideoReframeStart, onVideoRotateStart, resetVideoZoom,
+    proxyPct, onVideoReframeStart, onVideoRotateStart, resetVideoZoom,
     zoomAnchor, toggleZoomAnchor, onZoomAnchorStart,
     resetSelectedTelops, telopResetCount,
     resetCount, selectPreviewOverlay, reframeTarget, onTelopPointerDown,
     onTelopResizeStart, editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
-    draggingTemplateRef, draggingIconRef, draggingEmphasisRef,
+
     applyTemplateToCue, applyIconToCue,
     togglePlay, skipSec, stepFrame, jumpMarker, addMarkerAtPlayhead, captureScreenshot,
     seekAndReveal, handleVideoEnded, startFader, setTrackVolume, setMasterVolume,
     transportInfo
   } = usePreviewCtx()
+  const { packPct } = useAppChromeCtx()
+  const { draggingTemplateRef, draggingIconRef, draggingEmphasisRef } = useBandDragCtx()
   const { cues, setSegments } = useDoc()
   // 強調を文字の上へ落としたときの当て先。**timelineOps に既にある物を使う**
   //（preview 側へ配り直すと、同じ物が2つの束に載る）

@@ -204,7 +204,27 @@ for (const [owner, names] of [...byOwner.entries()].sort((a, b) => b[1].length -
   console.log(`         ${names.join(' ')}`)
 }
 
-console.log(`\n\x1b[1m③ ここで実際に使っている\x1b[0m（残る）: ${kept.length} 個`)
+// ---- ③ いま上げられるフック（引数ゼロ＝**葉**。囲いへ上げるのに何も要らない）
+const leaves = new Map() // hook -> 名前の数
+for (const st of fn.body.statements) {
+  if (!ts.isVariableStatement(st)) continue
+  for (const d of st.declarationList.declarations) {
+    if (!d.initializer || !ts.isObjectBindingPattern(d.name)) continue
+    if (!ts.isCallExpression(d.initializer) || !ts.isIdentifier(d.initializer.expression)) continue
+    const name = d.initializer.expression.text
+    if (!/^use[A-Z]/.test(name) || isCtxCall(d.initializer)) continue
+    if (d.initializer.arguments.length !== 0) continue // 引数があるなら、まだ上げられない
+    leaves.set(name, d.name.elements.length)
+  }
+}
+if (leaves.size) {
+  console.log(`\n\x1b[1m③ いま囲いへ上げられるフック\x1b[0m（引数ゼロ＝何も要らない）: ${leaves.size} 本`)
+  console.log('   → 上げれば、その名前は配線を1つも通らなくなる\n')
+  for (const [h, n] of [...leaves.entries()].sort((a, b) => b[1] - a[1]))
+    console.log(`  ${String(n).padStart(3)} 個  ${h}`)
+}
+
+console.log(`\n\x1b[1m④ ここで実際に使っている\x1b[0m（残る）: ${kept.length} 個`)
 console.log(`  ${kept.join(' ')}\n`)
 console.log('**①→②の順に、数の大きいフックから片付ける。** 1本ごとに配線が縮む。')
 console.log('一度に全部やらないこと（`引き継ぎ-心臓の分け直し.md`）。')

@@ -26,6 +26,17 @@
 //     （**名前がズレた物も赤**。別のキーの型を当てて辻褄を合わせられると意味が無い）
 // R3  `useAppWiring` は、引かれている側の const に型注釈を付け直さない
 //     （付けると「型を引く先が自分」になって輪になり、型が消える）
+// R4  受け口を**部品の props 型に別名付けしない**（`= XxxProps`）
+//
+// ## R4 は 2026-08-04 に実際に踏んで足した
+//
+// `headerContext.tsx` は `export type HeaderValue = AppHeaderProps` で、その
+// `AppHeaderProps` は `{ [k: string]: any }` だった。**R1 は `state/` しか見ないので
+// 素通りしていた**——`any` が1ファイル隣に置いてあるだけで抜けられる。
+//
+// 配線から名前を6個外したとき、**型検査は1件も出ず、画面で `undefined` になった**
+//（ファイルメニューが開かない）。捕まえたのは `App.behavior.test.tsx` の方。
+// **受け口の型は必ず `Wired<'キー'>` で実体から引くこと。**
 //
 // なぜ手で341件書かずに引くのか・どう腐らないかは `state/wiredValue.ts`。
 import { readFileSync, readdirSync } from 'node:fs'
@@ -103,5 +114,23 @@ describe('心臓の受け口', () => {
     })
     expect(bad, `注釈を外すこと。付けると「引く先が自分」になって型が消える:\n${bad.join('\n')}`)
       .toEqual([])
+  })
+})
+
+describe('受け口を props 型へ逃がしていない（R4）', () => {
+  it('**受け口の型を部品の props に別名付けしない**（`any` の抜け道になる）', () => {
+    const bad: string[] = []
+    for (const f of contextFiles()) {
+      const src = readFileSync(join(STATE, f), 'utf8')
+      for (const m of src.matchAll(/^export type (\w+Value) = (\w+Props)\s*$/gm))
+        bad.push(`${f}  ${m[1]} = ${m[2]}`)
+    }
+    expect(
+      bad,
+      '受け口を部品の props 型に別名付けしている。**`any` が1ファイル隣にあるだけで\n' +
+        'R1 を素通りする**（2026-08-04 に実際に踏んだ。画面が undefined になった）。\n' +
+        "`type W = Wired<'キー'>` で実体から引くこと:\n" +
+        bad.join('\n')
+    ).toEqual([])
   })
 })
