@@ -17,8 +17,13 @@
 export async function runExportChecks(ctx) {
   const {
     say, done, fmt, mb, MINUTES, totalSec, nowSec,
-    page, sh, join, existsSync, statSync, meanVolume, silentSec, brightness
+    page, sh, join, existsSync, statSync, meanVolume, silentSec, brightness,
+    // 焼く先と、1コマ抜いた絵を置く所。**本体から出したときに受け取り忘れていて、
+    // 焼き終わった直後に ReferenceError で落ちていた**（2026-08-04）。
+    // 何分も焼いた後に落ちるので、いちばん損害の大きい抜け方をする
+    exportPath, SHOTS
   } = ctx
+  if (!exportPath || !SHOTS) throw new Error('焼く先（exportPath / SHOTS）が渡っていない')
     await say('耳', `${MINUTES}分ぶんを書き出す`, '完走するか・音が抜けないかを見る')
     const t0 = nowSec()
     await page.keyboard.press('Control+m')

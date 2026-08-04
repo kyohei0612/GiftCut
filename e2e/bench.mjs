@@ -430,7 +430,10 @@ try {
   if (DO_EXPORT) {
     await runExportChecks({
       say, done, fmt, mb, MINUTES, totalSec, nowSec,
-      page, sh, join, existsSync, statSync, meanVolume, silentSec, brightness
+      page, sh, join, existsSync, statSync, meanVolume, silentSec, brightness,
+      // **この2つを渡し忘れると、焼き終わった直後に ReferenceError で落ちる。**
+      // 2026-08-04 の分割で実際に落ちていた（何分も焼いた後なので損害が大きい）
+      exportPath, SHOTS
     })
   }
 

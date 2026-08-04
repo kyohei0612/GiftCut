@@ -16,8 +16,9 @@ import { trackGainForExport } from '../../../shared/trackGain'
 import { envToFfmpegExpr } from '../../../shared/ducking'
 import { buildSrt } from '../lib/srt'
 import { hasAnim, hasMotion, telopStateAt } from '../lib/telopStyle'
-// ※ `renderCueToPngBox`（切り詰め）は**まだ通していない**。理由は下の ★ を読むこと
-import { renderCueToPng } from '../lib/rasterize'
+// 静止テロップは `renderCueToPngBox`（中身の所だけ切り詰める）。
+// 動きのある物は連番でまとめる都合で大きさを揃える必要があるので `renderCueToPng`（全画面）
+import { renderCueToPng, renderCueToPngBox } from '../lib/rasterize'
 import { animBreakpoints } from '../lib/telopAnimSteps'
 import type { VSeg } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
@@ -201,23 +202,21 @@ export function useExport(deps: UseExportDeps) {
         const asc = avatar ? iconScale : 1
         const dur = c.end - c.start
         if (!hasAnim(c.style.anim) && !hasMotion(c.motion)) {
-          // ★ 切り詰め（`renderCueToPngBox`）は**まだ通していない。**
+          // **中身のある所だけ切り出して渡す。** 全画面のまま重ねると、
+          // ffmpeg は透明な所まで毎コマ合成する。1080p・テロップ100枚の実測:
           //
-          // 全画面のまま重ねると ffmpeg が透明な所まで毎コマ合成するので、
-          // 孤立した実験では速くなった（100枚で 7.8秒 → 4.0秒）。だが
-          // **2026-08-04 に通そうとして、2つとも確かめられなかった**:
+          //   全画面・yuv420 で重ねる  3,668ms  ← 2026-08-04 まで
+          //   全画面・rgb で重ねる     3,019ms
+          //   切詰め・rgb で重ねる     1,288ms  ← **2.85倍**
           //
-          //   速さ  実際の書き出しで 71秒 と 126.8秒（**同じコード**）。
-          //         ばらつきが大きすぎて、速くなったと言えない
-          //   絵    切り詰めありと無しで **PSNR 43.8dB**。同じコードを2回
-          //         走らせると inf（完全一致）なので、**これは本物の差**。
-          //         位置はズレていない（差はテロップの場所だけ・1〜4/255）が、
-          //         **理由が説明できていない**
+          // **切り詰めが成り立つ条件は「rgb で重ねること」**（`main/exportOverlays`）。
+          // 既定の yuv420 は重ねる絵の色差を 2x2 に間引くので、間引きの網が
+          // 絵の大きさで変わり、切り詰めありと無しが一致しない（実測 36.9dB）。
+          // rgb にすると **PSNR inf＝1画素も変わらない**。
           //
-          // **得が確認できていないのに、書き出す絵を変えるものは通さない。**
-          // 道具（`lib/opaqueBounds` と試験7件、`renderCueToPngBox`、
-          // payload の x/y）は残してあるので、上の2つが片付いたら差し替えるだけ。
-          const png = await renderCueToPng(
+          // 枠が出せない（1画素も描かれていない）ときは null が返る。
+          // そのときは重ねる物が無いので、この cue を飛ばす。
+          const box = await renderCueToPngBox(
             c,
             size.width,
             size.height,
@@ -229,7 +228,7 @@ export function useExport(deps: UseExportDeps) {
             iconOffset.y,
             iconAuto
           )
-          frames.push({ png, start: c.start, end: c.end })
+          if (box) frames.push({ png: box.png, start: c.start, end: c.end, x: box.x, y: box.y })
         } else {
           // アニメあり: 変化する区間を時間分割し、各瞬間のPNGを短い区間で並べる。
           //

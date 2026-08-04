@@ -16,6 +16,25 @@
 // 「次に積む先のラベル」を返す**——`filter` を外から書き換える形にすると、
 // どこで何段積まれたのかが読めなくなる。
 //
+// ## 重ねるのは **rgb**（`BLEND`）。全部の段でそろえること
+//
+// `overlay` は既定で `format=yuv420`＝**重ねる絵の色差を 2x2 に間引いてから混ぜる**。
+// これはプレビュー（canvas）の計算と違う。2026-08-04 に手で確かめた値:
+//
+//   下地 青(0,0,255) に 赤(255,0,0) を透明度50%で重ねる。canvas と同じなら 128,0,127
+//     yuv420 で重ねる … 122, 1,126   ← 赤が 6 ずれる
+//     rgb    で重ねる … 127, 0,127   ← 一致（丸めぶん）
+//
+// 間引きは**テロップPNGの切り詰めも塞いでいた**。網の位置が絵の大きさで変わるうえ、
+// swscale は 2x2 の外まで見るので、偶数に揃えても一致しない（実測 41.4dB）。
+// `format=rgb` にすると切り詰めありと無しが **完全一致（PSNR inf）**になる。
+//
+// 速さも rgb の方が上（1080p・テロップ100枚で 3,668ms → 3,019ms。段ごとの
+// RGBA→YUV 変換が消えるため）。切り詰めと合わせて **2.85倍**。
+//
+// **段ごとに変えてはいけない。** 混ぜる色空間が違う段が並ぶと、その境目で
+// ffmpeg が rgb ⇄ yuv の変換を毎回挟む（段の数だけ往復する）。だから `BLEND` は1つ。
+//
 // ## 中身
 //
 // - `OverlayCtx` … 全部の段で同じ値（食い違うと段ごとに絵がずれる）
@@ -33,6 +52,16 @@ import { colorAdjustFilter } from '../shared/colorAdjust'
 import { vcLen } from '../shared/timeline'
 import { cropFilter, needsEq, opacityFilter } from './exportFilters'
 import type { ExportFrame, ExportImageClip, ExportTelopSeq, ExportVClip } from './exportTypes'
+
+/**
+ * 重ねるときの色空間。**全部の段でこれを使う**（理由は冒頭の「重ねるのは rgb」）。
+ *
+ * 付け忘れると既定の yuv420 に落ちて、
+ *   ① プレビューと絵が食い違う ② テロップの切り詰めが一致しなくなる
+ *   ③ その段だけ色空間が違うので、境目で rgb ⇄ yuv の変換が挟まって遅くなる
+ * `src/main/exportOverlays.test.ts` が「全部の overlay に付いているか」を見ている。
+ */
+const BLEND = ':format=rgb'
 
 /** 重ねる段が共通で要る物。**この4つは全部の段で同じ値**（食い違うと段ごとに絵がずれる） */
 export interface OverlayCtx {
@@ -126,7 +155,7 @@ export function overlayVideoClips(
     }
     const out = `[vcb${k}]`
     const endT = vEndT - 0.5 / outFps > vc.tStart ? vEndT - 0.5 / outFps : vEndT
-    filter += `${last}[vcv${k}]overlay=0:0:eof_action=pass:enable=between(t\\,${vc.tStart.toFixed(3)}\\,${endT.toFixed(3)})${out};`
+    filter += `${last}[vcv${k}]overlay=0:0${BLEND}:eof_action=pass:enable=between(t\\,${vc.tStart.toFixed(3)}\\,${endT.toFixed(3)})${out};`
     last = out
   })
   return { filter, last }
@@ -202,7 +231,7 @@ export function overlayImages(
     // テロップと同じ半開区間。隣接する画像が境界で二重に重ならず、
     // 「半フレーム詰めた隙間に出力フレームが落ちて1枚抜ける」も起きない。
     const iEnd = im.tStart + Math.max(0.05, im.duration)
-    filter += `${last}[img${k}]overlay=0:0:enable=${overlayEnableExpr(im.tStart, iEnd)}${out};`
+    filter += `${last}[img${k}]overlay=0:0${BLEND}:enable=${overlayEnableExpr(im.tStart, iEnd)}${out};`
     last = out
   })
   return { filter, last }
@@ -234,7 +263,7 @@ export function overlayTelopSeqs(
     // **1枚が2コマぶん居座る／足りない**が起きる。
     filter += `${useV(seqInput[k])}fps=${outFps},setpts=PTS+${sq.start.toFixed(3)}/TB${lb};`
     const out = `[qo${k}]`
-    filter += `${last}${lb}overlay=0:0:enable=${overlayEnableExpr(sq.start, sq.end)}${out};`
+    filter += `${last}${lb}overlay=0:0${BLEND}:enable=${overlayEnableExpr(sq.start, sq.end)}${out};`
     last = out
   })
   return { filter, last }
@@ -267,7 +296,7 @@ export function overlayTelopFrames(
     // 省略されていれば 0:0＝全画面PNG。経緯は ./exportTypes の ExportFrame。
     filter +=
       `${last}${useV(pngInput[i])}` +
-      `overlay=${f.x ?? 0}:${f.y ?? 0}:enable=${overlayEnableExpr(f.start, f.end)}${out};`
+      `overlay=${f.x ?? 0}:${f.y ?? 0}${BLEND}:enable=${overlayEnableExpr(f.start, f.end)}${out};`
     last = out
   })
   return { filter, last }
