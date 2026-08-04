@@ -24,17 +24,26 @@
 // 画面を起動せずに確かめられるように分けてある。こちらの仕事は
 // 「選んでいる物を集めて、鍵を見て、呼ぶ」まで。
 //
-// ## なぜ 896 行のままなのか（2026-08-03 に測った）
+// ## 割れないと書いてあったが、**測ったら割れた**（2026-08-04）
 //
-// 話題は1つ（縮める側の操作）で、**切り口を探したが見つからなかった**:
+// 2026-08-03 の時点でここには「切り口を探したが見つからなかった」と書いてあった。
+// **目で探しただけで、測っていなかった。** 記号解決で測り直したら、話題ごとの群は
+// どれも目安（40）のはるか下だった:
 //
-//   `mapContentTimes`（5種類まとめて時刻を付け替える）が**群をまたいで
-//   使われている**——無音カット・映像切片の削除・カットまで詰める・
-//   再生ヘッドで切る、の4か所。ここが心臓なので、どこで切っても導管になる。
+//   空白を詰める    受け取る 2 ／ 返す 0   ← **2026-08-04 に出した**（state/useGapClose）
+//   無音カット      受け取る 3 ／ 返す 1
+//   本編の切片      受け取る 7 ／ 返す 1
+//   消す・複製      受け取る 7 ／ 返す 1
+//   詰める心臓      受け取る12 ／ 返す 1
 //
-// だから割らずに、下の**取説**を付けた（`shared/readability.test.ts` が
-// 名前を照合するので、引っ越して説明だけ残すことはできない）。
-// **割るなら `mapContentTimes` の置き場を先に決めること。**
+// ※ **測り方に穴が3つある。** 名前ではなく**宣言の位置**で照合する／省略記法は
+//   値の方を解く／`const { … } = deps` のような**分割代入は「連れて行く物」に
+//   数えない**（両側で書けばよい。数えると、どの群も同じ数字になって嘘が出る）。
+//   道具の作り方は `引き継ぎ-心臓の分け直し.md`。
+//
+// 群どうしは**取り合っていない**（重なりは3文だけで、それも一方向の依存）:
+// `mapContentTimes`（このファイルの心臓）・`razorSegment`・`duplicateSelectedSegments`。
+// **次に出すなら、この3つの置き場を先に決めること。**
 //
 // ## 中身
 //
@@ -46,18 +55,13 @@
 // - `duplicateSelected` … テロップを複製する
 // - `razorSegment` … 切片を指定位置で2つに割る（レザー）
 // - `deleteSelectedSE` … 選んだ効果音を消す
-// - `findSilences` … 無音の区間を探す（ダッキングと無音カットの下ごしらえ）
-// - `applySilenceCut` … 見つけた無音を実際に落として詰める
 // - `rippleDeleteVideoSegments` … 本編の切片を消して後ろを詰める
 // - `toggleBlankSelectedVideo` … 映像だけ消す／戻す（音と長さは残す）
 // - `duplicateClipsFromMenu` … 右クリックからの複製（種類ごと）
 // - `duplicateSelectedSegments` … 本編の切片を複製する
 // - `setSelectedSegSpeed` … 再生速度を変える。**後ろも同量ずらして同期を保つ**
 // - `setSegRotate` … 切片の回転角を直接指定する（自由回転のつまみ用）
-// - `closeGapAtPlayhead` … 再生ヘッドの所の空白を詰める
 // - `deleteVideoSegmentsLeavingGap` … 切片を消して**空白を残す**（詰めない）
-// - `closeSelectedGaps` … 選んだ空白をまとめて詰める
-// - `closeGap` … 空白1つを詰める（上の2つの実体）
 // - `allContentEdges` … 本編に載っている物の端の時刻を全部集める
 // - `mapContentTimes` … **5種類まとめて**時刻を付け替える。**このファイルの心臓**
 // - `collapseContent` … ある区間を捨てて後ろを詰める（`mapContentTimes` を使う）
@@ -73,9 +77,12 @@ import {
 import { nextGroupId, remapGroups } from '../../../shared/group'
 import { collapseAt } from '../../../shared/ripple'
 import { shouldCut, spansCut } from '../../../shared/cutScope'
-import { totalCutLen } from '../../../shared/silenceCut'
 // 重なりの解決。**呼び方は state/cueOverwrite に1つだけ**（掴む側・貼り付けも同じ）
 import { overwriteOverlapped } from './cueOverwrite'
+// 空きを詰める側。**測って外した**（受け取る2・返す0。理由はあちらの冒頭）
+import { useGapClose } from './useGapClose'
+// 無音を探して詰める側。**測って外した**（受け取る3・返す1＝mapContentTimes は借りるだけ）
+import { useSilenceCut } from './useSilenceCut'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, SEClip, VClip, VSeg } from '../lib/projectTypes'
 import type { SegLayout } from '../lib/projectTypes'
@@ -83,7 +90,6 @@ import type { SegOps } from '../../../shared/timeline'
 import type { CutRange } from '../../../shared/silenceCut'
 import type { SilenceCutState } from '../components/dialogs/AudioDialogs'
 import { useDoc } from './contentContext'
-import { useMediaCtx } from './mediaContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
@@ -148,7 +154,15 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
   const { trackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
   const { currentTimeRef, durationRef, fpsRef } = usePlaybackCtx()
-  const { sources, videoPath } = useMediaCtx()
+
+  // 空きを詰める3つは state/useGapClose。**自分で心臓を見に行く**ので、
+  // ここから渡すのは4つだけ（測って外した。受け取る2・返す0）
+  const gap = useGapClose({ mainLocked, vcLen, shiftAfter, seekTo })
+  // 無音カットも同じ形。**心臓（mapContentTimes）は連れて行かせず、貸す**
+  const silence = useSilenceCut({
+    mainLocked, commitPending, cutRangeFromSegs, segOps,
+    silenceCut, setSilenceCut, setSilenceOpen, silenceCuts, mapContentTimes
+  })
 
   function deleteSelected(): void {
     if (!selectedIds.length) return
@@ -356,44 +370,6 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     setSelectedSeIds([])
   }
 
-  async function findSilences(): Promise<void> {
-    const path = sources[0]?.path ?? videoPath
-    if (!path) {
-      showToast('先に動画を読み込んでください。')
-      return
-    }
-    setSilenceCut((s) => ({ ...s, busy: true }))
-    const res = await window.giftcut.detectSilences(path, silenceCut.noiseDb, silenceCut.minSec)
-    setSilenceCut((s) => ({ ...s, busy: false, found: res?.ok ? (res.silences ?? []) : [] }))
-    if (!res?.ok) showToast('無音を調べられませんでした: ' + (res?.error ?? ''), 'error')
-  }
-  /** 見つけた無音を、後ろから順に詰めて削除する */
-  function applySilenceCut(): void {
-    const ranges = silenceCuts
-    if (!ranges.length) return
-    if (mainLocked()) return
-    commitPending()
-    // 後ろから消す。前から消すと、消したぶんだけ後ろの位置がずれて狙いが外れる。
-    const desc = [...ranges].sort((a, b) => b.start - a.start)
-    let segs = segsRef.current
-    for (const r of desc) segs = cutRangeFromSegs(segs, r.start, r.end).out
-    setSegments(tidyGaps(segs, segOps))
-    // 文字・効果音・画像・めじるしも一緒に詰める（映像だけ詰まると全部ずれる）
-    const shift = (t: number): number => {
-      let v = t
-      for (const r of desc) {
-        if (v >= r.end) v -= r.end - r.start
-        else if (v > r.start) v = r.start
-      }
-      return v
-    }
-    mapContentTimes(shift)
-    clearSegSel()
-    const sec = totalCutLen(ranges)
-    showToast(`${ranges.length}か所・合計 ${sec.toFixed(1)}秒 を詰めました。`, 'success')
-    setSilenceOpen(false)
-    setSilenceCut((s) => ({ ...s, found: null }))
-  }
 
   function rippleDeleteVideoSegments(): void {
     if (mainLocked()) return
@@ -550,25 +526,6 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
   }
 
   /**
-   * 再生ヘッドが「空き」の上にあるなら、その空きを詰める（本編＝V1 だけ）。
-   *
-   * クリップを動かしてできた空きは帯を描いていないので、掴んで消すことができない。
-   * 再生ヘッドを置いて Delete で閉じられるようにする。
-   *
-   * 途中にテロップ・効果音・画像・重ねた動画が入っている場合は、**その手前で止める**。
-   * 空き全部を一度に詰めると、間にあったテロップが巻き添えでずれてしまうため。
-   * どこで止めるかの判定は shared/timeline の rippleEnd（テストで固定済み）。
-   *
-   * 戻り値: 詰めたら true。空きの上でなければ false（呼び出し側は通常の削除へ）。
-   */
-  function closeGapAtPlayhead(): boolean {
-    const t = currentTimeRef.current
-    const L = layoutSegs(segsRef.current).find(
-      (x) => x.seg.gap && t >= x.tStart - 1e-6 && t < x.tEnd - 1e-6
-    )
-    return L ? closeGap(L.seg.id) : false
-  }
-  /**
    * 選んでいる本編クリップを消して、そこを「空き」として残す（詰めない）。
    *
    * 後ろのクリップもテロップも位置が動かないので、全体のタイミングを崩さずに
@@ -588,72 +545,6 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
     clearSegSel()
   }
 
-  /**
-   * 選んでいる「空き」を詰める。**空きだけを選んでいるときに限る。**
-   *
-   * クリップも一緒に選ばれているのに詰めてしまうと、Delete が
-   * 「空きを詰めただけで、クリップは何も消えない」動きになる。
-   * 実際に Ctrl+A（全部選択）→ Delete で、空きが1つでもあると
-   * 本編のクリップが消えなくなっていた。
-   */
-  function closeSelectedGaps(): boolean {
-    const ids = new Set([...selectedVideoIds, ...selectedAudioIds])
-    const picked = segsRef.current.filter((s) => ids.has(s.id))
-    const gap = picked.find((s) => s.gap)
-    if (!gap) return false
-    // 空き以外も選ばれている＝「消す」が主目的。詰める動作は取らない
-    const onlyGaps =
-      picked.every((s) => s.gap) &&
-      !selectedIds.length &&
-      !selectedSeIds.length &&
-      !selectedImgIds.length &&
-      !selectedVClipIds.length
-    if (!onlyGaps) return false
-    clearSegSel()
-    return closeGap(gap.id)
-  }
-  /** 空き1つを詰める。途中に別のクリップがあればその手前で止める。 */
-  function closeGap(segId: number): boolean {
-    if (mainLocked()) return false
-    const segs = segsRef.current
-    const L = layoutSegs(segs).find((x) => x.seg.id === segId && x.seg.gap)
-    if (!L) return false
-    // 空きの上に重なっているもの（テロップ・効果音・画像・重ねた動画）を見る。
-    // 「編集点」ではなく**区間**で見るのが要点。編集点だけだと、空きの先頭に
-    // ちょうど重なっているクリップを飛び越えて、その中身を突き抜けて詰めてしまう。
-    const spans = [
-      ...cuesRef.current.map((c) => ({ start: c.start, end: c.end })),
-      ...seClipsRef.current.map((c) => ({ start: c.tStart, end: c.tStart + c.duration })),
-      ...imgClipsRef.current.map((c) => ({ start: c.tStart, end: c.tStart + c.duration })),
-      ...vClipsRef.current.map((c) => ({ start: c.tStart, end: c.tStart + vcLen(c) }))
-    ]
-    if (spans.some((s) => s.start <= L.tStart + 1e-6 && s.end > L.tStart + 1e-6)) {
-      showToast('この空きの先頭には別のクリップが重なっています。')
-      return true
-    }
-    const nextStart = spans
-      .map((s) => s.start)
-      .filter((t) => t > L.tStart + 1e-6 && t < L.tEnd - 1e-6)
-    const to = nextStart.length ? Math.min(...nextStart) : L.tEnd
-    const len = to - L.tStart
-    if (len <= 1e-3) {
-      showToast('この空きの先頭には別のクリップが来ています。')
-      return true
-    }
-    // 空きを縮める（丸ごと無くなるなら切片ごと外す）
-    const next = segs.flatMap((s) =>
-      s.id !== L.seg.id
-        ? [s]
-        : segTLen(s) - len > 1e-3
-          ? [{ ...s, srcEnd: s.srcEnd - len }]
-          : []
-    )
-    setSegments(next)
-    shiftAfter(to, -len) // 詰めた分だけ、後ろのテロップ/SE/画像/マーカーも前へ
-    seekTo(L.tStart)
-    if (to < L.tEnd - 1e-3) showToast('次のクリップの手前まで詰めました。')
-    return true
-  }
   function allContentEdges(): number[] {
     const out: number[] = []
     for (const c of cuesRef.current) out.push(c.start, c.end)
@@ -947,12 +838,19 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
 
   return {
     deleteSelected, rippleDeleteSelected, cutSelected, duplicateSelected, razorSegment,
-    deleteSelectedSE, findSilences, applySilenceCut, rippleDeleteVideoSegments,
+    deleteSelectedSE, rippleDeleteVideoSegments,
+    // 無音カットは state/useSilenceCut へ出した（2026-08-04）
+    findSilences: silence.findSilences,
+    applySilenceCut: silence.applySilenceCut,
     toggleBlankSelectedVideo, duplicateClipsFromMenu, duplicateSelectedSegments,
-    setSelectedSegSpeed, setSegRotate, closeGapAtPlayhead, deleteVideoSegmentsLeavingGap,
-    // closeGap / allContentEdges / mapContentTimes / collapseContent は返さない。
+    setSelectedSegSpeed, setSegRotate, deleteVideoSegmentsLeavingGap,
+    // allContentEdges / mapContentTimes / collapseContent は返さない。
     // 受け取る所が無かった（この中でだけ使う。return の中は noUnusedLocals が見ない）
-    closeSelectedGaps,
+    //
+    // 空きを詰める3つ（closeGapAtPlayhead / closeSelectedGaps / closeGap）は
+    // **state/useGapClose へ出した**（2026-08-04。受け取る2・返す0で外れた）
+    closeGapAtPlayhead: gap.closeGapAtPlayhead,
+    closeSelectedGaps: gap.closeSelectedGaps,
     rippleToPrevCut, rippleToNextCut, splitVideoAtPlayhead, cutAtPlayhead
   }
 }
