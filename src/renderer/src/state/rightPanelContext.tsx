@@ -13,6 +13,28 @@
 
 import { createContext, useContext, type ReactNode } from 'react'
 import type { Wired } from './wiredValue'
+// 束の中身の取り先。**配線を通さず、ここで集める**（下の useRightPanelValue）
+import type { MediaItem } from '../components/panels/ProjectBinTab'
+import { TELOP_MOTIONS } from './useLabelsPresets'
+import { useAppChromeCtx } from './appChromeContext'
+import { useAppLayoutCtx } from './appLayoutContext'
+import { useBandDragCtx } from './bandDragContext'
+import { useDragPreviewCtx } from './dragPreviewContext'
+import { useIconLibraryCtx } from './iconLibraryContext'
+import { useLabelsPresetsCtx } from './labelsPresetsContext'
+import { useLayout } from './layoutContext'
+import { useLibraryCtx } from './libraryContext'
+import { useMediaDropCtx } from './mediaDropContext'
+import { useMediaOpsCtx } from './mediaOpsContext'
+import { useMotionCtx } from './motionContext'
+import { useProjectIOCtx } from './projectIOContext'
+import { useProjectStateCtx } from './projectStateContext'
+import { useSeAudioCtx } from './seAudioContext'
+import { useSubtitlesCtx } from './subtitlesContext'
+import { useTelopAnimCtx } from './telopAnimContext'
+import { useTelopTemplateCtx } from './telopTemplateContext'
+import { useTemplateShelfCtx } from './templateShelfContext'
+import { useTransitionsCtx } from './transitionsContext'
 
 // 型は手で書かず、詰めている実体から引く。**なぜ・どう腐らないかは state/wiredValue.ts**
 type W = Wired<'rightPanel'>
@@ -65,6 +87,52 @@ export interface RightPanelValue {
   setTelopTransType: W['setTelopTransType']
   updateTelopTransDur: W['updateTelopTransDur']
   deleteSelectedTelopTrans: W['deleteSelectedTelopTrans']
+}
+
+/**
+ * 束の**中身をここで集める**（2026-08-04）。理由は state/timelineOpsContext と同じ。
+ *
+ * `addMediaAtPlayhead` だけ配線から受ける——素材を再生ヘッドの位置へ置く糊で、
+ * 掴んで落とす道と同じ既定へ揃えるために複数の心臓をまたぐ。
+ */
+export function useRightPanelValue(deps: { addMediaAtPlayhead: (m: MediaItem) => void }) {
+  const { orderedTabs, TAB_DEFS, pickTab, setTabMenu, setTabOverflow } = useAppLayoutCtx()
+  const { setTabOrder } = useLayout()
+  const { setTplMenu, rightBodyRef, tplSecRefs } = useTemplateShelfCtx()
+  const { rightTab } = useAppChromeCtx()
+  const { draggingTransRef, draggingTelopAnimRef } = useBandDragCtx()
+  const { applyMotionPreset } = useMotionCtx()
+  const {
+    toggleTelopEmphasis, setTelopTransType, updateTelopTransDur, deleteSelectedTelopTrans
+  } = useTelopAnimCtx()
+  const { saveCurrentAsTemplate, applyTemplate, deleteUserTemplate } = useTelopTemplateCtx()
+  const { srtPath } = useProjectStateCtx()
+  const { labelGroups, selectByLabel } = useLabelsPresetsCtx()
+  const { removeMedia, beginMediaDrag, prepareMediaMeta } = useMediaDropCtx()
+  const { draggingMediaRef } = useDragPreviewCtx()
+  const { localTemplates, openTplSec, refreshPresets } = useLibraryCtx()
+  const { addFilesToProject, addFolderToProject, genThumbFor } = useProjectIOCtx()
+  const { handleImportSrt } = useSubtitlesCtx()
+  const { loadVideo } = useMediaOpsCtx()
+  const { iconLibrary, addIconImages, addIconFiles, removeIconImage } = useIconLibraryCtx()
+  const { previewSE } = useSeAudioCtx()
+  const { setSelectedTransType, updateSelectedTransDur, deleteSelectedTrans } =
+    useTransitionsCtx()
+  return {
+    orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow,
+    setTplMenu, rightTab, draggingTransRef, draggingTelopAnimRef,
+    applyMotionPreset,
+    toggleTelopEmphasis,
+    rightBodyRef, addMediaAtPlayhead: deps.addMediaAtPlayhead, srtPath,
+    labelGroups, removeMedia, beginMediaDrag, draggingMediaRef, localTemplates,
+    TELOP_MOTIONS, addFilesToProject, addFolderToProject, handleImportSrt,
+    loadVideo, selectByLabel, genThumbFor, prepareMediaMeta, openTplSec,
+    tplSecRefs, saveCurrentAsTemplate, refreshPresets,
+    applyTemplate, deleteUserTemplate, iconLibrary,
+    addIconImages, addIconFiles, removeIconImage,
+    previewSE, setSelectedTransType, updateSelectedTransDur, deleteSelectedTrans,
+    setTelopTransType, updateTelopTransDur, deleteSelectedTelopTrans
+  }
 }
 
 const Ctx = createContext<RightPanelValue | null>(null)

@@ -18,6 +18,24 @@
 
 import { createContext, useContext, type ReactNode } from 'react'
 import type { Wired } from './wiredValue'
+// 束の中身の取り先。**配線を通さず、ここで集める**（下の useDialogsValue）
+import { useAppChromeCtx } from './appChromeContext'
+import { useAskCtx } from './askContext'
+import { useAutosaveMarkCtx } from './autosaveMarkContext'
+import { useExportCtx } from './exportContext'
+import { useExportRunCtx } from './exportRunContext'
+import { useIconLibraryCtx } from './iconLibraryContext'
+import { useLibraryCtx } from './libraryContext'
+import { useProjectFileCtx } from './projectFileContext'
+import { useProjectStateCtx } from './projectStateContext'
+import { useProjectTemplatesCtx } from './projectTemplatesContext'
+import { useSeAudioCtx } from './seAudioContext'
+import { useShortcutPrefsCtx } from './shortcutPrefsContext'
+import { useSilenceDuckCtx } from './silenceDuckContext'
+import { useSubtitlePrefsCtx } from './subtitlePrefsContext'
+import { useSubtitlesCtx } from './subtitlesContext'
+import { useTimelineEditCtx } from './timelineEditContext'
+import { useToastCtx } from './toastContext'
 
 // 型は手で書かず、詰めている実体から引く。**なぜ・どう腐らないかは state/wiredValue.ts**
 type W = Wired<'dialogs'>
@@ -71,6 +89,49 @@ export interface DialogsValue {
   iconAssign: W['iconAssign']
   laneIconAssign: W['laneIconAssign']
   iconLibrary: W['iconLibrary']
+}
+
+/**
+ * 束の**中身をここで集める**（2026-08-04）。理由は state/timelineOpsContext と同じ。
+ * **糊は1つも要らなかった**——覆いかぶさる物は全部どこかの心臓が持っている。
+ */
+export function useDialogsValue() {
+  const { templatePicker, setTemplatePicker, pickTemplate } = useProjectTemplatesCtx()
+  const { cropSrc, setCropSrc, setIconForColor, setIconForLane, iconLibrary } =
+    useIconLibraryCtx()
+  const {
+    setShowExportDialog, exportStatus, showExportDialog, fpsLabel, srcFpsForExport,
+    exportPct, setExportStatus
+  } = useExportCtx()
+  const { restorePrompt, setRestorePrompt } = useAutosaveMarkCtx()
+  const {
+    silenceCut, silenceCuts, silenceOpen, setSilenceCut, setSilenceOpen,
+    duckOpen, duckOpts, setDuckOpts, duckEnv, setDuckOpen
+  } = useSilenceDuckCtx()
+  const { capturingId, prefsOpen, shortcuts } = useShortcutPrefsCtx()
+  const { promptState, setPromptState, confirmState, closeConfirm } = useAskCtx()
+  const { exportProject } = useExportRunCtx()
+  const { applyProjectData } = useProjectFileCtx()
+  const { subMaxChars, subReplace, setSubtitleOpen } = useSubtitlePrefsCtx()
+  const { saveLS } = useLibraryCtx()
+  const { runSubtitles } = useSubtitlesCtx()
+  const { applySilenceCut, findSilences } = useTimelineEditCtx()
+  const { seRefCb } = useSeAudioCtx()
+  const { setPerfOpen } = useAppChromeCtx()
+  const { toasts } = useToastCtx()
+  const { iconAssign, laneIconAssign } = useProjectStateCtx()
+  return {
+    silenceCut, templatePicker, setTemplatePicker, cropSrc, setShowExportDialog,
+    exportStatus, restorePrompt, setRestorePrompt, silenceCuts, findSilences, shortcuts,
+    capturingId, setCropSrc, promptState, setPromptState, confirmState,
+    showExportDialog, fpsLabel, srcFpsForExport, exportProject, exportPct, setExportStatus,
+    applyProjectData, subMaxChars,
+    saveLS, subReplace, runSubtitles, setSubtitleOpen, pickTemplate,
+    silenceOpen, setSilenceCut, applySilenceCut, setSilenceOpen, duckOpen, duckOpts,
+    setDuckOpts, duckEnv, setDuckOpen, seRefCb, prefsOpen,
+    setIconForColor, setIconForLane, setPerfOpen,
+    toasts, closeConfirm, iconAssign, laneIconAssign, iconLibrary
+  }
 }
 
 const Ctx = createContext<DialogsValue | null>(null)

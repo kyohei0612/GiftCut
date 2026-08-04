@@ -87,36 +87,22 @@ import { useLayout } from './layoutContext'
 import { useSel } from './selectionContext'
 import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
-import { useAskCtx } from './askContext'
-import { useShortcutPrefsCtx } from './shortcutPrefsContext'
-import { useSeAudioCtx } from './seAudioContext'
-import { useSilenceDuckCtx } from './silenceDuckContext'
 import { useCurrentLookCtx } from './currentLookContext'
 import { useWindowDrop } from './useWindowDrop'
 import { useAutosaveMarkCtx } from './autosaveMarkContext'
-import { TELOP_MOTIONS } from './useLabelsPresets'
-import { useLabelsPresetsCtx } from './labelsPresetsContext'
 import { useMainEvents } from './useMainEvents'
 import { useTimelineSpanCtx } from './timelineSpanContext'
-import { useBandDragCtx } from './bandDragContext'
 import { useAppChromeCtx } from './appChromeContext'
 import type { Ratio } from './useExportSettings'
-import { useSubtitlePrefsCtx } from './subtitlePrefsContext'
 import { useTimelineBoxCtx } from './timelineBoxContext'
-import { useTemplateShelfCtx } from './templateShelfContext'
 import { useTimelineWheel } from './useTimelineWheel'
 import { audioLaneFor } from '../../../shared/lanes'
 import { useDismissOnOutside } from './useDismissOnOutside'
 import { RECENT_KEY } from '../lib/appConst'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 import { useViewNavCtx } from './viewNavContext'
-import { useTransitionsCtx } from './transitionsContext'
-import { useMotionCtx } from './motionContext'
-import { useTimelineEditCtx } from './timelineEditContext'
 import { useTracksAdminCtx } from './tracksAdminContext'
 import { useMediaDropCtx } from './mediaDropContext'
-import { useIconLibraryCtx } from './iconLibraryContext'
-import { useProjectIOCtx } from './projectIOContext'
 import { useVideoSync } from './useVideoSync'
 import { useSessionMemory, takeRestoredView } from './useSessionMemory'
 import { useHistoryCoalesce } from './useHistoryCoalesce'
@@ -124,26 +110,15 @@ import { useAutosaveDraft } from './useAutosaveDraft'
 import { useSelectionCleanup } from './useSelectionCleanup'
 import { useNestSelectSync } from './useNest'
 import { useDiagnostics } from './useDiagnostics'
-import { useAppLayoutCtx } from './appLayoutContext'
-import { useLibraryCtx } from './libraryContext'
 
 import { useSegmentPlaceCtx } from './segmentPlaceContext'
-import { useToastCtx } from './toastContext'
 import { useExportCtx } from './exportContext'
 import { useMediaCtx } from './mediaContext'
-import { useExportRunCtx } from './exportRunContext'
-import { useSubtitlesCtx } from './subtitlesContext'
-import { useMediaOpsCtx } from './mediaOpsContext'
 import { useProjectStateCtx } from './projectStateContext'
 import { useProjectFileCtx } from './projectFileContext'
-import { useProjectTemplatesCtx } from './projectTemplatesContext'
 import { useDragPreviewCtx } from './dragPreviewContext'
-import { useCopyPasteCtx } from './copyPasteContext'
-import { useTelopEditCtx } from './telopEditContext'
-import { useTelopAnimCtx } from './telopAnimContext'
 import { useAttrCopyCtx } from './attrCopyContext'
 import { useTelopTemplateCtx } from './telopTemplateContext'
-import { useClipboardCtx } from './clipboardContext'
 import { useLaneHeightsCtx } from './laneHeightsContext'
 import { usePlaybackCtx } from './playbackContext'
 import { useKeyboard } from './useKeyboard'
@@ -152,21 +127,22 @@ import { useTimelineOpsValue } from './timelineOpsContext'
 import { useTimelineViewValue } from './timelineViewContext'
 import { usePreviewCtxValue } from './previewContext'
 import { useLeftPanelValue } from './leftPanelContext'
+import { useHeaderValue } from './headerContext'
+import { useRightPanelValue } from './rightPanelContext'
+import { useMenusValue } from './menusContext'
+import { useDialogsValue } from './dialogsContext'
 
 export function useAppWiring() {
   // 掴んでいる最中に出す物（影・吹き出し・吸い付きの線・囲い）と、コピーの控え
   const {
-    draggingMediaRef, dragTip
+    dragTip
   } = useDragPreviewCtx()
-  const {
-    copiedAttrs,
-  } = useClipboardCtx()
   // プロジェクトの持ち物と設定（更新しても消えてはいけない物が多い）
   const {
-    projectPath, srtPath,
+    
     recentProjects,
-    customCats, 
-    iconAssign, laneIconAssign
+    
+    
   } = useProjectStateCtx()
   // 素材（取り込んだ物）と元動画（いま使っている物）。videoSrc は差し替わるが
   // videoPath は原本なので差し替えない（焼き直した粗い映像で書き出さないため）
@@ -178,9 +154,9 @@ export function useAppWiring() {
   // 書き出しの設定と進み具合（設定はプロジェクトの一部、進み具合は画面の一部）
   const {
     ratio, setRatio, 
-    srcFpsForExport, fpsLabel,
-    showExportDialog, setShowExportDialog,
-    exportStatus, setExportStatus, exportPct
+    
+    
+    
   } = useExportCtx()
   // 段の高さ（種類ごと＋段ごと）。state と ref を1か所で面倒を見る
   const {
@@ -195,8 +171,6 @@ export function useAppWiring() {
     // 追いかけの時計まわりも心臓が持っている。**App で別に宣言しないこと**
     //（同じ名前の入れ物が2つできて、「消す方」と「読む方」が食い違う）
   } = usePlaybackCtx()
-  // 見え方（拡大率）とお知らせ
-  const { toasts } = useToastCtx()
   // 段（トラック）と鍵。**鍵はあらゆる編集の手前で見る**ので心臓に置く
   const { tracks } =
     useTracksCtx()
@@ -224,14 +198,9 @@ export function useAppWiring() {
   // state/useAppChrome。**保存しない物**をまとめてある
   const {
     menu, setMenu, clipMenu, setClipMenu, tool, 
-    rightTab, setPerfOpen, setUpdateState,
+    
     appVersion
   } = useAppChromeCtx()
-  // 字幕づくりの設定と進み具合は state/useSubtitlePrefs
-  const {
- setSubtitleOpen,
-    subMaxChars, subReplace
-  } = useSubtitlePrefsCtx()
 
   // ---- 編集状態 ----
   // 比率を変更する。テロップの箱(box)と文字サイズは「フレーム高さ1080基準の絶対値」なので、
@@ -264,8 +233,6 @@ export function useAppWiring() {
   //   2回目がまだ空の写しを見て、1本目を捨てていた。
 
 
-  // 効果音を鳴らす物（置いた物・試聴の物）は state/useSeAudio
-  const { seRefCb, previewSE } = useSeAudioCtx()
 
   useEffect(() => {
     vClipsRef.current = vClips
@@ -276,15 +243,12 @@ export function useAppWiring() {
   // 段（トラック）の足す・消す・選ぶ・鍵・音量は state/useTracksAdmin
   const {
     fallbackTrack,
-    setClipLabel, 
+    
     
   } = useTracksAdminCtx()
 
 
 
-  // 人に聞く（文字を入れてもらう・はい/いいえ）は state/askContext。
-  // **配線は作らない。** 使う側が直に見に行く（2026-08-04）
-  const { promptState, setPromptState, confirmState, closeConfirm } = useAskCtx()
 
   // 最近開いたプロジェクトの控え。**書けなくても動作には影響しない**ので握りつぶす
   useEffect(() => {
@@ -295,30 +259,9 @@ export function useAppWiring() {
     }
   }, [recentProjects])
 
-  // 置き場（効果音・見本・動きの見本帳）と並べ方（★・フォルダ・畳み）は
-  // state/libraryContext。**34個のうち、ここで使うのはこれだけ。**
-  // 残りは束へ詰め直して心臓へ戻す往復だったので、使う側に直に見に行かせた
-  //（2026-08-04。数え方は ）
-  const {
-    localTemplates, refreshPresets, openTplSec, saveLS
-  } = useLibraryCtx()
-  // 見本帳の棚まわり（右クリックの品書き・開いたら先頭へ送る）は state/useTemplateShelf
-  const { tplMenu, setTplMenu, tplSecRefs, rightBodyRef } = useTemplateShelfCtx()
-  // 帯になる物（つなぎ目の演出・テロップの出入り・見本・色）を運んでいる最中の
-  // 持ち物は state/useBandDrag（ref と state に分ける理由も中にある）
-  const {
- draggingTransRef,
-    draggingTelopAnimRef
-  } = useBandDragCtx()
 
   // ライブラリに画像を追加（ファイル選択 → 円形クロップ → 保存）
 
-  // キーの割り当てと、環境設定・ファイルメニューの開け閉めは state/useShortcutPrefs
-  const {
-    shortcuts,
-    prefsOpen,
-    capturingId,
-  } = useShortcutPrefsCtx()
 
   // タイムラインの箱への参照と、追従（縦は「ついていく側3つ」、横は revealPlayhead）は
   // state/useTimelineBox
@@ -330,15 +273,10 @@ export function useAppWiring() {
   // 画面の配置は state/usePanelLayout が持つ（大きさの限界と、掴んで動かす所も一緒）
   const {
     timelineH, startResize,
-    monitorTab, setTabOrder,
+    
     isPopped, unpopPane, paneGeom
   } = useLayout()
 
-  // 画面の配置（切り離し・幅と高さ・タブ帯）と品書きの位置は state/useAppLayout
-  const {
-    popPane, orderedTabs, TAB_DEFS, pickTab, clampMenu,
-    tabMenu, setTabMenu, tabOverflow, setTabOverflow
-  } = useAppLayoutCtx()
 
   // プレビューとの境目を動かした＝タイムラインの高さが変わった。
   // 上と下が一緒に小さくなるよう、映像と音声の境目を残す。
@@ -369,9 +307,6 @@ export function useAppWiring() {
   const { duration } = useTimelineSpanCtx()
 
 
-  // 素材の読み込みと焼き直しは state/useMediaOps
-  //（焼き直しはプレビュー用。書き出しは必ず原本を使う）
-  const { loadVideo } = useMediaOpsCtx()
 
 
   // 「いまこの瞬間」を見る側のために、state を写しへ移す
@@ -413,28 +348,16 @@ export function useAppWiring() {
   // 未保存の「＊」と、下書きの土台は state/useAutosaveMark
   // （何と比べて決めるか・なぜ変わったときだけ見直すかも中にある）
   const {
-    unsaved,
-    restorePrompt, setRestorePrompt, projectJsonRef,
+    
+    projectJsonRef,
     autosaveNg
   } = useAutosaveMarkCtx()
 
 
 
 
-  // 静かな所を切る・声の間だけ BGM を下げる（同じ解析結果を使う）は state/useSilenceDuck
-  const {
-    silenceCut, setSilenceCut, silenceOpen, setSilenceOpen,
-    duckOpts, setDuckOpts, duckOpen, setDuckOpen, duckEnv, silenceCuts
-  } = useSilenceDuckCtx()
 
-  // 動き（キーフレーム）を付ける・消す・配るのは state/useMotion
-  const {
-    
-    applyMotionPreset
-  } = useMotionCtx()
 
-  // 書き出しは state/useExport（やり直しが利かないので、道すじを1か所に）
-  const { exportSrtFn, openExportDialog, exportProject } = useExportRunCtx()
   /**
    * 境目より後ろにある物を、まとめてずらす（＝詰まる）。
    *
@@ -445,22 +368,14 @@ export function useAppWiring() {
    * 1つ忘れると、そこだけ置き去りになって「切って詰めたのに文字だけ残る」になる。
    * ずらし方の決まり（境目の比べ方・前へはみ出させない）は shared/ripple。
    */
-  // つなぎ目の演出（選ぶ・付ける・長さ・外す）は state/useTransitions
-  const {
-    updateSelectedTransDur, setSelectedTransType,
-    deleteSelectedTrans, 
-    
-  } = useTransitionsCtx()
 
-  // 色ラベルと見本の保存、出入りアニメの一覧は state/useLabelsPresets
-  const { labelGroups, setLabelFor, selectByLabel } = useLabelsPresetsCtx()
 
 
   // 素材を掴んで落とす（どの段の、どこへ置くか）は state/useMediaDrop
   const {
-    prepareMediaMeta, beginMediaDrag, placeImage, deleteSelectedImg,
+    placeImage, 
     
-    deleteSelectedVClip, placeSE, removeMedia
+    placeSE
   } = useMediaDropCtx()
 
   /**
@@ -545,64 +460,23 @@ export function useAppWiring() {
    */
 
 
-  // アイコンの置き場と割り当て（段ごと・色ごと）は state/useIconLibrary
-  const {
-    setIconForLane, setIconForColor,
-    addIconFiles, addIconImages, removeIconImage, 
-    iconLibrary, cropSrc, setCropSrc
-  } = useIconLibraryCtx()
 
-  // テロップの足し引きは state/useTelopEdit
-  const { addTelop } =
-    useTelopEditCtx()
-  // 出入りの演出（頭・尻・テロップ同士の間）は state/useTelopAnim
-  const {
-    
-    updateTelopTransDur, setTelopTransType, deleteSelectedTelopTrans, toggleTelopEmphasis
-  } = useTelopAnimCtx()
 
-  // コピーと貼り付け（クリップと動きだけ）は state/useCopyPaste
-  const { copySelected } = useCopyPasteCtx()
-  // 「設定だけ」（属性のコピー・貼り付け）は state/useAttrCopy
-  const { attrSummary, copyAttributes, pasteAttributes } =
     useAttrCopyCtx()
 
-  // 消す・切る・複製する・詰める（タイムラインを縮める側）は state/useTimelineEdit
-  const {
-    deleteSelected, rippleDeleteSelected,
-    deleteSelectedSE, findSilences, applySilenceCut, rippleDeleteVideoSegments,
-    toggleBlankSelectedVideo, duplicateClipsFromMenu,
-    deleteVideoSegmentsLeavingGap,
-    splitVideoAtPlayhead
-  } = useTimelineEditCtx()
 
   // ここから下の3つは、**useTimelineEdit と usePlaybackEngine の後でなければ呼べない**。
   // どれも相手の戻り値を要るが、相手はこちらを要らない（＝輪ではなく片道）。
   // 以前は上で呼んで「呼ぶときに見に行く」形で逃げていたが、順番を直せば素直に渡せる。
 
-  // 字幕づくりは state/useSubtitles（聞き取り→割る→音に合わせる）
-  const { runSubtitles, handleImportSrt } = useSubtitlesCtx()
 
 
 
   // プロジェクトの開く・保存・復元は state/useProjectFile
   //（拾い忘れた項目はエラーも出ずに消えるので、1か所にまとめてある）
-  const { projectJson, saveProjectFn, openProjectFn, applyProjectData } = useProjectFileCtx()
-  // テンプレート（次に始めるときの形を決める）は state/useProjectTemplates。
-  // **タイムラインの中身は一切触らない**ので、上とは持ち物がほとんど重ならない。
-  const {
-    saveAsTemplateFn, openTemplateFn, pickTemplate, templatePicker, setTemplatePicker
-  } = useProjectTemplatesCtx()
-  // テロップの見本（作る・当てる・消す）は state/useTelopTemplate
-  const { saveCurrentAsTemplate, deleteUserTemplate, applyTemplate } =
+  const { projectJson } = useProjectFileCtx()
     useTelopTemplateCtx()
 
-  // 素材とプロジェクトの出し入れ（開く・足す・持ち出す・下書き）は state/useProjectIO
-  const {
-    handleReplaceVideo, handleAppendVideo,
-    genThumbFor, addFilesToProject, addFolderToProject,
-    packProjectFn, openPackFn
-  } = useProjectIOCtx()
 
   // 覚えておく物は3つ。**この順に呼ぶこと**（2026-08-03 に1つを3つへ分けた）。
   //
@@ -670,58 +544,24 @@ export function useAppWiring() {
   const leftPanel = useLeftPanelValue({ resetCount })
 
 
-  const rightPanel = {
-    orderedTabs, TAB_DEFS, pickTab, setTabOrder, setTabMenu, setTabOverflow,
-    setTplMenu, rightTab, draggingTransRef, draggingTelopAnimRef,
-    // 動きの見本を当てるのは state/useMotion（置き場そのものは state/libraryContext）
-    applyMotionPreset,
- toggleTelopEmphasis,
- rightBodyRef, addMediaAtPlayhead, srtPath,
-    labelGroups, removeMedia, beginMediaDrag, draggingMediaRef, localTemplates,
-    // 掴んで運ぶ物は並べて置く（見本帳・アイコン・強調。落とし先は帯と文字の上）
- TELOP_MOTIONS, addFilesToProject, addFolderToProject, handleImportSrt,
-    loadVideo, selectByLabel, genThumbFor, prepareMediaMeta, openTplSec,
-    tplSecRefs, saveCurrentAsTemplate, refreshPresets,
-    applyTemplate, deleteUserTemplate, iconLibrary,
- addIconImages, addIconFiles, removeIconImage,
-    previewSE, setSelectedTransType, updateSelectedTransDur, deleteSelectedTrans, setTelopTransType, updateTelopTransDur,
-    deleteSelectedTelopTrans
-  }
+  // 右パネル。**中身は心臓側で集める**（state/rightPanelContext）
+  const rightPanel = useRightPanelValue({ addMediaAtPlayhead })
+
 
   // 覆い（ダイアログ）まわり。中身は state/dialogsContext.tsx
   // 右クリックの品書きが要る物（区画と同じ流儀で心臓へ）
   // 画面のいちばん上が要る物（区画・品書きと同じ流儀で心臓へ）
-  const header = {
- setUpdateState, shortcuts, appVersion, unsaved,
-    saveProjectFn, openProjectFn, packProjectFn, openPackFn, saveAsTemplateFn, openTemplateFn,
-    handleAppendVideo, handleReplaceVideo, handleImportSrt, exportSrtFn,
- refreshPresets, setSubtitleOpen,
-    openExportDialog, addTelop, changeRatio, projectPath
-  }
+  // 画面の上端（メニュー・題名・更新の帯）。**中身は心臓側で集める**（state/headerContext）
+  const header = useHeaderValue({ changeRatio })
 
-  const menus = {
-    menu, setMenu, clipMenu, setClipMenu, tabMenu, setTabMenu, tabOverflow, setTabOverflow,
-    tplMenu, setTplMenu, clampMenu, TAB_DEFS, orderedTabs,
-    pickTab, setTabOrder, isPopped, popPane, unpopPane, monitorTab, rightTab, customCats,
- setLabelFor, selectByLabel, setClipLabel, deleteSelected,
-    rippleDeleteSelected, deleteSelectedSE, deleteSelectedImg, deleteSelectedVClip,
-    deleteVideoSegmentsLeavingGap, rippleDeleteVideoSegments, duplicateClipsFromMenu,
-    splitVideoAtPlayhead, toggleBlankSelectedVideo, findSilences, silenceCut, setDuckOpen,
-    copySelected, copyAttributes, pasteAttributes, copiedAttrs, attrSummary, shortcuts
-  }
 
-  const dialogs = {
-    silenceCut, templatePicker, setTemplatePicker, cropSrc, setShowExportDialog,
-    exportStatus, restorePrompt, setRestorePrompt, silenceCuts, findSilences, shortcuts,
-    capturingId, setCropSrc, promptState, setPromptState, confirmState,
-    showExportDialog, fpsLabel, srcFpsForExport, exportProject, exportPct, setExportStatus,
-    applyProjectData, subMaxChars,
-    saveLS, subReplace, runSubtitles, setSubtitleOpen, pickTemplate,
-    silenceOpen, setSilenceCut, applySilenceCut, setSilenceOpen, duckOpen, duckOpts,
-    setDuckOpts, duckEnv, setDuckOpen, seRefCb, prefsOpen,
- setIconForColor, setIconForLane, setPerfOpen,
-    toasts, closeConfirm, iconAssign, laneIconAssign, iconLibrary
-  }
+  // 右クリックの品書き。**中身は心臓側で集める**（state/menusContext）
+  const menus = useMenusValue()
+
+
+  // 画面に覆いかぶさる物。**中身は心臓側で集める**（state/dialogsContext）
+  const dialogs = useDialogsValue()
+
 
   return {
     appVersion, autosaveNg, cues, dialogs, dragTip, header, isPopped, leftPanel,

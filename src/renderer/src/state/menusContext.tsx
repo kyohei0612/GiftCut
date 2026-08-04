@@ -15,6 +15,21 @@
 // 品書きの中身を3つに割ったとき、借りる先が無くなるのでこちらへ移した。
 import { createContext, useContext } from 'react'
 import type { Wired } from './wiredValue'
+// 束の中身の取り先。**配線を通さず、ここで集める**（下の useMenusValue）
+import { useAppChromeCtx } from './appChromeContext'
+import { useAppLayoutCtx } from './appLayoutContext'
+import { useAttrCopyCtx } from './attrCopyContext'
+import { useClipboardCtx } from './clipboardContext'
+import { useCopyPasteCtx } from './copyPasteContext'
+import { useLabelsPresetsCtx } from './labelsPresetsContext'
+import { useLayout } from './layoutContext'
+import { useMediaDropCtx } from './mediaDropContext'
+import { useProjectStateCtx } from './projectStateContext'
+import { useShortcutPrefsCtx } from './shortcutPrefsContext'
+import { useSilenceDuckCtx } from './silenceDuckContext'
+import { useTemplateShelfCtx } from './templateShelfContext'
+import { useTimelineEditCtx } from './timelineEditContext'
+import { useTracksAdminCtx } from './tracksAdminContext'
 
 // 型は手で書かず、詰めている実体から引く。**なぜ・どう腐らないかは state/wiredValue.ts**
 type W = Wired<'menus'>
@@ -70,6 +85,44 @@ export interface MenusValue {
   attrSummary: W['attrSummary']
   /** キーの割り当て（品書きに出す） */
   shortcuts: W['shortcuts']
+}
+
+/**
+ * 束の**中身をここで集める**（2026-08-04）。理由は state/timelineOpsContext と同じ。
+ * **糊は1つも要らなかった**——品書きに出る物は全部どこかの心臓が持っている。
+ */
+export function useMenusValue() {
+  const { menu, setMenu, clipMenu, setClipMenu, rightTab } = useAppChromeCtx()
+  const {
+    tabMenu, setTabMenu, tabOverflow, setTabOverflow, clampMenu, TAB_DEFS, orderedTabs,
+    pickTab, popPane
+  } = useAppLayoutCtx()
+  const { tplMenu, setTplMenu } = useTemplateShelfCtx()
+  const { setTabOrder, isPopped, unpopPane, monitorTab } = useLayout()
+  const { customCats } = useProjectStateCtx()
+  const { setLabelFor, selectByLabel } = useLabelsPresetsCtx()
+  const { setClipLabel } = useTracksAdminCtx()
+  const {
+    deleteSelected, rippleDeleteSelected, deleteSelectedSE, deleteVideoSegmentsLeavingGap,
+    rippleDeleteVideoSegments, duplicateClipsFromMenu, splitVideoAtPlayhead,
+    toggleBlankSelectedVideo, findSilences
+  } = useTimelineEditCtx()
+  const { deleteSelectedImg, deleteSelectedVClip } = useMediaDropCtx()
+  const { silenceCut, setDuckOpen } = useSilenceDuckCtx()
+  const { copySelected } = useCopyPasteCtx()
+  const { copyAttributes, pasteAttributes, attrSummary } = useAttrCopyCtx()
+  const { copiedAttrs } = useClipboardCtx()
+  const { shortcuts } = useShortcutPrefsCtx()
+  return {
+    menu, setMenu, clipMenu, setClipMenu, tabMenu, setTabMenu, tabOverflow, setTabOverflow,
+    tplMenu, setTplMenu, clampMenu, TAB_DEFS, orderedTabs,
+    pickTab, setTabOrder, isPopped, popPane, unpopPane, monitorTab, rightTab, customCats,
+    setLabelFor, selectByLabel, setClipLabel, deleteSelected,
+    rippleDeleteSelected, deleteSelectedSE, deleteSelectedImg, deleteSelectedVClip,
+    deleteVideoSegmentsLeavingGap, rippleDeleteVideoSegments, duplicateClipsFromMenu,
+    splitVideoAtPlayhead, toggleBlankSelectedVideo, findSilences, silenceCut, setDuckOpen,
+    copySelected, copyAttributes, pasteAttributes, copiedAttrs, attrSummary, shortcuts
+  }
 }
 
 const Ctx = createContext<MenusValue | null>(null)
