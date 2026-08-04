@@ -276,13 +276,18 @@ try {
   // 画面に出ていない帯は作らない作りにしたので、帯を数えると
   // 「テロップが減った」と誤読する（実際に要注意として報告してしまった）。
   const telopBands = await page.locator('.telop-clip').count()
+  // **引いていると帯は1本も無い**（1枚の絵にまとめている。components/timeline/TrackSummary）。
+  // 数だけ見て通していたので、**帯が1本も出ていなくても緑**だった＝描けているかを
+  // 何も見ていなかった。判定に入れる（2026-08-04。まとめた絵を入れた日に気づいた）
+  const summaries = await page.locator('.track-summary').count()
   const statusTxt = (await page.locator('.statusbar').first().textContent()) ?? ''
   const telopCount = Number(/(\d+) テロップ/.exec(statusTxt)?.[1] ?? 0)
+  const drawn = telopBands + summaries
   await done(
     '動作',
     'テロップが全部読み込まれている',
-    `${telopCount} / ${WANT_TELOPS} 枚（画面に出ている帯は ${telopBands} 本）`,
-    telopCount >= WANT_TELOPS ? 'ok' : telopCount > 0 ? 'warn' : 'ng'
+    `${telopCount} / ${WANT_TELOPS} 枚（画面: 帯 ${telopBands} 本 / まとめた絵 ${summaries} 枚）`,
+    telopCount >= WANT_TELOPS && drawn > 0 ? 'ok' : telopCount > 0 && drawn > 0 ? 'warn' : 'ng'
   )
 
   const shotTl = await shot('タイムライン', page.locator('.track-inner').first())

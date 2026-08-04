@@ -34,6 +34,8 @@ import { useTimelineOps } from '../../state/timelineOpsContext'
 import { useSel } from '../../state/selectionContext'
 import { usePlaybackCtx } from '../../state/playbackContext'
 import { usePreviewCtx } from '../../state/previewContext'
+// 引いたときは帯を1本ずつ作らず1枚の絵にする（理由と測った数字は ./TrackSummary）
+import { SUMMARY_ZOOM, TrackSummary } from './TrackSummary'
 
 /** 落とした場所から決まった「付く先」。どのテロップかはまだ入っていない */
 export interface TelopDropSpot {
@@ -108,6 +110,25 @@ export function TelopBands({
   // ◆を右クリックで消す（心臓は state/useMotion の removeKeyAtTime）
   const { removeKeyAtTime } = useTimelineOps()
   const { currentTimeRef } = usePlaybackCtx()
+  const mine = cues.filter((cue) => cueTrack(cue) === trackId)
+  // **引いているときは1枚の絵にする。** 理由と測った数字は ./TrackSummary。
+  // 全体表示（60分）だとテロップ1200枚が全部画面に入るので、1本ずつ `div` を
+  // 作っていると1ノッチ寄せるたびに約14,000個を作り直すことになる。
+  // 選択は残す（当たり判定は時刻から引く）。掴んで動かすのは寄せてから。
+  if (zoom < SUMMARY_ZOOM && mine.length)
+    return (
+      <TrackSummary
+        bands={mine.map((c) => ({
+          id: c.id,
+          start: c.start,
+          end: c.end,
+          color: c.label,
+          selected: isSelected(c.id)
+        }))}
+        zoom={zoom}
+        onPick={(id: number | null) => setSelectedIds(id == null ? [] : [id])}
+      />
+    )
   return (
     <>
       {cues
