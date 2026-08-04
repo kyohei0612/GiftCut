@@ -77,7 +77,24 @@ export default function WaveformCanvas({
     const BW = waveBufWidth(W, dpr)
     cv.width = Math.max(1, Math.round(BW * dpr))
     cv.height = H * dpr
-    const ctx = cv.getContext('2d')
+    // **`willReadFrequently: true` を外さないこと。GPU 描画に戻ると重くなる。**
+    //
+    // Chromium は GPU で描く 2D canvas を**1枚ずつ独立した合成レイヤー**に載せる。
+    // 波形は音声クリップの数だけあるので、テレビの編集1時間ぶん（カット600）だと
+    // **canvas 427枚＋巻き添えで昇格した親 347枚＝合成レイヤー 800枚**になっていた。
+    //
+    // 枚数が増えると、ブラウザが毎フレーム「どれをどのレイヤーへ入れるか」を
+    // 組み直す（`Layerize`）のに時間を食う。2026-08-04 の実測（掴んで28秒）:
+    //
+    //   レイヤー800枚  Layerize＋合成の更新に **17.8秒**（1回 79ms）→ 95% 200ms
+    //   レイヤー160枚  同 1.3秒（1回 1.7ms）                        → 95%  25ms
+    //
+    // **赤／緑がレイヤー枚数と完全に一致していた。** 塗る処理でも React でも
+    // レイアウトでもなく、レイヤーの組み直しが 85% を占めていた。
+    //
+    // この指定は「読み戻しが多い」宣言だが、実質は**GPU 描画をやめる**指示になる。
+    // 波形は拡大したときにしか描き直さないので、GPU である利点がそもそも無い。
+    const ctx = cv.getContext('2d', { willReadFrequently: true })
     if (!ctx) return
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, BW, H)

@@ -33,6 +33,18 @@ const REAL = (process.argv.find((a) => a.startsWith('--project=')) ?? '').slice(
 // これが無いと「何も起きていない＝軽い」を良い結果として読んでしまう
 // （実際、拡大していない・掴めていないのに合格していた項目が5つあった）。
 const SELFCHECK = process.argv.includes('--selfcheck')
+/**
+ * **止まっている間に何をしているか**を出す。中身は `./cpuProfile`。
+ *
+ *   --cpu       レイアウト・スタイル計算・JS・その他の内訳（**軽い**）
+ *   --cpu-deep  ＋関数ごとの標本（**重い**。200μs 刻みで主スレッドを自分で使う）
+ *
+ * 分けてあるのは、**標本器の分が「その他」に混ざるから**。
+ * `--cpu-deep` で「その他が 85%」と出ても、そのうちどれだけが自分の分か分からない。
+ * 内訳だけなら累計を引き算するだけなので、その心配が無い。
+ */
+const CPU_DEEP = process.argv.includes('--cpu-deep')
+const CPU = CPU_DEEP || process.argv.includes('--cpu')
 const EDITS = 50
 /**
  * **どれくらい編集された物を基準にするか**（`--profile=tv|light`。既定 tv）。
@@ -67,7 +79,7 @@ const MINUS = (process.argv.find((a) => a.startsWith('--minus=')) ?? '')
   .slice(8)
   .split(',')
   .filter(Boolean)
-  return { KEEP, DO_EXPORT, DO_LIMITS, MINUTES, REAL, SELFCHECK, EDITS, PROFILE, WANT_TELOPS, MINUS }
+  return { KEEP, DO_EXPORT, DO_LIMITS, MINUTES, REAL, SELFCHECK, EDITS, PROFILE, WANT_TELOPS, MINUS, CPU, CPU_DEEP }
 }
 
 /**

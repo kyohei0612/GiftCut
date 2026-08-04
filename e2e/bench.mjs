@@ -53,6 +53,8 @@ import { makeViewTools } from './lib/benchView.mjs'
 import { makeReporter } from './lib/benchReport.mjs'
 // 何を測る相手にするか（引数の解釈と素材づくり）
 import { readArgs, prepareFixture } from './lib/benchSetup.mjs'
+// **止まっている間に何をしているか**まで見る（--cpu のときだけ）
+import { makeCpuProfiler } from './lib/cpuProfile.mjs'
 // 触ったときのもたつきを測る7項目（本体は素材づくり・記録・まとめだけ持つ）
 import { runOpsChecks } from './bench-ops.mjs'
 // 50回編集して50回戻す（履歴・メモリ・元どおりか）
@@ -65,7 +67,7 @@ const require = createRequire(import.meta.url)
 const SHOTS = join(ROOT, 'e2e', 'bench-shots')
 // **何を測る相手にするか**（引数の解釈と素材づくり）は ./lib/benchSetup。
 // 引数は「どの素材を作るか」を決めるためだけにあるので、1つの話題にしてある
-const { KEEP, DO_EXPORT, DO_LIMITS, MINUTES, REAL, SELFCHECK, EDITS, PROFILE, WANT_TELOPS, MINUS } =
+const { KEEP, DO_EXPORT, DO_LIMITS, MINUTES, REAL, SELFCHECK, EDITS, PROFILE, WANT_TELOPS, MINUS, CPU, CPU_DEEP } =
   readArgs()
 
 const nowSec = () => Date.now() / 1000
@@ -156,6 +158,9 @@ try {
     { gcproj: fx.gcproj, save: exportPath }
   )
 
+  // 標本器（--cpu のときだけ。既定は null＝素通し）
+  const cpu = CPU ? await makeCpuProfiler(app, page, CPU_DEEP) : null
+
   const heap = async () => {
     await page.evaluate(() => {
       if (typeof window.gc === 'function') window.gc()
@@ -209,6 +214,7 @@ try {
     })
     const t0 = nowSec()
     let failed = null
+    if (cpu) await cpu.start()
     try {
       await fn()
     } catch (e) {
@@ -220,8 +226,26 @@ try {
       return window.__frames
     })
     const s = frameStats(frames)
+    // **成立しなかったときも出す。** 何をしていて成立しなかったのかが、
+    // そのまま原因になっていることがある
+    if (cpu) await cpu.stop(name)
     if (failed) return done('動作', name, `操作が成立しなかった: ${failed}`, 'ng')
     if (!s) return done('動作', name, '（描画が記録できなかった）', 'warn')
+    // **窓が裏に回ったら、それは測定不成立。アプリのせいにしない。**
+    //
+    // 前に出たら Chromium は rAF を**1秒に1回**へ絞る。すると中央値が
+    // ぴったり 1000ms 付近になり、所要時間も 26秒 → 98.8秒 に膨らむ。
+    // これを黙って通すと「アプリが致命的に重い」という顔の赤が6件並ぶ
+    // （2026-08-04、別のセッションが Electron を起動して前面を奪ったとき実際にそうなった。
+    //   数字だけ見て「描画が重い」と読み違えるところだった）。
+    if (s.median > 500)
+      return done(
+        '動作',
+        name,
+        `測れていない: 1コマが ${fmt(s.median)}ms（＝毎秒1コマ）。**窓が裏に回されている**。` +
+          '他のアプリや別の e2e が前面を取っていないか確かめて、測り直すこと',
+        'ng'
+      )
     const detail =
       `中央値 ${fmt(s.median)}ms / 95% ${fmt(s.p95)}ms / 最悪 ${fmt(s.worst)}ms` +
       ` / 引っかかり ${s.janky}回（${fmt(elapsed)}秒間）`
