@@ -25,6 +25,8 @@
 import { bandWidth } from '../../lib/bandGeom'
 import type { JSX } from 'react'
 import { ClipBand, type OpenClipMenu } from './ClipBand'
+// 引いたときは帯を1本ずつ作らず1枚の絵にする（理由と測った数字は ./TrackSummary）
+import { SUMMARY_ZOOM, TrackSummary } from './TrackSummary'
 import { KeyMarks } from './KeyMarks'
 import WaveformCanvas from '../WaveformCanvas'
 import { formatTime } from '../../lib/srt'
@@ -57,10 +59,28 @@ export function MainVideoBands({
   onTrimStart: (L: SegLayout, edge: 'l' | 'r', e: React.PointerEvent) => void
   openClipMenu: OpenClipMenu
 }): JSX.Element {
-  const { isVideoSel } = useSel()
+  const { isVideoSel, setSelectedVideoIds } = useSel()
   const { videoName, mediaItems, thumbnailSrc } = useMediaCtx()
   // ◆を右クリックで消す（心臓は state/useMotion の removeKeyAtTime）
   const { removeKeyAtTime } = useTimelineOps()
+  // 引いているときは1枚の絵にする（理由と測った数字は ./TrackSummary）。
+  // **本編は切片がいちばん多い**（テレビの編集1時間ぶんで600個）ので、ここが効く。
+  // 空き（gap）は帯を描かない決まりなので、絵にも描かない
+  if (zoom < SUMMARY_ZOOM && segLayout.length)
+    return (
+      <TrackSummary
+        bands={segLayout
+          .filter((L) => !L.seg.gap)
+          .map((L) => ({
+            id: L.seg.id,
+            start: L.tStart,
+            end: L.tEnd,
+            selected: isVideoSel(L.seg.id)
+          }))}
+        zoom={zoom}
+        onPick={(id: number | null) => setSelectedVideoIds(id == null ? [] : [id])}
+      />
+    )
   return (
     <>
       {segLayout.filter((L) => inView(L.tStart, L.tEnd)).map((L) =>
@@ -156,8 +176,26 @@ export function MainAudioBands({
   trackH: number
   onPointerDown: (L: SegLayout, e: React.PointerEvent, kind: 'video' | 'audio') => void
 }): JSX.Element {
-  const { isAudioSel } = useSel()
+  const { isAudioSel, setSelectedAudioIds } = useSel()
   const { sources, waveform, videoDuration, videoName } = useMediaCtx()
+  // 引いているときは1枚の絵にする（理由と測った数字は ./TrackSummary）。
+  // **波形は描かない**——2px の帯に描いた波形は形が読めないし、
+  // 切片の数だけ canvas を作ることになる（そこが重い当人）
+  if (zoom < SUMMARY_ZOOM && segLayout.length)
+    return (
+      <TrackSummary
+        bands={segLayout
+          .filter((L) => !L.seg.gap)
+          .map((L) => ({
+            id: L.seg.id,
+            start: L.tStart,
+            end: L.tEnd,
+            selected: isAudioSel(L.seg.id)
+          }))}
+        zoom={zoom}
+        onPick={(id: number | null) => setSelectedAudioIds(id == null ? [] : [id])}
+      />
+    )
   return (
     <>
       {segLayout.filter((L) => inView(L.tStart, L.tEnd)).map((L) => {

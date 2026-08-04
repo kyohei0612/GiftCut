@@ -19,6 +19,8 @@ import { useDoc } from '../../state/contentContext'
 import { useSel } from '../../state/selectionContext'
 import { useTracksCtx } from '../../state/tracksContext'
 import { useToastCtx } from '../../state/toastContext'
+// 引いたときは帯を1本ずつ作らず1枚の絵にする（理由と測った数字は ./TrackSummary）
+import { SUMMARY_ZOOM, TrackSummary } from './TrackSummary'
 
 export function SeBands({
   trackId,
@@ -38,6 +40,22 @@ export function SeBands({
   const { selectedSeIds, setSelectedSeIds } = useSel()
   const { trackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
+  const mine = seClips.filter((c) => c.track === trackId)
+  // 引いているときは1枚の絵にする（理由と測った数字は ./TrackSummary）
+  if (zoom < SUMMARY_ZOOM && mine.length)
+    return (
+      <TrackSummary
+        bands={mine.map((c) => ({
+          id: c.id,
+          start: c.tStart,
+          end: c.tStart + c.duration,
+          color: c.label,
+          selected: selectedSeIds.includes(c.id)
+        }))}
+        zoom={zoom}
+        onPick={(id: number | null) => setSelectedSeIds(id == null ? [] : [id])}
+      />
+    )
   return (
     <>
       {seClips

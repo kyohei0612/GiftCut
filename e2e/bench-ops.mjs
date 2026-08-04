@@ -26,6 +26,11 @@ export async function runOpsChecks(ctx) {
     zoomIn, seekTo0, scrollToFirst, zoomUntilGrabbable, headX, timelineWidth
   } = ctx
   await measure('クリップを掴んで動かす', async () => {
+    // **入口を自分で決める。** 全体表示だと帯が1本も無い——引いた状態では
+    // 段まるごと1枚の絵になる（`components/timeline/TrackSummary`）。
+    // 2026-08-05、絵を入れた日に「掴める帯が画面に無い」で落ちた。
+    // **これは仕様どおり**（2px の帯は掴めないので、掴む前に寄せるのが本来の流れ）。
+    await zoomUntilGrabbable('[data-tid="V1"] .video-clip', 20)
     // 端のクリップは磁石で元の位置へ戻る。真ん中あたりを掴む。
     const all = page.locator('[data-tid="V1"] .video-clip')
     // ★「真ん中の帯」ではなく「画面に見えている帯」を選ぶ。
