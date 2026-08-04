@@ -65,9 +65,8 @@ export interface UseProjectTemplatesDeps {
   kindOf: (p: string) => 'video' | 'audio' | 'image'
   /** いまの画面の配置を控える／当てる（窓を出した形も含む） */
   layoutNow: () => Record<string, unknown>
-  /** **`l` が `any` なのは借りている側もそうだから**（直すならあちらが先） */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  applyLayout: (l: any) => void
+  /** 配置の当てはめ。中身は `state/useAppLayout` が1つずつ確かめてから使う */
+  applyLayout: (l: unknown) => void
   /** 名前を尋ねる小窓 */
   askText: (title: string, def: string, onOk: (v: string) => void) => void
   saveLS: (key: string, v: unknown) => void

@@ -300,8 +300,32 @@ export default async function (C) {
         } catch {
           /* 使えない環境では絵の止まりだけで見る */
         }
-        const t0 = performance.now()
         let prev = vids.map((v) => v.currentTime)
+        // **立ち上がりは測らない。**
+        //
+        // `Space` を押しても `play()` は非同期で、最初の絵が出るまでに数百ms かかる。
+        // その間を数えると **合計＝最長＝250ms（5サンプル連続）が3秒に1回だけ**という
+        // 形の赤が間欠的に出る。2026-08-03 に4回測って、同じコードで赤2回・緑2回だった
+        //（しかも主スレッド最長 0ms＝JS は詰まっていない＝本物の止まりではない）。
+        //
+        // **しきい値は緩めない。** 100ms は「1コマ落ちても気づかない」の線で、
+        // 緩めると本物の止まりを見逃す。数え始める位置の方を直す。
+        const waitFrom = performance.now()
+        let started = false
+        while (performance.now() - waitFrom < 3000) {
+          await new Promise((res) => setTimeout(res, 20))
+          const now = vids.map((v) => v.currentTime)
+          if (now.some((t, i) => t - prev[i] > 0.005)) {
+            started = true
+            prev = now
+            break
+          }
+          prev = now
+        }
+        // **成立しなければ落とす。** 始まらないまま数えると「3秒ずっと止まっている」と出て、
+        // アプリの不具合の顔をする
+        if (!started) return { notStarted: true, waitedMs: Math.round(performance.now() - waitFrom) }
+        const t0 = performance.now()
         while (performance.now() - t0 < ms) {
           await new Promise((res) => setTimeout(res, everyMs))
           const now = vids.map((v) => v.currentTime)
@@ -328,6 +352,10 @@ export default async function (C) {
     await page.keyboard.press('Space') // 停止
     await page.waitForTimeout(300)
     assert(r, 'プレビューに映像が無い')
+    assert(
+      !r.notStarted,
+      `再生が始まらなかった（${r.waitedMs}ms 待っても絵が1コマも進まない）。測れていない`
+    )
     let run = 0
     let worst = 0
     let frozen = 0

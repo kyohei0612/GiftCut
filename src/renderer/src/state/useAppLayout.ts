@@ -100,23 +100,35 @@ export function useAppLayout(deps: UseAppLayoutDeps) {
     rightTab,
     monitorTab
   })
-  const applyLayout = (l: any): void => {
+  /**
+   * 保存してあった配置を当てはめる。
+   *
+   * **`unknown` で受ける（`any` にしない）。** 中身はディスクから読んだ物なので
+   * 形は保証されないが、**保証されないことと「何でも触れる」ことは別**。
+   * `any` にすると、呼ぶ側が**存在しない物を渡しても型検査が素通り**する。
+   * ここは1つずつ `typeof` で確かめてから使っているので、`unknown` で足りる。
+   *
+   * ※ ここが `any` だったせいで、借りている2か所（`useProjectApply` /
+   *   `useProjectTemplates`）も `any` で受けていた。**根を直せば3か所とも消える。**
+   */
+  const applyLayout = (l: unknown): void => {
     if (!l || typeof l !== 'object') return
+    const o = l as Record<string, unknown>
     const num = (v: unknown, set: (n: number) => void): void => {
       if (typeof v === 'number' && Number.isFinite(v)) set(v)
     }
-    num(l.leftW, setLeftW)
-    num(l.rightW, setRightW)
-    num(l.timelineH, setTimelineH)
-    num(l.videoTrackH, setVideoTrackH)
-    num(l.audioTrackH, setAudioTrackH)
-    if (l.tabOrder && typeof l.tabOrder === 'object') setTabOrder(l.tabOrder)
-    if (typeof l.rightTab === 'string') setRightTab(l.rightTab)
-    if (l.monitorTab === 'program' || l.monitorTab === 'mixer') setMonitorTab(l.monitorTab)
-    if (l.geom && typeof l.geom === 'object') setPaneGeom(l.geom)
-    if (Array.isArray(l.panes)) {
+    num(o.leftW, setLeftW)
+    num(o.rightW, setRightW)
+    num(o.timelineH, setTimelineH)
+    num(o.videoTrackH, setVideoTrackH)
+    num(o.audioTrackH, setAudioTrackH)
+    if (o.tabOrder && typeof o.tabOrder === 'object') setTabOrder(o.tabOrder as Record<string, string[]>)
+    if (typeof o.rightTab === 'string') setRightTab(o.rightTab as RightTab)
+    if (o.monitorTab === 'program' || o.monitorTab === 'mixer') setMonitorTab(o.monitorTab)
+    if (o.geom && typeof o.geom === 'object') setPaneGeom(o.geom as Record<string, PaneGeom>)
+    if (Array.isArray(o.panes)) {
       const next: Partial<Record<PaneId, true>> = {}
-      for (const raw of l.panes as unknown[]) {
+      for (const raw of o.panes as unknown[]) {
         const id = String(raw)
         if (id === 'left' || id === 'right' || id === 'preview' || id === 'timeline') next[id] = true
       }

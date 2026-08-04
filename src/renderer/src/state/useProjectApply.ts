@@ -49,9 +49,8 @@ export interface UseProjectApplyDeps {
   stopPlayback: () => void
   setTime: (t: number) => void
   fallbackTrack: (id: string, kind: 'video' | 'audio') => string
-  /** 配置の当てはめ。**中身が `any` なのは借りている側もそうだから**（直すならあちらが先） */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  applyLayout: (l: any) => void
+  /** 配置の当てはめ。中身は `state/useAppLayout` が1つずつ確かめてから使う */
+  applyLayout: (l: unknown) => void
   resetHistory: (base: Snap) => void
   prepareMediaMeta: (path: string, kind: 'video' | 'audio' | 'image') => void
   idCounter: React.MutableRefObject<number>
