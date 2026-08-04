@@ -47,9 +47,6 @@
 // **目で見て諦めない。** 上の数字は記号解決で出した物で、やり直すなら測り直すこと。
 
 import {
-  FAUX_ITALIC,
-  ITALIC_SKEW_DEG,
-  LINE_BASE,
   MITER_LIMIT,
   SHADOW_BLUR_COEF,
   SHADOW_DIST_COEF,
@@ -60,7 +57,10 @@ import { resolveGradMid } from './telopFill'
 // 文字の実寸はブラウザに聞く（./telopMeasure）。**画面と同じ canvas を使い回す**ので、
 // SVG 側でも自前に測らない。2026-08-03 まで ./telopStyle 経由で借りていたが、
 // あちらのスタイル定数とは無関係だったので直に引く。
-import { inkContext, quoteFamilies } from './telopMeasure'
+// 組版の下ごしらえ（測る・余白・座標・枠）。**段を積む前に必ずここを通る**
+import { telopLayout, xmlEsc } from './telopLayout'
+// 文字の実寸はブラウザに聞く（部分装飾の背景ハイライトを測るのに要る）
+import { quoteFamilies } from './telopMeasure'
 import type { FillGradient, ShadowSpec, StrokeLayer, TelopStyle } from './telopStyle'
 import { alphaAt, oklabLerp } from '../../../shared/color'
 
@@ -73,9 +73,6 @@ import { alphaAt, oklabLerp } from '../../../shared/color'
 //    寄せたことで、`#abc` のような3桁の16進も正しく読めるようになった
 //    （こちら側は3桁を黒にしていた）。
 
-function _xmlEsc(s: string): string {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
 let _svgGradId = 0
 let _svgFilterId = 0 // 影ぼかしfilter用のグローバル一意カウンタ（同一documentでのid衝突を防ぐ）
 function _gradDef(id: string, g: NonNullable<TelopStyle['fill']['gradient']>): string {
@@ -145,151 +142,13 @@ export interface TextRun {
 }
 
 export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): TelopSvg {
-  const FS = s.fontSize
-  const weight = s.bold ? 800 : 500
-  const lineH = LINE_BASE + s.leading / 100
-  const ff = s.fontFamily
-  const qf = quoteFamilies(ff)
-  const lines = (text || 'あ').split('\n')
-  const tracking = (FS * (s.tracking || 0)) / 1000
-  // 部分装飾(runs)の文字index gi を含む run（後勝ち）。幅/高さ計算にも使う。
-  const runOfIdx = (gi: number): TextRun | null => {
-    let hit: TextRun | null = null
-    if (runs) for (const r of runs) if (gi >= r.start && gi < r.end) hit = r
-    return hit
-  }
-  // 文字幅を実測（canvas。measureInkRangeと同じ inkCtx を再利用）。
-  // 部分装飾で拡大/フォント変更した文字がある時だけ per-char 実測（その実効サイズ/フォントで測り枠を一致させる）。
-  // 無い時は従来の行まるごと実測＝カーニング込みで正確・高速（既存テロップの幅を1pxも変えない）。
-  const hasMetricRuns = !!runs && runs.some((r) => r.fontFamily || (r.sizeScale && r.sizeScale !== 1))
-  const inkCtx = inkContext()
-  let maxW = FS
-  let maxEffFS = FS // 最大の実効フォントサイズ（拡大文字ぶん上に伸びる余白の算出用）
-  if (inkCtx) {
-    inkCtx.font = '10px monospace'
-    inkCtx.font = `${weight} ${FS}px ${qf}`
-    const baseFam = inkCtx.font === '10px monospace' ? 'sans-serif' : qf
-    inkCtx.font = `${weight} ${FS}px ${baseFam}`
-    if (!hasMetricRuns) {
-      maxW = Math.max(
-        1,
-        ...lines.map((l) => inkCtx!.measureText(l).width + tracking * Math.max(0, [...l].length - 1))
-      )
-    } else {
-      let gi = 0
-      const widths = lines.map((l) => {
-        let w = 0
-        const chars = [...l]
-        for (const ch of chars) {
-          const r = runOfIdx(gi)
-          const eff = r?.sizeScale && r.sizeScale !== 1 ? Math.round(FS * r.sizeScale) : FS
-          if (eff > maxEffFS) maxEffFS = eff
-          const fam = r?.fontFamily ? quoteFamilies(r.fontFamily) : baseFam
-          inkCtx!.font = `${weight} ${eff}px ${fam}`
-          w += inkCtx!.measureText(ch).width
-          gi += ch.length // UTF-16 index を進める（サロゲート対応）
-        }
-        gi += 1 // 改行分
-        return w + tracking * Math.max(0, chars.length - 1)
-      })
-      maxW = Math.max(1, ...widths)
-      inkCtx.font = `${weight} ${FS}px ${baseFam}` // 後続(bgRects等)の実測のため基準フォントへ戻す
-    }
-  }
-  // 拡大文字は下端そろえで「上」に伸びるので、その分だけ上に余白が要る（枠が本体を含むように）。
-  const enlargedTop = Math.ceil(Math.max(0, maxEffFS - FS))
-  const strokes = (s.strokes || []).filter((st) => st.enabled)
-  // 外向き寄与(px)。塗りの後ろに膨張シルエットで重なり、塗りの外にはみ出た分が見える。
-  //   outside:幅 / center:幅の半分 / inside:0（塗り最前面なので内側は隠れる＝見えない）。
-  //   ※geba取り込みで inside と誤読された縁は center へ修正済み（白縁は基本 center）。
-  const outward = (st: StrokeLayer): number =>
-    st.position === 'outside' ? st.width : st.position === 'inside' ? 0 : st.width / 2
-  // 角の結合（フォント全体共通＝縁もシャドウ輪郭も同じ）。既定 miter。
-  const lj = s.join === 'round' ? 'round' : 'miter'
-  const maxOut = Math.max(0, ...strokes.map(outward))
-  // 影は文字の影（背景箱の上に落ちる）。背景は最背面のただの箱＝箱自体に影は付かない。
-  const shList = [
-    ...(s.shadow && s.shadow.enabled ? [s.shadow] : []),
-    ...((s.shadows || []).filter((x) => x.enabled !== false))
-  ]
-  // pad(viewBox余白)計算は部分装飾(runs)の縁/影も含めて十分大きく取る
-  const padStrokes = [...strokes]
-  const padShadows = [...shList]
-  if (runs)
-    for (const r of runs) {
-      if (r.strokes) padStrokes.push(...r.strokes.filter((st) => st.enabled))
-      if (r.shadows) padShadows.push(...r.shadows.filter((x) => x.enabled !== false))
-    }
-  const padOut = Math.max(0, ...padStrokes.map(outward))
-  let shReach = 0
-  for (const sd of padShadows) {
-    shReach = Math.max(
-      shReach,
-      Math.abs((sd.distance || 0) * SHADOW_DIST_COEF) +
-        (sd.spread || 0) * 0.667 * SHADOW_SPREAD_COEF +
-        (sd.blur || 0) * 0.075 * SHADOW_BLUR_COEF * 3 +
-        padOut
-    )
-  }
-  const pad = Math.ceil(Math.max(padOut, shReach) + FS * 0.12)
-
-  // ===== 縦書きか横書きか。**変えるのは「文字の置き方」と「枠の縦横」だけ** =====
-  //
-  // 縁・影・グラデ・部分装飾は `<text>` に掛かっているので、置き方を変えても
-  // そのまま効く（＝画面と書き出しで別々の式にならない）。
-  //
-  // 縦組みは `writing-mode: vertical-rl` に任せる。自分で1文字ずつ座標を計算すると、
-  // 約物（。、）の位置・合字・部分装飾の拡大文字が全部自前計算になり、
-  // **横書きと縦書きで別の組版を2つ持つ**ことになる。
-  const vert = !!s.vertical
-  /** 縦組みの1列ぶんの長さ（文字数×字送り）。和文は1文字＝1em で送る */
-  const colLen = (l: string): number => {
-    const n = [...l].length
-    return n * FS + tracking * Math.max(0, n - 1)
-  }
-  const maxColLen = vert ? Math.max(FS, ...lines.map(colLen)) : 0
-  // 枠（選択箱）の大きさ。横書きは「幅＝一番長い行／高さ＝行数」、縦書きはその逆。
-  const textW = vert ? lines.length * lineH * FS : maxW
-  const textH = vert ? maxColLen + enlargedTop : lines.length * lineH * FS + enlargedTop
-  const W = Math.ceil(textW + pad * 2)
-  const H = Math.ceil(textH + pad * 2)
-  // 寄せ。**縦書きでは「行の中の寄せ」が上下方向になる**（左＝上／右＝下）。
-  const anchor = s.align === 'left' ? 'start' : s.align === 'right' ? 'end' : 'middle'
-  const ax = vert
-    ? s.align === 'left'
-      ? pad + enlargedTop
-      : s.align === 'right'
-        ? H - pad
-        : pad + enlargedTop + (H - pad - (pad + enlargedTop)) / 2
-    : s.align === 'left'
-      ? pad
-      : s.align === 'right'
-        ? W - pad
-        : W / 2
-  /**
-   * 行（縦書きでは列）の位置。
-   *
-   * 横書き: i 行目のベースライン。拡大文字ぶん(enlargedTop)を下げる。
-   * 縦書き: i 列目の中心。**右から左へ**並べる（日本語の縦組み）。
-   */
-  const yOf = (i: number): number =>
-    vert
-      ? W - pad - (i + 0.5) * lineH * FS
-      : pad + enlargedTop + (i + 0.5) * lineH * FS
-  /** 1行（1列）ぶんの tspan に付ける座標。縦書きは x と y の役目が入れ替わる */
-  const posAttr = (i: number): string =>
-    vert
-      ? `x="${yOf(i).toFixed(1)}" y="${ax.toFixed(1)}"`
-      : `x="${ax.toFixed(1)}" y="${yOf(i).toFixed(1)}"`
-  const lsAttr = tracking ? ` letter-spacing="${tracking.toFixed(2)}"` : ''
-  const tspans = lines.map((l, i) => `<tspan ${posAttr(i)}>${_xmlEsc(l) || ' '}</tspan>`).join('')
-  const famAttr = ff.replace(/"/g, '&quot;').replace(/'/g, '')
-  // 縦組みは書字方向を宣言するだけ。**1文字ずつ座標を置きに行かない**
-  //（そうすると約物・合字・拡大文字が全部自前計算になり、組版が2つに割れる）
-  const wmAttr = vert ? 'writing-mode:vertical-rl;text-orientation:upright;' : ''
-  const fontAttr = `font-family='${famAttr}' font-size="${FS}" font-weight="${weight}" text-anchor="${anchor}" dominant-baseline="central"${lsAttr} style="${wmAttr}font-synthesis:none;white-space:pre"`
-  // 縁/影用は全文均一の tspans（textEl）。塗り用は runs で文字ごとに上書きした fillTspans を使う。
-  const textEl = (extra: string): string => `<text ${fontAttr} ${extra}>${tspans}</text>`
+  // **組版の下ごしらえは ./telopLayout に1つだけ。** 影も縁も塗りも、
+  // ここで決めた同じ座標・同じ `<text>` の属性を使う（1つでもズレると輪郭が二重になる）
+  const {
+    FS, weight, qf, lines, tracking, vert, inkCtx,
+    strokes, outward, maxOut, lj, shList,
+    pad, W, H, textW, textH, anchor, ax, yOf, posAttr, fontAttr, textEl, skew
+  } = telopLayout(s, text, runs)
   // 部分装飾: グローバル文字index gi の run を返す（最後にマッチしたものを優先）
   const runAt = (gi: number): TextRun | null => {
     let hit: TextRun | null = null
@@ -319,7 +178,7 @@ export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): T
       const inner = segs.length
         ? segs
             .map((sg) => {
-              if (!sg.color && !sg.grad && !sg.fam && !sg.size) return _xmlEsc(sg.text)
+              if (!sg.color && !sg.grad && !sg.fam && !sg.size) return xmlEsc(sg.text)
               let fillA = ''
               if (sg.grad && sg.grad.stops && sg.grad.stops.length >= 2) {
                 const gid = `rg${_svgGradId++}`
@@ -331,7 +190,7 @@ export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): T
                 (sg.fam ? ` font-family='${sg.fam.replace(/"/g, '&quot;').replace(/'/g, '')}'` : '') +
                 // 拡大文字は下端そろえで上に伸ばす（係数はfontOverrideOfのSIZE_SHIFT_Kと同値0.66）
                 (sg.size ? ` font-size="${sg.size}" baseline-shift="${(0.66 * (sg.size - FS)).toFixed(1)}"` : '')
-              return `<tspan${attrs}>${_xmlEsc(sg.text)}</tspan>`
+              return `<tspan${attrs}>${xmlEsc(sg.text)}</tspan>`
             })
             .join('')
         : ' '
@@ -442,7 +301,7 @@ export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): T
         }
         off += l.length + 1
         const inner = segs.length
-          ? segs.map((sg) => (sg.attr ? `<tspan${sg.attr}>${_xmlEsc(sg.text)}</tspan>` : _xmlEsc(sg.text))).join('')
+          ? segs.map((sg) => (sg.attr ? `<tspan${sg.attr}>${xmlEsc(sg.text)}</tspan>` : xmlEsc(sg.text))).join('')
           : ' '
         return `<tspan ${posAttr(i)}>${inner}</tspan>`
       })
@@ -575,14 +434,7 @@ export function buildTelopSVG(s: TelopStyle, text?: string, runs?: TextRun[]): T
     // 親<text>に base fill、run文字は fillTspans 内で個別上書き
     body += `<text ${fontAttr} fill="${baseFill}">${fillTspans}</text>`
   }
-  // 斜体は「下端固定・上が右へ倒れる」: skewXの基準を最下端＋ディセンダー余裕(0.25em)に置く
-  // （既定基準(上端)だと下側が左へせり出し、左に置くコラボアイコンへ被ってしまうため。
-  //   「ぷ」等のディセンダーは行ボックス(0.9em)の下へ出るので、その分の余裕も含めて左へ一切出さない）。
-  const skewShift = Math.tan((ITALIC_SKEW_DEG * Math.PI) / 180) * (H + FS * 0.25)
-  const skew =
-    s.italic && FAUX_ITALIC
-      ? ` transform="translate(${skewShift.toFixed(1)},0) skewX(-${ITALIC_SKEW_DEG})"`
-      : ''
+  // 斜体の傾けは下ごしらえ側（./telopLayout の `skew`）。ここでは掛けるだけ
   // width/height=100%＝外側コンテナ(cqh/px)でスケール。viewBoxが内部座標(1080基準px)を担う。
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="overflow:visible;display:block"><defs>${defs}</defs><g${skew}>${body}</g></svg>`
   // **返す枠は、上で決めた textW/textH をそのまま返す。**
