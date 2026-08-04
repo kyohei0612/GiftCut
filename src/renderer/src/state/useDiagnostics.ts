@@ -37,6 +37,7 @@ import type { PreviewRes } from '../components/panels/PreviewBars'
 import { useAppChromeCtx } from './appChromeContext'
 import { useProxyCtx } from './proxyContext'
 import { useSegLayoutCtx } from './segLayoutContext'
+import { useTracksCtx } from './tracksContext'
 import { useVideoElsCtx } from './videoElsContext'
 
 export interface UseDiagnosticsDeps {
@@ -52,11 +53,12 @@ export interface UseDiagnosticsDeps {
 
 export function useDiagnostics(): void {
   // **要る物は心臓から自分で取る**（2026-08-04。配線はただの素通しだった）
-  const { setPerfOpen } = useAppChromeCtx()
+  const { setPerfOpen, appVersion } = useAppChromeCtx()
   const { segLayoutRef } = useSegLayoutCtx()
   const { previewResRef } = useProxyCtx()
   const { videoRef } = useVideoElsCtx()
-  const { cuesRef, segsRef } = useDoc()
+  const { cuesRef, segsRef, seClipsRef, imgClipsRef, vClipsRef } = useDoc()
+  const { tracksRef } = useTracksCtx()
   const { setSnapLineX } = useDragPreviewCtx()
   const {
     playRateRef, currentTimeRef, 
@@ -81,6 +83,18 @@ export function useDiagnostics(): void {
         `テロップ${cuesRef.current.length}`
       ].join(' / ')
     perf.videoOf = (): HTMLVideoElement | null => videoRef.current
+    // **版と素材の規模を報告の頭に出す。**
+    //
+    // 自動更新は黙って入れ替わるので、「直したはずが直っていない」の大半は
+    // 新旧の取り違えだった。数字より先に、まずここを見る。
+    // 素材の規模も要る——同じ操作でも、素材が10倍あれば重さは別物になる。
+    perf.envOf = (): string[] => [
+      `版: ${appVersion || '不明'}`,
+      `画面: ${window.innerWidth}x${window.innerHeight} / 倍率 ${window.devicePixelRatio}`,
+      `素材: 切片${segsRef.current.length} / テロップ${cuesRef.current.length} / ` +
+        `効果音${seClipsRef.current.length} / 画像${imgClipsRef.current.length} / ` +
+        `映像レイヤー${vClipsRef.current.length} / 段${tracksRef.current.length}`
+    ]
   })
 
   /**

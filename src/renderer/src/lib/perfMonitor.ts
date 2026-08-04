@@ -23,6 +23,12 @@
 //
 // 記録は**輪っか**に貯める（際限なく貯めるとそれ自体が重くなる）。
 
+// ## 出す物は「数字」ではなく「見立て」
+//
+// 数字と読み方を並べても、**読む人が自分で当てはめないと原因に辿り着けない**。
+// 送ってもらう相手は困っている本人なので、そこを人にやらせない。
+// `verdicts()` が測った値から**疑わしい順に**言い当てて、報告の頭に出す。
+
 /** 1秒ごとのまとめ1つぶん */
 export interface PerfSample {
   /** 計測開始からの秒 */
@@ -59,6 +65,71 @@ export interface PerfEvent {
 
 const MAX_SAMPLES = 600 // 10分ぶん
 
+/**
+ * 測った値から「いちばん疑わしいもの」を疑わしい順に言い当てる。
+ *
+ * **純関数にしてある**（`perfMonitor.test.ts` が境目を固定している）。
+ * しきい値を勘で動かすと、報告の言うことが日によって変わって信用されなくなる。
+ *
+ * しきい値の根拠:
+ *   塞いだ時間 100ms/秒 … 1秒のうち1割を1つの処理が占有する。**音が切れ始める線**
+ *   落ちたコマ 30       … 30コマ＝約1秒ぶん。これ未満は目で気づかない
+ *   作り直し 45回/秒    … 60fps に対して4分の3。間引きが効いていない印
+ *   絵の遅れ 100ms      … 3コマぶん。テロップだけ先に動いて見え始める
+ *   コマ送り 30fps      … これを下回ると「重い」と言われる
+ *
+ * @returns 疑わしい順の文。**何も引っかからなければ空**（それ自体が答え＝
+ *   「測っている間は問題が出ていない」なので、無理に何か言わない）
+ */
+export function verdicts(s: PerfSample[]): string[] {
+  if (!s.length) return []
+  const avg = (f: (x: PerfSample) => number): number => s.reduce((a, x) => a + f(x), 0) / s.length
+  const longMs = avg((x) => x.longTaskMs)
+  const dropped = s.reduce((a, x) => a + x.droppedFrames, 0)
+  const renders = avg((x) => x.renders)
+  const lag = avg((x) => x.videoLagMs)
+  const fps = avg((x) => x.fps)
+  const out: { ms: number; text: string }[] = []
+  if (longMs > 100)
+    out.push({
+      ms: longMs,
+      text:
+        `**計算が重い**（1秒あたり ${Math.round(longMs)}ms を1つの処理が占有）。` +
+        '音がぶちぶち切れるのはこれ。絵のカクつきとは原因が違う'
+    })
+  if (dropped > 30)
+    out.push({
+      ms: dropped,
+      text:
+        `**デコードが重い**（落としたコマ 合計 ${dropped}）。` +
+        '画質を下げるか、焼き直し（プロキシ）を待てば直る類'
+    })
+  if (renders > 45)
+    out.push({
+      ms: renders,
+      text: `**画面の作りが重い**（作り直しが毎秒 ${Math.round(renders)} 回）。間引きが効いていない`
+    })
+  if (lag > 100)
+    out.push({
+      ms: lag,
+      text:
+        `**絵が再生ヘッドから遅れている**（平均 ${Math.round(lag)}ms）。` +
+        'テロップだけ先に走って見える'
+    })
+  out.sort((a, b) => b.ms - a.ms)
+  const lines = out.map((x) => x.text)
+  // **どれにも当てはまらないのに遅い**、が一番厄介なので、そこを黙らせない。
+  // 2026-08-04、まさにこの形だった（重かったのは合成レイヤーの組み直しで、
+  // JS でもデコードでも作り直しでもなかった。JS は28秒中2.8秒しか使っていない）
+  if (!lines.length && fps < 30)
+    lines.push(
+      `**どれにも当てはまらないのに ${Math.round(fps)}fps しか出ていない。**` +
+        'JS でもデコードでも作り直しでもない＝描画側（合成レイヤーの組み直しなど）を疑う。' +
+        '調べ方は `npm run bench -- --cpu-deep`'
+    )
+  return lines
+}
+
 export class PerfMonitor {
   private t0 = 0
   private running = false
@@ -82,6 +153,14 @@ export class PerfMonitor {
   readonly events: PerfEvent[] = []
   /** いまの状況を一言で返してもらう（再生中か・画質など） */
   noteOf: () => string = () => ''
+  /**
+   * 版・OS・素材の規模を返してもらう（報告の頭に出す）。
+   *
+   * **これが無いと、送られてきた報告から「どの版か」すら分からない。**
+   * 自動更新で黙って入れ替わるので、「直したはずが直っていない」の大半は
+   * 新旧の取り違えだった。数字より先に、まずここを見る。
+   */
+  envOf: () => string[] = () => []
   /** 動画のデコード状況を取りに行く先 */
   videoOf: () => HTMLVideoElement | null = () => null
   /** 1秒ごとに呼ばれる（画面の表示を更新するため） */
@@ -220,9 +299,20 @@ export class PerfMonitor {
     const avg = (f: (x: PerfSample) => number): number =>
       Math.round((s.reduce((a, x) => a + f(x), 0) / s.length) * 10) / 10
     const worstRow = s.reduce((a, x) => (x.worstFrameMs > a.worstFrameMs ? x : a), s[0])
+    const found = verdicts(s)
     return [
       '# 動きの記録',
       '',
+      // **見立てを頭に出す。** 数字と読み方だけ並べても、読む人が自分で
+      // 当てはめないと原因に辿り着けない。送ってくるのは困っている本人なので、
+      // そこを人にやらせない
+      '## いちばん疑わしいもの',
+      '',
+      ...(found.length
+        ? found.map((v, i) => `${i + 1}. ${v}`)
+        : ['- 測っている間、引っかかる所は出ていません（下の数字は参考）']),
+      '',
+      ...(this.envOf().length ? ['## 環境', '', ...this.envOf().map((e) => `- ${e}`), ''] : []),
       `- 測った時間: ${s.length} 秒`,
       `- コマ送り: 平均 ${avg((x) => x.fps)} fps（1コマの最悪 ${worstRow.worstFrameMs}ms ＠${worstRow.t}秒 ${worstRow.note}）`,
       `- 主スレッドを塞いだ処理: 平均 ${avg((x) => x.longTasks)} 回/秒・${avg((x) => x.longTaskMs)}ms/秒`,
