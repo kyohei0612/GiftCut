@@ -1,35 +1,27 @@
-// 画面の部品どうしの「配線」。
+// 画面の部品どうしの「配線」。**ここは糊と、呼ぶ順だけ。**
 //
 // ## App.tsx との分け方
 //
 // App.tsx は「画面は何でできているか」だけを持つ。ここは「それらをどうつなぐか」。
-// 画面を直したい人が配線を読まずに済み、配線を直したい人が JSX を読まずに済む。
 //
-// ここに並んでいるのは**話題ではなく、つなぎ方**。どのフックにどれを渡すか、
-// という組み立てそのもので、話題ごとの切り出しは state/use*.ts へ出し切ってある。
+// ## フックを1本足すとき、ここには書かない
 //
-// ## 長いが、割らないこと（2026-08-02 に測って確定）
+// **囲い（state/*Context.tsx）を作る。** ここへ書き足すと必ず元に戻る——
+// 2026-08-04 に 1,229行から剥がし切ったが、元は「フックを呼んで名前を配る」が
+// 積み上がっただけだった（名前 459個のうち **396個が配管**）。
 //
-// 「話題ごとに割れるはず」と何度か言われてきたが、**割れない**。
-// どこで境目を引いても、前半で生まれて後半で使われる名前が **106〜413個**
-// またぐ（このプロジェクトの目安は40個）。末尾の8つの束を各グループへ
-// 配ったと仮定しても 55〜204個。
+// 足した直後に `npm run passthrough` の「いま囲いへ上げられるフック」に
+// **自分が出てきたら、書く場所を間違えた合図**。
 //
-// 理由は、配線が**最後に一点へ集まる形**をしているため。宣言される579個の
-// 名前のほとんどが、末尾の束（timelineOps / previewCtx / rightPanel …）へ
-// 流れ込む。フック単位で見ても、戻り値が他のフックへ渡らない「葉」は
-// 65個中6個だけ。絡まりは輪ではなく**網**。
+// ## 何がここに残っているか
 //
-// 割ると 106個超の導管ができるだけで、「この値どこから来た？」が
-// 1ホップ遠くなる。**読みやすさは下がる。**
+//   糊      どの心臓の持ち物でもない4本（下の「中身」）
+//   効果    **走る順に意味がある**物
+//   束      8本。**組み立ては心臓側**（各 *Context.tsx の use*Value）で、ここは返すだけ
 //
-// 短くしたいなら、先に**画面側の受け取り方**を変えること。束が小さくなれば
-// 集める先が分かれて、配線も自然に分かれる。順序と実測は
-// 引き継ぎ-App分割.md の「段階4・5」を読む。
-//
-// 行の内訳（08-04 実測）: 頭40 / import107 / **配線957** / 束113 / return9。
-// 束は名前を並べているだけ（宣言は8個）＝**切る余地は配線957行にしか無い**。
-// 短くする唯一の道と順序は `引き継ぎ-心臓の分け直し.md` の「useAppWiring の地図」。
+// 束を返すのはここのまま——そうすると `Wired<'キー'>` の引き先が変わらず、
+// 受け口の型も検査（shared/ctxTypes.test.ts）も動かさずに済む。
+// **移したのは組み立てだけ。**
 //
 // ## 呼ぶ順が全て
 //
@@ -39,47 +31,30 @@
 // 輪の結び目が「置き場所を間違えた小さな物」ではないか。
 // 4つの輪を解いて、4つともそれだった。
 //
+// 効果（useEffect）で**順に意味があるのは3本**:
+//
+//   useSessionMemory → useHistoryCoalesce → useAutosaveDraft
+//
+// 効果は**宣言した順**に走る。いちばん上の「作業位置を覚える」は「1つ前の描画の
+// ref」を見て中身があるか判断しているので、**写し取りをする useHistoryCoalesce を
+// 先に呼ぶと、起動直後に空でセッションを上書きしうる**（1度やっている）。
+//
 // ## ここにしか無い物（**足す前に必ずここを見る**）
 //
-// 下の「中身」は、**このファイルにしか実体が無い14本**。どれも複数の領域を
-// 同時に触るので、どのフックの持ち物でもない。**知らずに新規で書くと二重になる。**
-//
-// 65本のフックは名前を通しているだけなので、中身はそちらを読むこと
-//（`npm run index` か、名前で grep）。ここを通しで読む理由は無い。
+// 下の4本は、このファイルにしか実体が無い。どれも複数の領域を同時に触るので、
+// どの心臓の持ち物でもない。**知らずに新規で書くと二重になる。**
 //
 // ## 中身
 //
-// - `useAppWiring` … 呼ぶ順を保証して、束にして返す。**それ自体に中身は無い**
-//
-// **画面ぜんぶに掛かる操作**
-//
+// - `useAppWiring` … 糊を作り、順を保証して、束にして返す
 // - `changeRatio` … 比率を変える。**テロップの箱と文字サイズも一緒に補正する**
-// - `addMediaAtPlayhead` … 素材を再生ヘッドの位置へ置く（掴んで落とす道と同じ既定へ揃える）
+// - `addMediaAtPlayhead` … 素材を再生ヘッドの位置へ置く（掴んで落とす道と同じ既定へ）
 // - `openClipMenu` … 帯の右クリック。**選んでいない物を押したときだけ**選び直す
-//
-// **その場で1つに決める小物**
-//
 // - `resetCount` … リセットが何個に効くか（押す前に分かるように）
 //
-// ※ `PANE_LABEL`（切り離した窓の題）は **state/usePanelLayout へ出した**（08-04）。
-//   ただの文字の表なのに、束2つと `Workspace` の prop の**3経路**を通っていた。
-// ※ `iconForCue`（テロップに出す絵）は **state/cueIconContext へ出した**（08-04）。
-//   心臓を3つまたぐので、どれか1つの中には置けなかった。
-// ※ `blurActiveInput`（入力欄から手を離させる）は **lib/focus へ出した**（08-04）。
-//   DOM を見るだけで状態を1つも持たないのに、ここに居るせいで掴む処理が上がらなかった。
-// ※ `shiftAfter`（境目より後ろをまとめてずらす）は **state/useContentShift へ寄せた**（08-04）。
-//   あちらが「5種類まとめてしか触らない」土台で、**同じ決まりを2か所に書いていた**。
-// ※ 書き出す fps の3つ（`srcFpsForExport` / `fpsLabel` / `resolveExportFps`）は
-//   **state/useExportSettings へ出した**（08-04）。設定も素材の fps も、あちらが持っている。
-// ※ `transportInfo`（見出し行の右端の「状態」）と `monitorAspect`（枠の形）は
-//   **state/previewContext へ出した**（08-04）。どちらもプレビューの見出しの話で、
-//   束を組み立てる所と同じ場所にある方が近い。
-//
-// ※ `useAppWiring` 自身は「呼ぶ順を保証して、束にして返す」だけ。**中身は無い。**
+// 2026-08-04 にここから出した物と、その行き先は `引き継ぎ-心臓の分け直し.md`。
 //
 // ## 大きさは state/wiringSize.test.ts が見張っている
-//
-// 1回で読み切れる大きさ（1,250行）を超えると赤くなる。理由はそちらに書いてある。
 import { useEffect, useRef } from 'react'
 import type {} from '../../../preload/index.d'
 import { perf } from '../lib/perfMonitor'
@@ -117,8 +92,6 @@ import { useMediaCtx } from './mediaContext'
 import { useProjectStateCtx } from './projectStateContext'
 import { useProjectFileCtx } from './projectFileContext'
 import { useDragPreviewCtx } from './dragPreviewContext'
-import { useAttrCopyCtx } from './attrCopyContext'
-import { useTelopTemplateCtx } from './telopTemplateContext'
 import { useLaneHeightsCtx } from './laneHeightsContext'
 import { usePlaybackCtx } from './playbackContext'
 import { useKeyboard } from './useKeyboard'
@@ -134,52 +107,28 @@ import { useDialogsValue } from './dialogsContext'
 
 export function useAppWiring() {
   // 掴んでいる最中に出す物（影・吹き出し・吸い付きの線・囲い）と、コピーの控え
-  const {
-    dragTip
-  } = useDragPreviewCtx()
+  const { dragTip } = useDragPreviewCtx()
   // プロジェクトの持ち物と設定（更新しても消えてはいけない物が多い）
-  const {
-    
-    recentProjects,
-    
-    
-  } = useProjectStateCtx()
+  const { recentProjects } = useProjectStateCtx()
   // 素材（取り込んだ物）と元動画（いま使っている物）。videoSrc は差し替わるが
   // videoPath は原本なので差し替えない（焼き直した粗い映像で書き出さないため）
-  const {
-    videoPath,
-    videoDuration, 
-    
-  } = useMediaCtx()
+  const { videoPath, videoDuration } = useMediaCtx()
   // 書き出しの設定と進み具合（設定はプロジェクトの一部、進み具合は画面の一部）
-  const {
-    ratio, setRatio, 
-    
-    
-    
-  } = useExportCtx()
+  const { ratio, setRatio } = useExportCtx()
   // 段の高さ（種類ごと＋段ごと）。state と ref を1か所で面倒を見る
-  const {
-    videoTrackH, audioTrackH, 
-    
-  } = useLaneHeightsCtx()
+  const { videoTrackH, audioTrackH } = useLaneHeightsCtx()
   // 再生の「今」（時刻・流しているか・速さ）。**追いかけの仕組みは動かしていない**
   const {
     currentTime, currentTimeRef, durationRef,
     playing, playRateUI,
-    fps, fpsRef,
+    fps
     // 追いかけの時計まわりも心臓が持っている。**App で別に宣言しないこと**
     //（同じ名前の入れ物が2つできて、「消す方」と「読む方」が食い違う）
   } = usePlaybackCtx()
   // 段（トラック）と鍵。**鍵はあらゆる編集の手前で見る**ので心臓に置く
-  const { tracks } =
-    useTracksCtx()
+  const { tracks } = useTracksCtx()
   // タイムラインの中身は state/useContent がまとめて持つ（配列と採番は一組）
-  const {
-    cues, setCues, 
-    seClips, vClips,
-    vClipsRef
-  } = useDoc()
+  const { cues, setCues, seClips } = useDoc()
   // 選んでいる物は state/useSelection がまとめて持つ（解除の入口も1つ）
   const sel = useSel()
   const {
@@ -187,22 +136,13 @@ export function useAppWiring() {
     selectedAudioIds, selectedSeIds, setSelectedSeIds,
     selectedImgIds, setSelectedImgIds, selectedVClipIds, setSelectedVClipIds,
     selectedTrans, selectedTelopTrans,
-    selectedTrackId, selectedMarkerId,
-        
+    selectedTrackId, selectedMarkerId
   } = sel
-  // ---- データ ----
-  // プロジェクト(.gcproj)の保存先。srtPath とは必ず別に持つ
-  // （兼用にすると「上書き保存」が読み込んだSRTファイルを壊す）。
-  // 開いたプロジェクトで「見つからなかった素材」。保存時に書き戻して情報を失わないため。
   // 画面の枠まわりの小さな状態（品書き・道具・マグネット・進み具合・版）は
   // state/useAppChrome。**保存しない物**をまとめてある
   const {
-    menu, setMenu, clipMenu, setClipMenu, tool, 
-    
-    appVersion
+    menu, setMenu, clipMenu, setClipMenu, tool, appVersion
   } = useAppChromeCtx()
-
-  // ---- 編集状態 ----
   // 比率を変更する。テロップの箱(box)と文字サイズは「フレーム高さ1080基準の絶対値」なので、
   // 比率が変わると幅に対する見た目の比率が崩れる（16:9で幅83%の箱が9:16では画面外へ）。
   // 幅の変化率で box.w とフォントサイズを補正して、見た目の収まりを保つ。
@@ -226,30 +166,8 @@ export function useAppWiring() {
   }
   // **毎レンダーここを通る。** 画面を作り直した回数がそのまま数になる
   perf.countRender()
-
-  /** 再生中に最後に時刻を書いた瞬間（描き直しを間引くのに使う） */
-  // ※ sourcesRef の追随はここに無い。**setSources が同じ場で写しも更新する**
-  //   （state/useMedia）。effect で追随していた頃は、同じ一拍のうちに2回置くと
-  //   2回目がまだ空の写しを見て、1本目を捨てていた。
-
-
-
-  useEffect(() => {
-    vClipsRef.current = vClips
-  }, [vClips])
-
-
-
   // 段（トラック）の足す・消す・選ぶ・鍵・音量は state/useTracksAdmin
-  const {
-    fallbackTrack,
-    
-    
-  } = useTracksAdminCtx()
-
-
-
-
+  const { fallbackTrack } = useTracksAdminCtx()
   // 最近開いたプロジェクトの控え。**書けなくても動作には影響しない**ので握りつぶす
   useEffect(() => {
     try {
@@ -258,32 +176,19 @@ export function useAppWiring() {
       /* 保存できなくても動作には影響しない */
     }
   }, [recentProjects])
-
-
-  // ライブラリに画像を追加（ファイル選択 → 円形クロップ → 保存）
-
-
   // タイムラインの箱への参照と、追従（縦は「ついていく側3つ」、横は revealPlayhead）は
   // state/useTimelineBox
-  const {
-    
-    syncTimelineVScroll, fitTimelineAroundVA
-  } = useTimelineBoxCtx()
-
+  const { syncTimelineVScroll, fitTimelineAroundVA } = useTimelineBoxCtx()
   // 画面の配置は state/usePanelLayout が持つ（大きさの限界と、掴んで動かす所も一緒）
   const {
     timelineH, startResize,
-    
     isPopped, unpopPane, paneGeom
   } = useLayout()
-
-
   // プレビューとの境目を動かした＝タイムラインの高さが変わった。
   // 上と下が一緒に小さくなるよう、映像と音声の境目を残す。
   useEffect(() => {
     fitTimelineAroundVA()
   }, [timelineH, fitTimelineAroundVA])
-
   // 段の高さや本数が変わると、送れる量そのものが変わる（減れば、ブラウザが
   // scrollTop を勝手に切り詰める）。追従側は自分では気づけないので合わせ直す。
   // ここを抜くと、段を細くした瞬間に見出しだけ上へずれたまま残る。
@@ -293,41 +198,21 @@ export function useAppWiring() {
   useEffect(() => {
     syncTimelineVScroll()
   }, [videoTrackH, audioTrackH, tracks.length, syncTimelineVScroll])
-
-
-
-
-
-
   // 動きの計測と不具合の記録は state/useDiagnostics
   useDiagnostics()
-
   // タイムラインの長さ（出す長さ／本当の終わり）と、ものさしの目盛りは
   // state/useTimelineSpan（長さが2つある理由も中にある）
   const { duration } = useTimelineSpanCtx()
-
-
-
-
   // 「いまこの瞬間」を見る側のために、state を写しへ移す
   useEffect(() => {
     durationRef.current = duration
   }, [duration])
-  useEffect(() => {
-    fpsRef.current = fps
-  }, [fps])
-
   // 選んだ物が「もう無い物」を指し続けないよう掃除するのは state/useSelectionCleanup
   useSelectionCleanup()
   // **「組」で選ぶ唯一の入口。** 選び方が何通りあっても、最後にここで組ごとに広げる
   useNestSelectSync()
-
   // 再生ヘッドの位置の見た目と、リフレーム枠の相手は state/useCurrentLook
-  const {
-    
-    reframeTargetRef
-  } = useCurrentLookCtx()
-
+  const { reframeTargetRef } = useCurrentLookCtx()
   /** リセットが何個に効くか（ボタンの表示に使う。押す前に分かるように） */
   const resetCount = (): number => {
     const tgt = reframeTargetRef.current
@@ -338,46 +223,13 @@ export function useAppWiring() {
       (selectedVClipIds.length || (tgt.kind === 'vclip' ? 1 : 0))
     return n
   }
-
   // 本編の切片をどこへ置くか（動かす・新しく置く・落とした所へ）は state/useSegmentPlace
   const { placeVideoAtDrop } = useSegmentPlaceCtx()
-
-
-  // 雛形を選ぶ窓（起動時と手動の両方）。**当てても原本は汚さない**＝新規扱いで開く
-
   // 未保存の「＊」と、下書きの土台は state/useAutosaveMark
   // （何と比べて決めるか・なぜ変わったときだけ見直すかも中にある）
-  const {
-    
-    projectJsonRef,
-    autosaveNg
-  } = useAutosaveMarkCtx()
-
-
-
-
-
-
-  /**
-   * 境目より後ろにある物を、まとめてずらす（＝詰まる）。
-   *
-   * 端を摘む・複製する・速さを変える——**長さが変わる操作の後に必ず要る**。
-   * これが無いと「動画を短くしたら字幕が全部ズレた」になる。
-   *
-   * **ずらす相手は5種類ある。** 新しく置ける物を足したら、必ずここへも足すこと。
-   * 1つ忘れると、そこだけ置き去りになって「切って詰めたのに文字だけ残る」になる。
-   * ずらし方の決まり（境目の比べ方・前へはみ出させない）は shared/ripple。
-   */
-
-
-
+  const { projectJsonRef, autosaveNg } = useAutosaveMarkCtx()
   // 素材を掴んで落とす（どの段の、どこへ置くか）は state/useMediaDrop
-  const {
-    placeImage, 
-    
-    placeSE
-  } = useMediaDropCtx()
-
+  const { placeImage, placeSE } = useMediaDropCtx()
   /**
    * 素材を**再生ヘッドの位置へ置く**（素材をダブルクリックしたとき）。
    *
@@ -399,17 +251,12 @@ export function useAppWiring() {
       void placeSE(m, t, audioLaneFor(tracks, seClips, t, sel.selectedTrackId))
     else placeImage(m, t, fallbackTrack('V3', 'video'))
   }
-
   // 画面の <video> / <audio> を「いま」に追従させるのは state/useVideoSync
   useVideoSync()
-
   // 見ている場所を動かす（寄る・引く・連れてくる）は state/useViewNav
   const { fitTimelineZoom } = useViewNavCtx()
-
-
   // ホイールの割り当てと、再生ヘッドの追いかけは state/useTimelineWheel
   useTimelineWheel()
-
   // 品書きは、外を押す・Escape で閉じる（閉じ方は state/useDismissOnOutside に1つ）
   useDismissOnOutside(!!clipMenu, () => setClipMenu(null))
   useDismissOnOutside(!!menu, () => setMenu(null))
@@ -432,7 +279,6 @@ export function useAppWiring() {
     if (playing && sel.editingId != null) sel.setEditingId(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, sel.editingId])
-
   // 素材を読み込んだ直後に一度だけ全体表示にする。
   // 既定の拡大率のままだと、15秒の素材に対して目盛りが50秒まで伸びていて、
   // クリップが左端の小さな塊に見える。開いた瞬間から作業できる状態にする。
@@ -446,38 +292,12 @@ export function useAppWiring() {
     const t = window.setTimeout(fitTimelineZoom, 60)
     return () => window.clearTimeout(t)
   }, [videoPath, videoDuration])
-
   // 素材のドラッグはウィンドウ全体で受け取る（1pxでも取りこぼすと駐禁が出る）。
   // 実体と理由は state/useWindowDrop
   useWindowDrop()
-
-  /**
-   * 入力欄から手を離させる。
-   *
-   * スライダーや数値欄に居座られると、**矢印キーが再生ヘッドではなくその欄を動かし**、
-   * Space も効かなくなる。しかも掴む処理で既定の動きを止めているので、
-   * 押しても戻ってこない。タイムライン／プレビューを触った時点で外す。
-   */
-
-
-
-
-    useAttrCopyCtx()
-
-
-  // ここから下の3つは、**useTimelineEdit と usePlaybackEngine の後でなければ呼べない**。
-  // どれも相手の戻り値を要るが、相手はこちらを要らない（＝輪ではなく片道）。
-  // 以前は上で呼んで「呼ぶときに見に行く」形で逃げていたが、順番を直せば素直に渡せる。
-
-
-
-
   // プロジェクトの開く・保存・復元は state/useProjectFile
   //（拾い忘れた項目はエラーも出ずに消えるので、1か所にまとめてある）
   const { projectJson } = useProjectFileCtx()
-    useTelopTemplateCtx()
-
-
   // 覚えておく物は3つ。**この順に呼ぶこと**（2026-08-03 に1つを3つへ分けた）。
   //
   // 効果（useEffect）は**宣言した順**に走る。いちばん上の「作業位置を覚える」は
@@ -489,17 +309,10 @@ export function useAppWiring() {
   useHistoryCoalesce()
   useAutosaveDraft()
   projectJsonRef.current = projectJson
-
   // メインからの知らせ（進み具合・更新・関連付けで開く）は state/useMainEvents。
   // **ここで呼ぶのは、下書きに書く projectJson が出来た後だから。**
   useMainEvents()
-
-  // キーを押したときに何が起きるか（state/useKeyboard）。
-  // **ここで呼ぶ。** 渡す物のうち addTelop・saveProjectFn などは、この上の
-  // フックが返す物なので、上の方で呼ぶと初期化前参照になる。
   useKeyboard()
-
-
   // 帯を右クリック。**選んでいない物を押したときだけ**選び直す（前の選択が残っていると、
   // 押した物ではない方へ操作が飛ぶ）。**既に選ばれている物なら選択はそのまま残す**——
   // 常に1つへ潰していたので「まとめて選ぶ → 右クリック → ネストする」が成立しなかった。
@@ -521,48 +334,24 @@ export function useAppWiring() {
     setMenu(null)
     setClipMenu({ x: e.clientX, y: e.clientY, kind, id: clip.id, name: clip.name })
   }
-
-  // タイムラインの区画を部品へ出すための2つの心臓。
-  // **操作の入口**と**見え方**を分けてあるのは、描き直しの理由を混ぜないため
-  //（1つにまとめると、掴んで影が動くたびに操作の入口も「変わった」ことになる）。
-  // 中身は state/timelineOpsContext.tsx / state/timelineViewContext.tsx
-  // タイムラインの操作の入口。**中身は心臓側で集める**（state/timelineOpsContext）
+  // タイムラインは**操作の入口**と**見え方**で心臓を分けてある——描き直しの理由を
+  // 混ぜないため（1つだと、掴んで影が動くたびに操作の入口も「変わった」ことになる）。
+  // **どちらも中身は心臓側で集める**
   const timelineOps = useTimelineOpsValue({ openClipMenu })
-
   // タイムラインの見え方。**中身は心臓側で集める**（state/timelineViewContext）
   const timelineView = useTimelineViewValue()
-
-
-  // プレビュー（中央の映像）まわり。中身は state/previewContext.tsx
   // プレビュー（中央の映像）。**中身は心臓側で集める**（state/previewContext）
   const previewCtx = usePreviewCtxValue({ resetCount })
-
-
-  // 右パネルまわり。中身は state/rightPanelContext.tsx
-  // 左パネルが要る物（右・プレビュー・タイムラインと同じ流儀）
   // 左パネル。**中身は心臓側で集める**（state/leftPanelContext）
   const leftPanel = useLeftPanelValue({ resetCount })
-
-
   // 右パネル。**中身は心臓側で集める**（state/rightPanelContext）
   const rightPanel = useRightPanelValue({ addMediaAtPlayhead })
-
-
-  // 覆い（ダイアログ）まわり。中身は state/dialogsContext.tsx
-  // 右クリックの品書きが要る物（区画と同じ流儀で心臓へ）
-  // 画面のいちばん上が要る物（区画・品書きと同じ流儀で心臓へ）
   // 画面の上端（メニュー・題名・更新の帯）。**中身は心臓側で集める**（state/headerContext）
   const header = useHeaderValue({ changeRatio })
-
-
   // 右クリックの品書き。**中身は心臓側で集める**（state/menusContext）
   const menus = useMenusValue()
-
-
   // 画面に覆いかぶさる物。**中身は心臓側で集める**（state/dialogsContext）
   const dialogs = useDialogsValue()
-
-
   return {
     appVersion, autosaveNg, cues, dialogs, dragTip, header, isPopped, leftPanel,
     menus, paneGeom, playRateUI, previewCtx, ratio, rightPanel, startResize, timelineOps,

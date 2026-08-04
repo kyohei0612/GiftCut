@@ -14,7 +14,7 @@
 // 実際、読み込み側で id を振り直す作りにしてあるのはこの事故のため
 //（src/renderer/src/lib/projectLoad.ts に記録がある）。
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, Marker, SEClip, VClip, VSeg } from '../lib/projectTypes'
 
@@ -81,6 +81,16 @@ export function useContent(): Content {
   const imgClipsRef = useRef<ImgClip[]>([])
   const vClipsRef = useRef<VClip[]>([])
   const markersRef = useRef<Marker[]>([])
+  /**
+   * 重ねる動画の写しだけ、**ここで追随させる**（2026-08-04 に配線から移した）。
+   *
+   * 他の写しは書き換える側（`useContentShift` など）がその場で入れているが、
+   * これだけ配線に effect が残っていた。**追随の面倒を見る場所が2つある**のが
+   * まずいので、持ち主のここへ寄せた。
+   */
+  useEffect(() => {
+    vClipsRef.current = vClips
+  }, [vClips])
 
   return {
     cues,

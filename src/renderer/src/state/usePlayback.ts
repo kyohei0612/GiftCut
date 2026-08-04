@@ -13,7 +13,7 @@
 // 毎フレーム側は描き直しを待てないので ref から読む。
 // 別々の場所に置くと**片方だけ古いまま**になり、絵と音がずれる。
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export interface Playback {
   /** いまの再生位置（秒）。描くために使う */
@@ -87,6 +87,12 @@ export function usePlayback(defaultFps: number): Playback {
   const fixingDriftRef = useRef(false)
   const preparedRef = useRef<{ segIdx: number; srcId: number; half: 0 | 1 } | null>(null)
   const currentSegRef = useRef(0)
+
+  // **「いまこの瞬間」を見る側のための写し。** 配線が effect で入れていたのを
+  // 持ち主のここへ寄せた（2026-08-04）。追随の面倒を見る場所を1つにするため。
+  useEffect(() => {
+    fpsRef.current = fps
+  }, [fps])
 
   return {
     currentTime,
