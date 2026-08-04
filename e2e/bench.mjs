@@ -49,6 +49,14 @@ import { cleanBigTemp } from './lib/e2eFixture.mjs'
 import { similarity, brightness, meanVolume, silentSec, frameStats } from './lib/measure.mjs'
 // 画面を触る道具（寄せる・送る・時刻で指す）。**本体は「何を測るか」だけ持つ**
 import { makeViewTools } from './lib/benchView.mjs'
+// 記録と札（測る側は say / done しか使わない）
+import { makeReporter } from './lib/benchReport.mjs'
+// 触ったときのもたつきを測る7項目（本体は素材づくり・記録・まとめだけ持つ）
+import { runOpsChecks } from './bench-ops.mjs'
+// 50回編集して50回戻す（履歴・メモリ・元どおりか）
+import { runHistoryChecks } from './bench-history.mjs'
+// 実際に焼いて、完走するか・音が抜けないか・絵が出ているかを見る
+import { runExportChecks } from './bench-export.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
@@ -101,67 +109,15 @@ const MINUS = (process.argv.find((a) => a.startsWith('--minus=')) ?? '')
 
 
 const nowSec = () => Date.now() / 1000
-const esc = (t) => String(t).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c])
 
 // ---------------------------------------------------------------------------
 // 素材づくり（作ったものは .cache に置いて次回から使い回す）
 // ---------------------------------------------------------------------------
-// 結果の記録
+// 結果の記録と、画面に出す札は ./lib/benchReport（測る側は say / done しか使わない）
 // ---------------------------------------------------------------------------
-const rows = []
-let pageRef = null
-let stepNo = 0
-const TOTAL_STEPS = 16 + (DO_LIMITS ? 6 : 0) + (DO_EXPORT ? 4 : 0)
-
-function row(lens, what, detail, verdict) {
-  rows.push({ lens, what, detail, verdict })
-  const mark = verdict === 'ok' ? '\x1b[32m✓\x1b[0m' : verdict === 'warn' ? '\x1b[33m△\x1b[0m' : '\x1b[31m✗\x1b[0m'
-  console.log(`  ${mark} [${lens}] ${what}  ${detail}`)
-}
-
-/**
- * 画面に「今なにを測っているか」を出す。
- * アプリのコードには一切触らず、外から札を貼るだけ（pointer-events:none）。
- */
-async function banner(state) {
-  if (!pageRef) return
-  try {
-    await pageRef.evaluate((s) => {
-      let el = document.getElementById('__bench_banner')
-      if (!el) {
-        el = document.createElement('div')
-        el.id = '__bench_banner'
-        el.style.cssText = [
-          'position:fixed', 'left:50%', 'top:14px', 'transform:translateX(-50%)',
-          'z-index:2147483647', 'pointer-events:none',
-          'font:13px/1.5 system-ui,sans-serif', 'color:#fff',
-          'background:#0b1220f2', 'border:1px solid #ffffff26', 'border-radius:12px',
-          'padding:10px 16px', 'min-width:460px', 'max-width:80vw',
-          'box-shadow:0 8px 30px #0009', 'text-align:center'
-        ].join(';')
-        document.body.appendChild(el)
-      }
-      const color = s.status === 'ok' ? '#4ade80' : s.status === 'ng' ? '#f87171' : s.status === 'warn' ? '#fbbf24' : '#7dd3fc'
-      const mark = s.status === 'ok' ? '✓' : s.status === 'ng' ? '✗' : s.status === 'warn' ? '△' : '▶'
-      el.innerHTML =
-        `<div style="font-size:11px;opacity:.6;letter-spacing:.06em">負荷チェック ・ ${s.lens} ・ ${s.done}/${s.total}</div>` +
-        `<div style="margin-top:3px;font-size:14px;font-weight:700;color:${color}">${mark} ${s.name}</div>` +
-        (s.detail ? `<div style="margin-top:4px;font-size:11px;opacity:.85">${s.detail}</div>` : '') +
-        `<div style="margin-top:8px;height:3px;background:#ffffff1a;border-radius:2px;overflow:hidden">` +
-        `<div style="height:100%;width:${Math.round((s.done / Math.max(1, s.total)) * 100)}%;background:${color}"></div></div>`
-    }, state)
-  } catch {
-    /* 画面が入れ替わった直後などは無視 */
-  }
-}
-const say = (lens, name, detail = '') =>
-  banner({ status: 'run', lens, name: esc(name), detail: esc(detail), done: stepNo, total: TOTAL_STEPS })
-async function done(lens, what, detail, verdict) {
-  stepNo++
-  row(lens, what, detail, verdict)
-  await banner({ status: verdict, lens, name: esc(what), detail: esc(detail), done: stepNo, total: TOTAL_STEPS })
-  await new Promise((r) => setTimeout(r, 700)) // 目で読める間を置く
-}
+const { rows, setPage, say, done, finish } = makeReporter(
+  16 + (DO_LIMITS ? 6 : 0) + (DO_EXPORT ? 4 : 0)
+)
 
 // ---------------------------------------------------------------------------
 // 目と耳（ffmpeg で測る）
@@ -277,7 +233,7 @@ try {
   page = await app.firstWindow()
   // 黙って止まり続けないよう、頭打ちを決めておく（e2e/dismiss.mjs）
   watchdog(60, () => app.close())
-  pageRef = page
+  setPage(page)
   await page.waitForSelector('.app', { timeout: 30000 })
   page.setDefaultTimeout(20000)
 
@@ -528,441 +484,14 @@ try {
   const visR = Math.min(inner.x + inner.width, vp.width) - 8
   const visMid = (visL + visR) / 2
 
-  await measure('クリップを掴んで動かす', async () => {
-    // 端のクリップは磁石で元の位置へ戻る。真ん中あたりを掴む。
-    const all = page.locator('[data-tid="V1"] .video-clip')
-    // ★「真ん中の帯」ではなく「画面に見えている帯」を選ぶ。
-    //   見えない帯は作らない作りなので、並び順の真ん中が窓の外にあることがある
-    //   （実際 x=1764 の画面外を掴んで、何も起きていなかった）。
-    const vwA = (page.viewportSize() ?? { width: 1280 }).width
-    const iA = await all.evaluateAll((els, w) => {
-      const hit = []
-      for (let i = 0; i < els.length; i++) {
-        const r = els[i].getBoundingClientRect()
-        if (r.x > 200 && r.x + r.width < w - 200) hit.push(i)
-      }
-      if (hit.length) return hit[Math.floor(hit.length / 2)]
-      for (let i = 0; i < els.length; i++) {
-        const r = els[i].getBoundingClientRect()
-        if (r.x < w - 250 && r.x + r.width > 250) return i
-      }
-      return -1
-    }, vwA)
-    if (iA < 0) throw new Error('掴める帯が画面に無い')
-    const t = all.nth(iA)
-    let b = await t.boundingBox()
-    // 細いクリップは掴めない。人と同じで、掴める幅まで拡大してから動かす。
-    for (let g = 0; g < 12 && b.width < 24; g++) {
-      await zoomIn(b.x + b.width / 2, b.y + b.height / 2, 1)
-      await t.scrollIntoViewIfNeeded().catch(() => {})
-      b = (await t.boundingBox()) ?? b
-    }
-    // 動かせたかは「並び全体が変わったか」で見る。n番目を見張ると、
-    // ずれた別のクリップが同じ番号に来て「動いていない」ことになる。
-    const layout = () =>
-      all.evaluateAll((els) =>
-        els
-          .map((e) => {
-            const r = e.getBoundingClientRect()
-            return Math.round(r.x) + ':' + Math.round(r.width)
-          })
-          .join(',')
-      )
-    const l0 = await layout()
-    const x0 = b.x + b.width / 2
-    const dx = Math.max(3, Math.min(8, (b.width * 1.5) / 40))
-    await page.mouse.move(x0, b.y + b.height / 2)
-    await page.mouse.down()
-    for (let i = 1; i <= 40; i++) {
-      await page.mouse.move(x0 + i * dx, b.y + b.height / 2)
-      await page.waitForTimeout(8)
-    }
-    await page.mouse.up()
-    await page.waitForTimeout(300)
-    const l1 = await layout()
-    if (l1 === l0)
-      throw new Error(
-        `掴んで動かせていない（掴んだ所 x=${Math.round(x0)} 幅=${Math.round(b.width)} 1回=${dx}px×40 / 帯 ${l0.split(',').length}本）`
-      )
-    await page.keyboard.press('Control+z') // 元に戻しておく
-    await page.waitForTimeout(500)
-  },
-  // わざと間違える: 掴まずに0pxだけ動かす（＝何も起きない）
-  async () => {
-    const all = page.locator('[data-tid="V1"] .video-clip')
-    const t = all.nth(Math.floor((await all.count()) / 2))
-    const b = await t.boundingBox()
-    const layout = () =>
-      all.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)).join(','))
-    const l0 = await layout()
-    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
-    await page.mouse.up()
-    await page.waitForTimeout(300)
-    if ((await layout()) === l0) throw new Error('掴んで動かせていない')
+  // 触ったときのもたつきを測る7項目は ./bench-ops。
+  // **道具は束で1つだけ渡す**——個別に渡すと17個になり、項目を1つ足すたびに
+  // ここを書き換えることになる（`useAppWiring` を剥がしたときと同じ形）。
+  await runOpsChecks({
+    measure, page, fmt, MINUTES, totalSec,
+    visL, visR, visMid, visY, inner, clip,
+    zoomIn, seekTo0, scrollToFirst, zoomUntilGrabbable, headX, timelineWidth
   })
-  void clip
-
-  await measure('タイムラインを拡大・縮小する', async () => {
-    const w0 = await timelineWidth()
-    await zoomIn(visMid, visY(40), 10)
-    const w1 = await timelineWidth()
-    if (w1 <= w0 * 1.2) throw new Error(`拡大できていない（${w0} → ${w1}px）`)
-    await page.keyboard.down('Control')
-    await page.mouse.move(visMid, visY(40))
-    for (let i = 0; i < 10; i++) {
-      await page.mouse.wheel(0, 120)
-      await page.waitForTimeout(120)
-    }
-    await page.keyboard.up('Control')
-    await page.waitForTimeout(200)
-    const w2 = await timelineWidth()
-    if (w2 >= w1 * 0.9) throw new Error(`縮小できていない（${w1} → ${w2}px）`)
-  },
-  // わざと間違える: Ctrl を押さずにホイールする（＝横スクロールするだけ）
-  async () => {
-    const w0 = await timelineWidth()
-    await page.mouse.move(visMid, visY(40))
-    for (let i = 0; i < 10; i++) {
-      await page.mouse.wheel(0, -120)
-      await page.waitForTimeout(80)
-    }
-    const w1 = await timelineWidth()
-    if (w1 <= w0 * 1.2) throw new Error(`拡大できていない（${w0} → ${w1}px）`)
-  })
-
-  /** 再生ヘッドの画面上の位置（動いたかを確かめるのに使う） */
-  /**
-   * 再生ヘッドの位置。**タイムライン上の位置（style.left）で読む。**
-   *
-   * 前は画面上の座標（`boundingBox()?.x ?? NaN`）だった。寄せていると
-   * 再生ヘッドは**画面の外へ出る**ので `null` → `NaN` になり、
-   * `Math.abs(NaN - x0) < 5` は **false ＝「動いた」** で素通りする。
-   * CLAUDE.md 7番の「消えた物を `?? ''` で守らない」そのもの。
-   *
-   * **無ければ落とす。** 再生ヘッドが無い画面は、そもそも測る意味が無い。
-   */
-  await measure(
-    '再生ヘッドを掴んで動かす',
-    async () => {
-      const rb = await page.locator('.ruler').boundingBox()
-      const step = (visR - visL) / 40
-      const x0 = await headX()
-      await page.mouse.move(visL, rb.y + rb.height / 2)
-      await page.mouse.down()
-      for (let i = 1; i <= 40; i++) {
-        await page.mouse.move(visL + i * step, rb.y + rb.height / 2)
-        await page.waitForTimeout(8)
-      }
-      await page.mouse.up()
-      await page.waitForTimeout(300)
-      if (Math.abs((await headX()) - x0) < 10) throw new Error('再生ヘッドが動いていない')
-    },
-    // わざと間違える: 押して離すだけで動かさない
-    async () => {
-      const rb = await page.locator('.ruler').boundingBox()
-      const x0 = await headX()
-      await page.mouse.move(visL, rb.y + rb.height / 2)
-      await page.mouse.down()
-      await page.mouse.up()
-      await page.waitForTimeout(300)
-      if (Math.abs((await headX()) - x0) < 10) throw new Error('再生ヘッドが動いていない')
-    }
-  )
-
-  /** テロップ全部の画面上の位置（一緒に動いたかを確かめるのに使う） */
-  const telopPos = () =>
-    page
-      .locator('.telop-clip')
-      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)).join(','))
-  /** 一番左のクリップの画面上の位置（横スクロールしたかを確かめるのに使う） */
-  const firstClipX = async () =>
-    (await page.locator('[data-tid="V1"] .video-clip').first().boundingBox())?.x ?? NaN
-  await measure(
-    'タイムラインを横にスクロールする',
-    async () => {
-      const x0 = await firstClipX()
-      await page.mouse.move(visMid, visY(60))
-      for (let i = 0; i < 20; i++) {
-        await page.mouse.wheel(160, 0)
-        await page.waitForTimeout(25)
-      }
-      if (Math.abs((await firstClipX()) - x0) < 10) throw new Error('横にスクロールしていない')
-      for (let i = 0; i < 20; i++) await page.mouse.wheel(-160, 0) // 戻す
-      await page.waitForTimeout(300)
-    },
-    // わざと間違える: タイムラインの外（プレビューの上）でホイールする。
-    // ※縦にホイールしても横に動くので、それでは「間違い」にならない
-    //   （このアプリはただのホイール＝横スクロール）。
-    async () => {
-      const pv = await page.locator('.monitor-stage').first().boundingBox()
-      const x0 = await firstClipX()
-      await page.mouse.move(pv.x + pv.width / 2, pv.y + pv.height / 2)
-      for (let i = 0; i < 20; i++) {
-        await page.mouse.wheel(160, 0)
-        await page.waitForTimeout(25)
-      }
-      if (Math.abs((await firstClipX()) - x0) < 10) throw new Error('横にスクロールしていない')
-    }
-  )
-
-  await measure('テロップを掴んで動かす', async () => {
-    const tel = page.locator('.telop-clip')
-    const n = await tel.count()
-    if (!n) throw new Error('テロップが1つも出ていない')
-    // テロップの帯は最低12pxで描かれるので、拡大率が低いと隣どうしが重なり、
-    // 狙った帯ではなく手前の帯を掴んでしまう。まず拡大してから、
-    // 「いま画面に見えていて掴める幅のもの」を選び直す。
-    // （拡大すると狙った帯が画面外へ出るので、先に決めておくと空振りする）
-    await zoomUntilGrabbable('.telop-clip')
-    // **寄せたあと、テロップの所まで送る。**
-    //
-    // テロップは尺全体（1時間）に散らばるので、寄せるほど画面に入らなくなる。
-    // 基準 light（3600秒に200枚＝18秒に1枚）だと**1枚も入らず**、
-    // 「掴める幅のテロップが画面に無い」で落ちていた。
-    // **これは負荷のせいではなく測定側**——tv でも light でも同じように落ちる、
-    // で見分けが付いた（2026-08-04）。`bench-limits` の probe と同じ穴。
-    await scrollToFirst('.telop-clip')
-    const vw = (page.viewportSize() ?? { width: 1280 }).width
-    const idx = await tel.evaluateAll((els, w) => {
-      for (let i = 0; i < els.length; i++) {
-        const r = els[i].getBoundingClientRect()
-        if (r.width >= 20 && r.x > 80 && r.x + r.width < w - 120) return i
-      }
-      return -1
-    }, vw)
-    if (idx < 0) throw new Error(`掴める幅のテロップが画面に無い（${n}枚あるのに選べなかった）`)
-    const t = tel.nth(idx)
-    let b = await t.boundingBox()
-    await t.click() // 掴む前に選んでおく
-    await page.waitForTimeout(200)
-    b = (await t.boundingBox()) ?? b
-    const shot0 = await tel.evaluateAll((els) =>
-      els.map((e) => Math.round(e.getBoundingClientRect().x)).join(',')
-    )
-    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
-    await page.mouse.down()
-    for (let i = 1; i <= 30; i++) {
-      await page.mouse.move(b.x + b.width / 2 + i * 8, b.y + b.height / 2)
-      await page.waitForTimeout(8)
-    }
-    await page.mouse.up()
-    await page.waitForTimeout(300)
-    const shot1 = await tel.evaluateAll((els) =>
-      els.map((e) => Math.round(e.getBoundingClientRect().x)).join(',')
-    )
-    if (shot0 === shot1)
-      throw new Error(`テロップを動かせていない（幅 ${Math.round(b.width)}px・${n}枚）`)
-    await page.keyboard.press('Control+z')
-    await page.waitForTimeout(400)
-  },
-  // わざと間違える: 拡大せず、重なって細いままの帯を掴もうとする
-  async () => {
-    const tel = page.locator('.telop-clip')
-    const t = tel.nth(Math.floor((await tel.count()) / 2))
-    const b = await t.boundingBox()
-    const pos = () => tel.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)).join(','))
-    const p0 = await pos()
-    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
-    await page.mouse.down()
-    await page.mouse.up()
-    await page.waitForTimeout(300)
-    if ((await pos()) === p0) throw new Error('テロップを動かせていない')
-  })
-
-  await measure('テロップの文字を打ち直す', async () => {
-    // 1文字打つたびに画面全体が作り直されると、長い動画ほど入力が遅れる
-    //
-    // テロップが出ている時刻へ移る。**帯の真ん中を押してはいけない**。
-    // 帯は細くなりすぎないよう最低12pxで描かれるので、引いた状態では
-    // 「帯の真ん中」と「テロップが出ている時刻」がずれる（60分だと数秒ぶん）。
-    // ずれた所へ再生ヘッドを置くと、プレビューに文字が出ず、
-    // アプリの不具合のように見える（実際にそう報告してしまった）。
-    // 帯そのものを押して選び、その中身の時刻へ移る。
-    const band = page.locator('.telop-clip').nth(1)
-    await page.keyboard.press('Escape')
-    // **押す前に、その帯が見える所まで送る。**
-    // 手前の項目が寄せた／送った状態を引き継ぐので、帯が画面の外にいることがある。
-    // 外にいると押せず、そのあと「プレビューに文字が出ていない」で落ちる
-    // ——**負荷ではなく測定側**（light でも同じように落ちていた。2026-08-04）。
-    // ※ 帯は見えている範囲にしか作られないので、まず先頭へ戻してから探す
-    //   （`scrollIntoViewIfNeeded` は、その帯が**作られていない**と効かない）。
-    // ※ 幅も要る。細い帯の真ん中を押すと、ずれた時刻へ再生ヘッドが行って
-    //   「プレビューに文字が出ていない」になる（60分だと数秒ぶんずれる）。
-    await zoomUntilGrabbable('.telop-clip')
-    await band.scrollIntoViewIfNeeded()
-    await page.waitForTimeout(150)
-    await band.click()
-    await page.waitForTimeout(400)
-    // 選んだテロップの開始時刻＋わずかに後ろ（確実に表示される所）へ。
-    // 時刻は帯の left（＝開始秒×拡大率）から割り戻す。
-    // アプリ側にテスト用の属性は足さない（本番のコードに仕掛けを入れない）。
-    const at = await page.evaluate(() => {
-      const el = document.querySelector('.telop-clip.clip-selected')
-      if (!el) return null
-      const left = parseFloat(el.style.left || '0')
-      return Number.isFinite(left) ? left : null
-    })
-    const rr = await page.locator('.ruler').boundingBox()
-    // **帯そのものの箱から押す所を決める。** 前は拡大スライダー
-    // （`.tl-zoom input[type=range]`）の値で秒→pxを換算していたが、
-    // 2026-08-03 に拡大UIが下のバーへ移ってスライダーが**消えた**ため、
-    // ここは20秒待って必ず落ちていた（＝この項目は測れていなかった）。
-    // 帯の真ん中は必ずその文字が出ている時刻なので、換算そのものが要らない。
-    void at
-    const bb = await band.boundingBox()
-    if (!bb) throw new Error('選んだ帯が画面に無い')
-    await page.mouse.click(bb.x + bb.width / 2, rr.y + rr.height / 2)
-    await page.waitForTimeout(700)
-    const tel = page.locator('.telop-overlay > *').first()
-    if (!(await tel.count())) throw new Error('プレビューに文字が出ていない')
-    await tel.dblclick()
-    await page.waitForTimeout(400)
-    const ed = page.locator('.telop-editor textarea, .telop-editor input').first()
-    if (!(await ed.count())) throw new Error('打ち直す欄が出ない')
-    const before = await ed.inputValue()
-    for (const ch of 'あいうえおかきくけこ') {
-      await page.keyboard.type(ch)
-      await page.waitForTimeout(12)
-    }
-    const after = await ed.inputValue()
-    if (after === before) throw new Error('文字が入っていない')
-    await page.keyboard.press('Escape')
-    await page.waitForTimeout(300)
-    await page.keyboard.press('Control+z')
-    await page.waitForTimeout(300)
-  },
-  // わざと間違える: 打ち直す欄を開かずに打つ（どこにも入らない）
-  async () => {
-    const tel = page.locator('.telop-overlay > *').first()
-    const before = (await tel.textContent()) ?? ''
-    await page.keyboard.type('あいうえお')
-    await page.waitForTimeout(400)
-    const after = (await tel.textContent()) ?? ''
-    if (after === before) throw new Error('文字が入っていない')
-  })
-
-  await measure('全部選んでまとめて動かす', async () => {
-    // **決まった見え方から始める。** 手前の項目（拡大・横送り）が残した倍率と
-    // 位置のまま掴むと、同じ px を動かしても意味する秒数が毎回変わり、
-    // 磁石に吸い戻されたりはみ出したりして「動かせていない」と出る。
-    // 「↔ 全体表示」を押して基準へ戻す（2026-08-03）。
-    const fit = page.locator('.tl-zoom button').first()
-    if (await fit.count()) await fit.click().catch(() => {})
-    await page.waitForTimeout(500)
-    await page.keyboard.press('Escape')
-    const all = page.locator('[data-tid="V1"] .video-clip')
-    // 画面に見えていて掴める幅のものを選ぶ（拡大率は前の項目で変わっている）
-    const vw2 = (page.viewportSize() ?? { width: 1280 }).width
-    // 拡大していると1つが画面より広いこともある。画面に見えている部分があれば掴める。
-    //
-    // **縦も見る。** 横だけで選んでいたので、段が多い（実データは11本）と
-    // V1 が縦にはみ出していても「見えている」と数えてしまい、画面の外を掴んで
-    // 「まとめて動かせていない」と出ていた（2026-08-03。前の項目で拡大が
-    // 効くようになって初めて表に出た）。
-    const i2 = await all.evaluateAll((els, w) => {
-      const sc = document.querySelector('.track-scroll')?.getBoundingClientRect()
-      for (let i = 0; i < els.length; i++) {
-        const r = els[i].getBoundingClientRect()
-        const yOk = !sc || (r.y + r.height / 2 > sc.top + 8 && r.y + r.height / 2 < sc.bottom - 8)
-        if (r.x < w - 200 && r.x + r.width > 200 && yOk) return i
-      }
-      return -1
-    }, vw2)
-    if (i2 < 0) throw new Error('掴めるクリップが画面に無い')
-    const t = all.nth(i2)
-    const tp0 = await telopPos()
-    await page.keyboard.press('Control+a')
-    await page.waitForTimeout(400)
-    const b = await t.boundingBox()
-    const l0 = await all.evaluateAll((els) =>
-      els.map((e) => Math.round(e.getBoundingClientRect().x)).join(',')
-    )
-    // **動かす量は「秒」で決める。** 150px 固定にしていたので、拡大が効いた状態だと
-    // 1秒未満になり、**磁石で元の位置へ吸い戻されて「動かせていない」**と出ていた
-    // （2026-08-03。前の項目の拡大が直って初めて表に出た）。
-    const pps =
-      (await page.locator('.track-inner').evaluate((e) => parseFloat(e.style.width || '0'))) /
-      Math.max(1, totalSec)
-    const dist = Math.max(150, Math.round(2 * pps)) // 2秒ぶん（最低150px）
-    const stepN = 30
-    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
-    await page.mouse.down()
-    for (let i = 1; i <= stepN; i++) {
-      await page.mouse.move(b.x + b.width / 2 + (i * dist) / stepN, b.y + b.height / 2)
-      await page.waitForTimeout(8)
-    }
-    await page.mouse.up()
-    await page.waitForTimeout(400)
-    const l1 = await all.evaluateAll((els) =>
-      els.map((e) => Math.round(e.getBoundingClientRect().x)).join(',')
-    )
-    if (l0 === l1) throw new Error('まとめて動かせていない')
-    // 「まとめて」なので、テロップも一緒に動いていること
-    if ((await telopPos()) === tp0) throw new Error('クリップだけ動いてテロップが残っている')
-    await page.keyboard.press('Control+z')
-    await page.waitForTimeout(500)
-    await page.keyboard.press('Escape')
-  },
-  // わざと間違える: 全選択せずに動かす（クリップだけ動いてテロップは残る）
-  async () => {
-    await page.keyboard.press('Escape')
-    const all = page.locator('[data-tid="V1"] .video-clip')
-    const t = all.nth(Math.floor((await all.count()) / 2))
-    const b = await t.boundingBox()
-    const tp0 = await telopPos()
-    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
-    await page.mouse.down()
-    for (let i = 1; i <= 20; i++) {
-      await page.mouse.move(b.x + b.width / 2 + i * 5, b.y + b.height / 2)
-      await page.waitForTimeout(8)
-    }
-    await page.mouse.up()
-    await page.waitForTimeout(400)
-    if ((await telopPos()) === tp0) throw new Error('クリップだけ動いてテロップが残っている')
-  })
-
-  await measure(
-    '再生してみる（3秒）',
-    async () => {
-      await seekTo0()
-      // **Space を押す前に、文字入力から手を離す。**
-      // 直前の項目でテロップの文字を打ち直しているので、focus が入力欄に
-      // 残っていると Space は**空白を打つだけ**で再生が始まらない。
-      // 「再生が進んでいない」＝アプリの不具合、と読み違える所だった
-      //（light でも同じように落ちていた。2026-08-04）。
-      await page.evaluate(() => document.activeElement?.blur?.())
-      await page.waitForTimeout(150)
-      const x0 = await headX()
-      await page.keyboard.press('Space')
-      await page.waitForTimeout(3000)
-      await page.keyboard.press('Space')
-      await page.waitForTimeout(300)
-      const moved = (await headX()) - x0
-      // **「何px 動いたか」で判定しない。** 引いた状態だと 3秒＝1.2px にしかならず、
-      // 5px のしきい値に届かない。**再生は動いているのに「進んでいない」と出て、
-      // アプリの不具合に見えた**（2026-08-04。light でも同じように落ちていた）。
-      // 動くはずの量（3秒 × 拡大率）に対する割合で見れば、拡大率に左右されない。
-      const zoom = await page.evaluate(() => {
-        const inner = document.querySelector('.track-inner')
-        return inner ? parseFloat(inner.style.width || '0') : 0
-      })
-      const want = (zoom / Math.max(1, MINUTES * 60)) * 3 // 3秒ぶんの px
-      if (!(want > 0)) throw new Error('拡大率が読めない（測れていない）')
-      if (moved < want * 0.5)
-        throw new Error(
-          `再生が進んでいない（${fmt(moved)}px しか動かなかった。3秒なら ${fmt(want)}px のはず）`
-        )
-    },
-    // わざと間違える: 再生を始めずに待つだけ
-    async () => {
-      await seekTo0()
-      const x0 = await headX()
-      await page.waitForTimeout(3000)
-      if (Math.abs((await headX()) - x0) < 5) throw new Error('再生が進んでいない')
-    }
-  )
 
   // 自己点検はここまで（この先は「測る」ではなく「壊れていないか見る」なので、
   // わざと間違える対象ではない）
@@ -973,124 +502,15 @@ try {
     process.exit(bad ? 1 : 0)
   }
 
-  // ---- 4. 動作: 50回編集して元に戻す -----------------------------------
+  // ---- 4. 50回編集して元に戻す（履歴・メモリ・元どおりか） --------------
+  // 中身は ./bench-history。**道具は束で1つだけ渡す**（./bench-ops と同じ形）
   const rb = await page.locator('.ruler').boundingBox()
-  /** タイムラインの真ん中あたりに再生位置を移す（前後で同じ絵を見くらべるため） */
-  /**
-   * **決まった時刻へ移る。画面上の位置では指さない。**
-   *
-   * 前は「見えている範囲の真ん中」を押していた。だが前後の項目で拡大率も
-   * 横位置も変わるので、**同じ画面位置＝違う時刻**になる。
-   * 「元に戻したら映像も戻る」で**違う時刻どうしを見くらべて 0.745**と出て、
-   * 「元に戻したのに絵が違う」というアプリの不具合に見えた（2026-08-04）。
-   *
-   * 横位置を先頭へ戻し、拡大率（＝中身の幅÷尺）から時刻を px に直して押す。
-   */
   /** 見くらべに使う時刻。**画面上の位置ではなく秒で指す**（理由は ./lib/benchView） */
   const SEEK_SEC = 20
-  const seekMid = () => seekAt(SEEK_SEC)
-  /** クリップの位置と幅の一覧。元に戻したときに並びが復元したかを見る。 */
-  const clipLayout = async () => {
-    const boxes = await page.locator('[data-tid="V1"] .video-clip').evaluateAll((els) =>
-      els.map((e) => {
-        const r = e.getBoundingClientRect()
-        return { x: Math.round(r.x), w: Math.round(r.width) }
-      })
-    )
-    return boxes
-  }
-  await seekMid()
-  const shotPvBefore = await shot('編集前のプレビュー', prev)
-  // 見くらべる相手の時刻を控える（下の「元に戻したら映像も戻る」で照合する）
-  const seekedSec = await headSec()
-  const layoutBefore = await clipLayout()
-
-  const before = await page.locator('[data-tid="V1"] .video-clip').count()
-  await say('動作', `${EDITS}回続けて切る`, '履歴を積んだときのメモリを見る')
-  const tEdit = nowSec()
-  for (let i = 1; i <= EDITS; i++) {
-    // 選択を外してから切る。クリップを選んだままだと Ctrl+K が
-    // 「選択中のものだけ分割」に切り替わり、動画が切れない。
-    await page.keyboard.press('Escape')
-    await page.mouse.click(visL + ((visR - visL) * i) / (EDITS + 1), rb.y + rb.height / 2)
-    await page.keyboard.press('Control+k')
-    await page.waitForTimeout(30)
-  }
-  await page.waitForTimeout(1500)
-  const editSec = nowSec() - tEdit
-  const after = await page.locator('[data-tid="V1"] .video-clip').count()
-  await done(
-    '動作',
-    `${EDITS}回続けて切る`,
-    `クリップ ${before} → ${after} 個 / ${fmt(editSec)}秒（1回 ${fmt((editSec * 1000) / EDITS, 0)}ms）`,
-    after > before ? 'ok' : 'ng'
-  )
-  const heap1 = await heap()
-  await done(
-    '動作',
-    `${EDITS}回ぶんの履歴を積んだあとのメモリ`,
-    `${mb(heap1)}（開いた直後から ${mb(heap1 - heap0)} 増）`,
-    heap1 - heap0 < 300e6 ? 'ok' : heap1 - heap0 < 800e6 ? 'warn' : 'ng'
-  )
-
-  await say('動作', `${EDITS}回ぶん元に戻す`, '戻したあとに元の見た目へ戻るかも見る')
-  const tUndo = nowSec()
-  for (let i = 0; i < EDITS; i++) {
-    await page.keyboard.press('Control+z')
-    await page.waitForTimeout(20)
-  }
-  await page.waitForTimeout(1500)
-  const undoSec = nowSec() - tUndo
-  const back = await page.locator('[data-tid="V1"] .video-clip').count()
-  await done(
-    '動作',
-    `${EDITS}回ぶん元に戻す`,
-    `クリップ ${after} → ${back} 個 / ${fmt(undoSec)}秒`,
-    back === before ? 'ok' : 'warn'
-  )
-  const heap2 = await heap()
-  await done(
-    '動作',
-    '元に戻したあとのメモリ',
-    `${mb(heap2)}（開いた直後との差 ${mb(heap2 - heap0)}）`,
-    heap2 - heap0 < 300e6 ? 'ok' : 'warn'
-  )
-
-  // ---- 5. 目と動作: 戻したら元どおりか ---------------------------------
-  // 画面全体を見くらべると、再生ヘッドの位置や選択の枠まで差として出てしまう。
-  // 「戻ったか」を見たいので、同じ時点のプレビューの絵と、クリップの並びで見る。
-  await say('目', '元に戻したら映像も戻る', '同じ位置のプレビューを見くらべる')
-  const tBefore = seekedSec
-  await seekMid()
-  const tAfter = await headSec()
-  // **同じ時刻を見ていることを先に確かめる。** ここがずれていると、
-  // 「元に戻したのに絵が違う」という**アプリの不具合に見える**
-  //（2026-08-04 に実際そう報告しかけた。素材にテロップが焼かれていたので、
-  //  撮った画面を並べて初めて「違うのは時刻だ」と分かった）。
-  if (Math.abs(tAfter - tBefore) > 0.5)
-    throw new Error(
-      `見くらべる時刻がずれている（${fmt(tBefore)}秒 → ${fmt(tAfter)}秒）。絵の違いではない`
-    )
-  const shotPvAfter = await shot('元に戻したあとのプレビュー', prev)
-  const sim = await similarity(shotPvBefore, shotPvAfter)
-  await done(
-    '目',
-    '元に戻したら映像も戻る',
-    `同じ位置のプレビューの一致度 ${fmt(sim, 3)}（1.0 で完全一致）`,
-    sim >= 0.97 ? 'ok' : sim >= 0.9 ? 'warn' : 'ng'
-  )
-
-  const layoutAfter = await clipLayout()
-  const sameLayout =
-    layoutBefore.length === layoutAfter.length &&
-    layoutBefore.every((b, i) => Math.abs(b.x - layoutAfter[i].x) < 2 && Math.abs(b.w - layoutAfter[i].w) < 2)
-  await done(
-    '動作',
-    '元に戻したらクリップの並びも戻る',
-    `クリップ ${layoutBefore.length} 個の位置と幅を照合`,
-    sameLayout ? 'ok' : 'ng'
-  )
-  await shot('元に戻したあと')
+  await runHistoryChecks({
+    page, say, done, shot, heap, heap0, mb, fmt, EDITS, nowSec,
+    similarity, prev, visL, visR, rb, seekAt, headSec, SEEK_SEC
+  })
 
   // ---- 6. どこまで耐えるか（限界さがし） --------------------------------
   // 「重いかどうか」だけだと、どこまで足していいのか分からない。
@@ -1099,57 +519,13 @@ try {
   if (DO_LIMITS) await findLimits({ ROOT, nowSec, say, done, app, fx, page, setZoom, heap, video, totalSec })
 
   // ---- 7. 書き出し（目と耳） -------------------------------------------
+  // 中身は ./bench-export。**「完走した」で終わらせない**（無音・真っ黒でも
+  // ファイルはできる）ので、尺・大きさ・音量・明るさまで見る
   if (DO_EXPORT) {
-    await say('耳', `${MINUTES}分ぶんを書き出す`, '完走するか・音が抜けないかを見る')
-    const t0 = nowSec()
-    await page.keyboard.press('Control+m')
-    await page.waitForSelector('.export-overlay')
-    await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
-    let finished = true
-    try {
-      await page.waitForSelector('.export-overlay', { state: 'detached', timeout: 4 * 3600 * 1000 })
-    } catch {
-      finished = false
-    }
-    const sec = nowSec() - t0
-    const size = existsSync(exportPath) ? statSync(exportPath).size : 0
-    await done(
-      '動作',
-      `${MINUTES}分ぶんの書き出しが完走する`,
-      finished && size > 0
-        ? `${fmt(sec / 60)}分 / ${mb(size)}（実時間の ${fmt(sec / totalSec, 2)}倍）`
-        : '完走しなかった',
-      finished && size > 0 ? 'ok' : 'ng'
-    )
-
-    if (size > 0) {
-      const vol = await meanVolume(exportPath)
-      await done(
-        '耳',
-        '書き出した音が入っている',
-        `平均音量 ${fmt(vol)}dB（無音なら -90 付近）`,
-        vol > -40 ? 'ok' : 'ng'
-      )
-      const sil = await silentSec(exportPath)
-      await done(
-        '耳',
-        '音が途中で抜けていない',
-        `無音区間 合計 ${fmt(sil)}秒 / 全体 ${totalSec}秒`,
-        sil < totalSec * 0.2 ? 'ok' : 'warn'
-      )
-      // 書き出した動画の真ん中あたりを1コマ抜いて、絵が入っているか見る
-      const frame = join(SHOTS, 'export-frame.png')
-      await sh('ffmpeg', ['-v', 'error', '-y', '-ss', String(Math.floor(totalSec / 2)), '-i', exportPath, '-frames:v', '1', frame])
-      if (existsSync(frame)) {
-        const b = await brightness(frame)
-        await done(
-          '目',
-          '書き出した映像が黒くない',
-          `明るさ 平均${fmt(b.avg, 0)} 幅${fmt(b.max - b.min, 0)}`,
-          b.max - b.min > 40 ? 'ok' : 'ng'
-        )
-      }
-    }
+    await runExportChecks({
+      say, done, fmt, mb, MINUTES, totalSec, nowSec,
+      page, sh, join, existsSync, statSync, meanVolume, silentSec, brightness
+    })
   }
 
   // ---- まとめ ----------------------------------------------------------
@@ -1187,14 +563,7 @@ try {
   writeFileSync(resultPath, md, 'utf-8')
   console.log(`数字の控え: ${resultPath}`)
 
-  await banner({
-    status: ng ? 'ng' : warn ? 'warn' : 'ok',
-    lens: 'まとめ',
-    name: `${rows.length - ng - warn} 良好 / ${warn} 要注意 / ${ng} 問題あり`,
-    detail: esc(head),
-    done: TOTAL_STEPS,
-    total: TOTAL_STEPS
-  })
+  await finish(ng, warn, head)
   await page.waitForTimeout(KEEP ? 0 : 2500)
   if (!KEEP) await app.close()
   process.exit(ng ? 1 : 0)
