@@ -58,6 +58,29 @@ describe('焼く設定', () => {
     expect(ENCODERS[ENCODERS.length - 1].v).toBe('libopenh264')
   })
 
+  /**
+   * **書き出しの速さを決めているのは preset。** 2026-08-04 に分解して分かった。
+   *
+   * 同じ素材・同じ cq18・1080p60 の30秒ぶんで実測:
+   *
+   *   p1 1.9秒 2.9MB / p3 2.5秒 2.8MB / **p4 3.5秒 2.1MB** / p5 6.2秒 2.1MB / p7 6.7秒 2.8MB
+   *
+   * p4 と p5 は**ファイルの大きさが同じで、絵も PSNR 66dB**（＝目では区別が付かない）。
+   * p3 以下へ下げると速いが**ファイルが 1.4倍**になる（圧縮効率が落ちる）。
+   *
+   * ここを p5 へ戻すと、書き出しが黙って 1.8倍かかるようになる。
+   * **数字で決めた設定なので、変えるときは測り直すこと。**
+   */
+  it('**GPU(NVIDIA)の書き出しは p4**（p5 は同じ画質で 1.8倍かかる）', () => {
+    const nv = ENCODERS.find((e) => e.v === 'h264_nvenc')
+    if (!nv) throw new Error('h264_nvenc が一覧から消えている')
+    const presetOf = (a: string[]): string => a[a.indexOf('-preset') + 1]
+    expect(presetOf(nv.args(18, { w: 1920, h: 1080, fps: 60 })), '書き出し').toBe('p4')
+    // プロキシと最高画質(軽い)は別の理由で p1（上の B フレームの決まり）
+    expect(presetOf(nv.fast(360)), 'プロキシ').toBe('p1')
+    expect(presetOf(nv.full()), '最高画質(軽い)').toBe('p1')
+  })
+
   it('画質の数字をビットレートに読み替える（OpenH264 は crf を理解しないため）', () => {
     const hd = { w: 1920, h: 1080, fps: 30 }
     const kirei = crfToBitrateK(18, hd)

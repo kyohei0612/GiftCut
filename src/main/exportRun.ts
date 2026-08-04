@@ -62,6 +62,7 @@ import {
 // フィルタグラフを組む側。**話題ごとに分かれていて、互いを知らない。**
 // 受け取る形（ExportPayload など）は、3つとも同じ物を見るので下（./exportTypes）にある
 import { buildAudioMix, RAW_BASE_A } from './exportAudioMix'
+import { dumpExportArgs, dumpExportFilter } from './exportDump'
 import { buildOverlays } from './exportOverlays'
 import { buildSegments } from './exportSegments'
 import type { ExportPayload } from './exportTypes'
@@ -420,24 +421,9 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   // テロップPNGが多い（＝入力とoverlay行が増える）とコマンドライン長がWindows上限(32767字)を
   // 超えて spawn ENAMETOOLONG になるため、最も長いフィルタ文字列を外出しして回避する。
   writeFileSync(join(tmp, 'filter.txt'), filter, 'utf-8')
-  // 直近の書き出しのフィルタグラフを残す。tmp は書き出し後に消えるため、
-  // 書き出しの不具合を後から実データで検証できるようにここへ控えを置く。
-  try {
-    writeFileSync(
-      join(app.getPath('userData'), 'last-export-filter.txt'),
-      `# 入力 ${graphInputs.length} 個\n` +
-        graphInputs
-          .map((g, i) => `#  ${i}: ${g.name}  video=${g.hasVideo} audio=${g.hasAudio}`)
-          .join('\n') +
-        `\n# -map ${audioMap.join(' ')}\n` +
-        (graphProblems.length ? `# 指摘:\n${formatGraphProblems(graphProblems)}\n` : '') +
-        '\n' +
-        filter.split(';').join(';\n'),
-      'utf-8'
-    )
-  } catch {
-    // 控えが残せなくても書き出し自体は続行する
-  }
+  // 直近の書き出しの控え（tmp は書き出し後に消えるので、後から実データで
+  // 調べられるように userData へ置く）。中身は ./exportDump。
+  dumpExportFilter({ filter, graphInputs, audioMap, graphProblems })
   // 入力を並べる（重複排除済み。-ss はフィルタ組み立て中に確定するのでここで反映する）
   for (const sp of inputSpecs) {
     if (sp.pre) args.push(...sp.pre)
@@ -476,6 +462,11 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
         ]),
     save.filePath
   )
+
+  // **引数そのものも控える。** フィルタだけ残しても「入力を何本開いているか」
+  // 「デコードを GPU に投げているか」が読めず、遅さの原因を後から追えない
+  //（2026-08-04 に書き出しを速くしようとして、まずここが無くて詰まった）。
+  dumpExportArgs({ args, inputSpecs, pngCount: pngPaths.length, filterLen: filter.length })
 
   // ここから先は ./exportSpawn。**作業フォルダの後片付けも中止の見張りも、
   // 全部あちらが持っている**——片付けを呼ぶ側に残すと、GPU で失敗して CPU で
