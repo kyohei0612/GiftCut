@@ -186,9 +186,17 @@ try {
   // 作り物は「テロップが等間隔に並ぶ」素直な形になりがちで、実際の編集で出る
   // 重さ（段が11本・切片が細かい・効果音が重なる）が出てこない。
   let totalSec = MINUTES * 60
+  // **`video` はここで宣言すること。** else の中で `const` にすると、
+  // 最後の `findLimits(... video ...)` から見えず `video is not defined` で落ちる。
+  // **最初のコミット（87e5234）からずっとそうなっていた**＝限界さがしは
+  // 一度も走ったことがない。19項目ぶん測ったあとの最後に落ちるので、
+  // 「途中まで結果が出る」ぶん気づきにくかった（2026-08-04 に見つけた）。
+  let video = ''
   if (REAL) {
     fx = useRealProject(REAL)
     const d = JSON.parse(readFileSync(REAL, 'utf-8'))
+    // 限界さがしは作り物のプロジェクトを組み立てるので、素材だけ本物から借りる
+    video = d.videoPath ?? d.sources?.[0]?.path ?? ''
     const cues = d.cues ?? []
     totalSec = Math.ceil(
       Math.max(0, ...cues.map((c) => c.end ?? 0), ...(d.segments ?? []).map((s) => s.tEnd ?? 0))
@@ -203,7 +211,7 @@ try {
 `
     )
   } else {
-    const video = await makeLongVideo(MINUTES)
+    video = await makeLongVideo(MINUTES)
     const prof = PROFILES[PROFILE]
     if (!prof) {
       console.error(
@@ -226,7 +234,7 @@ try {
     )
     console.log(
       `
-[1m負荷チェック[0m  ${MINUTES}分 / テロップ${TELOPS}枚 / プロジェクト ${fmt(fx.bytes / 1024, 0)} KB` +
+[1m負荷チェック[0m  ${MINUTES}分 / プロジェクト ${fmt(fx.bytes / 1024, 0)} KB` +
         `${DO_LIMITS ? ' / 限界さがしあり' : ''}${DO_EXPORT ? ' / 書き出しあり' : ''}
 `
     )
