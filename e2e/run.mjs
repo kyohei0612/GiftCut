@@ -68,13 +68,15 @@ import { placeOnOtherDisplay } from './lib/placeWindow.mjs'
 import { makeRunMeasure } from './lib/runMeasure.mjs'
 // アプリを触る道具（再生位置・クリップの測り方・素材ビンから落とす）
 import { makeAppHelpers } from './lib/appHelpers.mjs'
+// 章の並び。**唯一の一覧**（solo-audit.mjs と共用）
+import { CHAPTERS } from './lib/chapters.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
 // 引数は束のまま持っておく（下の makeRunReport へそのまま渡すため。
 // 個別に配ると、フラグを1つ足すたびに渡し忘れが起きる）
 const ARGS = readRunArgs()
-const { KEEP, ONLY, SHOT_ONLY, RATIO, STEP, CHANGED_INFO } = ARGS
+const { KEEP, ONLY, SHOT_ONLY, RATIO, STEP, CHANGED_INFO, CHAPTER } = ARGS
 
 const sh = (cmd, args) =>
   new Promise((res) => {
@@ -381,26 +383,28 @@ try {
     zipNames,
     zipRead,
   }
-  for (const name of [
-    '01-起動と復元',
-    '02-タイムライン編集',
-    '03-音と書き出し',
-    '04-素材の配置',
-    '05-カットと色',
-    '06-書き出しの設定と表記',
-    '07-保存とプロジェクト',
-    '08-右パネル',
-    '09-モーション',
-    '09b-Premiere取り込み',
-    '10-更新と素材整理',
-    '11-編集の残り',
-    '12-プレビュー',
-    '13-属性ペーストと色',
-    '14-字幕と音',
-    '15-パネルと見た目',
-    '16-仕上げ',
-    '17-目と耳の確認',
-  ]) {
+  // 章の一覧は ./lib/chapters（`solo-audit.mjs` と共用。書き写さないこと）
+  if (CHAPTER && !CHAPTERS.includes(CHAPTER)) {
+    console.error(`\n知らない章です: ${CHAPTER}\n選べるのは:\n  ${CHAPTERS.join('\n  ')}\n`)
+    process.exit(2)
+  }
+  // **1章だけ回すときは、先に下ごしらえをする。**
+  //
+  // 通しでは 01-起動と復元 がプロジェクトを開き、以降の章はその上で動く。
+  // 単独で回すと素材が1つも無い画面から始まるので、**どの章も同じ理由で落ちる**
+  // ——それでは「前の章に寄りかかっているか」が測れない（08章で実際にそうなった）。
+  //
+  // 並列にしたときも、各担当は「起動して既知の状態にしてから自分の章」をやる。
+  // その形をここで作る。**これでも落ちるなら、それは本物の順番依存。**
+  // ※ `resetProject()` では足りない。あれは**いま開いている物を開き直す**道具で、
+  //   一度も開いていない状態からは何も出てこない（08章で実測）。
+  //   最初に開くのは 01章の仕事なので、**01章そのものを下ごしらえとして通す。**
+  const BOOT = CHAPTER && CHAPTER !== CHAPTERS[0] ? CHAPTERS[0] : null
+  if (BOOT) console.log(`\x1b[90m  （単独実行なので、先に ${BOOT} を通します）\x1b[0m`)
+  for (const name of CHAPTERS) {
+    // **`--chapter=` があれば、その章だけ。** 前の章を1つも通らないので、
+    // 「この章は自分で始められるか」がそのまま出る（e2e/solo-audit.mjs が使う）
+    if (CHAPTER && name !== CHAPTER && name !== BOOT) continue
     const mod = await import(`./checks/${name}.mjs`)
     await mod.default(C)
   }

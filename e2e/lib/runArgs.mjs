@@ -82,5 +82,21 @@ if (CHANGED_INFO) {
   }
 }
 const STEP = SLOW ? 600 : 0
-  return { SLOW, FAST, KEEP, ONLY, CHANGED, SHOT_ONLY, RATIO, CHANGED_INFO, STEP }
+/**
+ * **その章だけを回す**（`--chapter=16-仕上げ`）。`--only` とは役目が違う:
+ *
+ *   --only=<語>     名前か章にその言葉を含む**確認**だけ（章はまたぐ）
+ *   --chapter=<章>  その**章ファイルだけ**を読み込む（前の章を一切通らない）
+ *
+ * ## 何のためか（2026-08-05）
+ *
+ * 通しは **1つの Electron の中で18章を順に回す**。だから
+ * 「章が増えるほど時間が伸びる」を分散で解けない——並列にする前に、
+ * **各章が前の章に寄りかかっていないか**を知る必要がある。
+ *
+ * これは「章を1つだけ、まっさらな窓で回す」ための口。
+ * 使うのは `e2e/solo-audit.mjs`（全章ぶん回して、独立している章を数える）。
+ */
+const CHAPTER = (process.argv.find((a) => a.startsWith('--chapter=')) ?? '').slice(10)
+  return { SLOW, FAST, KEEP, ONLY, CHANGED, SHOT_ONLY, RATIO, CHANGED_INFO, STEP, CHAPTER }
 }

@@ -23,6 +23,7 @@ import { readdirSync, rmSync, statSync } from 'fs'
 // （閉じたときに殺す相手の名簿へ載せるため）
 import { FFMPEG, FFPROBE, trackedSpawn } from './ffmpegRun'
 import { allowFile, isAllowed } from './allowList'
+import { pickSourceFps } from '../shared/sourceFps'
 
 // サムネイル生成（先頭付近の1フレーム）。ライブラリで複数保持するので削除はしない
 // キャッシュのプルーニング: dir 内の match するファイルを新しい順に keep 個だけ残し、古いものを削除。
@@ -103,7 +104,10 @@ ipcMain.handle('media:fps', async (_e, path: string) => {
       '-select_streams',
       'v:0',
       '-show_entries',
-      'stream=r_frame_rate,width,height',
+      // **avg_frame_rate も取る。** VFR（配信の録画）だと r_frame_rate は
+      // 「全タイムスタンプを表現できる最小の共通レート」で、実際のコマ数ではない。
+      // 実測で 60 対 24.1（2.5倍）の食い違いが出た。詳しくは shared/sourceFps.ts
+      'stream=r_frame_rate,avg_frame_rate,width,height',
       '-of',
       'default=nw=1',
       path
@@ -116,13 +120,14 @@ ipcMain.handle('media:fps', async (_e, path: string) => {
     p.on('close', () => {
       const pick = (k: string): string =>
         new RegExp(`^${k}=(.*)$`, 'm').exec(out.trim())?.[1]?.trim() ?? ''
-      const s = pick('r_frame_rate')
-      const m = /^(\d+)\/(\d+)$/.exec(s)
-      const fps = m ? Number(m[1]) / Number(m[2]) : parseFloat(s)
+      // **決め方は shared/sourceFps に寄せてある**（試験付き）。
+      // ここで分数を読み直さないこと——`0/0`（分からない）を 0 除算して
+      // Infinity を通す、を1回やっている
+      const fps = pickSourceFps(pick('r_frame_rate'), pick('avg_frame_rate'))
       const w = parseInt(pick('width'), 10)
       const h = parseInt(pick('height'), 10)
       const size = w > 0 && h > 0 ? { w, h } : {}
-      resolve(fps > 0 && isFinite(fps) ? { ok: true, fps, ...size } : { ok: false, ...size })
+      resolve(fps !== null ? { ok: true, fps, ...size } : { ok: false, ...size })
     })
   })
 })

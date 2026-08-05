@@ -88,14 +88,40 @@ export function cleanBigTemp() {
   }
 }
 
+/**
+ * **いま誰かが使っている**とみなす時間（分）。これより新しいフォルダには手を出さない。
+ *
+ * ## なぜ要るか（2026-08-05）
+ *
+ * ここは起動のたびに `giftcut-e2e-*` を**全部**消していた。1本ずつ順に回している
+ * 間は正しい（前の回の状態を見て「通った」ことにしないため）。
+ *
+ * **章を並列で回した瞬間に壊れた。** 後から起動した回が、先に走っている回の
+ * 素材を消しにいく。実際の落ち方はこう:
+ *
+ * ```
+ * 確認用の素材に無音を仕込めませんでした
+ * Error opening input file …\Temp\giftcut-e2e-HybtnQ\test_video_raw.mp4
+ * ```
+ *
+ * **作った直後のファイルが消えている。** 6章が0秒で死に、生き残った章も
+ * 途中までしか走らないまま「緑」を返していた（16-仕上げ が 23件 → 9件）。
+ *
+ * 30分もあれば1章は終わる。**それより新しい物は、走っている物として扱う。**
+ */
+const IN_USE_MIN = 30
+
 export function cleanLeftovers() {
   let n = 0
   try {
-    // 通しの残りは毎回消す。**前の回の状態を見て「通った」ことにしないため。**
+    // 前の回の残りは消す。ただし**走っているかもしれない物は残す**（上の説明）
+    const now = Date.now()
     for (const f of readdirSync(tmpdir())) {
       if (!f.startsWith('giftcut-e2e-')) continue
+      const p = join(tmpdir(), f)
       try {
-        rmSync(join(tmpdir(), f), { recursive: true, force: true })
+        if (now - statSync(p).mtimeMs < IN_USE_MIN * 60000) continue
+        rmSync(p, { recursive: true, force: true })
         n++
       } catch {
         /* 使用中なら次回に回す */
@@ -107,22 +133,31 @@ export function cleanLeftovers() {
   cleanBigTemp()
   // 前回のスクリーンショットは消す（今回の結果と混ざると読み違える）。
   // ただし撮るだけのときは、前の記録を残しておく。
-  if (!SHOT_ONLY) {
+  //
+  // **章を並列で回すときは消さない。** ここも「全部消す」なので、
+  // 後から起動した章が、走っている章の写真を消してしまう（素材と同じ事故）。
+  // 並列のときは `--chapter=` が付いているので、それを目印にする。
+  const 並列かも = process.argv.some((a) => a.startsWith('--chapter='))
+  if (!SHOT_ONLY && !並列かも) {
     try {
       rmSync(join(ROOT, 'e2e', 'shots'), { recursive: true, force: true })
     } catch {
       /* 無ければ何もしない */
     }
   }
-  // 切り出しキャッシュは新しい2つだけ残す（素材を替えるたびに増えていくため）
-  try {
-    const cd = join(ROOT, 'e2e', '.cache')
-    const files = readdirSync(cd)
-      .map((f) => ({ f: join(cd, f), t: statSync(join(cd, f)).mtimeMs }))
-      .sort((a, b) => b.t - a.t)
-    for (const x of files.slice(2)) rmSync(x.f, { force: true })
-  } catch {
-    /* まだ無い */
+  // 切り出しキャッシュは新しい2つだけ残す（素材を替えるたびに増えていくため）。
+  // **並列のときは触らない**——ここも「古い物を消す」なので、
+  // 隣の章がいま読んでいる切り出しを消しうる（素材・写真と同じ事故）
+  if (!並列かも) {
+    try {
+      const cd = join(ROOT, 'e2e', '.cache')
+      const files = readdirSync(cd)
+        .map((f) => ({ f: join(cd, f), t: statSync(join(cd, f)).mtimeMs }))
+        .sort((a, b) => b.t - a.t)
+      for (const x of files.slice(2)) rmSync(x.f, { force: true })
+    } catch {
+      /* まだ無い */
+    }
   }
   if (n) console.log(`前回までの一時フォルダを ${n} 件片付けました`)
 }
