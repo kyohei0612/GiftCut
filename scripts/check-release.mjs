@@ -14,7 +14,7 @@
 // **4回とも書いてあるとおりに落ちている**ので、文章では止まらないと分かった。
 // 人が読む決まりを、機械が読む決まりに移す。
 //
-// ## `&&` ではなく `;` で繋いである（0.1.24 で分かった）
+// ## 発行が落ちても、必ずここまで来る
 //
 // 最初は `electron-builder … && npm run check:release` と書いていた。
 // ところが 0.1.24 の1回目は **electron-builder 自身が HTTP エラーで落ちた**ので、
@@ -23,7 +23,8 @@
 //
 // 捕まえたいのは「終了コードが嘘をつく」だけではない。
 // **「落ちた。しかも中途半端に上がっている」も一度に知りたい。**
-// だから発行が落ちても必ず数える（`;`）。中途半端なら、こちらが赤で終わる。
+// 繋ぎ方はシェルに任せていない（記号がどれも Windows か POSIX で外れるため。
+// 経緯は scripts/release.mjs の頭）。発行が落ちても、こちらは必ず走る。
 
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -45,10 +46,20 @@ function fetchAssets(tag) {
     })
   } catch (e) {
     // **「見に行けなかった」を「問題なし」にしない。**
-    // gh が無い・未ログイン・タグが無いのどれでも、出せたことの確認にはならない
+    // gh が無い・未ログイン・タグが無いのどれでも、出せたことの確認にはならない。
+    //
+    // **疑う順を、実際に起きた順で書く。** v0.1.27 で「タグが push されて
+    // いないのでは」を先に読んで遠回りした。タグは上がっていて、本当は
+    // **発行が一度も走っていなかった**（GH_TOKEN が無く electron-builder が即落ち）。
+    // 直したのは scripts/release.mjs（gh のログインから鍵を借りる）。
+    const notFound = /not found|Could not resolve/i.test(String(e.message))
     throw new Error(
       `gh で ${tag} を見られませんでした（${String(e.message).split('\n')[0]}）。\n` +
-        'gh のログイン（gh auth status）と、タグが push されているかを確かめてください。'
+        (notFound
+          ? 'その版のリリースがまだありません。**発行が一度も通っていない**のが\n' +
+            '一番よくある原因です（上の発行のログを見ること）。\n' +
+            'タグ（git push origin ' + tag + '）も確かめてください。'
+          : 'gh のログイン（gh auth status）を確かめてください。')
     )
   }
   const assets = JSON.parse(out).assets

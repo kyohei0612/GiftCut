@@ -27,9 +27,43 @@
 
 import { spawnSync } from 'node:child_process'
 
+// **鍵は思い出さなくても通るようにする**（2026-08-06）。
+//
+// electron-builder が見るのは環境変数の `GH_TOKEN` だけ。ところが普段
+// GitHub を触るのは `gh` で、あちらは鍵を keyring に持っている。
+// **`gh` にログイン済みなのに発行だけ落ちる**、という食い違いが起きる。
+//
+// 実際に v0.1.27 で踏んだ。しかも出たのは
+// 「タグが push されていないのでは」という**別の場所を疑わせる文面**で、
+// 本当の原因（発行が一度も走っていない）に辿り着くまで遠回りした。
+//
+// 人が思い出さないと通らない手順は、いずれ必ず抜ける。**こちらから取りに行く。**
+// **`shell: true` を付けない。** 付けると Node が「引数を繋ぐだけなので危ない」と
+// 警告を出し、リリースのログに毎回混ざる。`gh` は .exe なのでシェル無しで見つかる
+const ghToken = () => {
+  const r = spawnSync('gh', ['auth', 'token'], { encoding: 'utf8' })
+  return r.status === 0 ? r.stdout.trim() : ''
+}
+
+// 既に環境にあるならそれを使う（CI では `gh` が居ないので、そちらが本筋）
+const env = { ...process.env }
+if (!env.GH_TOKEN && !env.GITHUB_TOKEN) {
+  const t = ghToken()
+  // **鍵そのものは出さない。** 出所だけ言う
+  if (t) {
+    env.GH_TOKEN = t
+    console.log('GH_TOKEN が無いので、gh のログインから借りました')
+  } else {
+    console.error(
+      '\x1b[33mGH_TOKEN が無く、gh からも取れませんでした。' +
+        '`gh auth login` を済ませるか、GH_TOKEN を渡してください\x1b[0m'
+    )
+  }
+}
+
 /** npm のスクリプトを1つ走らせる（Windows でも動くように shell 経由） */
 const run = (name) =>
-  spawnSync('npm', ['run', name], { stdio: 'inherit', shell: true }).status ?? 1
+  spawnSync('npm', ['run', name], { stdio: 'inherit', shell: true, env }).status ?? 1
 
 const published = run('publish:only')
 if (published !== 0)
