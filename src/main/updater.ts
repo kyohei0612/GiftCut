@@ -21,6 +21,8 @@
 // インストーラ経由で入った実体でないと動かないため。
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { planUpdate, type BusyState } from '../shared/updatePolicy'
 
 export interface UpdateDeps {
@@ -77,17 +79,58 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
     // **閉じる前に「入れ替えています」を出す。**
     //
     // ここから先はインストーラの仕事で、終わるまで十数秒かかる。
-    // 何も出さないと**押した直後から無反応**に見える（今日 e2e で
-    // 「固まってる」と言われたのと同じ型——動いているのに見えていない）。
-    // 描く時間を一拍だけ渡してから閉じる。
+    // 何も出さないと**押した直後から無反応**に見える。
     send({ phase: 'installing', version: '' })
-    await new Promise((r) => setTimeout(r, 350))
-    // **第1引数（黙って当てるか）を true にすること。**
-    // false だと NSIS のインストーラが対話モードで立ち上がり、
-    // **更新のたびにセットアップの画面（置き場所の選択まで）が出る**。
-    // 初回の導入では選ばせたいので oneClick は false のままにしてあり、
-    // 更新のときだけここで黙らせる。第2引数は「当て終わったら開き直す」。
-    autoUpdater.quitAndInstall(true, true)
+    await new Promise((r) => setTimeout(r, 120))
+
+    // **`quitAndInstall` を使わない。** あれは
+    //
+    //   install(...)                    インストーラを起動して
+    //   setImmediate(() => app.quit())  **すぐ閉じる**
+    //
+    // なので、知らせを出した窓が **0.1秒で消える**。
+    // 「入れ替えています」を出しても、実質見えない。
+    //
+    // ## 自分で閉じないと、どれだけ見えるか
+    //
+    // NSIS 側は動いているアプリを**強制終了させる**作りで、その前に猶予がある
+    // （`allowOnlyOneInstallerInstance.nsh`）:
+    //
+    //   Sleep 300 → プロセスを探す → Sleep 1000（猶予）→ KILL_PROCESS
+    //
+    // つまり**こちらから閉じなければ 1.3〜1.6秒は窓が生きている。**
+    // しかもこの待ちはインストーラ側で必ず起きるので、
+    // **自分で閉じるより遅くはならない**（ただ乗りしているだけ）。
+    //
+    // **第1引数（黙って当てるか）は true。** false だと NSIS が対話モードで
+    // 立ち上がり、更新のたびにセットアップの画面（置き場所の選択まで）が出る。
+    // 初回の導入では選ばせたいので oneClick は false のままにしてある。
+    // 第2引数は「当て終わったら開き直す」。
+    // `install` は `BaseUpdater`（NsisUpdater の親）にあるが、electron-updater が
+    // 公開している `autoUpdater` の型は抽象の `AppUpdater` なので**型の上では見えない**。
+    // 実体は NsisUpdater なので実行時には在る。
+    // **無ければ従来の道へ落とす**——知らせが一瞬しか出ないだけで済み、
+    // 更新そのものは動く。ここで落ちて更新できなくなる方がずっと困る。
+    const u = autoUpdater as unknown as { install?: (s?: boolean, f?: boolean) => boolean }
+    if (typeof u.install !== 'function') {
+      console.warn('[update] install が無いので quitAndInstall を使います')
+      autoUpdater.quitAndInstall(true, true)
+      return
+    }
+    const started = u.install(true, true)
+    if (!started) {
+      // 起動できなかったら、いつもの道へ戻す（黙って何も起きないのが一番まずい）
+      console.warn('[update] インストーラを起動できませんでした。閉じるときに当てます')
+      send({ phase: 'error', message: '更新を始められませんでした。次に閉じたときに当てます。' })
+      return
+    }
+    // **殺されなかったときの逃げ道。** インストーラが何かの理由で
+    // 強制終了に来なかった場合、窓が出たまま固まって見える。
+    // 猶予（約1.6秒）より十分長く待ってから、自分で閉じる。
+    setTimeout(() => {
+      console.warn('[update] 強制終了が来ないので、自分で閉じます')
+      app.quit()
+    }, 8000)
   }
 
   if (!app.isPackaged) {
@@ -107,6 +150,30 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
 
   autoUpdater.on('checking-for-update', () => send({ phase: 'checking' }))
   autoUpdater.on('update-not-available', () => send({ phase: 'none' }))
+
+  /**
+   * **更新が当たった後の最初の起動で、一度だけ知らせる。**
+   *
+   * 本人の言葉:「なんか一回ロード挟んで起動したりする」。
+   * アプリが消えて、しばらくして戻ってくるのに、**戻ってきた側が何も言わない**ので、
+   * 何のための間だったのか分からず不具合に見える。
+   *
+   * 前に開いたときの版を覚えておいて、変わっていたら一度だけ言う。
+   * 待ちは減らせないが、**何だったのかは説明できる。**
+   */
+  const seenPath = join(app.getPath('userData'), 'last-version.txt')
+  try {
+    const now = app.getVersion()
+    const before = existsSync(seenPath) ? readFileSync(seenPath, 'utf-8').trim() : ''
+    writeFileSync(seenPath, now, 'utf-8')
+    // **初回起動では言わない。** 前の版を知らないだけで、更新したわけではない
+    if (before && before !== now) {
+      // 画面が用意できてから送る（起動直後は受け手がまだ居ない）
+      setTimeout(() => send({ phase: 'updated', version: now }), 2500)
+    }
+  } catch {
+    /* 覚えられなくても本体は動く */
+  }
   autoUpdater.on('download-progress', (p) => {
     const mb = (n: number): number => Math.round((n / 1024 / 1024) * 10) / 10
     send({

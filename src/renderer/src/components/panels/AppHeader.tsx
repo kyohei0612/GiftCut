@@ -84,6 +84,21 @@ export function AppHeader(): JSX.Element {
       何%終わったかを返してこない（`shared/updateState.ts` に理由）。
       出せるのは経過秒だけなので、それを出して「進んでいる」ことを見せる。 */}
   {updateState?.phase === 'installing' && <InstallingScreen />}
+  {/* **更新が当たった後の最初の起動で、一度だけ言う**（2026-08-06・本人の指摘）。
+      「なんか一回ロード挟んで起動したりする」——アプリが消えて戻ってくるのに、
+      戻ってきた側が何も言わないので、**何のための間だったのか分からない**。
+      待ちは減らせないが、**何だったのかは説明できる**。 */}
+  {updateState?.phase === 'updated' && (
+    <div className="update-bar update-bar-done">
+      <span>✨ 新しくなりました（v{updateState.version}）</span>
+      <button
+        className="update-btn update-btn-ghost"
+        onClick={() => setUpdateState(null)}
+      >
+        閉じる
+      </button>
+    </div>
+  )}
   {(updateState?.phase === 'downloading' || updateState?.phase === 'ready') && (
     <div className="update-bar">
       {updateState.phase === 'downloading' ? (
@@ -99,8 +114,22 @@ export function AppHeader(): JSX.Element {
           <span>✨ {updateState.message}</span>
           {/* 待てない人のための道。**押されたときだけ動く**ので、
               放っておけば作業は一切邪魔されない */}
-          <button className="update-btn" onClick={() => window.giftcut.updateNow()}>
-            今すぐ更新して再起動
+          {/* **押すと何が起きるかを、押す前に言う**（2026-08-06）。
+              押すと「閉じる → 入れ替え（十数秒・画面には何も出ない）→ 開き直す」。
+              入れ替えはアプリが終了してからでないと始められない
+              （動いている実行ファイルは上書きできない）ので、この待ちは減らせない。
+
+              **普通に閉じれば待ち時間はゼロ**——閉じた後に当たるので、
+              こちらはもう離席している。急がないなら押さないのが一番速い。 */}
+          <button
+            className="update-btn"
+            title={
+              '押すと、いったん閉じて入れ替えます（十数秒かかり、その間は画面に何も出ません）。\n' +
+              '急がないなら押さなくて大丈夫です——**普通に閉じたときに自動で当たります**。'
+            }
+            onClick={() => window.giftcut.updateNow()}
+          >
+            今すぐ更新して再起動（十数秒）
           </button>
           <button
             className="update-btn update-btn-ghost"

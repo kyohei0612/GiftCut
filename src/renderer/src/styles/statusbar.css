@@ -257,21 +257,10 @@ input[type="range"] {
   color: var(--muted);
   line-height: 1.7;
 }
-/* 進み具合の代わりの経過秒。**止まっているのと区別が付けばよい**ので、
-   目立たせすぎない（数字が主役ではない） */
-.installing-sec {
-  margin-top: 16px;
-  font-size: 22px;
-  font-variant-numeric: tabular-nums;
-  color: var(--accent);
-}
-.installing-long {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.7;
+/* 更新が当たった後の一言。**押させる物が無いので、緑寄りで静かに出す**
+   （落とす・入れ替えるの帯と同じ色だと、また何か始まったのかと思わせる） */
+.update-bar-done {
+  background: linear-gradient(90deg, #1e3a2a, var(--panel));
 }
 .update-bar {
   display: flex;
