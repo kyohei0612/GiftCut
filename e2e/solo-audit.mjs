@@ -54,13 +54,14 @@ function runChapter(name) {
     p.stdout.on('data', (d) => (out += d.toString()))
     p.stderr.on('data', (d) => (out += d.toString()))
     p.on('close', (code) => {
+      // **色を落としてから拾う**（色コードごと照合すると、色の付け方が
+      // 変わっただけで黙って拾えなくなる。run-parallel で「赤2件を赤0」と出た）
+      const clean = out.replace(/\0/g, '').replace(/\x1b\[[0-9;]*m/g, '')
       // まとめの行から数を拾う（`結果: 12 / 254 件が期待どおり`）
-      const m = /結果:\s*(\d+)\s*\/\s*(\d+)/.exec(out)
+      const m = /結果:\s*(\d+)\s*\/\s*(\d+)/.exec(clean)
       const ok = m ? Number(m[1]) : 0
       // 落ちた項目の名前（`直すべきもの:` の下に並ぶ）
-      const ngNames = [...out.matchAll(/\[31m✗\[0m\s*(.+)/g)].map((x) =>
-        x[1].trim()
-      )
+      const ngNames = [...clean.matchAll(/^\s*✗\s*(.+)$/gm)].map((x) => x[1].trim())
       resolve({
         name,
         ok,
@@ -123,9 +124,19 @@ console.log(
 // **基準として書き出す**（`npm run e2e:par` がこれと突き合わせる）。
 // 全章を回したときだけ。1章だけの実行で他章の基準を消さない
 if (!ONE && !走らず.length) {
-  const base = Object.fromEntries(rows.map((r) => [r.name, r.ok]))
+  // **下ごしらえのぶんを引く。** 単独実行では 01章（2件）を先に通すので、
+  // そのまま書くと**どの章も2件ずつ水増しされる**。
+  //
+  // 最初これをやって、合計が 290（本当は256）になった。使う側は担当ごとに
+  // 章を束ねるので、束ね方が変わるたびに数が合わなくなる
+  // ——**「基準」が測り方に依存していたら基準ではない。**
+  const bootN = rows.find((r) => r.name === CHAPTERS[0])?.ok ?? 0
+  const base = Object.fromEntries(
+    rows.map((r) => [r.name, r.name === CHAPTERS[0] ? r.ok : r.ok - bootN])
+  )
   writeFileSync(join(HERE, '..', BASELINE_PATH), JSON.stringify(base, null, 2) + '\n', 'utf-8')
-  console.log(`\n  基準を書きました: ${BASELINE_PATH}（章ごとの緑の数）`)
+  const total = Object.values(base).reduce((a, c) => a + c, 0)
+  console.log(`\n  基準を書きました: ${BASELINE_PATH}（章ごとの自前の件数・合計 ${total}）`)
 }
 
 // **1件も走らなかった章があるなら赤。** 「調べたつもりで調べていない」を通さない

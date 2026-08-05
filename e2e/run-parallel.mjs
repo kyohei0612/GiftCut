@@ -61,11 +61,20 @@ function shard(names, n) {
   return bins
 }
 
-/** 1章回して、結果を拾う */
-function runChapter(name) {
+/**
+ * **担当1人ぶんを、1つのアプリで順に回す。**
+ *
+ * 1章＝1インスタンスにもできる（そちらの方が独立性は高い）が、そうすると
+ * **「1つのアプリを長く動かし続ける」面が消える**。直列の通しは13分ぶん
+ * 同じインスタンスを使うので、状態の積み上がり（片付け忘れ・溜まり続ける物）が
+ * 出るならそこで出ていた。まとめて回せば、**1インスタンスあたり60項目前後**を
+ * 通しつつ担当は並列にできる。起動の回数も 18 → 担当の数へ減る。
+ */
+function runChapters(names) {
+  const label = names.join(',')
   return new Promise((resolve) => {
     const t0 = Date.now()
-    const p = spawn(process.execPath, [join(HERE, 'run.mjs'), `--chapter=${name}`, ...PASS], {
+    const p = spawn(process.execPath, [join(HERE, 'run.mjs'), `--chapter=${label}`, ...PASS], {
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -73,10 +82,15 @@ function runChapter(name) {
     p.stdout.on('data', (d) => (out += d.toString()))
     p.stderr.on('data', (d) => (out += d.toString()))
     p.on('close', (code) => {
-      const m = /結果:\s*(\d+)\s*\/\s*(\d+)/.exec(out)
-      const ngNames = [...out.matchAll(/\[31m✗\[0m\s*(.+)/g)].map((x) => x[1].trim())
+      // **色を落としてから拾う。** 前は `\[31m✗\[0m` と色コードごと照合していて、
+      // **赤が2件あるのに「赤0・終了コード1」**と出た（拾えないのに落ちてはいる、
+      // という一番読み違えやすい形）。色の付け方が変わるだけで黙って拾えなくなる
+      const clean = out.replace(/\0/g, '').replace(/\x1b\[[0-9;]*m/g, '')
+      const m = /結果:\s*(\d+)\s*\/\s*(\d+)/.exec(clean)
+      const ngNames = [...clean.matchAll(/^\s*✗\s*(.+)$/gm)].map((x) => x[1].trim())
       resolve({
-        name,
+        names,
+        name: label,
         ok: m ? Number(m[1]) : 0,
         ngNames,
         sec: (Date.now() - t0) / 1000,
@@ -97,16 +111,15 @@ function runChapter(name) {
   })
 }
 
-/** 担当1人ぶん（自分の持ち場を順に回す） */
+/** 担当1人ぶん（持ち場を**まとめて1つのアプリで**回す） */
 async function worker(names, id, results) {
-  for (const name of names) {
-    const r = await runChapter(name)
-    results.push(r)
-    console.log(
-      `  [${id}] ${r.ran ? (r.ngNames.length ? '\x1b[31m✗\x1b[0m' : '\x1b[32m✓\x1b[0m') : '\x1b[33m？\x1b[0m'} ` +
-        `${name}  緑${r.ok} 赤${r.ngNames.length}  ${r.sec.toFixed(0)}秒`
-    )
-  }
+  if (!names.length) return
+  const r = await runChapters(names)
+  results.push(r)
+  console.log(
+    `  [${id}] ${r.ran ? (r.ngNames.length ? '\x1b[31m✗\x1b[0m' : '\x1b[32m✓\x1b[0m') : '\x1b[33m？\x1b[0m'} ` +
+      `緑${r.ok} 赤${r.ngNames.length}  ${r.sec.toFixed(0)}秒  ${names.join(' / ')}`
+  )
 }
 
 const t0 = Date.now()
@@ -151,8 +164,22 @@ try {
 } catch {
   /* まだ無い */
 }
+/**
+ * 担当ごとに「持ち場の基準の合計」と比べる。
+ *
+ * まとめて1インスタンスで回すので、章ごとの内訳は出ない。
+ * **合計で見れば取りこぼしは分かる**——途中で死ねば必ず足りなくなる。
+ * どの章で死んだかは、その担当だけ `--chapter=` で回し直せば出る。
+ *
+ * ※ 各担当は下ごしらえに 01章（2件）を通すので、そのぶんを足して比べる
+ */
 const 足りない = baseline
-  ? results.filter((r) => baseline[r.name] != null && r.ok + r.ngNames.length < baseline[r.name])
+  ? results.filter((r) => {
+      const want =
+        r.names.reduce((s, n) => s + (baseline[n] ?? 0), 0) +
+        (r.names.includes(CHAPTERS[0]) ? 0 : (baseline[CHAPTERS[0]] ?? 0))
+      return want > 0 && r.ok + r.ngNames.length < want
+    })
   : []
 const 分 = (Date.now() - t0) / 60000
 
@@ -183,7 +210,12 @@ if (!baseline) {
   console.error(
     `\n\x1b[31m基準より件数が少ない章:\x1b[0m\n` +
       足りない
-        .map((r) => `  ${r.name}  ${r.ok + r.ngNames.length}件 / 基準 ${baseline[r.name]}件`)
+        .map((r) => {
+          const want =
+            r.names.reduce((s, n) => s + (baseline[n] ?? 0), 0) +
+            (r.names.includes(CHAPTERS[0]) ? 0 : (baseline[CHAPTERS[0]] ?? 0))
+          return `  ${r.names.join(' / ')}\n    ${r.ok + r.ngNames.length}件 / 基準 ${want}件`
+        })
         .join('\n') +
       `\n\n  途中で終わっています。**確認を足したなら \`npm run solo\` で基準を取り直すこと。**\n`
   )
@@ -200,4 +232,4 @@ if (ng.length || 走らず.length || 途中死.length || 足りない.length || 
   )
   process.exit(1)
 }
-console.log(`\n全部通りました。**出す前の最終確認は直列で1回**（npm run e2e）\n`)
+console.log(`\n全部通りました。**出す前の最終確認は直列で1回**（npm run e2e:serial）\n`)

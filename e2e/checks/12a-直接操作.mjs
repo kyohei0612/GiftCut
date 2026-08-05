@@ -217,6 +217,38 @@ export default async function (C) {
     await page.waitForTimeout(300)
   })
 
+  /**
+   * スクショが**測れるようになるまで待つ**。測れなければ落とす。
+   *
+   * ## なぜ固定の待ち時間ではだめか（2026-08-05）
+   *
+   * ここは `existsSync` で「できた」と判断していたが、**ファイルは作られた瞬間に
+   * 存在する**ので、書き終わる前に測ることがある。そのとき `avgColor` は
+   * 明るさを null で返し、`c.y > 8` が落ちて「真っ黒＝映像が写っていない」と
+   * **アプリの不具合の顔をした赤**が出る。
+   *
+   * 今日まで通っていたのは、項目と項目の間に 320ms の間があったから
+   *（`--fast` はその間を省く）。章を束ねて1つのアプリで続けて回した瞬間、
+   * **直前に42項目走った後だと間に合わず**、2件が同時に赤になった。
+   *
+   *   12章だけ --fast        緑（間に合う）
+   *   束ねて --fast なし     緑（間がある）
+   *   **束ねて --fast**      **赤**（両方揃ったときだけ）
+   *
+   * → 待ち時間を伸ばすのではなく、**測れたかどうかで判断する**。
+   *   間に寄りかかっている限り、環境が速くなっても遅くなっても同じ事が起きる。
+   */
+  const readShot = async (out, tries = 20) => {
+    for (let i = 0; i < tries; i++) {
+      if (existsSync(out)) {
+        const c = await avgColor(out)
+        if (c.y != null && c.range != null) return c
+      }
+      await page.waitForTimeout(300)
+    }
+    assert(false, `スクショを ${(tries * 0.3).toFixed(1)}秒 待っても測れない（${out}）`)
+  }
+
   await check('スクショが保存でき、映像がちゃんと写っている', async () => {
     // **保存されない、が実際に起きていた。** しかも例外なので保存の窓すら出ず、
     // 押しても何も起きないように見える（映像を描いた回だけ、キャンバスが
@@ -233,14 +265,13 @@ export default async function (C) {
     const btn = page.locator('button', { hasText: '📷' }).first()
     assert(await btn.count(), 'スクショのボタンが見つからない')
     await btn.click()
-    await page.waitForTimeout(2500)
-    assert(existsSync(out), 'スクショのファイルができていない（黙って失敗している）')
     // **明るさ（YAVG）と明暗の幅（range）の両方を見る。**
     // 真っ黒なら明るさが出ないし、テロップだけ写って映像が抜けていても
-    // 平均は上がりうるので、模様があること（range）まで確かめる
-    const c = await avgColor(out)
-    assert(c.y != null && c.y > 8, `スクショが真っ黒（映像が写っていない）: 明るさ ${c.y}`)
-    assert(c.range != null && c.range > 40, `スクショに模様が無い: 明暗の幅 ${c.range}`)
+    // 平均は上がりうるので、模様があること（range）まで確かめる。
+    // 測れるまで待つ理由は `readShot` の頭
+    const c = await readShot(out)
+    assert(c.y > 8, `スクショが真っ黒（映像が写っていない）: 明るさ ${c.y}`)
+    assert(c.range > 40, `スクショに模様が無い: 明暗の幅 ${c.range}`)
   })
 
   // **スクショは「いま見えている物」を撮る。** 本編の映像だけを描いていたので、
@@ -257,12 +288,10 @@ export default async function (C) {
     if (existsSync(out)) rmSync(out)
     await setDialogFiles(null, out)
     await page.locator('button', { hasText: '📷' }).first().click()
-    await page.waitForTimeout(2500)
-    assert(existsSync(out), 'スクショのファイルができていない')
     // 本編を隠しているので、画像を描けていなければ真っ黒になる
-    const c = await avgColor(out)
-    assert(c.y != null && c.y > 8, `真っ黒＝画像が写っていない: 明るさ ${c.y}`)
-    assert(c.range != null && c.range > 40, `模様が無い＝画像が写っていない: 明暗の幅 ${c.range}`)
+    const c = await readShot(out)
+    assert(c.y > 8, `真っ黒＝画像が写っていない: 明るさ ${c.y}`)
+    assert(c.range > 40, `模様が無い＝画像が写っていない: 明暗の幅 ${c.range}`)
     await eye().click() // 元に戻す（次の項目が真っ黒から始まらないように）
     await page.waitForTimeout(300)
   })

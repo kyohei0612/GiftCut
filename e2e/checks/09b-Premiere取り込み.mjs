@@ -89,10 +89,24 @@ export default async function (C) {
     await page.waitForTimeout(300)
     const sec = page.locator('.tpl-acc', { hasText: '💫 動き' }).first()
     assert(await sec.count(), 'トランジションタブに「動き」が無い')
-    assert(
-      (await page.locator('.tpl-acc.open').count()) === 0,
-      'トランジションタブの節が最初から開いている（既定は全部畳んでおく）'
-    )
+    // **開いている節は自分で畳んでから始める。**
+    //
+    // ここには「節が1つも開いていないこと」を確かめる行があった。
+    // ところが**右パネルは開閉を覚える**（`やること.md`。組み立て直すたびに
+    // 既定へ戻ると、選ぶ物を変えるたびに開き直す羽目になるので、そうした）。
+    // つまりこの確認は「自分より前に誰も節を開いていない」でしか成り立たず、
+    // **並び順が変わった瞬間に落ちる。**
+    //
+    // 2026-08-05、章を束ねて1つのアプリで回す形にしたら実際に落ちた
+    // （直列の並びではたまたま閉じた状態で来ていた）。**並列の負荷ではない**
+    // ——単独で同じ順に並べても同じように落ちる。
+    //
+    // 「既定は畳んでおく」の確認は 08-右パネル の持ち場なので、ここでは持たない。
+    // **ここが要るのは「動きの節が開いている」状態だけ**なので、それを自分で作る。
+    for (const el of await page.locator('.tpl-acc.open').all()) {
+      await el.click().catch(() => {})
+      await page.waitForTimeout(120)
+    }
     await sec.click()
     await page.waitForTimeout(300)
 

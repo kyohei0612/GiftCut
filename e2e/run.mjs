@@ -384,8 +384,9 @@ try {
     zipRead,
   }
   // 章の一覧は ./lib/chapters（`solo-audit.mjs` と共用。書き写さないこと）
-  if (CHAPTER && !CHAPTERS.includes(CHAPTER)) {
-    console.error(`\n知らない章です: ${CHAPTER}\n選べるのは:\n  ${CHAPTERS.join('\n  ')}\n`)
+  const unknown = CHAPTER.filter((c) => !CHAPTERS.includes(c))
+  if (unknown.length) {
+    console.error(`\n知らない章です: ${unknown.join(' / ')}\n選べるのは:\n  ${CHAPTERS.join('\n  ')}\n`)
     process.exit(2)
   }
   // **1章だけ回すときは、先に下ごしらえをする。**
@@ -399,12 +400,12 @@ try {
   // ※ `resetProject()` では足りない。あれは**いま開いている物を開き直す**道具で、
   //   一度も開いていない状態からは何も出てこない（08章で実測）。
   //   最初に開くのは 01章の仕事なので、**01章そのものを下ごしらえとして通す。**
-  const BOOT = CHAPTER && CHAPTER !== CHAPTERS[0] ? CHAPTERS[0] : null
-  if (BOOT) console.log(`\x1b[90m  （単独実行なので、先に ${BOOT} を通します）\x1b[0m`)
+  const BOOT = CHAPTER.length && !CHAPTER.includes(CHAPTERS[0]) ? CHAPTERS[0] : null
+  if (BOOT) console.log(`\x1b[90m  （絞って回すので、先に ${BOOT} を通します）\x1b[0m`)
   for (const name of CHAPTERS) {
     // **`--chapter=` があれば、その章だけ。** 前の章を1つも通らないので、
     // 「この章は自分で始められるか」がそのまま出る（e2e/solo-audit.mjs が使う）
-    if (CHAPTER && name !== CHAPTER && name !== BOOT) continue
+    if (CHAPTER.length && !CHAPTER.includes(name) && name !== BOOT) continue
     const mod = await import(`./checks/${name}.mjs`)
     await mod.default(C)
   }
