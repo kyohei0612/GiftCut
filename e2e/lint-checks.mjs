@@ -55,30 +55,89 @@ function provided(src) {
   return got
 }
 
-/** run.mjs 側が持っている名前（ここに在るのに受け取っていない＝書き忘れ） */
+/**
+ * 確認のファイルが**受け取れる**名前＝道具箱 `C` の鍵。
+ *
+ * ## なぜ「run.mjs に在る名前」を集めてはいけないか（2026-08-05 に作り直した）
+ *
+ * 前は run.mjs の宣言を片っ端から集めていた。ところが正規表現が**行頭固定**で、
+ * 道具はほぼ全部が関数の中＝字下がりなので、**75個のうち25個しか集まらなかった**。
+ * `v1Clips` も `avgColor` も漏れていて、17c が両方とも受け取り忘れたまま
+ * **「名前の書き忘れなし」と緑で言っていた**（通しで初めて落ちた）。
+ *
+ * 字下がりを許すように直すと、今度は run.mjs の**ただの局所変数**（`box` `x` `y`
+ * `p` `on` …）まで道具扱いになって、**37ファイル全部が赤**になった。
+ * 広く取っても狭く取っても外れる——集める対象そのものが違っていた。
+ *
+ * → **`const C = { … }` の鍵だけを読む。** それが確認のファイルとの契約そのもので、
+ *   広すぎも狭すぎもしない。
+ */
 function harnessNames() {
   const src = readFileSync(join(HERE, 'run.mjs'), 'utf-8')
+  const block = src.match(/\n\s*const C = \{([\s\S]*?)\n\s*\}/)
+  if (!block) throw new Error('run.mjs に「const C = {」が無い（道具箱の形が変わった）')
   const out = new Set()
-  for (const m of src.matchAll(/^import\s*\{([^}]*)\}/gm))
-    for (const p of m[1].split(',')) {
-      const n = p.trim().split(' as ').pop().trim()
-      if (/^\w+$/.test(n)) out.add(n)
+  for (const line of block[1].split('\n')) {
+    const n = line.split(':')[0].trim().replace(/,$/, '')
+    if (/^\w+$/.test(n)) out.add(n)
+  }
+  // **空になったら見張りが死ぬ。** 落ちない代わりに黙って通す型（CLAUDE.md 7番）で、
+  // 集め方が壊れた事故は 08-04 と 08-05 に2回起きている。数で足を止める
+  if (out.size < 20)
+    throw new Error(`道具箱の名前が ${out.size} 個しか読めていない（集め方が壊れた）`)
+  return out
+}
+
+/**
+ * コメントと文字列を消して、**コードだけ**にする。
+ *
+ * 消さないと、`// 掴める印（fx-draggable）で選ぶ` の `fx` や
+ * `'shot-check.png'` の `shot` を「道具を使っている」と読んでしまう
+ * （2026-08-05、その2件でいきなり嘘の赤が出た）。
+ *
+ * ※ 正規表現1本では無理。文字列の中の `//`（`https://…`）を行コメントと
+ *   間違えるので、**頭から1文字ずつ**辿る。
+ * ※ テンプレート文字列は `${…}` の中だけ残す。`assert(…, \`ずれた: ${drift}\`)` の
+ *   `drift` は**本物の使用**なので、丸ごと消すと今度は見落とす。
+ */
+function codeOnly(src) {
+  let out = ''
+  let i = 0
+  while (i < src.length) {
+    const c = src[i]
+    const two = src.slice(i, i + 2)
+    if (two === '//') {
+      while (i < src.length && src[i] !== '\n') i++
+    } else if (two === '/*') {
+      i += 2
+      while (i < src.length && src.slice(i, i + 2) !== '*/') i++
+      i += 2
+    } else if (c === "'" || c === '"') {
+      i++
+      while (i < src.length && src[i] !== c) i += src[i] === '\\' ? 2 : 1
+      i++
+      out += ' '
+    } else if (c === '`') {
+      i++
+      while (i < src.length && src[i] !== '`') {
+        if (src.slice(i, i + 2) === '${') {
+          i += 2
+          let depth = 1
+          while (i < src.length && depth > 0) {
+            if (src[i] === '{') depth++
+            else if (src[i] === '}') depth--
+            if (depth > 0) out += src[i]
+            i++
+          }
+          out += ' '
+        } else i += src[i] === '\\' ? 2 : 1
+      }
+      i++
+    } else {
+      out += c
+      i++
     }
-  for (const m of src.matchAll(/^(?:const|let|var)\s+(.+?)\s*=/gm))
-    for (const p of m[1].split(',')) if (/^\w+$/.test(p.trim())) out.add(p.trim())
-  for (const m of src.matchAll(/^(?:async )?function (\w+)/gm)) out.add(m[1])
-  // 束で受け取っている物（`const { check, section, … } = makeRunReport(…)`）。
-  //
-  // **run.mjs の道具を lib/ へ出した日から、これが無いと見張りが空になる**
-  // （2026-08-04）。`check` も `section` も宣言ではなく分割代入で入ってくるので、
-  // 上の1行ずつの形では1つも拾えない。拾えないと `have` に載らず、
-  // **受け取り忘れがあっても「書き忘れなし」と出る**——落ちない代わりに黙って死ぬ
-  // 型（CLAUDE.md 7番）。実際、出した直後は 09c / 09d の書き忘れ2件が消えていた。
-  for (const m of src.matchAll(/^const \{([^}]*)\} =/gm))
-    for (const p of m[1].split(',')) {
-      const n = p.split(':')[0].trim()
-      if (/^\w+$/.test(n)) out.add(n)
-    }
+  }
   return out
 }
 
@@ -88,7 +147,7 @@ for (const f of readdirSync(join(HERE, 'checks')).filter((f) => f.endsWith('.mjs
   const src = readFileSync(join(HERE, 'checks', f), 'utf-8')
   const got = provided(src)
   const used = new Set(
-    [...src.matchAll(/(?<![\w.$])([A-Za-z_$][\w$]*)\s*(?![\w$]*\s*:)/g)].map((m) => m[1])
+    [...codeOnly(src).matchAll(/(?<![\w.$])([A-Za-z_$][\w$]*)\s*(?![\w$]*\s*:)/g)].map((m) => m[1])
   )
   const missing = [...used].filter((n) => have.has(n) && !got.has(n) && !GLOBAL.has(n)).sort()
   if (missing.length) {

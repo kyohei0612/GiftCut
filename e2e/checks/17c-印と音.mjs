@@ -13,9 +13,9 @@ import { join } from 'node:path'
 
 export default async function (C) {
   const {
-    ONLY, ROOT, SHOT_ONLY, assert, avgColorAt, check, fillExportName, setExportTarget, fx, loudness, meanVolume,
-    outDir, page, resetProject, section, seekTo, setDialogFiles, shot, shotDir,
-    silences, similarity
+    ONLY, ROOT, SHOT_ONLY, assert, avgColor, avgColorAt, check, fillExportName, setExportTarget, fx,
+    loudness, meanVolume, outDir, page, resetProject, section, seekTo, setDialogFiles, shot, shotDir,
+    silences, similarity, v1Clips
   } = C
   await check('マウスの印が、目盛りの数字の上に切れずに出る', async () => {
     // 再生ヘッドと見分けが付く形にしてある（全高の縦線は再生ヘッドだけ）。
