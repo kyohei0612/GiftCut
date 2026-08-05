@@ -1,6 +1,6 @@
 {
   "name": "giftcut",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "切り抜き動画特化のテロップ編集アプリ",
   "author": "kyohei",
   "main": "./boot.js",
@@ -20,7 +20,7 @@
     "audit": "node e2e/panel-audit.mjs",
     "verify": "npm run typecheck && npm run test",
     "check:dist": "node scripts/check-dist.mjs",
-    "release:check": "npm run verify && npm run check:ffmpeg && npm run build && npm run check:dist && npm run dist && npm run check:packaged",
+    "release:check": "npm run verify && npm run check:ffmpeg && npm run build && npm run check:dist && npm run dist && npm run check:packaged && npm run check:swap",
     "e2e": "node e2e/lint-checks.mjs && node e2e/run-parallel.mjs",
     "bench": "node e2e/bench.mjs",
     "stutter": "node e2e/stutter.mjs",
