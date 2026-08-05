@@ -1,8 +1,10 @@
 // **章ごとに別の窓で、同時に回す。**
 //
-//   npm run e2e:par                 既定4並列
-//   npm run e2e:par -- --workers=6  並列度を変える
-//   npm run e2e:par -- --fast       run.mjs へそのまま渡す
+//   npm run e2e                  既定4並列（約4分）
+//   npm run e2e -- --workers=6   並列度を変える
+//   npm run e2e -- --fast        run.mjs へそのまま渡す
+//   npm run e2e -- --workers=1   **全18章を1つのアプリで順に**＝昔の直列そのもの
+//                                （約15分。件数も 256 でぴったり一致することを確認済み）
 //
 // ## なぜ作ったか（2026-08-05）
 //
@@ -24,10 +26,28 @@
 // CPU を使うと、絵の止まりも音も嘘の数字になる。実際このリポジトリでは、
 // 別のセッションが Electron を起動しただけで6項目が同時に赤になっている。
 //
-// ## これは通しの代わりにはならない
+// ## 直列は捨てていない。**設定違いとして畳んだ**（2026-08-06）
 //
-// 章をまたいで起きることは、この形では**原理的に見えない**。
-// 出す前の最終確認は、いままでどおり `npm run e2e`（直列1本）で通すこと。
+// 昔は `run.mjs` を直接叩く「直列」が別コマンドとしてあった。**`--workers=1` が
+// それと完全に同じ**だと測って確かめたので（緑256・件数ぴったり一致）、
+// 別のコマンドは消した。**入口が1つなら、片方だけ腐ることがない。**
+//
+// 実際、直列側には今日足した検査（基準との突き合わせ・終了コード・赤の拾い方）が
+// 1つも効いていなかった。畳んだことで、そのまま効くようになっている。
+//
+// ## 何が見えて、何が見えないか
+//
+// ```
+// 4並列    1つのアプリで最大88項目 ／ **4通りの並び順**を試す
+// 1並列    1つのアプリで254項目   ／ 1通りの並び順（01→17）
+// ```
+//
+// **どちらも網羅ではない。** 2026-08-05、束ねた4通りの方が
+// 「たまたま成立していた確認」を4件暴いた（直列の1通りでは緑だった）。
+// 逆に直列にしか無い強みは**深さ**——じわじわ溜まる物には3倍露出する。
+//
+// → 毎日も出す前も 4並列。**「重い・落ちる」と言われたときだけ `--workers=1`。**
+//   時間の軸は `npm run soak` が別に見ている（ただし触るのは5種類の操作だけ）。
 
 import { spawn } from 'node:child_process'
 import { cpus } from 'node:os'
@@ -70,7 +90,7 @@ function shard(names, n) {
  * 出るならそこで出ていた。まとめて回せば、**1インスタンスあたり60項目前後**を
  * 通しつつ担当は並列にできる。起動の回数も 18 → 担当の数へ減る。
  */
-function runChapters(names) {
+function runChapters(names, id) {
   const label = names.join(',')
   return new Promise((resolve) => {
     const t0 = Date.now()
@@ -79,8 +99,29 @@ function runChapters(names) {
       stdio: ['ignore', 'pipe', 'pipe']
     })
     let out = ''
-    p.stdout.on('data', (d) => (out += d.toString()))
-    p.stderr.on('data', (d) => (out += d.toString()))
+    /**
+     * **通った項目を流す。担当の番号を頭に付ける。**
+     *
+     * 前は子の出力を全部溜め込んで、終わるまで1行も出さなかった。
+     * 4並列なら各担当が4分で終わるので気づかなかったが、`--workers=1`
+     * （＝直列）だと**16分間まったく無音**になり、本人から
+     * **「固まってる」**と報告された。実際は動いていた
+     *（一時フォルダのファイルが更新され続けていた）。
+     *
+     * **止まっているのと、無音なのが区別できない作り**だった。
+     * 裏で走らせるだけでは足りない——**生きていることが見えている**必要がある。
+     * 行が混ざっても、番号が付いていれば追える。**無音より混ざる方がよい。**
+     */
+    let seen = 0
+    const flow = (chunk) => {
+      out += chunk
+      for (const m of chunk.replace(/\x1b\[[0-9;]*m/g, '').matchAll(/^\s*([✓✗])\s*(.+)$/gm)) {
+        seen++
+        console.log(`  [${id}] ${m[1]} ${m[2].trim()}`)
+      }
+    }
+    p.stdout.on('data', (d) => flow(d.toString()))
+    p.stderr.on('data', (d) => flow(d.toString()))
     p.on('close', (code) => {
       // **色を落としてから拾う。** 前は `\[31m✗\[0m` と色コードごと照合していて、
       // **赤が2件あるのに「赤0・終了コード1」**と出た（拾えないのに落ちてはいる、
@@ -114,11 +155,11 @@ function runChapters(names) {
 /** 担当1人ぶん（持ち場を**まとめて1つのアプリで**回す） */
 async function worker(names, id, results) {
   if (!names.length) return
-  const r = await runChapters(names)
+  const r = await runChapters(names, id)
   results.push(r)
   console.log(
-    `  [${id}] ${r.ran ? (r.ngNames.length ? '\x1b[31m✗\x1b[0m' : '\x1b[32m✓\x1b[0m') : '\x1b[33m？\x1b[0m'} ` +
-      `緑${r.ok} 赤${r.ngNames.length}  ${r.sec.toFixed(0)}秒  ${names.join(' / ')}`
+    `\n  [${id}] ${r.ran ? (r.ngNames.length ? '\x1b[31m✗ 終わり\x1b[0m' : '\x1b[32m✓ 終わり\x1b[0m') : '\x1b[33m？ 終わり\x1b[0m'} ` +
+      `緑${r.ok} 赤${r.ngNames.length}  ${(r.sec / 60).toFixed(1)}分\n`
   )
 }
 
@@ -232,4 +273,4 @@ if (ng.length || 走らず.length || 途中死.length || 足りない.length || 
   )
   process.exit(1)
 }
-console.log(`\n全部通りました。**出す前の最終確認は直列で1回**（npm run e2e:serial）\n`)
+console.log(`\n全部通りました\n`)

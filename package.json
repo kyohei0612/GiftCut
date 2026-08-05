@@ -21,7 +21,6 @@
     "check:dist": "node scripts/check-dist.mjs",
     "release:check": "npm run verify && npm run check:ffmpeg && npm run build && npm run check:dist && npm run dist && npm run check:packaged",
     "e2e": "node e2e/lint-checks.mjs && node e2e/run-parallel.mjs",
-    "e2e:serial": "node e2e/lint-checks.mjs && node e2e/run.mjs",
     "bench": "node e2e/bench.mjs",
     "stutter": "node e2e/stutter.mjs",
     "soak": "node e2e/soak.mjs",
