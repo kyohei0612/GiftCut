@@ -27,6 +27,7 @@ import { useExportCtx } from '../../state/exportContext'
 import { useProjectStateCtx } from '../../state/projectStateContext'
 import { useDoc } from '../../state/contentContext'
 import { useSel } from '../../state/selectionContext'
+import { InstallingScreen } from './InstallingScreen'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface AppHeaderProps {
@@ -73,10 +74,26 @@ export function AppHeader(): JSX.Element {
       **こちらから再起動を促さない**（2026-08-02 に変更）。落とし終わったことを
       伝えるだけで、当てるのは本人が閉じたとき。待てない人のために
       「今すぐ更新して再起動」は置くが、押されたときだけ動く。 */}
+  {/* **入れ替え中は全画面にする**（2026-08-06）。細い帯にしないのは2つ理由がある:
+      ・ここから先はインストーラの仕事で、**触っても何もできない**。
+        触れる見た目のまま置くと、押しても反応しない画面を触らせることになる
+      ・押した直後から十数秒、何も起きないように見える。今日 e2e で
+        「固まってる」と言われたのと同じ型——**動いているのに見えていない**
+
+      **進み具合の数字は出せない。** NSIS が黙って入れ替えるので、
+      何%終わったかを返してこない（`shared/updateState.ts` に理由）。
+      出せるのは経過秒だけなので、それを出して「進んでいる」ことを見せる。 */}
+  {updateState?.phase === 'installing' && <InstallingScreen />}
   {(updateState?.phase === 'downloading' || updateState?.phase === 'ready') && (
     <div className="update-bar">
       {updateState.phase === 'downloading' ? (
-        <span>⬇ 新しい GiftCut を用意しています… {updateState.percent}%</span>
+        // **割合だけでなく実数（MB）も出す。**「45%」だけだと、あと何秒なのか・
+        // そもそも大きい物なのかが分からない。何MB中の何MBかが見えれば、
+        // 待てるかどうかを本人が決められる
+        <span>
+          ⬇ 新しい GiftCut を用意しています… {updateState.percent}%
+          {updateState.totalMB > 0 && `（${updateState.doneMB} / ${updateState.totalMB} MB）`}
+        </span>
       ) : (
         <>
           <span>✨ {updateState.message}</span>

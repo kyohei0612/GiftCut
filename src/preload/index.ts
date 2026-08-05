@@ -79,13 +79,8 @@ interface ExportPayload {
   crf?: number
 }
 
-/** 更新の状況（本体から届く。src/main/updater.ts と同じ形） */
-type UpdateState =
-  | { phase: 'checking' }
-  | { phase: 'none' }
-  | { phase: 'downloading'; version: string; percent: number }
-  | { phase: 'ready'; version: string; when: 'now' | 'onQuit'; message: string; countdownSec: number }
-  | { phase: 'error'; message: string }
+// **書き写さない**（理由は shared/updateState.ts の頭）
+import type { UpdateState } from '../shared/updateState'
 
 const api = {
   importSrt: (): Promise<{ path: string; content: string; error?: string } | null> =>

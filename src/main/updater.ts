@@ -28,13 +28,10 @@ export interface UpdateDeps {
   busy: () => BusyState
 }
 
-/** 画面へ知らせる内容。renderer 側はこれを見て表示を決める */
-export type UpdateState =
-  | { phase: 'checking' }
-  | { phase: 'none' }
-  | { phase: 'downloading'; version: string; percent: number }
-  | { phase: 'ready'; version: string; when: 'now' | 'onQuit'; message: string; countdownSec: number }
-  | { phase: 'error'; message: string }
+// **書き写さない**（前は main / preload の2ファイルに同じ型があった。
+// 理由は shared/updateState.ts の頭）
+export type { UpdateState } from '../shared/updateState'
+import type { UpdateState } from '../shared/updateState'
 
 export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
   const send = (s: UpdateState): void => {
@@ -56,20 +53,35 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
   let flushed: (() => void) | null = null
   ipcMain.on('update:flushed', () => flushed?.())
   async function restartWithUpdate(): Promise<void> {
-    await new Promise<void>((res) => {
-      const done = (): void => {
-        flushed = null
-        clearTimeout(timer)
-        res()
-      }
-      const timer = setTimeout(() => {
-        console.warn('[update] 保存の返事が来ないので、待たずに再起動します')
-        done()
-      }, 4000)
-      flushed = done
-      if (!win.isDestroyed()) win.webContents.send('update:flush')
-      else done()
-    })
+    // **書く物が無いなら待たない。**
+    //
+    // ここは常に「下書きを書け」と頼んで返事を待っていた（最大4秒）。
+    // ところが未保存が無ければ書く物も無いので、**押した人はただ待たされる**。
+    // 更新が遅いと感じる時間の一部が、これだった。
+    if (deps.busy().dirty) {
+      await new Promise<void>((res) => {
+        const done = (): void => {
+          flushed = null
+          clearTimeout(timer)
+          res()
+        }
+        const timer = setTimeout(() => {
+          console.warn('[update] 保存の返事が来ないので、待たずに再起動します')
+          done()
+        }, 4000)
+        flushed = done
+        if (!win.isDestroyed()) win.webContents.send('update:flush')
+        else done()
+      })
+    }
+    // **閉じる前に「入れ替えています」を出す。**
+    //
+    // ここから先はインストーラの仕事で、終わるまで十数秒かかる。
+    // 何も出さないと**押した直後から無反応**に見える（今日 e2e で
+    // 「固まってる」と言われたのと同じ型——動いているのに見えていない）。
+    // 描く時間を一拍だけ渡してから閉じる。
+    send({ phase: 'installing', version: '' })
+    await new Promise((r) => setTimeout(r, 350))
     // **第1引数（黙って当てるか）を true にすること。**
     // false だと NSIS のインストーラが対話モードで立ち上がり、
     // **更新のたびにセットアップの画面（置き場所の選択まで）が出る**。
@@ -96,10 +108,13 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
   autoUpdater.on('checking-for-update', () => send({ phase: 'checking' }))
   autoUpdater.on('update-not-available', () => send({ phase: 'none' }))
   autoUpdater.on('download-progress', (p) => {
+    const mb = (n: number): number => Math.round((n / 1024 / 1024) * 10) / 10
     send({
       phase: 'downloading',
       version: autoUpdater.currentVersion?.version ?? '',
-      percent: Math.round(p.percent)
+      percent: Math.round(p.percent),
+      doneMB: mb(p.transferred),
+      totalMB: mb(p.total)
     })
   })
   autoUpdater.on('update-downloaded', (info) => {

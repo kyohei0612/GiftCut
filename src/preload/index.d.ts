@@ -77,13 +77,9 @@ export interface ExportPayload {
   crf?: number
 }
 
-/** 更新の状況（本体から届く。src/main/updater.ts と同じ形） */
-export type UpdateState =
-  | { phase: 'checking' }
-  | { phase: 'none' }
-  | { phase: 'downloading'; version: string; percent: number }
-  | { phase: 'ready'; version: string; when: 'now' | 'onQuit'; message: string; countdownSec: number }
-  | { phase: 'error'; message: string }
+// **書き写さない。** 前は同じ型が3か所にあって、片方だけ新しくなった
+// （理由は shared/updateState.ts の頭）
+export type { UpdateState } from '../shared/updateState'
 
 export interface GiftcutApi {
   importSrt: () => Promise<{ path: string; content: string; error?: string } | null>
