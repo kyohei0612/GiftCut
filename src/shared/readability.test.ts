@@ -160,7 +160,8 @@ const DEBT_HEAD = new Set([
   'src/renderer/src/components/TelopText.tsx',
   'src/preload/index.ts',
   'src/renderer/src/components/FillPicker.tsx',
-  'src/preload/index.d.ts',
+  // 'src/preload/index.d.ts' … 2026-08-06 に返済（書き出しの型の写し78行を
+  //   main/exportTypes への再エクスポートに置き換え。頭に説明が付いたので免除が不要）
   'src/renderer/src/App.tsx',
   'src/renderer/src/components/CropModal.tsx',
   'src/renderer/src/components/WaveformCanvas.tsx',

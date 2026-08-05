@@ -1,81 +1,19 @@
-export interface ExportFrame {
-  png: string
-  start: number
-  end: number
-}
-export interface ExportSeg {
-  srcIdx?: number
-  srcStart: number
-  srcEnd: number
-  muted?: boolean
-  videoBlank?: boolean
-  speed?: number
-  transIn?: { type: string; dur: number } // 頭
-  transOut?: { type: string; dur: number } // 尻
-  xfade?: { type: string; dur: number } // 次の切片との間
-  adjust?: { b: number; c: number; s: number } // 色調整（明るさ/コントラスト/彩度）
-  rotate?: number // 回転（90/180/270 or 自由角度）
-  flipH?: boolean
-  flipV?: boolean
-  vol?: number
-  afadeIn?: number
-  afadeOut?: number
-  zoom?: { scale: number; x: number; y: number }
-  crop?: { l: number; t: number; r: number; b: number }
-}
-export interface ExportSEClip {
-  path: string
-  tStart: number
-  duration: number
-  srcOffset?: number
-  volume?: number
-  fadeIn?: number
-  fadeOut?: number
-}
-export interface ExportPayload {
-  videoPath: string
-  sources?: { path: string }[]
-  images?: {
-    path: string
-    tStart: number
-    duration: number
-    zoom?: { scale: number; x: number; y: number }
-    rotate?: number
-    flipH?: boolean
-    flipV?: boolean
-    opacity?: number
-    adjust?: { b: number; c: number; s: number }
-    crop?: { l: number; t: number; r: number; b: number }
-  }[]
-  // 映像レイヤークリップ（V2以降に置いた動画。本編映像の上に重ねる。音声もミックスする）
-  vClips?: {
-    path: string
-    tStart: number
-    srcStart: number
-    srcEnd: number
-    zoom?: { scale: number; x: number; y: number }
-    rotate?: number
-    flipH?: boolean
-    flipV?: boolean
-    opacity?: number
-    adjust?: { b: number; c: number; s: number }
-    crop?: { l: number; t: number; r: number; b: number }
-    volume?: number
-    fadeIn?: number
-    fadeOut?: number
-  }[]
-  width: number
-  height: number
-  frames: ExportFrame[]
-  extendSec?: number
-  segments?: ExportSeg[]
-  seClips?: ExportSEClip[]
-  baseAudioVolume?: number
-  loudnormLUFS?: number | null
-  totalDurationSec?: number
-  fps?: number
-  crf?: number
-}
+// 書き出しの受け渡し。**定義は main/exportTypes.ts が正典。ここでは写さない。**
+//
+// ## なぜ（2026-08-06）
+//
+// ここには `ExportFrame` / `ExportSeg` / `ExportSEClip` / `ExportPayload` の
+// **78行ぶんの写し**があった。main 側は名前付きの型に分けてあるのに、
+// こちらは中身を展開して書き写してあり、**同じ物だと機械は見ていなかった。**
+//
+// 同じ日に `UpdateState` が3か所にあって、片方だけ新しくなる事故を起こしている
+// （理由は shared/updateState.ts の頭）。**受け渡しの約束は1か所にしか書かない。**
+export type {
+  ExportFrame,
+  ExportSeg,
+  ExportSEClip,
+  ExportPayload
+} from '../main/exportTypes'
 
 // **書き写さない。** 前は同じ型が3か所にあって、片方だけ新しくなった
 // （理由は shared/updateState.ts の頭）
