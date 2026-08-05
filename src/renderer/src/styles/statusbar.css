@@ -1,4 +1,20 @@
 /* ===== ステータスバー ===== */
+
+/* 「前回落ちました（報告する）」。**押せることが分かる形にする。**
+   隣の `.status-ng`（自動保存の警告）は押せない知らせなので、
+   同じ赤でも枠と指の形で見分けが付くようにしてある
+   ——押せない物と押せる物が同じ見た目だと、どちらも押されなくなる */
+.status-crash {
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  padding: 1px 8px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.status-crash:hover {
+  background: #ffffff14;
+}
 .statusbar {
   height: 24px;
   background: var(--menubar);

@@ -143,6 +143,14 @@ const api = {
     toDownloads?: boolean
   ): Promise<{ ok: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke('perf:save', text, toDownloads),
+  /** 前回が正常に終わったか＋落ちた記録（中身は main/crashLog） */
+  lastCrash: (): Promise<{
+    crashed: boolean
+    last?: { at?: string; version?: string; platform?: string }
+    entries: { at: string; kind: string; detail: string }[]
+  }> => ipcRenderer.invoke('crash:last'),
+  /** 画面側で握り損ねた例外を、落ちた記録と同じ所へ入れる */
+  reportError: (detail: string): Promise<void> => ipcRenderer.invoke('crash:report', detail),
   /** 更新で消えない置き場をエクスプローラで開く（無ければ作ってから開く） */
   openFolder: (
     key: 'se' | 'telop' | 'motion' | 'template' | 'data'

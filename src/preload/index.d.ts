@@ -136,6 +136,20 @@ export interface GiftcutApi {
     /** true ならダウンロードへ（確認なし）。既定は userData/perf */
     toDownloads?: boolean
   ) => Promise<{ ok: boolean; path?: string; error?: string }>
+  /**
+   * 前回が正常に終わったか＋落ちた記録。
+   *
+   * `crashed` は「前回の起動で印が消えていない」＝**正常終了していない**。
+   * 落ちた瞬間に書けるとは限らない（電源断・強制終了）ので、
+   * `entries` が空でも `crashed` が真になることはある。理由は main/crashLog
+   */
+  lastCrash: () => Promise<{
+    crashed: boolean
+    last?: { at?: string; version?: string; platform?: string }
+    entries: { at: string; kind: string; detail: string }[]
+  }>
+  /** 画面側で握り損ねた例外を、落ちた記録と同じ所へ入れる */
+  reportError: (detail: string) => Promise<void>
   /** 更新で消えない置き場（userData の下）を開く。無ければ作ってから開く */
   openFolder: (
     key: 'se' | 'telop' | 'motion' | 'template' | 'data'

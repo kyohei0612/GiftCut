@@ -32,6 +32,7 @@ import { registerMediaProbeHandlers } from './mediaProbe'
 import { registerMediaProxyHandlers } from './mediaProxy'
 import { registerMediaAudioHandlers } from './mediaAudio'
 import { isProjectDirty, registerProjectFileHandlers } from './projectFiles'
+import { clearMark, installCrashHooks, recentCrashes, record, startSession } from './crashLog'
 
 // 自動実行（e2e・監査・計測）で動かしているかどうか。
 //
@@ -281,6 +282,10 @@ function createWindow(): void {
 // temp にテロップPNGが数百枚残ったままになる（実測で残存を確認）。
 app.on('before-quit', killAllChildren)
 app.on('will-quit', killAllChildren)
+// **正常に終わったので印を消す**（次の起動で「前回落ちた」と出さない）。
+// 落ちた側で書くのではなく、終わる側で消す形にしてある——落ちた瞬間に
+// 書けるとは限らないため（電源断・強制終了・メモリ枯渇）。理由は ./crashLog
+app.on('will-quit', clearMark)
 
 // **同時に2つ立ち上げない。**
 // 関連付けから別のプロジェクトを開くたびに新しい GiftCut が立ち上がると、
@@ -300,6 +305,18 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.whenReady().then(() => {
+  // **落ちたことを、アプリ自身が知る**（2026-08-05 に足した。中身は ./crashLog）。
+  // それまでは crashReporter も render-process-gone も無く、
+  // 「使っている人の所で何が起きたか」が丸ごと見えなかった。
+  installCrashHooks()
+  const session = startSession(app.getVersion())
+  ipcMain.handle('crash:last', () => ({ ...session, entries: recentCrashes() }))
+  // 画面側で握り損ねた例外も同じ所へ入れる。
+  // **画面が落ちなくても、機能が1つ死んでいることはある**（描き直しの中で投げると
+  // React がその区画を丸ごと外す）。落ちた記録と同じ場所に並べておけば、
+  // 「落ちてはいないが何かおかしい」も後から辿れる
+  ipcMain.handle('crash:report', (_e, detail: string) => record('renderer-error', detail))
+
   // 起動時に、前回落ちたときの書き出し一時ディレクトリを掃除する（1回の失敗で数MB〜が残る）
   try {
     const tempRoot = app.getPath('temp')

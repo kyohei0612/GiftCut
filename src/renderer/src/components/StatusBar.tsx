@@ -7,9 +7,13 @@
 // どこへ行ったのか分からなくなる（真ん中のプレビュー以外はその場に案内も残らない）。
 // 押せばそのまま本体へ戻せる。
 
-import type { JSX } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import { perf } from '../lib/perfMonitor'
 import { useToastCtx } from '../state/toastContext'
+import { issueUrl, summarize, type CrashInfo } from '../../../shared/crashReport'
+
+/** 報告の出し先。**公開リポジトリなので中継役が要らない** */
+const REPO = 'kyohei0612/GiftCut'
 
 export interface SelectionCounts {
   telop: number
@@ -94,6 +98,22 @@ export function StatusBar({
   // **受け取らず自分で見に行く。** 出すのは「書き出せたか」の一言だけなので、
   // 心臓の配線を1本増やす価値が無い（品書き＝AppMenus と同じ流儀）
   const { showToast } = useToastCtx()
+
+  /**
+   * 前回が正常に終わっていなければ、**押せる案内**を出す。
+   *
+   * 起動時のトーストは消えるので、席を外していると誰も気づかない。
+   * 落ちたことは**消えない場所**に残す必要がある（自動保存の警告と同じ理由で、
+   * この帯の役目）。ここも受け取らず自分で見に行く。
+   */
+  const [crash, setCrash] = useState<CrashInfo | null>(null)
+  useEffect(() => {
+    void (async () => {
+      const info = await window.giftcut?.lastCrash?.()
+      if (info?.crashed) setCrash(info)
+    })()
+  }, [])
+
   return (
     <footer className="statusbar">
       {/* 落ちたときの備えが効いていない、というのは一番先に知りたいこと。
@@ -109,6 +129,20 @@ export function StatusBar({
         >
           ⚠ 自動保存できていません
         </span>
+      )}
+      {/* **前回が正常に終わっていない。** 自動保存の警告と並べる——
+          どちらも「消えると誰も気づかない」類で、この帯の役目。
+          押すと GitHub の issue が**中身入りで開く**だけで、送信はしない。
+          何が入っているかは本文に書いてあるので、読んでから決められる
+          （何を入れて何を入れないかは shared/crashReport） */}
+      {crash && (
+        <button
+          className="status-ng status-crash"
+          title={`${summarize(crash)}\n押すと報告の下書きがブラウザで開きます（送信はしません）`}
+          onClick={() => window.open(issueUrl(crash, appVersion ?? '不明', REPO), '_blank')}
+        >
+          ⚠ 前回落ちました（報告する）
+        </button>
       )}
       <span>{telopCount ? `${telopCount} テロップ` : 'テロップなし'}</span>
       <span>選択: {selectionSummary(selection)}</span>

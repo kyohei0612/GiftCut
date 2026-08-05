@@ -26,6 +26,7 @@
 
 import { useEffect } from 'react'
 import { tToSource } from '../../../shared/timeline'
+import { summarize } from '../../../shared/crashReport'
 import { perf } from '../lib/perfMonitor'
 import { useDoc } from './contentContext'
 import { useDragPreviewCtx } from './dragPreviewContext'
@@ -176,21 +177,62 @@ export function useDiagnostics(): void {
    * 出たら画面に出し、動きの記録にも残す（あとから何時何分に何が出たか辿れる）。
    */
   useEffect(() => {
+    // **ファイルにも残す**（2026-08-05）。`perf.mark` は画面の中の記録なので、
+    // **閉じたら消える**——「昨日おかしかった」を後から辿れなかった。
+    // 落ちた記録と同じ所（userData/crash）へ入れておけば、次の起動で本人が
+    // まとめて報告できる（main/crashLog）。書けなくても本体は止めない
+    const keep = (detail: string): void => {
+      void window.giftcut?.reportError?.(detail)
+    }
     const onErr = (e: ErrorEvent): void => {
       const msg = `${e.message}（${(e.filename ?? '').split('/').pop()}:${e.lineno}）`
       perf.mark(`画面の例外: ${msg}`)
       showToast(`不具合が起きました: ${msg}`, 'error')
+      keep(`${msg}\n${e.error?.stack ?? ''}`)
     }
     const onRej = (e: PromiseRejectionEvent): void => {
       const msg = String(e.reason).slice(0, 200)
       perf.mark(`受け止め損ねた失敗: ${msg}`)
       showToast(`不具合が起きました: ${msg}`, 'error')
+      keep(`受け止め損ねた失敗: ${msg}`)
     }
     window.addEventListener('error', onErr)
     window.addEventListener('unhandledrejection', onRej)
     return () => {
       window.removeEventListener('error', onErr)
       window.removeEventListener('unhandledrejection', onRej)
+    }
+  }, [])
+
+  /**
+   * **前回が正常に終わっていなければ、起動時に1回だけ知らせる。**
+   *
+   * ## なぜ自動で外へ送らないか
+   *
+   * Sentry のような自動収集を勧められたが、切り抜きの素材には人の名前や
+   * 未公開の内容が入る。**黙って外へ出すのは事故の重さが釣り合わない。**
+   * 記録は手元に置き、押した人にだけ GitHub の issue を**中身入りで開く**
+   * ——送る前に全部読めて、消せて、やめられる（理由は shared/crashReport）。
+   *
+   * ## 押さないと何も起きない
+   *
+   * 知らせは消える通知（トースト）にせず、**押せる案内**にしてある。
+   * 消える通知だと、席を外している間に消えて誰も気づかない。
+   */
+  useEffect(() => {
+    let done = false
+    void (async () => {
+      const info = await window.giftcut?.lastCrash?.()
+      if (done || !info?.crashed) return
+      const msg = summarize(info)
+      perf.mark(`前回の起動が正常に終わっていない: ${info.entries[0]?.kind ?? '記録なし'}`)
+      showToast(
+        `${msg}\n下の帯の「⚠ 前回落ちました」から報告できます（送る前に中身を読めます）`,
+        'error'
+      )
+    })()
+    return () => {
+      done = true
     }
   }, [])
 
