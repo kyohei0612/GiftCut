@@ -23,6 +23,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { logUpdate, makeStopwatch } from './updateLog'
 import { planUpdate, type BusyState } from '../shared/updatePolicy'
 
 export interface UpdateDeps {
@@ -80,6 +81,7 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
     //
     // ここから先はインストーラの仕事で、終わるまで十数秒かかる。
     // 何も出さないと**押した直後から無反応**に見える。
+    lap('入れ替え開始（ここから先はインストーラの仕事）')
     send({ phase: 'installing', version: '' })
     await new Promise((r) => setTimeout(r, 120))
 
@@ -141,14 +143,33 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
   autoUpdater.autoDownload = true
   // 再起動しないと決めた場合でも、次に閉じたときには当たるようにしておく
   autoUpdater.autoInstallOnAppQuit = true
+  // **ファイルにも残す。** 配布版では console がどこにも出ないので、
+  // 「何MB落としたか」「差分が効いたか」を後から確かめられなかった
+  // （electron-updater は `Full: … To download: … (3%)` という行を吐く）。
+  // 中身と置き場は ./updateLog
   autoUpdater.logger = {
-    info: (m: unknown) => console.log('[update]', m),
-    warn: (m: unknown) => console.warn('[update]', m),
-    error: (m: unknown) => console.error('[update]', m),
+    info: (m: unknown) => {
+      console.log('[update]', m)
+      logUpdate(String(m))
+    },
+    warn: (m: unknown) => {
+      console.warn('[update]', m)
+      logUpdate('警告: ' + String(m))
+    },
+    error: (m: unknown) => {
+      console.error('[update]', m)
+      logUpdate('エラー: ' + String(m))
+    },
     debug: () => {}
   }
+  // **どこが長いかを測る。**「遅い」だけでは直す場所が決まらない
+  const lap = makeStopwatch()
+  logUpdate(`--- 起動 v${app.getVersion()} ---`)
 
-  autoUpdater.on('checking-for-update', () => send({ phase: 'checking' }))
+  autoUpdater.on('checking-for-update', () => {
+    lap('見に行く')
+    send({ phase: 'checking' })
+  })
   autoUpdater.on('update-not-available', () => send({ phase: 'none' }))
 
   /**
@@ -174,8 +195,14 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
   } catch {
     /* 覚えられなくても本体は動く */
   }
+  let firstChunk = true
   autoUpdater.on('download-progress', (p) => {
     const mb = (n: number): number => Math.round((n / 1024 / 1024) * 10) / 10
+    // **落とし始めを1回だけ記録する。**（毎コマ書くとログが埋まる）
+    if (firstChunk) {
+      firstChunk = false
+      lap(`落とし始め（全体 ${mb(p.total)} MB）`)
+    }
     send({
       phase: 'downloading',
       version: autoUpdater.currentVersion?.version ?? '',
@@ -185,6 +212,7 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
     })
   })
   autoUpdater.on('update-downloaded', (info) => {
+    lap(`落とし終わり v${info.version}`)
     // **ここで再起動を仕掛けない。** 落とし終わったことを細い帯で伝えるだけ。
     // 当てるのは本人が閉じたとき（autoInstallOnAppQuit が黙って当てる）。
     // 待てない人のために「今すぐ再起動」は帯に残してあるが、押されたときだけ動く。

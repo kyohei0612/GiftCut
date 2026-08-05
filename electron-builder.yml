@@ -38,6 +38,9 @@ directories:
 files:
   - out/**
   - package.json
+  # **読み込み係**（package.json の main が指す先）。これが入っていないと起動しない。
+  # ビルドの成果物より先に動くので、素の JS のまま同梱する（理由は boot.js の頭）
+  - boot.js
   - '!**/*.map'
   - '!**/node_modules/**/{test,__tests__,tests,example,examples}/**'
 

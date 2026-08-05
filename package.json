@@ -1,9 +1,9 @@
 {
   "name": "giftcut",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "切り抜き動画特化のテロップ編集アプリ",
   "author": "kyohei",
-  "main": "./out/main/index.js",
+  "main": "./boot.js",
   "scripts": {
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
