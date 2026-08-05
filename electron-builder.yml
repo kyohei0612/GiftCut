@@ -39,8 +39,10 @@ files:
   - out/**
   - package.json
   # **読み込み係**（package.json の main が指す先）。これが入っていないと起動しない。
-  # ビルドの成果物より先に動くので、素の JS のまま同梱する（理由は boot.js の頭）
+  # ビルドの成果物より先に動くので、素の JS のまま同梱する（理由は boot.js の頭）。
+  # bootGate.js は「どれを読むか」の判断だけを持つ（試験できる形にするため分けた）
   - boot.js
+  - bootGate.js
   - '!**/*.map'
   - '!**/node_modules/**/{test,__tests__,tests,example,examples}/**'
 

@@ -16,6 +16,7 @@ import { Readable } from 'stream'
 import { nextBounds, MIN_SIZE, type WindowState } from '../shared/windowBounds'
 // 自動更新（GitHub の Releases を見に行く）
 import { setupAutoUpdate } from './updater'
+import { cleanOtherBundles, markVerified, runningVersion } from './bundleUpdate'
 import { registerSubtitleHandlers } from './subtitles'
 // 閉じるときの後片付け。**このファイルはもう ffmpeg を直接は動かさない**
 // （長さ・コマ数は ./mediaProbe、聞き取りは ./subtitles、書き出しは ./exportRun）
@@ -172,6 +173,17 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => mainWindow.show())
   // 起動の引数で渡されたプロジェクトは、画面が出来てから渡す
   mainWindow.webContents.on('did-finish-load', () => {
+    // **画面が出たことをもって「この版は起動できた」とする。**
+    //
+    // JS だけ差し替えて更新したとき、これが書かれないと次の起動で捨てられて
+    // 同梱へ戻る（`bootGate.js`）。**書く側ではなく消す側に倒してある**ので、
+    // 落ちた・電源が切れたときは黙って安全な方（同梱）へ落ちる。
+    //
+    // 読み込めた時点ではなく**画面が出てから**呼ぶ。前者だと
+    // 「起動はするが真っ白」を確認済みにしてしまう。
+    markVerified()
+    cleanOtherBundles()
+
     if (!pendingOpenPath) return
     const p = pendingOpenPath
     pendingOpenPath = null
@@ -309,7 +321,8 @@ app.whenReady().then(() => {
   // それまでは crashReporter も render-process-gone も無く、
   // 「使っている人の所で何が起きたか」が丸ごと見えなかった。
   installCrashHooks()
-  const session = startSession(app.getVersion())
+  // 落ちた記録に残す版も、動いているコードの版（同梱の版ではない）
+  const session = startSession(runningVersion())
   ipcMain.handle('crash:last', () => ({ ...session, entries: recentCrashes() }))
   // 画面側で握り損ねた例外も同じ所へ入れる。
   // **画面が落ちなくても、機能が1つ死んでいることはある**（描き直しの中で投げると
@@ -403,8 +416,13 @@ app.whenReady().then(() => {
   // 置き場は userData の直下（＝「設定・保存データのフォルダを開く」で出る所）。
   // 中身は JSON なので、メモ帳でも開いて中を見られる。
   // いま動いている本体のバージョン。**package.json ではなく本体に聞く**
-  // （自動更新で入れ替わったあと、画面に出る数字が本物と食い違わないように）
-  ipcMain.handle('app:version', () => app.getVersion())
+  // （自動更新で入れ替わったあと、画面に出る数字が本物と食い違わないように）。
+  //
+  // **`app.getVersion()` では足りない。** JS だけ差し替えて更新したとき、
+  // あれが返すのは同梱の版＝インストーラが入れた exe の版で、
+  // **動いているコードの版ではない**。題名の横に出る数字は
+  //「直したはずが直っていない」を切り分けるための物なので、ここが嘘だと困る
+  ipcMain.handle('app:version', () => runningVersion())
 
   const userStorePath = (): string => join(app.getPath('userData'), 'ユーザー設定.json')
   ipcMain.handle('userstore:read', () => {

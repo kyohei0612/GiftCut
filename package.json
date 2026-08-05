@@ -1,9 +1,10 @@
 {
   "name": "giftcut",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "description": "切り抜き動画特化のテロップ編集アプリ",
   "author": "kyohei",
   "main": "./boot.js",
+  "bundleFormat": 1,
   "scripts": {
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
@@ -37,7 +38,8 @@
     "check:release": "node scripts/check-release.mjs",
     "walk": "node e2e/walk.mjs",
     "frames": "vitest run --config vitest.frames.config.ts",
-    "presets": "node e2e/telop-presets.mjs"
+    "presets": "node e2e/telop-presets.mjs",
+    "check:swap": "node scripts/check-swap.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

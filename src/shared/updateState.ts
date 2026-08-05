@@ -24,7 +24,21 @@ export type UpdateState =
    * 120MB のうち何MBまで来たかが見えれば、待てるかどうかを本人が決められる。
    */
   | { phase: 'downloading'; version: string; percent: number; doneMB: number; totalMB: number }
-  | { phase: 'ready'; version: string; when: 'now' | 'onQuit'; message: string; countdownSec: number }
+  /**
+   * 用意ができた。
+   *
+   * `viaBundle` は**インストーラを走らせずに入れ替えられる**という意味
+   * （JS だけの更新。`src/main/bundleUpdate.ts`）。押したときの待ちが
+   * 十数秒と数秒で違うので、**押す前に言う必要がある**ため状態に持たせる。
+   */
+  | {
+      phase: 'ready'
+      version: string
+      when: 'now' | 'onQuit'
+      message: string
+      countdownSec: number
+      viaBundle: boolean
+    }
   /**
    * 「今すぐ更新して再起動」を押した。**これから閉じる。**
    *

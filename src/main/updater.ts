@@ -25,6 +25,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { logUpdate, makeStopwatch } from './updateLog'
 import { planUpdate, type BusyState } from '../shared/updatePolicy'
+import { runningVersion, stageBundle } from './bundleUpdate'
 
 export interface UpdateDeps {
   /** 今の状態（未保存・書き出し中）を教えてもらう。当てていいかの判断に使う */
@@ -54,6 +55,8 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
   // 返事が来ない（固まっている等）ときも、待ち続けずに進む
   // ——更新できないまま起動し続ける方が困るので。
   let flushed: (() => void) | null = null
+  /** JS だけの差し替えを置けた版（置けていれば、インストーラは要らない） */
+  let staged = ''
   ipcMain.on('update:flushed', () => flushed?.())
   async function restartWithUpdate(): Promise<void> {
     // **書く物が無いなら待たない。**
@@ -77,6 +80,21 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
         else done()
       })
     }
+    // **JS だけの差し替えが置けているなら、インストーラは要らない。**
+    //
+    // 置き場（userData）に展開済みなので、やることは「閉じて開き直す」だけ。
+    // 十数秒の正体はインストーラが 263MB を書き直す所だったので、
+    // **そこを通らなければ待ちは消える。**
+    //
+    // 「入れ替えています」も出さない——出しても一瞬で、
+    // **出したこと自体が「何か重いことが起きる」という嘘**になる。
+    if (staged) {
+      lap(`差し替えで開き直す v${staged}`)
+      app.relaunch()
+      app.quit()
+      return
+    }
+
     // **閉じる前に「入れ替えています」を出す。**
     //
     // ここから先はインストーラの仕事で、終わるまで十数秒かかる。
@@ -140,8 +158,15 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
     return
   }
 
-  autoUpdater.autoDownload = true
+  // **自分で決めるので、勝手に落とさせない。**
+  //
+  // 新しい版が見つかったら、まず**JS だけの差し替え**が出ているかを見に行く
+  // （`./bundleUpdate`）。出ていれば 360KB を置くだけで済み、
+  // インストーラが 263MB を書き直す十数秒が丸ごと消える。
+  // 出ていなければ（Electron や ffmpeg が変わった版）、いままでどおり落とす。
+  autoUpdater.autoDownload = false
   // 再起動しないと決めた場合でも、次に閉じたときには当たるようにしておく
+  // （差し替えで済んだときは、当てる物が無いので何も起きない）
   autoUpdater.autoInstallOnAppQuit = true
   // **ファイルにも残す。** 配布版では console がどこにも出ないので、
   // 「何MB落としたか」「差分が効いたか」を後から確かめられなかった
@@ -164,7 +189,7 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
   }
   // **どこが長いかを測る。**「遅い」だけでは直す場所が決まらない
   const lap = makeStopwatch()
-  logUpdate(`--- 起動 v${app.getVersion()} ---`)
+  logUpdate(`--- 起動 v${runningVersion()}（同梱 v${app.getVersion()}）---`)
 
   autoUpdater.on('checking-for-update', () => {
     lap('見に行く')
@@ -184,7 +209,10 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
    */
   const seenPath = join(app.getPath('userData'), 'last-version.txt')
   try {
-    const now = app.getVersion()
+    // **動いているコードの版で覚える。** 同梱の版で覚えると、
+    // JS だけ差し替えて更新したときに「変わっていない」ことになり、
+    // 新しくなったことを一度も言えない
+    const now = runningVersion()
     const before = existsSync(seenPath) ? readFileSync(seenPath, 'utf-8').trim() : ''
     writeFileSync(seenPath, now, 'utf-8')
     // **初回起動では言わない。** 前の版を知らないだけで、更新したわけではない
@@ -216,8 +244,58 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
     // **ここで再起動を仕掛けない。** 落とし終わったことを細い帯で伝えるだけ。
     // 当てるのは本人が閉じたとき（autoInstallOnAppQuit が黙って当てる）。
     // 待てない人のために「今すぐ再起動」は帯に残してあるが、押されたときだけ動く。
-    send({ phase: 'ready', version: info.version, ...planUpdate(deps.busy(), info.version) })
+    send({
+      phase: 'ready',
+      version: info.version,
+      viaBundle: false,
+      ...planUpdate(deps.busy(), info.version)
+    })
   })
+
+  /**
+   * 新しい版が見つかった。**まず JS だけの差し替えを試す。**
+   *
+   * ## なぜ自分で新旧を比べるか
+   *
+   * 差し替えで動いていると、`app.getVersion()` は**同梱の版**（インストーラが
+   * 入れた exe の版）を返す。electron-updater が見ているのもそちらなので、
+   * **もう当たっている更新を「新しい」と言い続ける。**
+   *
+   * electron-updater 側の版を書き換える手もあるが、あれは内部の持ち物で、
+   * 型の上では読み取り専用。**触らずに、こちらで比べる方が壊れにくい。**
+   */
+  async function onAvailable(version: string): Promise<void> {
+    // **版が一致していたら、もう当たっている。**
+    //
+    // 新旧を比べる必要は無い——差し替えは「その版のリリースから取った物」なので、
+    // 動いている版と更新先が同じなら、それは今まさに当てた物そのもの。
+    //
+    // 比べる形にすると版の比べ方が2か所（ここと `bootGate.js`）に要る。
+    // 片方だけ直した日に**更新が黙って止まる**——それも
+    // 「新しい版が出ていない」と同じ顔をするので、気づくきっかけが無い。
+    if (version === runningVersion()) {
+      send({ phase: 'none' })
+      return
+    }
+    if (await stageBundle(version)) {
+      staged = version
+      lap(`差し替えを置いた v${version}`)
+      // **落とす帯は出さない。** 360KB は出す前に終わっている
+      send({
+        phase: 'ready',
+        version,
+        viaBundle: true,
+        ...planUpdate(deps.busy(), version)
+      })
+      return
+    }
+    // 差し替えが使えない版（Electron や ffmpeg が変わった）。いままでどおり落とす
+    autoUpdater.downloadUpdate().catch((e) => {
+      console.warn('[update] 落とせませんでした:', e)
+      send({ phase: 'error', message: String(e?.message ?? e) })
+    })
+  }
+  autoUpdater.on('update-available', (info) => void onAvailable(info.version))
   autoUpdater.on('error', (err) => {
     // 更新に失敗しても、アプリは普通に使えなければならない。
     // 落とさず、画面にも押し付けない（右下に小さく出すだけ）。

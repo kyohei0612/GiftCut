@@ -26,6 +26,7 @@
 // **「落ちた。しかも中途半端に上がっている」も一度に知りたい。**
 
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 
 // **鍵は思い出さなくても通るようにする**（2026-08-06）。
 //
@@ -69,6 +70,34 @@ const published = run('publish:only')
 if (published !== 0)
   console.error(`\n\x1b[33m発行が終了コード ${published} で終わりました。` +
     `**それでも添付を数えます**（中途半端に上がっていることがあるため）\x1b[0m\n`)
+
+// **差し替え（JS だけの更新）も一緒に上げる。**
+//
+// electron-builder は自分が作った物しか上げないので、ここで足す。
+// **発行の後**でなければならない——リリースがまだ無いと上げ先が無い。
+//
+// 上げ損ねても発行は止めない（差し替えが無ければインストーラで更新されるだけ）。
+// ただし**黙って落とさない**: `check:release` が名前で数えて赤にする。
+// 動いてしまう欠け方なので、機械が見ていないと誰も気づかない
+const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+const bundled = spawnSync('node', ['scripts/make-bundle.mjs'], { stdio: 'inherit', env }).status
+if (bundled === 0) {
+  const up = spawnSync(
+    'gh',
+    [
+      'release',
+      'upload',
+      `v${version}`,
+      `dist/bundle-${version}.zip`,
+      `dist/bundle-${version}.json`,
+      '--clobber'
+    ],
+    { stdio: 'inherit', env }
+  ).status
+  if (up !== 0) console.error('\x1b[33m差し替えを上げられませんでした\x1b[0m')
+} else {
+  console.error('\x1b[33m差し替えを作れませんでした\x1b[0m')
+}
 
 const counted = run('check:release')
 // **どちらかが落ちていれば赤。** 発行が落ちたのに添付が揃っていることは

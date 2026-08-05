@@ -25,7 +25,17 @@ export function expectedAssets(version: string): string[] {
   return [
     `GiftCut-Setup-${version}.exe`,
     `GiftCut-Setup-${version}.exe.blockmap`,
-    'latest.yml'
+    'latest.yml',
+    // **差し替え（JS だけの更新）も数える。**
+    //
+    // これが無くても更新は動く——使う側は「差し替えは出ていない」と読んで、
+    // インストーラの道へ静かに落ちる。**そこが危ない。**
+    // 動いてしまうので、上げ忘れに気づく機会が一度も無い。
+    // 気づかないまま「更新が十数秒かかる」に戻る。
+    //
+    // 出さないと決めた版があるなら、そのときここを直す（黙って欠けさせない）
+    `bundle-${version}.zip`,
+    `bundle-${version}.json`
   ]
 }
 
@@ -68,7 +78,9 @@ export function checkAssets(version: string, assets: AssetInfo[]): AssetVerdict 
 
 /** 人が読む形にする（そのまま stderr に出す） */
 export function describeVerdict(version: string, v: AssetVerdict): string {
-  if (v.ok) return `v${version}: 添付3つとも揃っています`
+  // **数は数えて出す。** 「3つとも」と書いてあったが、差し替えを足した日に
+  // 5つになった。文章に数を焼き込むと、増やした人が必ず直し忘れる
+  if (v.ok) return `v${version}: 添付${expectedAssets(version).length}つとも揃っています`
   const lines = [`v${version}: **出せていません。**`]
   if (v.missing.length) lines.push(`  上がっていない: ${v.missing.join(' / ')}`)
   if (v.empty.length) lines.push(`  0バイト: ${v.empty.join(' / ')}`)

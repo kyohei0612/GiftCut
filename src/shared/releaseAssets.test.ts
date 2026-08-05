@@ -9,12 +9,24 @@ const V = '0.1.23'
 const full = [
   { name: `GiftCut-Setup-${V}.exe`, size: 121511999 },
   { name: `GiftCut-Setup-${V}.exe.blockmap`, size: 127224 },
-  { name: 'latest.yml', size: 346 }
+  { name: 'latest.yml', size: 346 },
+  // 差し替え（JS だけの更新）。2026-08-06 に足した
+  { name: `bundle-${V}.zip`, size: 367000 },
+  { name: `bundle-${V}.json`, size: 180 }
 ]
 
 describe('Releases の添付が揃っているか', () => {
-  it('3つ揃っていれば通る（0.1.23 の2回目・実データ）', () => {
+  it('全部揃っていれば通る（0.1.23 の2回目・実データ＋差し替え）', () => {
     expect(checkAssets(V, full).ok).toBe(true)
+  })
+
+  // **差し替えが無くても更新は動く**ので、上げ忘れても誰も困らない……
+  // ように見えて、静かにインストーラの道へ落ちる。気づく機会が一度も無いまま
+  // 「更新が十数秒かかる」に戻るので、ここで止める
+  it('**差し替えだけ無い**を捕まえる（動いてしまうので、人には気づけない）', () => {
+    const r = checkAssets(V, full.filter((a) => !a.name.startsWith('bundle-')))
+    expect(r.ok).toBe(false)
+    expect(r.missing).toEqual([`bundle-${V}.zip`, `bundle-${V}.json`])
   })
 
   it('**blockmap だけ無い**を捕まえる（0.1.23 の1回目・実データ）', () => {
@@ -42,21 +54,25 @@ describe('Releases の添付が揃っているか', () => {
       { name: `GiftCut-Setup-${V}.exe`, size: 121511999 },
       { name: 'GiftCut-Setup-0.1.22.exe', size: 121512034 },
       { name: 'GiftCut-Setup-0.1.22.exe.blockmap', size: 127000 },
-      { name: 'latest.yml', size: 346 }
+      { name: 'latest.yml', size: 346 },
+      { name: `bundle-${V}.zip`, size: 367000 },
+      { name: `bundle-${V}.json`, size: 180 }
     ])
     expect(r.ok).toBe(false)
     expect(r.missing).toEqual([`GiftCut-Setup-${V}.exe.blockmap`])
   })
 
   it('空の一覧は当然だめ（発行そのものが走らなかった形）', () => {
-    expect(checkAssets(V, []).missing).toHaveLength(3)
+    expect(checkAssets(V, []).missing).toEqual(expectedAssets(V))
   })
 
   it('あるべき名前は版から決まる（版を上げ忘れると気づける）', () => {
     expect(expectedAssets('1.2.3')).toEqual([
       'GiftCut-Setup-1.2.3.exe',
       'GiftCut-Setup-1.2.3.exe.blockmap',
-      'latest.yml'
+      'latest.yml',
+      'bundle-1.2.3.zip',
+      'bundle-1.2.3.json'
     ])
   })
 
@@ -69,6 +85,10 @@ describe('Releases の添付が揃っているか', () => {
   })
 
   it('よい時は短く済ませる（毎回の出力を汚さない）', () => {
-    expect(describeVerdict(V, checkAssets(V, full))).toBe(`v${V}: 添付3つとも揃っています`)
+    // **数は焼き込まない。** 「3つとも」と書いてあったせいで、
+    // 差し替えを足した日に本体と試験の両方を直す羽目になった
+    expect(describeVerdict(V, checkAssets(V, full))).toBe(
+      `v${V}: 添付${expectedAssets(V).length}つとも揃っています`
+    )
   })
 })
