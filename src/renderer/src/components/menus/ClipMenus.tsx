@@ -100,7 +100,8 @@ export function ClipMenus(): JSX.Element {
             { kind: 'sep' },
             {
               kind: 'item',
-              label: `設定をコピー（位置・大きさ・見た目）（${formatCombo(shortcuts.attrCopy)}）`,
+              label: '設定をコピー（位置・大きさ・見た目）',
+              combo: formatCombo(shortcuts.attrCopy),
               onClick: () => {
                 copyAttributes()
                 setMenu(null)
@@ -108,7 +109,8 @@ export function ClipMenus(): JSX.Element {
             },
             !!copiedAttrs && {
               kind: 'item',
-              label: `設定を貼り付け: ${attrSummary(copiedAttrs)}（${formatCombo(shortcuts.attrPaste)}）`,
+              label: `設定を貼り付け: ${attrSummary(copiedAttrs)}`,
+              combo: formatCombo(shortcuts.attrPaste),
               onClick: () => {
                 pasteAttributes()
                 setMenu(null)
@@ -182,7 +184,8 @@ export function ClipMenus(): JSX.Element {
             },
             clipMenu.kind !== 'seg' && {
               kind: 'item',
-              label: `コピー（${formatCombo(shortcuts.copy)}）`,
+              label: 'コピー',
+              combo: formatCombo(shortcuts.copy),
               onClick: () => {
                 copySelected()
                 setClipMenu(null)
@@ -190,7 +193,8 @@ export function ClipMenus(): JSX.Element {
             },
             {
               kind: 'item',
-              label: `複製（${formatCombo(shortcuts.duplicate)}）`,
+              label: '複製',
+              combo: formatCombo(shortcuts.duplicate),
               onClick: () => {
                 duplicateClipsFromMenu(clipMenu.kind)
                 setClipMenu(null)
@@ -198,7 +202,8 @@ export function ClipMenus(): JSX.Element {
             },
             clipMenu.kind === 'seg' && {
               kind: 'item',
-              label: `再生ヘッドで分割（${formatCombo(shortcuts.split)}）`,
+              label: '再生ヘッドで分割',
+              combo: formatCombo(shortcuts.split),
               onClick: () => {
                 splitVideoAtPlayhead()
                 setClipMenu(null)
@@ -215,7 +220,8 @@ export function ClipMenus(): JSX.Element {
             { kind: 'sep' },
             {
               kind: 'item',
-              label: `設定をコピー（${formatCombo(shortcuts.attrCopy)}）`,
+              label: '設定をコピー',
+              combo: formatCombo(shortcuts.attrCopy),
               onClick: () => {
                 copyAttributes()
                 setClipMenu(null)
@@ -223,7 +229,8 @@ export function ClipMenus(): JSX.Element {
             },
             !!copiedAttrs && {
               kind: 'item',
-              label: `設定を貼り付け: ${attrSummary(copiedAttrs)}（${formatCombo(shortcuts.attrPaste)}）`,
+              label: `設定を貼り付け: ${attrSummary(copiedAttrs)}`,
+              combo: formatCombo(shortcuts.attrPaste),
               onClick: () => {
                 pasteAttributes()
                 setClipMenu(null)
@@ -237,6 +244,7 @@ export function ClipMenus(): JSX.Element {
             clipMenu.kind !== 'seg' && {
               kind: 'item',
               label: 'リップル削除（このトラックの後続を詰める）',
+              combo: formatCombo(shortcuts.rippleDel),
               onClick: () => {
                 rippleDeleteSelected()
                 setClipMenu(null)
@@ -246,7 +254,8 @@ export function ClipMenus(): JSX.Element {
             // どちらになるか分からないまま押すと、後ろのタイミングが崩れて事故になる。
             clipMenu.kind === 'seg' && {
               kind: 'item',
-              label: `削除して詰める（${formatCombo(shortcuts.rippleDel)}）`,
+              label: '削除して詰める',
+              combo: formatCombo(shortcuts.rippleDel),
               onClick: () => {
                 rippleDeleteVideoSegments()
                 setClipMenu(null)
@@ -255,7 +264,8 @@ export function ClipMenus(): JSX.Element {
             {
               kind: 'item',
               danger: true,
-              label: `${clipMenu.kind === 'seg' ? '削除（詰めない）' : '削除'}（${formatCombo(shortcuts.del)}）`,
+              label: clipMenu.kind === 'seg' ? '削除（詰めない）' : '削除',
+              combo: formatCombo(shortcuts.del),
               onClick: () => {
                 // **組に入っている物は、種類をまたいで全部消す。**
                 // 押した種類だけ消すと、組の片割れが取り残されて

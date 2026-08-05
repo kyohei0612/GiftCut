@@ -1,0 +1,377 @@
+/* ===== ステータスバー ===== */
+.statusbar {
+  height: 24px;
+  background: var(--menubar);
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 14px;
+  font-size: 11px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.grow {
+  flex: 1 1 auto;
+}
+
+/* ===== トースト通知（OS標準alertの置き換え）===== */
+.toast-wrap {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+  max-width: 420px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #1a1d20e6;
+  backdrop-filter: blur(10px);
+  border: 1px solid #ffffff14;
+  box-shadow: var(--glow);
+  color: var(--text);
+  font-size: 13px;
+  white-space: pre-line;
+  line-height: 1.4;
+  animation: toast-in 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+.toast-ico {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 13px;
+  color: #fff;
+}
+.toast-success .toast-ico {
+  background: linear-gradient(135deg, #35c07f, #23a06a);
+}
+.toast-error .toast-ico {
+  background: linear-gradient(135deg, #f0674e, #d8443a);
+}
+.toast-info .toast-ico {
+  background: var(--accent-grad);
+}
+.toast-success {
+  border-left: 3px solid #35c07f;
+}
+.toast-error {
+  border-left: 3px solid #f0674e;
+}
+.toast-info {
+  border-left: 3px solid var(--accent);
+}
+.toast-msg {
+  flex: 1;
+  word-break: break-word;
+}
+
+/* ===== 入力モーダル（OS標準promptの置き換え）===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: #0009;
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  animation: fade-in 0.15s ease;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.modal-box {
+  width: 340px;
+  max-width: 90vw;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: var(--glow);
+  animation: modal-pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+@keyframes modal-pop {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.modal-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.modal-input {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.modal-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px #8fa8c033;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.modal-btn {
+  padding: 7px 18px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  transition: filter 0.15s ease, transform 0.05s ease;
+}
+.modal-btn:active {
+  transform: translateY(1px);
+}
+.modal-btn.ghost {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.modal-btn.ghost:hover {
+  background: #30353a;
+}
+.modal-btn.primary {
+  background: var(--accent-grad);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+}
+.modal-btn.primary:hover {
+  filter: brightness(1.1);
+}
+/* 元に戻せない操作の実行ボタン。「続ける」を押しにくい色で見分ける */
+.modal-btn.danger {
+  background: #c2453c;
+  color: #fff;
+  border: none;
+  font-weight: 700;
+}
+.modal-btn.danger:hover {
+  filter: brightness(1.12);
+}
+.modal-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* 確認モーダルの本文。改行はそのまま出す（文面を組み立てる側で整形できるように） */
+.modal-body {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-dim, #b9c2cc);
+  white-space: pre-wrap;
+}
+
+
+/* つまみの色をアプリの色に合わせる（既定の青が浮くため） */
+input[type="range"] {
+  accent-color: var(--accent);
+}
+
+/* アプリの更新の帯。作業の邪魔をしない高さで、押せる物だけ目立たせる */
+.update-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  background: linear-gradient(90deg, var(--panel-2), var(--panel));
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+}
+.update-btn {
+  background: var(--accent);
+  color: #10131a;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.update-btn:hover {
+  background: var(--accent-2);
+}
+.update-btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  font-weight: 400;
+}
+.update-btn-ghost:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+/* ---- モーション（キーフレーム）タブ ---- */
+.mo-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 2px 2px;
+}
+.mo-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mo-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.mo-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--line);
+}
+/* 動きが付いている行は、ひと目で分かるようにする */
+.mo-row.mo-on .mo-label {
+  color: var(--accent-2);
+}
+/* いま動いている版。題名の邪魔をしない大きさで、探せば必ずある所に置く */
+.app-ver {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  vertical-align: middle;
+}
+
+/* 選んだ項目・組（プレミアと同じで、選んでからコピーする）。
+   帯ごと反転させる＝「どこからどこまでを写すか」が一目で分かる */
+.mo-row.mo-picked,
+.mo-sec.mo-picked {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.mo-row.mo-picked .mo-label {
+  color: var(--text);
+}
+/* 押せる所だと分かるように（名前と見出しだけが選択の当たり判定） */
+.mo-pickable {
+  cursor: pointer;
+  user-select: none;
+}
+.mo-pickable:hover {
+  text-decoration: underline dotted;
+}
+.mo-pick-hint {
+  color: var(--accent-2);
+}
+/* 1項目だけ元に戻す。並びの右端に置く（誤爆しにくい位置） */
+.mo-reset {
+  margin-left: 2px;
+  opacity: 0.55;
+}
+.mo-reset:hover {
+  opacity: 1;
+}
+.mo-label {
+  font-size: 12px;
+  color: var(--muted);
+  width: 52px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mo-val {
+  width: 56px;
+  flex: 0 1 auto;
+  min-width: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 2px 4px;
+  text-align: right;
+}
+.mo-val:disabled {
+  opacity: 0.4;
+}
+.mo-unit {
+  font-size: 11px;
+  color: var(--muted);
+  width: 20px;
+}
+.mo-keys {
+  margin-left: auto;
+  display: flex;
+  gap: 1px;
+  flex: 0 0 auto; /* ここは絶対に縮めない（印を打つボタンに手が届かなくなる） */
+}
+.mo-watch,
+.mo-kbtn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 3px;
+}
+.mo-watch.on {
+  color: var(--accent-2);
+  border-color: var(--accent);
+}
+.mo-kbtn:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.mo-kbtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+/* いまちょうど印の上にいるとき */
+.mo-diamond.on {
+  color: var(--accent-2);
+}
+

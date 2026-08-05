@@ -127,7 +127,13 @@ export function TimelineArea(): JSX.Element {
               ? 'ドラッグで移動 / Alt=複製 / Ctrl=割り込み（後続が後ろへずれる）'
               : videoGhost
                 ? 'ドロップで上書き配置 / Ctrl押しながらで挿入（後続がシフト）'
-                : `${formatCombo(shortcuts.undo)} 元に戻す / ${formatCombo(shortcuts.copy)}・${formatCombo(shortcuts.paste)} コピー貼付 / ${formatCombo(shortcuts.duplicate)} 複製 / ${formatCombo(shortcuts.split)} 分割 / ${formatCombo(shortcuts.addMarker)} マーカー / ホイール 横・Shift+ホイール 縦`
+                : // **何もしていない時は出さない**（2026-08-05）。常時の早見表を消した。
+                  // 初日で読まれなくなって横幅だけ残り、しかも**古くなる**
+                  // （`=` / `-` を足したのに載っていなかった）。キーは押す物のそばへ移動
+                  // ——ボタンはツールチップ、右クリックは右端のキー列（`ContextMenu` の `combo`）。
+                  // **掴んでいる最中の案内（上の3つ）は残す。** あれは常設の表と別物で、
+                  // 「いま離すとどうなるか」を操作の最中に教えている。読まれるのはこちら。
+                  ''
         }
         keyHint={{
           select: formatCombo(shortcuts.toolSelect),

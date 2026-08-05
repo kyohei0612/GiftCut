@@ -1,0 +1,441 @@
+/* ===== スタイルパネル（エッセンシャルグラフィックス風）===== */
+.sp {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  /* Premiere風の表示順は flex order で制御（DOM順に依存しない） */
+  display: flex;
+  flex-direction: column;
+}
+.sp-section {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+/* 表示順: 整列と変形 → スタイル → テキスト → アピアランス → コラボアイコン */
+.sp-sec-align { order: 1; }
+.sp-sec-style { order: 2; }
+.sp-sec-text { order: 3; }
+.sp-sec-app { order: 4; }
+.sp-sec-icon { order: 5; }
+.sp-head {
+  font-size: 12px;
+  color: #cfcfd6;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+/* クリックで開閉できる見出し */
+.sp-head-btn {
+  cursor: pointer;
+  user-select: none;
+}
+.sp-head-btn:hover {
+  color: #fff;
+}
+/* 閉じたセクションは見出しだけ表示 */
+.sec-closed > *:not(.sp-head) {
+  display: none !important;
+}
+.sec-closed .sp-head {
+  margin-bottom: 0;
+}
+.sp-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  margin: 8px 0 4px;
+}
+.sp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.sp-row input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 40px;
+}
+.sp-label {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sp-label.indent {
+  padding-left: 22px;
+  min-width: 60px;
+}
+.sp-select {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 6px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.sp-select.mini {
+  width: auto;
+  margin-bottom: 0;
+  padding: 3px 4px;
+  font-size: 11px;
+}
+.sp-num {
+  width: 46px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 4px 5px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.sp-num.wide {
+  width: 54px;
+}
+/* Excel風の配置グリッド（フレーム内の位置スナップ） */
+.align-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 18px);
+  grid-template-rows: repeat(3, 14px);
+  gap: 2px;
+}
+.align-cell {
+  position: relative;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+}
+.align-cell:hover {
+  border-color: var(--accent-2);
+  background: #2f343a;
+}
+.align-cell.align-on {
+  border-color: var(--accent-2);
+  background: var(--accent-2);
+}
+.align-cell.align-on .align-dot {
+  background: #fff;
+}
+.align-dot {
+  position: absolute;
+  width: 7px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--accent-2);
+}
+/* 縦位置 */
+.align-tl,
+.align-tc,
+.align-tr {
+  top: 2px;
+}
+.align-ml,
+.align-mc,
+.align-mr {
+  top: 50%;
+  margin-top: -1.5px;
+}
+.align-bl,
+.align-bc,
+.align-br {
+  bottom: 2px;
+}
+/* 横位置 */
+.align-tl,
+.align-ml,
+.align-bl {
+  left: 2px;
+}
+.align-tc,
+.align-mc,
+.align-bc {
+  left: 50%;
+  margin-left: -3.5px;
+}
+.align-tr,
+.align-mr,
+.align-br {
+  right: 2px;
+}
+/* Adobe風スクラブ数値入力: 左右ドラッグで増減できることを示すカーソル＋下線 */
+.scrub {
+  cursor: ew-resize;
+  border-bottom-style: dotted;
+  border-bottom-width: 2px;
+}
+/* 触れない状態で「掴めます」の見た目を出さない。
+   出すと、押しても動かない物を何度も押させることになる */
+.scrub:disabled {
+  cursor: default;
+  border-bottom-style: solid;
+}
+.scrub::-webkit-inner-spin-button,
+.scrub::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.sp-val {
+  font-size: 11px;
+  color: var(--accent-2);
+  width: 30px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sp-color {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+.seg {
+  display: flex;
+  gap: 2px;
+}
+.seg-btn {
+  width: 26px;
+  height: 24px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+/* 横いっぱいに等分する segmented（長めのラベル用: 前/後ろ/カット間 など） */
+.seg.seg-wide {
+  flex: 1 1 auto;
+}
+.seg.seg-wide .seg-btn {
+  flex: 1 1 0;
+  width: auto;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+.seg-btn {
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.seg-btn:hover {
+  border-color: var(--accent);
+  color: #fff;
+}
+.seg-on {
+  background: var(--accent-grad);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 2px 10px #8fa8c04d;
+}
+.seg-on:hover {
+  color: #fff;
+}
+.sp-add,
+.sp-del {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 4px;
+  width: 22px;
+  height: 20px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.sp-del:hover {
+  background: #5a2a2a;
+}
+
+/* プリセット */
+.preset-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.preset-chip {
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  color: #e7dcff;
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.preset-chip:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.sp-preset-name {
+  flex: 1 1 auto;
+  min-width: 40px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 5px 7px;
+  font-size: 12px;
+}
+.btn.small {
+  padding: 5px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* アイコン */
+.icon-current {
+  font-size: 18px;
+  flex: 1 1 auto;
+}
+.icon-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.icon-btn {
+  width: 30px;
+  height: 28px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.icon-btn:hover {
+  background: #30353a;
+}
+.icon-on {
+  border-color: var(--accent);
+  background: #3a2f52;
+}
+
+/* カラーラベル・グループ */
+.label-groups {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.lg-head {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.lg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.12s ease;
+}
+.lg-row:hover {
+  background: #ffffff10;
+}
+.lg-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid #0006;
+}
+.lg-name {
+  flex: 1 1 auto;
+}
+.lg-count {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* まとめて編集バナー */
+.multi-banner {
+  background: #3a2f52;
+  border: 1px solid var(--accent);
+  color: #e7dcff;
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+
+/* 右クリックメニュー */
+.ctx-menu {
+  position: fixed;
+  z-index: 1000;
+  background: #1c2637;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px #000a;
+  padding: 8px;
+  min-width: 180px;
+}
+.ctx-title {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 4px 6px;
+}
+.ctx-swatches {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+  margin-bottom: 6px;
+}
+.ctx-swatch {
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid #0006;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.ctx-swatch:hover {
+  transform: scale(1.12);
+  border-color: #fff;
+}
+.ctx-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 6px 0;
+}
+.ctx-item {
+  /* 名前は左・キーは右。**間は伸びる**ので、行の長さが違ってもキーの列は揃う
+     （名前の後ろに `（Ctrl+C）` と書いていた頃は、キーが行ごとに別の場所にあった） */
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 7px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ctx-item:hover {
+  background: #ffffff12;
+}
+/* **キーは静かに。** 読みに来た人には見え、名前を追っている人の邪魔をしない
+   （UI-UX-見直し.md の規則2「隠さず、静かにする」） */
+.ctx-combo {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ctx-label {
+  min-width: 0;
+}
+.ctx-danger {
+  color: #f08a8a;
+}
+.ctx-item.ctx-on {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+

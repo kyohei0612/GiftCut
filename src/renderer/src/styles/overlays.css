@@ -1,0 +1,441 @@
+/* 質感（軽いトランジション） */
+.btn,
+.chip,
+.tool,
+.seg-btn,
+.mode-tab,
+.preset-chip,
+.icon-btn {
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+.clip {
+  transition: outline-color 0.1s ease;
+}
+
+/* 書き出しオーバーレイ */
+.export-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: #000a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.export-box {
+  background: #1a1d20e6;
+  backdrop-filter: blur(10px);
+  border: 1px solid #ffffff14;
+  border-radius: 16px;
+  padding: 26px 34px;
+  text-align: center;
+  box-shadow: var(--glow);
+  max-width: 440px;
+}
+.export-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  margin: 0 auto 14px;
+  animation: gc-spin 0.8s linear infinite;
+}
+@keyframes gc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.export-msg {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.export-pct {
+  font-weight: 700;
+  color: var(--accent);
+}
+.sp-shadow {
+  border-left: 2px solid var(--line);
+  padding-left: 6px;
+  margin-bottom: 6px;
+}
+.trans-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+/* タイムラインのトランジション枠（クリップより前面・クリックで選択できる範囲表示） */
+/* 付いているのに効いていないトランジション。
+   **色ではなく形で分かるようにする**（斜線＝機能していない、の合図）。
+   細い印なので、効いている帯と見間違えない。 */
+.ttrans-dead {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255, 180, 60, 0.85) 0 3px,
+    rgba(90, 60, 10, 0.85) 3px 6px
+  );
+  border: 1px solid rgba(255, 200, 100, 0.9);
+}
+.ttrans-dead .ttrans-lb {
+  font-size: 9px;
+}
+.ttrans {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  z-index: 6; /* クリップ本体(clip)より前面＝この範囲はトランジション選択が優先 */
+  pointer-events: auto;
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+}
+.ttrans-lb {
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  text-shadow: 0 0 2px #000;
+  pointer-events: none;
+}
+/* 色ディップ（明転/暗転）: 黒 or 白のグラデ帯 */
+.ttrans-dip.ttrans-black {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.45));
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.ttrans-dip.ttrans-white {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.4));
+  border-color: rgba(0, 0, 0, 0.25);
+}
+.ttrans-dip.ttrans-white .ttrans-lb {
+  color: #111;
+  text-shadow: 0 0 2px #fff;
+}
+/* スライド/ワイプ帯（頭/尻/間 共通の見た目）: 紫の斜線 */
+.ttrans-motion {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(180, 140, 255, 0.7),
+    rgba(180, 140, 255, 0.7) 4px,
+    rgba(180, 140, 255, 0.28) 4px,
+    rgba(180, 140, 255, 0.28) 8px
+  );
+  border-color: rgba(200, 170, 255, 0.9);
+}
+/* カット間クロスディゾルブ: 両クリップにまたがる青の斜線帯＋左右に境界線 */
+.ttrans-xfade {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(130, 170, 255, 0.65),
+    rgba(130, 170, 255, 0.65) 4px,
+    rgba(130, 170, 255, 0.28) 4px,
+    rgba(130, 170, 255, 0.28) 8px
+  );
+  border-left: 1px solid rgba(160, 190, 255, 0.95);
+  border-right: 1px solid rgba(160, 190, 255, 0.95);
+}
+/* テロップの出入りアニメ帯（動画トランジションと同じ見せ方・色だけ変えて区別） */
+.ttrans-telop {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(120, 220, 170, 0.7),
+    rgba(120, 220, 170, 0.7) 4px,
+    rgba(120, 220, 170, 0.3) 4px,
+    rgba(120, 220, 170, 0.3) 8px
+  );
+  border-color: rgba(150, 240, 190, 0.9);
+}
+.ttrans-telop .ttrans-lb {
+  color: #06251a;
+  text-shadow: none;
+}
+/* 選択中のトランジション枠 */
+.ttrans-sel {
+  outline: 2px solid #ffcf4a;
+  outline-offset: -1px;
+  border-color: #ffcf4a;
+  z-index: 7;
+}
+/* トランジションの長さ変更ハンドル（プレミア風・端をドラッグ） */
+.ttrans-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: ew-resize;
+  z-index: 8;
+}
+.ttrans-resize-l {
+  left: -1px;
+}
+.ttrans-resize-r {
+  right: -1px;
+}
+.ttrans-resize::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 40%;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 1px;
+}
+/* D&D中の配置プレビュー帯（実際に置かれる帯の見た目＋明るい枠でマグネット位置を示す） */
+.ttrans-ghost {
+  pointer-events: none;
+  z-index: 9;
+  border: 2px solid #fff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+  opacity: 0.9;
+}
+.ttrans-ghost-in {
+  background: linear-gradient(90deg, rgba(255, 210, 74, 0.85), rgba(255, 210, 74, 0.2));
+}
+.ttrans-ghost-out {
+  background: linear-gradient(270deg, rgba(255, 154, 74, 0.85), rgba(255, 154, 74, 0.2));
+}
+.ttrans-ghost-both {
+  background: linear-gradient(
+    90deg,
+    rgba(185, 138, 255, 0.8),
+    rgba(185, 138, 255, 0.2),
+    rgba(185, 138, 255, 0.8)
+  );
+}
+.ttrans-ghost-xfade {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(130, 170, 255, 0.8),
+    rgba(130, 170, 255, 0.8) 4px,
+    rgba(130, 170, 255, 0.3) 4px,
+    rgba(130, 170, 255, 0.3) 8px
+  );
+}
+/* 間ディップ（黒/白フェードをカット境界に）: 両クリップに沈む帯＋中央線 */
+.ttrans-ghost-dipBetween {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.85), rgba(90, 90, 90, 0.5), rgba(0, 0, 0, 0.85));
+}
+.ttrans-ghost-dipBetween::before,
+.ttrans-ghost-xfade::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.9);
+}
+.ttrans-ghost-telop {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(120, 220, 170, 0.8),
+    rgba(120, 220, 170, 0.8) 4px,
+    rgba(120, 220, 170, 0.3) 4px,
+    rgba(120, 220, 170, 0.3) 8px
+  );
+}
+/* 間（テロップ同士）: 境界中心に縦線を出して「半々でまたがっている」ことを示す */
+.ttrans-ghost-between::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.9);
+}
+/* seg ボタンを折り返し可に（テロップモーションのアイコン群用） */
+.seg-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.seg-wrap .seg-btn {
+  flex: 0 0 auto;
+  min-width: 30px;
+}
+/* 右パネル: 選択中トランジションの編集ブロック */
+.sel-trans {
+  background: #1a2330;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+.sel-trans-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.sel-trans-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-2);
+}
+.btn.danger {
+  border-color: #7a3a3a;
+  color: #f0a0a0;
+}
+.btn.danger:hover {
+  background: #3a2020;
+}
+.tpl-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 8px 0 2px;
+}
+/* D&D中にカーソルへ付く小さな「持ってます」チップ */
+.drag-chip {
+  position: absolute;
+  top: -1000px;
+  left: -1000px;
+  pointer-events: none;
+  background: #2b3a4f;
+  color: #fff;
+  border: 1px solid #9db4c9;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+/* トランジションのD&D: つまみ表示＋掴めるカーソル */
+.fx-draggable {
+  cursor: grab;
+}
+.fx-draggable:active {
+  cursor: grabbing;
+}
+.fx-drag-hint {
+  margin-left: auto;
+  opacity: 0.4;
+  font-size: 12px;
+  letter-spacing: -1px;
+}
+/* トランジションD&Dのドロップ配置プレビュー（タイムライン上） */
+.trans-drop {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  z-index: 8;
+  pointer-events: none;
+}
+.trans-drop-in {
+  background: #ffd24a;
+  box-shadow: 0 0 6px rgba(255, 210, 74, 0.9);
+}
+.trans-drop-out {
+  background: #ff9a4a;
+  box-shadow: 0 0 6px rgba(255, 154, 74, 0.9);
+}
+.trans-drop-both {
+  background: #b98aff;
+  box-shadow: 0 0 6px rgba(185, 138, 255, 0.9);
+}
+.trans-drop-xfade {
+  background: #9db4c9;
+  box-shadow: 0 0 6px rgba(130, 170, 255, 0.9);
+}
+.trans-drop-label {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+/* カット間クロスディゾルブの目印（クリップ尻＝次クリップとの境界。プレミアの◧風） */
+.clip-speed {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+/* SEライブラリ */
+.se-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+.se-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #23272b;
+  cursor: grab;
+  font-size: 12px;
+  color: var(--text);
+  user-select: none;
+}
+.se-item:hover {
+  background: #2a3646;
+  border-color: var(--accent);
+}
+.se-item:active {
+  cursor: grabbing;
+}
+.se-play {
+  font-size: 13px;
+  opacity: 0.8;
+}
+.se-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.export-bar {
+  margin: 14px auto 4px;
+  width: 260px;
+  height: 6px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.export-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.2s ease;
+}
+.export-cancel {
+  margin-top: 16px;
+  padding: 6px 20px;
+  font-size: 12px;
+  color: var(--text);
+  background: #3a3a42;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.export-cancel:hover {
+  background: #33414f;
+}
+

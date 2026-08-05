@@ -1,0 +1,245 @@
+/* ===== オーディオトラックミキサー ===== */
+.mixer-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: #0d0d0f;
+  display: flex;
+  justify-content: center;
+  padding: 14px 10px;
+}
+.mixer {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+}
+.mix-ch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 66px;
+}
+.mix-master {
+  border-left: 1px solid var(--line);
+  padding-left: 18px;
+  margin-left: 6px;
+}
+.mix-ms {
+  display: flex;
+  gap: 4px;
+  min-height: 20px;
+}
+.mix-msbtn {
+  width: 20px;
+  height: 18px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+.mix-msbtn.mix-mute {
+  background: #c25a3a;
+  border-color: #c25a3a;
+  color: #fff;
+}
+.mix-msbtn.mix-solo {
+  background: #c2b03a;
+  border-color: #c2b03a;
+  color: #111;
+}
+.mix-fader {
+  position: relative;
+  width: 20px;
+  flex: 1 1 auto;
+  min-height: 160px;
+  background: linear-gradient(#141416, #1c1c20);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: ns-resize;
+  touch-action: none;
+  overflow: hidden;
+}
+.mix-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(#2c7be5, #1b4f91);
+  pointer-events: none;
+}
+.mix-knob {
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  height: 10px;
+  margin-bottom: -5px; /* bottom%位置を中心に */
+  background: #e8e8ee;
+  border: 1px solid #6a6a72;
+  border-radius: 3px;
+  box-shadow: 0 1px 3px #0008;
+  pointer-events: none;
+}
+.mix-db {
+  font-size: 11px;
+  color: #cfcfd6;
+  font-variant-numeric: tabular-nums;
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 6px;
+  min-width: 44px;
+  text-align: center;
+}
+.mix-name {
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  white-space: nowrap;
+}
+.proxy-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 30;
+  background: #000a;
+  border: 1px solid var(--accent-2);
+  color: #dbeafe;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  pointer-events: none;
+}
+.screen {
+  /* **下地は黒。書き出しと同じ絵にする**（2026-08-05）。
+   *
+   * 前は透明を表す市松模様（明るい灰色のチェッカー）だった。画像編集の作法としては
+   * 正しいが、このアプリでは**嘘になる**——素材が枠を埋めない所は、
+   * 書き出すと必ず黒になる（`main/exportOverlays` は黒地に重ねる）。
+   * つまり**見えている物と、出来上がる物が違っていた**。
+   *
+   * プレビューは「出来上がりの予告」であるべきで、「中間状態の説明」ではない。
+   * 素材が入っていない時は文字で案内が出る（`ScreenEmpty`）ので、
+   * 「透明だと分からない」問題はそちらが受け持っている。
+   *
+   * ※ 明るい市松をやめると、**モニタ全体が暗く落ち着く**という副作用もある。
+   *   一番長く見る場所なので、そこが明るい模様で埋まっていない方がよい。 */
+  background-color: #000;
+  /* **潰さずに小さくする。**
+     タイムラインを持ち上げてモニタを低くすると、前は縦だけ潰れて
+     比率が変わっていた。高さを 100% で固定したまま横に max を掛けていたため、
+     詰まったぶんが縦の潰れになっていた。
+     幅を auto にして「高さから比率で決まる」形にすると、低くなったぶん
+     横も一緒に縮む＝プレミアと同じで、中央に寄ったまま小さくなる。
+     min-* を 0 にしておかないと、中身の大きさが下限になって縮まない。 */
+  /* **高さは「入る方」で決める。**
+     前は `height: 100%` に `max-width: 100%` を掛けていた。区画が縦長になると
+     幅だけ頭打ちになり、**高さは 100% のまま**なので比率が崩れる
+     （実測 320px幅 で 16:9 のはずが 0.885）。崩れた枠の中で映像は
+     object-fit: contain で letterbox されるから、映像だけ小さくなる。
+     テロップは**枠の高さ**（cqh）を基準に置いているので、そのぶん
+     大きく・外側にずれる＝「右へはみ出して切れる」の正体。
+     100cqw はこの区画（.monitor-stage）の幅。幅いっぱいに収まる高さと
+     100% の**小さい方**を採れば、どちらの向きでも比率が保たれる。 */
+  /* `--pz` はプレビューだけの拡大（1＝全体表示）。枠ごと大きくして、はみ出した分は
+     モニタ区画を送って見る。**max-width は掛けない**——掛けると寄せた瞬間に
+     幅で頭打ちになり、上でわざわざ直した「比率が崩れる」状態に戻る。 */
+  max-width: calc(100% * var(--pz, 1));
+  height: calc(min(100%, calc(100cqw / var(--ar, 1.7778))) * var(--pz, 1));
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  position: relative;
+  overflow: hidden;
+  container-type: size;
+}
+/* 市松模様（透明）の上に出るので、下敷きを敷かないと読めない */
+.screen-empty {
+  color: #cfd4dd;
+  align-self: center;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.7;
+  background: #0b1220cc;
+  border: 1px solid #ffffff22;
+  border-radius: 10px;
+  padding: 14px 22px;
+}
+.screen-empty-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #e6e8ee;
+}
+.screen-empty-sub {
+  font-size: 11px;
+  color: #9aa3b2;
+}
+.screen-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* 背景は透明に：動画が非表示/透明の時に下のグリッドが見える（プレミア風） */
+  background: transparent;
+  z-index: 0;
+  /* ズーム(transform)を常時GPUの独立レイヤに載せる。
+     ・拡大再生時のガクつき（毎フレーム再ラスタライズ）を解消＝なめらか
+     ・切片切替時に transform 値が瞬時に反映（にじまず「ぱっ」と切替） */
+  will-change: transform;
+  backface-visibility: hidden;
+  transform-origin: center center;
+}
+/* クロスディゾルブ用の2本目video: メイン動画の上・テロップの下。区間外は opacity:0 */
+.screen-video-b {
+  z-index: 1;
+  pointer-events: none;
+}
+.telop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.tbtn-play {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.telop-box {
+  margin: 0;
+  display: inline-block;
+  text-align: center;
+}
+.telop-interactive {
+  pointer-events: auto;
+  cursor: move;
+}
+.telop-box-sel {
+  outline: 1px dashed #ffffffaa;
+  outline-offset: 6px;
+}
+/* 選択テロップの四隅リサイズハンドル（枠を触ってサイズ変更） */
+.telop-resize-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border: 1.5px solid var(--accent-2);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px #0008;
+  pointer-events: auto;
+  z-index: 5;
+}

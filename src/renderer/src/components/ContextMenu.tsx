@@ -29,6 +29,24 @@ export type MenuEntry =
       /** いま選ばれている行（✓ の代わりに色を変える） */
       on?: boolean
       title?: string
+      /**
+       * その操作のキー。**右端に、薄く、揃えて出す**（`formatCombo(shortcuts.copy)` を渡す）。
+       *
+       * ## なぜラベルに `（Ctrl+C）` と書き足さないか（2026-08-05 に移した）
+       *
+       * 前は文の途中に混ぜていた。品書きは**上から名前だけを追って読む**ので、
+       * 名前の長さでキーの位置がバラバラだと、**キーを探すのに一行ずつ読む**ことになる。
+       * 右に揃っていれば、名前を読む目とキーを読む目が別々に動ける
+       * （Windows もプレミアもこの形）。
+       *
+       * これは Nielsen の「加速器」の本来の形——**上級者の近道を、
+       * 初心者が通る道の上に置く**。品書きを使うたびにキーが目に入るので、
+       * 常設の早見表を別に置く必要がなくなる（実際、タイムラインの早見表はこれで消した）。
+       *
+       * ※ 名前を `key` にしない。React の予約語と紛らわしく、
+       *   `<button key=…>` を書く所と並ぶので読み違える。
+       */
+      combo?: string
     }
   /** 色見本の並び。none を渡すと「色なし」も出す */
   | {
@@ -106,7 +124,8 @@ export function ContextMenu({
                 title={en.title}
                 onClick={en.onClick}
               >
-                {en.label}
+                <span className="ctx-label">{en.label}</span>
+                {en.combo && <span className="ctx-combo">{en.combo}</span>}
               </button>
             )
         }

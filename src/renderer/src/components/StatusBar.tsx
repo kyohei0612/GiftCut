@@ -72,8 +72,6 @@ export function StatusBar({
   telopCount,
   selection,
   tool,
-  ratio,
-  playhead,
   shuttleRate,
   poppedPanes,
   autosaveNg,
@@ -83,10 +81,7 @@ export function StatusBar({
   telopCount: number
   selection: SelectionCounts
   tool: string
-  ratio: string
-  /** 再生ヘッドの時刻（表示用の文字） */
-  playhead: string
-  /** 早送り・巻き戻しの倍率（0＝ふつう） */
+  /** 早送り・巻き戻しの倍率（0＝ふつう）。**他所に出ないのでここに残す** */
   shuttleRate: number
   /** 別ウィンドウへ出しているパネル */
   poppedPanes: { id: string; label: string }[]
@@ -118,8 +113,15 @@ export function StatusBar({
       <span>{telopCount ? `${telopCount} テロップ` : 'テロップなし'}</span>
       <span>選択: {selectionSummary(selection)}</span>
       <span>ツール: {TOOL_LABEL[tool] ?? tool}</span>
-      <span>比率 {ratio}</span>
-      <span>再生ヘッド {playhead}</span>
+      {/* **比率と再生ヘッドの時刻は、ここには出さない**（2026-08-05）。
+          どちらも本来の置き場がある:
+
+            比率        … 上の帯の 16:9 / 9:16 / 1:1（**選ぶ所がそのまま今の値**）
+            再生ヘッド  … モニタ下のタイムコード（プレミアもそこ）
+
+          2か所に出すと、**片方が古くなる**か、目が散って両方読まなくなる。
+          この帯の役目は「**他所に出ていない事**（選択・ツール・別窓・版）」だけにする。
+          シャトルの倍率がここに残っているのは、それが他のどこにも出ないため。 */}
       {shuttleRate !== 0 && <span>シャトル {shuttleRate}x</span>}
       <span className="grow" />
       {poppedPanes.map((p) => (

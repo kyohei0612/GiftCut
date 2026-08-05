@@ -1,0 +1,452 @@
+/* ===== タイムライン ===== */
+.timeline {
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.tl-toolbar {
+  height: 34px;
+  /* 狭いと中身がはみ出して、上の見出しに重なる（別ウィンドウで実際に重なった） */
+  overflow: hidden;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  flex: 0 0 auto;
+}
+.tool {
+  /* Fitts's law: クリック目標を最低 32x26px 確保（誤クリック低減） */
+  min-width: 32px;
+  /* 文字を添えたものは、そのぶん広がってよい（固定幅だと文字がはみ出す） */
+  width: auto;
+  padding: 0 6px;
+  height: 26px;
+  white-space: nowrap;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.tool:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.tool-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.tool-sm {
+  width: 26px;
+  height: 22px;
+  font-size: 11px;
+}
+.tool:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.tl-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 4px;
+}
+.tl-zoom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.tl-zoom input {
+  width: 120px;
+}
+/* アイコンに添える文字。狭いときは消して、アイコンだけに戻す */
+.tool-text {
+  font-size: 10px;
+  margin-left: 2px;
+}
+@media (max-width: 1200px) {
+  .tool-text {
+    display: none;
+  }
+}
+/* タイムラインの手元に置く、文字入りのボタン */
+.tool-wide {
+  width: auto;
+  padding: 0 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* 無音カットの設定 */
+.sil-box {
+  min-width: 460px;
+}
+.sil-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.sil-row {
+  display: grid;
+  /* ラベルが2行に折り返すと、つまみの位置が行ごとにずれて読みにくい */
+  grid-template-columns: 190px 150px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* 押せないボタンが押せそうに見えると、押しても何も起きない物を探し続けることになる */
+.sil-box .btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sil-row b {
+  color: var(--text);
+  font-size: 12px;
+  text-align: right;
+}
+.sil-result {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.tl-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  /* 狭いときは折り返さずに切る。折り返すと縦に伸びて、上の見出しへはみ出す */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.tl-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+.track-headers {
+  width: 128px;
+  flex: 0 0 auto;
+  background: var(--head);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+  position: relative;
+}
+/* 左端のトラック高さ調整バー（丸グリップ）*/
+/* 段の高さを変える所。
+   ※以前は左端に「丸」を並べた専用の列（.tl-resize-gutter / .tl-grip）を置いていたが
+   廃止した。縦に送ると枠の外へ出て消え、掴んだ丸と実際の境目が離れることもあった。
+   いまは段見出しの**境目そのもの**を掴む（プレミアと同じ）。
+   境目は見出しと一緒に動くので、見えている段の境目は必ず掴める。 */
+.th-divider {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* 掴める幅。狭いと狙えず、広いと段を選ぶつもりの押下を奪う。
+     段が一番細いとき(26px)でも、上の8割は「選ぶ」ために残る。 */
+  height: 5px;
+  cursor: row-resize;
+  z-index: 4;
+}
+/* 触れている間だけ線を光らせる。**常に見せない。**
+   7本ぶんの明るい線が常時並ぶと、段の区切りより線のほうが目立つ。 */
+.th-divider::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: transparent;
+  transition: background 0.1s;
+}
+.th-divider:hover::after,
+.th-divider:active::after {
+  background: var(--accent-2);
+}
+/* タイムラインの上下に持たせる余白。段が端に貼り付いていると窮屈に見え、
+   上や下に足せることも伝わらない。トラック側とヘッダー側で同じ高さにすること。 */
+.track-pad {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+/* 段見出しの並び。縦スクロールに合わせて App 側が transform で上へずらす。
+   **見出し列そのものを動かさないこと**（上の th-spacer は目盛りの相手なので残る）。 */
+.th-body {
+  transform: translateY(0);
+  will-change: transform;
+}
+.th-spacer {
+  /* **目盛り(.ruler)と必ず同じ高さにすること。**
+     片方だけ変えると、段の見出しと行がその差だけ縦にずれる */
+  height: 30px;
+  /* 目盛り(sticky)と並ぶ位置。ここだけは送っても動かない */
+  position: relative;
+  z-index: 2;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 5px;
+}
+/* トラック追加ボタン */
+.th-add {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+}
+.th-spacer .th-add {
+  width: 22px;
+  height: 16px;
+}
+.th-add:hover {
+  border-color: var(--accent-2);
+  color: var(--text);
+  background: #2f343a;
+}
+.th-add-audio {
+  display: block;
+  width: calc(100% - 12px);
+  height: 20px;
+  margin: 4px 6px 6px;
+}
+.th {
+  height: 48px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 6px 0 8px;
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  position: relative; /* 下の境目（.th-divider）を置く基準 */
+}
+.th.th-selected {
+  background: #2f343a;
+  box-shadow: inset 0 0 0 1px var(--accent-2);
+}
+.th-video {
+  border-left: 3px solid var(--accent);
+}
+.th-audio {
+  border-left: 3px solid var(--accent-2);
+}
+.th-name {
+  font-size: 11px;
+  color: #cfcfd6;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+/* 段の番号。**ここだけは絶対に切らせない**（どの段かが分からなくなる） */
+.th-id {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: #e6e8ee;
+}
+/* 名前。入らなければここだけ切る */
+.th-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #a9b0bd;
+  font-size: 10px;
+}
+.th-name.th-target {
+  background: var(--accent-2);
+  color: #fff;
+  font-weight: 600;
+}
+.th-icons {
+  display: flex;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--muted);
+  align-items: center;
+  flex: 0 0 auto;
+}
+/* ## 押せる範囲を、絵より広く取る（2026-08-05）
+ *
+ * 絵は 16 × 15px しかない。**WCAG 2.2 の下限は 24 × 24**（SC 2.5.8・AA）で、
+ * 「隣と 24px 以上離れていれば小さくてよい」例外にも当たらない（M と S は 4px）。
+ * ロックやミュートは**押し間違えると音が消える**類なので、ここは効く。
+ *
+ * → **絵は 16px のまま、透明な `::before` で押せる範囲だけ広げる。**
+ *   見た目は1px も変わらない。
+ *
+ * ### なぜ横は 20px までか（24 にしない）
+ *
+ * 見出しは 128px 固定で、4枠 × 16 + すき間 4 × 3 = 76px。**間隔（pitch）が 20px** で、
+ * 24px にすると**隣の当たり判定と 4px 重なる**。重なった所は後ろの要素が勝つので、
+ * M の右端を押すと S が反応する——**いまより悪くなる**。
+ * 24 を取るには見出しを 140px 幅へ広げる必要があり、それは別の判断（`UI-UX-見直し.md`）。
+ * 20 × 24 でも面積は 240 → 480px² と**倍**になる。
+ *
+ * ### 縦 24px が下の段へはみ出さない理由
+ *
+ * 段の高さは変えられるので、24px が段より高くなることがある。
+ * **`.th` に `overflow: hidden` が入っている**ので、はみ出した分は
+ * 絵も当たり判定も段の中で切られる（重なった段の M を押す事故は起きない）。
+ * ここを消すときは、この当たり判定も一緒に見直すこと。 */
+.th-btn,
+.th-ms {
+  position: relative;
+}
+.th-btn::before,
+.th-ms::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+}
+/* 空き枠は押せてはいけない（`pointer-events: none` は子孫にも効くので
+   `::before` も一緒に無効になる）。念のため見た目も持たせない */
+.th-ms-blank::before {
+  content: none;
+}
+.th-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+  line-height: 1;
+  width: 16px;
+  text-align: center;
+}
+.th-btn.th-off {
+  opacity: 0.5;
+}
+.th-ms {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  width: 16px;
+  height: 15px;
+  text-align: center;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0;
+}
+.th-ms.th-mute {
+  background: #c25a3a;
+  border-color: #c25a3a;
+  color: #fff;
+}
+.th-ms.th-solo {
+  background: #c2b03a;
+  border-color: #c2b03a;
+  color: #111;
+}
+
+/* マーキー（範囲選択） */
+.marquee {
+  position: absolute;
+  border: 1px solid var(--accent-2);
+  background: #4ea1f022;
+  z-index: 25;
+  pointer-events: none;
+}
+
+/* ドラッグ中の時間ツールチップ */
+.drag-tip {
+  position: fixed;
+  z-index: 1500;
+  background: #000d;
+  color: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ※ ここに `.snap-line`（実線のピンク・2px・発光）が残っていた。
+     **紛らわしいので点線の水色に作り直した時の消し残し**（本物は下の方にある）。
+     後ろの定義が勝つので幅と線は効いていなかったが、**`background` と
+     `box-shadow` は上書きされていない**ので生き残り、
+     出来上がりは「水色の破線にマゼンタの発光が付いた線」だった
+     ——**どちらの定義を読んでも出てこない絵**。2026-08-05 に消した。 */
+
+/* ホバーガイド線 */
+/* マウスの居場所。**目盛りの中だけ**に出す。
+   前は全高の縦線を引いていて、再生ヘッドと紛らわしいうえ、
+   クリップの上を横切るたびに邪魔になっていた（プレミアも目盛りの中だけ）。 */
+.hover-mark {
+  position: absolute;
+  /* **マイナスにしないこと。** 目盛りはスクロール領域の一番上に貼り付いており、
+     その上へ出した分は領域の外＝切り落とされる。以前 -3px にしてあり、
+     位置の計算上は「3px 突き出している」のに目では何も出ていなかった
+     （測る側もそれを通してしまっていた）。頭は領域の内側に置く。 */
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #ffffff88;
+  z-index: 7;
+  pointer-events: none;
+}
+.hover-mark::before {
+  /* 数字の上に乗る小さな頭。線だけだと目盛りに紛れて見えない。
+     再生ヘッドの三角とは形も色も変えてある（見分けが付くことが最優先）。 */
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -4px;
+  width: 9px;
+  height: 4px;
+  background: #fff;
+  border-radius: 0 0 2px 2px;
+  box-shadow: 0 1px 2px #000a;
+}
+.hover-time {
+  position: absolute;
+  top: 5px;
+  left: 3px;
+  font-size: 9px;
+  color: #fff;
+  background: #000a;
+  padding: 0 3px;
+  border-radius: 2px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+

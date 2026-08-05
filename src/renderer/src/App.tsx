@@ -10,9 +10,6 @@ import { loadJson, loadRecentProjects, useProjectState } from './state/useProjec
 import { DEFAULT_TRACKS, initTrackStates } from './lib/trackState'
 import { FPS, RECENT_KEY, RECENT_MAX } from './lib/appConst'
 
-// 時間計算はすべて shared/timeline に集約（ズレの一元管理）。
-// ここに同じ計算を書き直さないこと。不変条件は timeline.test.ts が守っている。
-import { formatTimecode } from '../../shared/timeline'
 
 import { useTracks } from './state/useTracks'
 import { useView } from './state/useView'
@@ -125,11 +122,15 @@ function AppInner(): JSX.Element {
   // **配線は state/useAppWiring。** ここは「画面は何でできているか」だけを持つ。
   const {
     appVersion, autosaveNg, cues, dialogs, dragTip, header, isPopped, leftPanel,
-    menus, paneGeom, playRateUI, previewCtx, ratio, rightPanel, startResize, timelineOps,
+    menus, paneGeom, playRateUI, previewCtx, rightPanel, startResize, timelineOps,
     timelineView, tool, unpopPane, selectedIds, selectedVideoIds, selectedAudioIds, selectedSeIds,
     selectedImgIds, selectedVClipIds, selectedTrans, selectedTelopTrans, selectedMarkerId,
-    selectedTrackId, currentTime, fps
+    selectedTrackId
   } = useAppWiring()
+  // **`currentTime` / `fps` / `ratio` はここでは受け取らない。**
+  // 下の帯から時刻と比率を外した（重複表示。理由は StatusBar.tsx）ので要らなくなった。
+  // 特に `currentTime` は**再生中こコマ変わる**ので、受け取ると
+  // 画面の骨格ごと描き直されることになる。要る所（モニタ）が自分で見に行く。
 
   return (
     <TimelineOpsProvider value={timelineOps}>
@@ -171,8 +172,6 @@ function AppInner(): JSX.Element {
           track: selectedTrackId
         }}
         tool={tool}
-        ratio={ratio}
-        playhead={formatTimecode(currentTime, fps)}
         shuttleRate={playRateUI}
         poppedPanes={(['left', 'preview', 'right', 'timeline'] as PaneId[])
           .filter((id) => isPopped(id))

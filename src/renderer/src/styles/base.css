@@ -1,0 +1,72 @@
+:root {
+  /* アイコンに合わせた黒鉛（グラファイト）基調。
+     アイコンは「黒〜濃灰のグラデ＋白銀のGC」なので、画面もそこへ寄せる。
+     色味は青を抜いた中間色にし、**色で意味を持たせるのは
+     クリップの種類とラベルだけ**にする（そこが読みやすくなる）。 */
+  --bg: #121416;
+  --panel: #1a1d20;
+  --panel-2: #23272b;
+  --head: #1d2124;
+  --menubar: #0e1012;
+  --line: #30353a;
+  --text: #e8eaed;
+  --muted: #98a0a9;
+  /* 効きどころ（選択・再生ヘッド・実行ボタン）だけに使う一色。
+     アイコンの白銀に寄せた寒色寄りのシルバーブルー。 */
+  --accent: #8fa8c0;
+  --accent-2: #b9cbdd;
+  --accent-grad: linear-gradient(135deg, #9db4c9, #6f8aa3);
+  --playhead: #d7dee6;
+  --glow: 0 0 0 1px #ffffff0f, 0 10px 34px #000a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ===== カスタムスクロールバー（OS標準の野暮ったいやつを刷新）===== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #4a4a55 transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(#4a4a57, #3c3c47);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(#9db4c9, #6f8aa3);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+}
+body {
+  font-family: "Segoe UI", "Yu Gothic UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  user-select: none;
+  font-size: 13px;
+}
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+

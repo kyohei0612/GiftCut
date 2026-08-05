@@ -1,0 +1,387 @@
+/* プレビュー下の再生バー。全体のどこを見ているかを示し、押した所へ飛べる。
+   タイムラインを見に行かなくても位置が分かるようにするためのもの。 */
+.preview-scrub {
+  position: relative;
+  height: 18px;
+  padding: 0 14px;
+  background: var(--head);
+  cursor: pointer;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+.preview-scrub-track {
+  position: relative;
+  height: 6px;
+  width: 100%;
+  border-radius: 3px;
+  background: #ffffff14;
+}
+.preview-scrub-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #ffffff1f;
+}
+/* 頭と尻。目盛りより背を高くして、始まりと終わりが一目で分かるようにする */
+.preview-scrub-edge {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: #ffffff40;
+  border-radius: 1px;
+}
+.preview-scrub-edge-l {
+  left: 0;
+}
+.preview-scrub-edge-r {
+  right: 0;
+}
+/* 再生位置のつまみ。中心を位置に合わせるので、両端でもバーからはみ出さない */
+.preview-scrub-head {
+  position: absolute;
+  top: -4px;
+  height: 14px;
+  width: 9px;
+  margin-left: -4.5px;
+  background: var(--accent);
+  border-radius: 2px 2px 4px 4px;
+  box-shadow: 0 0 0 1px #0008;
+  pointer-events: none;
+}
+/* プレビュー下は1段（時刻＋操作。再生ボタンは中央）。
+   押さない物（画質・fps・尺）はパネルの見出し行 .panel-tabs-right へ出した。
+   2段だった頃はここで 26px ぶんプレビューの縦を損していた。 */
+.transport {
+  background: var(--head);
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  padding: 6px 14px 8px;
+  flex: 0 0 auto;
+}
+.tc-cur {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.tc {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-2);
+}
+.tc-fps {
+  font-size: 11px;
+  color: var(--muted, #8b94a7);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 5px;
+}
+/* 全体の音量。**見出し行はもともと狭い**ので、つまみは短く（72px）。
+   細かく合わせたいときはミキサーの縦フェーダーがある（同じ値を触っている）。 */
+.tc-vol {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* 音量のマークは SVG（currentColor）なので、色はここで決められる。
+   絵文字だった頃は OS のフォントが出ていて color が効かず、白いまま浮いていた。 */
+.tc-vol .pq-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+}
+.tc-vol .pq-tag:hover {
+  color: var(--accent);
+}
+/* 消しているときは沈んだ色にする。**形（×）だけでなく色でも分かるように**。
+   title ではなくクラスで持つ（文言を直した瞬間に黙って効かなくなるのを避ける）。 */
+.tc-vol .pq-tag.is-muted {
+  color: var(--muted);
+}
+.tc-vol input[type='range'] {
+  width: 72px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+/* 操作は中央に置く。左右に伸びる余白で挟んで、幅が変わっても中心が動かない。 */
+.transport-btns {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* **再生ボタンだけが行の中心に来る。**
+   左右を同じ幅で伸ばして挟むので、ボタンが増えても中心は動かない。
+   一番よく押す物の位置が毎回変わらないのが狙い。 */
+.tb-side {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.tb-side-l {
+  justify-content: flex-end;
+}
+/* 時刻だけは左端へ逃がす。ボタンは右詰めのままなので、中心はずれない */
+.tb-side-l .tc-cur {
+  margin-right: auto;
+}
+.tb-side-r {
+  justify-content: flex-start;
+}
+/* 中心の物は少し大きく。探さずに押せるように */
+.tbtn-play {
+  width: 44px;
+  font-size: 14px;
+}
+.tbtn {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 5px;
+  width: 34px;
+  height: 26px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.tbtn:hover {
+  background: #30353a;
+}
+.tbtn-shot {
+  margin-left: 4px;
+}
+.pq-select {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 5px;
+  height: 26px;
+  font-size: 11px;
+  padding: 0 4px;
+  cursor: pointer;
+}
+/* **文字を打つ欄は、指ではなく I 形にする。**
+   この見た目は <select> と <input> で使い回しているので、指のまま
+   「押す物」に見えていた（打てることが見た目から分からない）。 */
+input.pq-select {
+  cursor: text;
+}
+/* 中身を出すだけの欄（書き出し先の道など）。
+   <span> は箱の高さに対して**上へ寄る**ので、真ん中に置き直す。
+   長い道は尻を残して頭を … にする（下の tailEllipsis）。 */
+span.pq-select {
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
+/* 動画リフレーム（ズーム）枠 */
+.reframe-box {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  border: 1.5px dashed rgba(130, 170, 255, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.reframe-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #9db4c9;
+  border: 2px solid #fff;
+  border-radius: 3px;
+  pointer-events: auto;
+  cursor: nwse-resize;
+}
+.rh-0 {
+  top: -7px;
+  left: -7px;
+}
+.rh-1 {
+  top: -7px;
+  right: -7px;
+  cursor: nesw-resize;
+}
+.rh-2 {
+  bottom: -7px;
+  right: -7px;
+  cursor: nwse-resize;
+}
+.rh-3 {
+  bottom: -7px;
+  left: -7px;
+  cursor: nesw-resize;
+}
+/* 回転ハンドル: 四隅の少し外側に回転アロー（掴んで回す） */
+.reframe-rot {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #fff;
+  background: rgba(74, 144, 255, 0.85);
+  border: 1px solid #fff;
+  border-radius: 50%;
+  cursor: grab;
+  pointer-events: auto;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  user-select: none;
+}
+.reframe-rot:active {
+  cursor: grabbing;
+}
+/* 四隅の少し内側（枠が画面端でも見切れないように）。拡縮ハンドルは角、回転はその内側。 */
+.rr-0 {
+  top: 10px;
+  left: 10px;
+}
+.rr-1 {
+  top: 10px;
+  right: 10px;
+}
+.rr-2 {
+  bottom: 10px;
+  right: 10px;
+}
+.rr-3 {
+  bottom: 10px;
+  left: 10px;
+}
+/* **絵の外へ出す。**
+   絵の上に重ねると、いじっている当の映像がその帯で隠れる。
+   一番見たい所（上の方＝人の顔やテロップが乗る所）を覆っていた。
+   枠のすぐ下、映像の外側に置く。 */
+.reframe-bar {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.72);
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+/* テロップのバーは映像の**中の上寄り**に出す。
+   動画側のバーは枠の下（top: calc(100% + 6px)）だが、テロップには枠が無いので
+   その指定だとプレビューの外へ飛び出す。下に出すと既定のテロップ位置（y=0.85）と
+   重なって、戻したい当の文字が読めなくなる。 */
+.telop-bar {
+  top: 8px;
+  bottom: auto;
+  /* テロップの層（.telop-overlay は z-index 1）とリフレーム枠（6）より上に置く。
+     指定が無いと重なり順で下に潜り、**押せないボタン**になる（実際になった）。 */
+  z-index: 7;
+}
+.reframe-scale {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.reframe-btn {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.reframe-btn:hover {
+  background: #30353a;
+}
+/* 出しているときだけ点ける。マーカーが画面の端に居ると出ているかどうかが
+   分からないので、ボタン側にも状態を出す */
+.reframe-btn.on {
+  background: #2b6cb0;
+  border-color: #4a90d9;
+  color: #fff;
+}
+/* 拡大の中心（◎）。**枠（.reframe-box は z-index 6）より上に置く。**
+   指定が無いと重なり順で下に潜り、掴めないマーカーになる
+   （テロップのバーで実際にやらかしたのと同じ穴）。 */
+.zoom-anchor {
+  position: absolute;
+  z-index: 8;
+  transform: translate(-50%, -50%);
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  color: #ffd34d;
+  text-shadow:
+    0 0 3px #000,
+    0 0 6px #000;
+  cursor: move;
+  pointer-events: auto;
+  user-select: none;
+}
+.zoom-anchor:hover {
+  color: #fff;
+}
+
+/* 左パネル: 編集フィールド */
+.field-label {
+  font-size: 11px;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 4px;
+}
+.text-input {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 13px;
+  resize: none; /* 手動リサイズ廃止。行数に応じて rows が自動で伸びる */
+  font-family: inherit;
+}
+.time-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.time-row > div {
+  flex: 1;
+}
+.time-val {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 7px;
+}
+.style-hint {
+  margin-top: 16px;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px dashed var(--line);
+  padding-top: 10px;
+  line-height: 1.5;
+}
+

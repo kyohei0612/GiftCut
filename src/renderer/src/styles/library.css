@@ -1,0 +1,446 @@
+/* テロップテンプレ / エフェクトのグリッド */
+.tpl-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.tpl-section {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 12px 0 6px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 3px;
+}
+.tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.tpl-card {
+  position: relative;
+  background: #16171b;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.12s;
+}
+.tpl-card:hover {
+  border-color: var(--accent-2);
+}
+.tpl-thumb {
+  height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000; /* 本家プレミア風＝黒背景 */
+  /* 本番エンジン(cqh単位)でサムネを描くためのコンテナ基準 */
+  container-type: size;
+  overflow: hidden;
+}
+.tpl-name {
+  font-size: 11px;
+  color: #d4d4dc;
+  text-align: center;
+  padding: 4px 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tpl-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 3px;
+  background: #000a;
+  color: #fff;
+  font-size: 10px;
+  cursor: pointer;
+  display: none;
+}
+.tpl-card:hover .tpl-del {
+  display: block;
+}
+/* ★お気に入りトグル（左上）。お気に入り時は常時表示、それ以外はホバーで☆ */
+.tpl-fav {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 3px;
+  background: #000a;
+  color: #ffd24a;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  display: none;
+}
+.tpl-card:hover .tpl-fav,
+.tpl-fav.on {
+  display: block;
+}
+/* カテゴリ変更セレクト（ホバー時のみ、サムネ下部） */
+.tpl-cat {
+  position: absolute;
+  bottom: 21px;
+  left: 2px;
+  right: 2px;
+  z-index: 2;
+  font-size: 9px;
+  background: #000d;
+  color: #cbd5e1;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px;
+  cursor: pointer;
+  display: none;
+}
+.tpl-card:hover .tpl-cat {
+  display: block;
+}
+/* カテゴリのサブ見出し（テロップ集の中の 強調/通常/…） */
+.tpl-subcat {
+  font-size: 11px;
+  color: #cbd5e1;
+  margin: 10px 0 5px;
+  padding-left: 6px;
+  border-left: 3px solid var(--accent-2);
+}
+/* アコーディオンの見出し（クリックで開閉。既定は閉じる） */
+.tpl-acc {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #d4d4dc;
+  background: #1b1c22;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 7px 9px;
+  margin: 5px 0 0;
+  cursor: pointer;
+}
+/* 展開中の見出しはExcelの固定バーのようにスクロール中も上に張り付く＝いつでも即閉じられる。
+   セクションのラッパーdiv内でstickyなので、次のセクションが来ると自然に押し出される。
+   panel-bodyのパディング(上10px/横12px)を打ち消して、上端にぴったり・端から端までの全幅バーにする
+   （隙間から後ろのカードが透けて「浮いて」見えるのを防ぐ）。 */
+.tpl-acc.open {
+  position: sticky;
+  top: -10px;
+  margin-left: -12px;
+  margin-right: -12px;
+  width: calc(100% + 24px);
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  padding-left: 12px;
+  z-index: 7;
+  box-shadow: 0 3px 8px #0008;
+}
+.tpl-acc:hover {
+  border-color: var(--accent-2);
+}
+.tpl-acc.open {
+  background: #23252d;
+  color: #fff;
+}
+.tpl-acc-ar {
+  font-size: 9px;
+  color: var(--muted);
+  width: 10px;
+}
+.tpl-acc-del {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.tpl-acc-del:hover {
+  color: #fff;
+  background: #b33;
+}
+.tpl-acc.open + .tpl-grid {
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+/* プレビュー上のフロートアイコン（ドラッグで位置調整） */
+.float-icon {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  object-fit: cover;
+  cursor: grab;
+  pointer-events: auto;
+  z-index: 6;
+  box-shadow: 0 2px 8px #0007;
+}
+.float-icon:active {
+  cursor: grabbing;
+}
+/* アイコン設定（色ごとの割当） */
+.assign-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.assign-name {
+  width: 80px;
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #cfcfd6;
+}
+.assign-picker {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+}
+.assign-thumb {
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+.assign-thumb.on {
+  border-color: var(--accent-2);
+}
+.assign-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* アイコン画像ライブラリ */
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.icon-item {
+  position: relative;
+  aspect-ratio: 1;
+  background: #16171b;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: grab;
+}
+.icon-item:hover {
+  border-color: var(--accent-2);
+}
+.icon-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.icon-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 3px;
+  background: #000a;
+  color: #fff;
+  font-size: 10px;
+  cursor: pointer;
+  display: none;
+}
+.icon-item:hover .icon-del {
+  display: block;
+}
+/* アイコンカードの★お気に入り（テロップサムネの★と同じ流儀＝ホバー表示・ONは常時） */
+.icon-fav {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 3px;
+  background: #000a;
+  color: #aab;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  display: none;
+  padding: 0;
+}
+.icon-item:hover .icon-fav {
+  display: block;
+}
+.icon-fav.on {
+  display: block;
+  color: #ffd257;
+}
+/* SE行の★お気に入り（右端。ホバー表示・ONは常時） */
+.item-fav {
+  margin-left: auto;
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: #667;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  visibility: hidden;
+}
+.se-item:hover .item-fav {
+  visibility: visible;
+}
+.item-fav.on {
+  visibility: visible;
+  color: #ffd257;
+}
+.fx-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+}
+.fx-item:hover {
+  border-color: var(--accent-2);
+  background: #2f343a;
+}
+.fx-ico {
+  font-size: 16px;
+}
+.lufs-select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 4px 6px;
+  cursor: pointer;
+  max-width: 190px;
+}
+.restore-box {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 22px 24px;
+  max-width: 420px;
+  box-shadow: 0 8px 30px #000a;
+}
+.restore-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.restore-msg {
+  font-size: 13px;
+  color: #cfcfd6;
+  line-height: 1.6;
+}
+.restore-warn {
+  margin-top: 8px;
+  color: #e0a24a;
+  font-size: 12px;
+}
+/* いつの内容を戻そうとしているかが分からないと、選びようがない */
+.restore-when {
+  margin-top: 6px;
+  color: var(--muted, #9aa4b2);
+  font-size: 12px;
+}
+.restore-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn.primary:hover {
+  filter: brightness(1.1);
+}
+.tpl-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  max-height: 320px;
+  overflow: auto;
+}
+.tpl-picker-item {
+  text-align: left;
+  background: #1b1c22;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tpl-picker-item:hover {
+  border-color: var(--accent-2);
+  background: #23252d;
+}
+/* 1行＝「開く」＋「消す」。押す所を分けて、選ぶつもりで消すのを防ぐ */
+.tpl-picker-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.tpl-picker-row .tpl-picker-item {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tpl-picker-del {
+  flex: 0 0 auto;
+  background: #1b1c22;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  padding: 0 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tpl-picker-del:hover {
+  border-color: var(--danger, #d9534f);
+  color: var(--text);
+}
+/* 「消す？」の状態は赤くする。取り消せない操作は、押す前に見て分かること */
+.tpl-picker-del.on {
+  background: var(--danger, #d9534f);
+  border-color: var(--danger, #d9534f);
+  color: #fff;
+}

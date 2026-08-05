@@ -7,6 +7,7 @@
 // まとめてある。ここは「どの種類に何を出すか」だけを持つ。
 
 import type { JSX, ReactNode } from 'react'
+import { ProjectSummary } from './ProjectSummary'
 import {
   AdjustRows,
   CropRows,
@@ -368,7 +369,10 @@ export function PropertiesPanel(props: PropertiesPanelProps): JSX.Element {
           </div>
         </>
       ) : (
-        <div className="empty">タイムラインでクリップを選択してください</div>
+        // **何も選んでいない時も、この場所は仕事をする**（2026-08-05）。
+        // 前は一行だけで 250 × 450 が常時死んでいた。中身は ProjectSummary
+        // （「他所に出ていない事」だけを出す、という決め方もあちらに書いてある）
+        <ProjectSummary />
       )}
     </div>
   )

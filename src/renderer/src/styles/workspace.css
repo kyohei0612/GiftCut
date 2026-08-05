@@ -1,0 +1,396 @@
+/* ===== ワークスペース ===== */
+.workspace {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.upper {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  padding: 5px;
+  gap: 0;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.panel-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  padding: 0 4px;
+  flex: 0 0 auto;
+  min-width: 0;
+  /* 右端の状態表示（.panel-tabs-right）が入らないときは、**折り返して2段にする**。
+     詰めるとタブが押し出されて見えなくなる（左右のパネルを限界まで広げると
+     実際に「オーディオミキサー」が隠れた）。折り返しなら何も失わない。 */
+  flex-wrap: wrap;
+}
+/* タブ本体。パネルを狭めても端が切れて行き止まりにならないよう、
+   ここだけ横に流れるようにして、送りボタンと一覧（≫）で必ず届くようにする。 */
+.panel-tabs-strip {
+  display: flex;
+  gap: 2px;
+  flex: 1 1 auto;
+  /* ここまでは譲らない。これ以上詰めると、右端の状態表示にタブが
+     押し出されて消える。足りなくなったら向こう（右端）が折り返す */
+  min-width: 180px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-behavior: auto;
+}
+.panel-tabs-strip::-webkit-scrollbar {
+  display: none;
+}
+.panel-tabs-strip .tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  user-select: none;
+}
+/* 見出し行の右端に置く「いまどうなっているか」（プレビューの画質・fps・尺）。
+   押す物ではないので、操作バーではなくここに置く。
+   タブ側が縮んでも消えないよう、こちらは縮まない（タブには送りと ≫ がある）。 */
+.panel-tabs-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 縮めない（画質の名前を切ると、書き出し設定との区別が付かなくなる）。
+     入らないときは丸ごと次の行へ回る＝何も削らない */
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 3px 0;
+}
+/* 端の送りと一覧。狭いときだけ出る */
+.tab-nav {
+  flex: 0 0 auto;
+  width: 20px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+.tab-nav:hover {
+  color: var(--text);
+  background: #ffffff12;
+}
+/* 並べ替えで掴んでいるタブ。どれを動かしているか分かるようにする */
+/* 切り離したパネル。画面から浮かせるので、残りのパネルが自動で広がる。 */
+.float-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted, #9aa3b2);
+}
+.float-dock {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.float-dock:hover {
+  background: #30353a;
+}
+/* 右下のつまみ。ここを掴んで大きさを変える */
+/* メニュー内の説明文。押せる項目と見分けが付くよう控えめにする */
+.ctx-note {
+  padding: 4px 10px 8px;
+  font-size: 11px;
+  color: var(--muted, #8d97a3);
+  max-width: 220px;
+  line-height: 1.5;
+}
+.tab-dragging {
+  opacity: 0.55;
+  background: #ffffff1f;
+}
+.tab-more {
+  width: 24px;
+  font-size: 12px;
+}
+/* 送るものが無いとき。消すと押す場所がずれるので、薄くして残す */
+.tab-nav-off {
+  opacity: 0.25;
+  cursor: default;
+}
+.tab-nav-off:hover {
+  color: var(--muted);
+  background: transparent;
+}
+/* 別ウィンドウへ出したパネル。窓いっぱいに広げる。
+   本体の中では幅や高さを指定しているが、別ウィンドウでは窓の大きさが
+   そのままパネルの大きさなので、指定を上書きする。 */
+.pane-pop-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #16181d);
+  color: var(--text);
+}
+.pane-pop-root > .panel,
+.pane-pop-root > .timeline {
+  width: auto !important;
+  height: auto !important;
+  flex: 1 1 auto !important;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+}
+/* 下書き（自動保存）が書けていない、という警告。
+   一番左に、消えない形で出す（落ちたときの備えが効いていないのは最優先の知らせ） */
+.status-ng {
+  background: #5a1f1f;
+  border: 1px solid #b04a4a;
+  color: #ffd9d9;
+  border-radius: 5px;
+  padding: 1px 8px;
+  margin-right: 8px;
+  font-weight: 600;
+  cursor: help;
+}
+/* ステータスバーに出す「いま別ウィンドウにあるパネル」 */
+/* 下の帯に置くボタン。**役目ごとに名前を分けてある**——`.status-pop` は
+   「別ウィンドウへ出した区画を戻す」で数を数えている所があり、
+   見た目が同じだからと使い回すと、数えた側が壊れる（実際に壊した）。 */
+.status-pop,
+.status-perf {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 5px;
+  font-size: 11px;
+  padding: 1px 8px;
+  margin-right: 8px;
+  cursor: pointer;
+}
+.status-pop:hover,
+.status-perf:hover {
+  background: #30353a;
+}
+/* 別ウィンドウへ出ている間、その場所に置く案内 */
+.pane-away {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pane-away-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.pane-away-title {
+  letter-spacing: 0.02em;
+}
+.pane-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px 5px 12px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+/* メニューの1行に「切り離す」と「別ウィンドウ（⧉）」を並べる */
+/* 「≫」の中の並び替えコーナー */
+.tab-sort {
+  padding: 2px 4px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tab-sort-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  background: #ffffff08;
+}
+.tab-sort-row:hover {
+  background: #ffffff14;
+}
+/* 長押しの最中。もう少しで掴める、が伝わるようにする */
+.tab-sort-hold {
+  background: #ffffff1f;
+  transform: scale(0.98);
+  transition: transform 0.12s ease;
+}
+/* 掴んだ状態。どれを動かしているかを見失わないように */
+.tab-sort-grab {
+  background: var(--accent);
+  color: #fff;
+  cursor: grabbing;
+  box-shadow: 0 6px 18px #0008;
+}
+.tab-sort-on .tab-sort-label {
+  font-weight: 700;
+}
+.tab-sort-grip {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: -1px;
+}
+.tab-sort-grab .tab-sort-grip {
+  color: #fff;
+}
+.tab {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 7px 10px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.tab:hover {
+  color: var(--text);
+}
+.tab-on {
+  color: #fff;
+  border-bottom-color: var(--accent);
+}
+.panel-body {
+  padding: 10px 12px;
+  overflow: auto;
+  flex: 1 1 auto;
+}
+.empty {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  margin-top: 30px;
+  line-height: 1.6;
+}
+
+/* 左パネルで何も選んでいない時の中身（components/panels/ProjectSummary.tsx）。
+   **何を出すか・出さないかの判断は、あちらのファイルの頭に書いてある。** */
+.proj-sum {
+  padding: 4px 2px;
+  font-size: 12px;
+}
+.proj-sum-lead {
+  color: var(--muted);
+  line-height: 1.6;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.proj-sum-title {
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+/* 名前と値の2列。**値は右**（行の長さが違っても値の列が揃う。
+   右クリックの品書きでキーを右へ寄せたのと同じ理由） */
+.proj-sum-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0 0 8px;
+}
+.proj-sum-rows dt {
+  color: var(--muted);
+}
+.proj-sum-rows dd {
+  margin: 0;
+  text-align: right;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.proj-sum-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+/* リサイザ */
+.resizer-v {
+  width: 6px;
+  flex: 0 0 auto;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+}
+.resizer-v:hover::after,
+.resizer-h:hover::after {
+  background: var(--accent);
+}
+.resizer-v::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+.resizer-h {
+  height: 6px;
+  cursor: row-resize;
+  position: relative;
+  flex: 0 0 auto;
+}
+.resizer-h::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+}
+
+/* モニター */
+.monitor {
+  align-items: stretch;
+}
+.monitor-stage {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* **上下にも余白を残す。** 高さを使い切ると、タイムラインを上げたとき
+     下から詰まってくる見え方になる。四辺に余白を置くと、縮めても
+     映像は真ん中のまま上下一緒に小さくなる（プレミアと同じ見え方）。
+
+     18px → 10px へ詰めた（2026-08-05）。**一番長く見る場所**なので、
+     何も描かれていない帯に 18px を使う理由が無い。詰めても上の目的
+     （縮めたときに真ん中で小さくなる）は変わらない——余白の**有無**が効くので、
+     太さは効かない。16:9 だと高さ 16px の節約が横 28px ぶんにもなる。
+
+     ※ これ以上は詰めない。0 にすると映像が枠に貼り付いて、
+       「入りきっていないのか、そういう絵なのか」が見分けられなくなる。
+     ※ モニタの左右に残る黒帯の大半は**レターボックス**（区画の縦横比と
+       映像の縦横比の差）で、余白ではない。そちらは詰めようがない。 */
+  padding: 10px 8px;
+  min-height: 0;
+  background: #0d0d0f;
+  /* 中の映像の枠が「この区画の幅」を見られるようにする（下の .screen の説明） */
+  container-type: size;
+  /* 寄せたときに、はみ出した所を送って見られるようにする。
+     等倍ではぴったり収まるので、送り棒は出ない */
+  overflow: auto;
+}

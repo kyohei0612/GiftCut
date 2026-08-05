@@ -1,0 +1,384 @@
+/* クリップのサムネイル */
+.clip-thumb {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: auto;
+  object-fit: cover;
+  opacity: 0.85;
+  pointer-events: none;
+}
+.track-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  position: relative;
+}
+.track-inner {
+  position: relative;
+  min-width: 100%;
+}
+/* トラック選択ツールの専用カーソル（プレミア風。クリップの上でも強制表示）*/
+.cur-track-fwd,
+.cur-track-fwd * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='24'%3E%3Cg fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='black' stroke-width='5'%3E%3Cpath d='M16 4V20'/%3E%3Cpath d='M18 12H30'/%3E%3Cpath d='M24 6L31 12L24 18'/%3E%3C/g%3E%3Cg stroke='white' stroke-width='2.5'%3E%3Cpath d='M16 4V20'/%3E%3Cpath d='M18 12H30'/%3E%3Cpath d='M24 6L31 12L24 18'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")
+      16 12,
+    e-resize !important;
+}
+.cur-track-back,
+.cur-track-back * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='24'%3E%3Cg fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='black' stroke-width='5'%3E%3Cpath d='M16 4V20'/%3E%3Cpath d='M14 12H2'/%3E%3Cpath d='M8 6L1 12L8 18'/%3E%3C/g%3E%3Cg stroke='white' stroke-width='2.5'%3E%3Cpath d='M16 4V20'/%3E%3Cpath d='M14 12H2'/%3E%3Cpath d='M8 6L1 12L8 18'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")
+      16 12,
+    w-resize !important;
+}
+.ruler {
+  /* **少し高くする。** 掴んで再生位置を動かす所なので、細いと狙いにくい。
+     秒数の文字も 24px だと上下がかつかつで読みづらかった。 */
+  height: 30px;
+  /* 縦に送っても秒数を残す。
+     ※以前ここだけ sticky にして戻した経緯がある。左の段見出しが追従せず、
+     行と見出しがずれる問題は何も解決しないまま、別の壊れ方だけ増えたため。
+     いまは見出し列（.th-body）が同じ量だけ追従するようになったので、
+     その相手として貼り付ける。
+     **片方だけ戻さないこと。** 目盛りだけ剥がすと秒数が消え、
+     見出しだけ剥がすと行とラベルがずれる。 */
+  position: sticky;
+  top: 0;
+  /* クリップより上、再生ヘッド(20)・めじるし(18)より下。
+     旗と再生ヘッドは目盛りの上に乗って見えるのが正しい。
+     16 なのは、ドラッグ中の影(.se-ghost)が 15 で、同値だと後から描かれる
+     影のほうが勝って目盛りを覆うため。 */
+  z-index: 16;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  /* **文字入力用の I 型に変えない。**
+     目盛りは文字を打つ所ではないので、変わると「ここで何かを入力するのか」と
+     読ませてしまう。プレミアも目盛りの上は普通の矢印のまま。
+     掴んで動かせることは、押した瞬間の動き自体で分かる。 */
+  cursor: default;
+}
+.tick {
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+}
+/* 主目盛り: 高く・ラベル付き */
+.tick-major {
+  height: 100%;
+  border-left: 1px solid #5a6472;
+}
+/* 副目盛り: 下側だけの短い線 */
+.tick-minor {
+  bottom: 0;
+  height: 6px;
+  border-left: 1px solid #3a424e;
+}
+.tick span {
+  font-size: 10px;
+  color: var(--muted);
+  padding-left: 3px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* 磁石が吸い付いた所。**再生ヘッドと間違えないこと**が一番大事なので、
+   点線・別の色にしてある（実線のピンクで出していた頃は紛らわしくて消されていた）。
+   掴んでいる間だけ出て、離すと消える。 */
+.snap-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed var(--accent-2, #5ac8fa);
+  z-index: 18;
+  pointer-events: none;
+}
+/* --- 目盛りに貼り付く物 ---
+   再生ヘッドの三角とつまみ、めじるしの旗、磁石の印は「目盛りの所」に居るのが正しい。
+   ただし置き場所は中身（track-inner）の上端からの距離なので、縦に送ると
+   目盛りだけ残って、これらは上へ流れて消える。送った量（--tl-scroll）を足して、
+   常に目盛りの位置へ置き直す。値は App 側がスクロールのたびに書く。 */
+.snap-line::before {
+  /* 上端に小さな印。線だけだとクリップの縁に紛れる */
+  content: "";
+  position: absolute;
+  top: calc(24px + var(--tl-scroll, 0px));
+  left: -3px;
+  width: 5px;
+  height: 5px;
+  background: var(--accent-2, #5ac8fa);
+  border-radius: 50%;
+}
+
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--playhead);
+  z-index: 20;
+  pointer-events: none;
+}
+.playhead::before {
+  content: "";
+  position: absolute;
+  top: var(--tl-scroll, 0px);
+  left: -5px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid var(--playhead);
+}
+.playhead-handle {
+  position: absolute;
+  top: var(--tl-scroll, 0px);
+  left: -6px;
+  width: 12px;
+  height: 24px;
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+/* マーカー（頭出し/メモ）: ルーラーの旗＋タイムライン縦線 */
+.marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  z-index: 18;
+  pointer-events: none;
+}
+/* **線は静かに。目印そのもの（旗）は、はっきり。**
+ *
+ * 0.5 → 0.18 へ落とした（2026-08-05）。負荷テストの絵で、めじるしが150本並ぶと
+ * **全画面高・高彩度の緑が「柵」になって**、その裏のクリップが読めなくなっていた。
+ * 情報量でいえば1本の線は「ここに印がある」しか言っていないのに、
+ * **画面で一番強い視覚的重さ**を持っていた（UI-UX-見直し.md 2-8）。
+ *
+ * 消さずに薄くするのは規則2「隠さず、静かにする」。線は
+ * **合わせたい時に目を凝らせば見える**程度で足りる——探す時に見るのは旗の方で、
+ * 旗は今までどおりの濃さのまま。選んでいる1本は下で濃く・太くしてある。 */
+.marker-line {
+  position: absolute;
+  top: calc(24px + var(--tl-scroll, 0px));
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: #16c79a;
+  opacity: 0.18;
+}
+.marker-flag {
+  position: absolute;
+  top: calc(2px + var(--tl-scroll, 0px));
+  left: -2px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: grab;
+  pointer-events: auto;
+  filter: drop-shadow(0 0 1px #000);
+  user-select: none;
+}
+.marker-sel .marker-line {
+  opacity: 1;
+  width: 2px;
+}
+.marker-sel .marker-flag {
+  transform: scale(1.25);
+}
+.marker-label {
+  position: absolute;
+  top: calc(4px + var(--tl-scroll, 0px));
+  left: 14px;
+  font-size: 10px;
+  white-space: nowrap;
+  color: #d6fff0;
+  background: rgba(22, 199, 154, 0.25);
+  padding: 0 4px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.marker-input {
+  position: absolute;
+  top: calc(2px + var(--tl-scroll, 0px));
+  left: 14px;
+  width: 120px;
+  font-size: 11px;
+  padding: 1px 4px;
+  border: 1px solid #16c79a;
+  border-radius: 3px;
+  background: var(--panel-2);
+  color: var(--text);
+  pointer-events: auto;
+  z-index: 30;
+}
+.tbtn-marker {
+  color: #16c79a;
+}
+.track {
+  height: 48px;
+  position: relative;
+  border-bottom: 1px solid var(--line);
+}
+.track-video {
+  background: #1e1e23;
+}
+.track-audio {
+  background: #191c22;
+}
+/* 引いたときの段（帯を1本ずつ作らず1枚の絵で描く。components/timeline/TrackSummary）。
+   **`.clip` と同じ位置・高さにすること**——寄せたり引いたりしたときに、
+   帯と絵で上下がずれると「動いた」ように見える。 */
+.track-summary {
+  position: absolute;
+  left: 0;
+  top: 3px;
+  height: calc(100% - 6px);
+  display: block;
+  cursor: pointer;
+}
+.clip {
+  position: absolute;
+  top: 3px;
+  height: calc(100% - 6px);
+  border-radius: 5px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid #00000055;
+  box-shadow: 0 1px 3px #0006;
+  display: flex;
+  align-items: center;
+}
+/* クリップを動かしてできた「空き」。見た目は何も無いが、クリックはできる。
+   触れる場所だと分かるように、マウスを乗せた時と選んだ時だけ薄く出す。 */
+.gap-clip {
+  background: transparent;
+  border: 1px dashed transparent;
+  box-shadow: none;
+}
+.gap-clip:hover {
+  background: #ffffff08;
+  border-color: #ffffff33;
+}
+.gap-clip.clip-selected {
+  background: #8fa8c01f;
+  border-color: var(--accent);
+  border-style: dashed;
+}
+/* クリップに出す「元動画のどこを使っているか」。名前が同じ断片を見分けるための補助
+   なので、控えめにして名前の邪魔をしない。 */
+.clip-in {
+  margin-left: 6px;
+  font-size: 10px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* 掴んで動かしている間、「離すと丸ごと上書きされる」クリップを赤く縁取る。
+   黙って消えると事故になるので、離す前に気づけるようにする。 */
+.clip-overwrite {
+  outline: 2px solid #e0574d;
+  outline-offset: -2px;
+  filter: saturate(0.6) brightness(0.75);
+}
+/* クリップを掴んで動かすとき、ブラウザ標準の画像/テキストドラッグが同時に始まって
+   半透明の影と 🚫（駐禁）カーソルが出ていた。移動はこちらのポインタ処理で行うので、
+   標準のドラッグは要素ごと殺す。 */
+.clip,
+.clip * {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+.telop-clip {
+  z-index: 2;
+}
+.clip:hover {
+  filter: brightness(1.12);
+}
+.clip:hover .clip-trim {
+  background: #ffffff30;
+}
+.video-clip {
+  background: #3a3f5a;
+  border-color: #556;
+  cursor: grab;
+}
+/* 映像を削除した区間（videoBlank）: 黒塗りではなく「空っぽ（削除済み）」に見せる */
+.video-clip.clip-blank {
+  background: transparent;
+  border: 1px dashed #555;
+  opacity: 0.55;
+}
+.video-clip.clip-blank .clip-text {
+  color: #888;
+  font-style: italic;
+}
+.video-clip:active,
+.audio-clip:active {
+  cursor: grabbing;
+}
+.audio-clip {
+  cursor: grab;
+}
+.clip-muted {
+  opacity: 0.4;
+  filter: grayscale(0.7);
+}
+.se-clip {
+  background: #4a3a5f;
+  border-color: #6a5a8a;
+  display: flex;
+  align-items: center;
+}
+.se-clip .clip-text {
+  color: #e7dcff;
+}
+/* 映像レイヤークリップ（V2以降の動画）: 本編クリップと区別できる青緑系 */
+.vclip {
+  background: #24506b;
+  border-color: #3f86ad;
+}
+.vclip .clip-text {
+  color: #d6f0ff;
+}
+/* 映像レイヤーの音声（対の音声トラックに出る連動バンド） */
+.vclip-audio {
+  background: #1f4457;
+  border-color: #3f86ad;
+}
+/* プレビュー上の映像レイヤー（本編映像の上・テロップの下） */
+.screen-vclip {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 1;
+  /* プレビュー上で直接掴めるようにする。none にすると、画面に出ているのに
+     押しても下の本編映像へクリックが抜けて「動画のパンが始まる」だけになる。 */
+  cursor: move;
+  background: transparent;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform-origin: center center;
+}
+/* モード切替（ホーム/編集/書き出し）と、その右の操作・設定を見分ける区切り。
+   性質の違うものが同じ高さに並んでいて、どれがモード切替か分かりにくかった。 */
+.modebar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 6px 10px;
+  background: var(--line);
+  flex: 0 0 auto;
+}
+/* 映像トラックの M/S の位置に置く空き。列を揃えるためだけのもの */
+.th-ms-blank {
+  visibility: hidden;
+  pointer-events: none;
+}
+/* プレビュー画質だと分かる印。書き出し設定の解像度と取り違えないため */
+.pq-tag {
+  font-size: 10px;
+  color: var(--muted, #9aa3b2);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.pq-preview {
+  border-color: #3f6f8f;
+}

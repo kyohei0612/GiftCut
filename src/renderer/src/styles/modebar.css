@@ -1,0 +1,100 @@
+/* ===== モードバー ===== */
+.modebar {
+  height: 46px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  flex: 0 0 auto;
+}
+.modebar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.home {
+  font-size: 18px;
+  color: var(--muted);
+  margin-right: 8px;
+}
+.mode-tab {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.mode-tab:hover {
+  background: #ffffff10;
+}
+.mode-tab-on {
+  color: #fff;
+  background: #ffffff18;
+  font-weight: 600;
+}
+.modebar-title {
+  font-size: 13px;
+  color: #cfcfd6;
+}
+.modebar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.btn {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+}
+.btn:hover {
+  background: #30353a;
+  border-color: #4a4a55;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+/* ※ ここに `.btn:hover { background: #30353a }` が**もう一度**書いてあった。
+     7行上のものと同じ値で、消しても何も変わらない写し間違い。2026-08-05 に消した */
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background: var(--accent-2);
+}
+/* 並べた chip の入れ物。**役目ごとに名前を分けてある**——`.ratio-group` は
+   画面比で「いま選ばれている chip」を数えている所があり、見た目が同じだからと
+   使い回すと数えた側が壊れる（実際に壊した）。
+   wm=書字方向（横書き／縦書き）、pz=プレビューの拡大。 */
+.ratio-group,
+.wm-group,
+.pz-group {
+  display: flex;
+  gap: 4px;
+}
+.chip {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 5px;
+  padding: 5px 9px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chip-on {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+  color: #fff;
+}
+

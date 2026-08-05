@@ -20,7 +20,7 @@
 
 import { gainToDb } from '../../lib/appConst'
 import { useState, type JSX } from 'react'
-import { formatTime } from '../../lib/srt'
+import { formatTimecode } from '../../../../shared/timeline'
 
 /**
  * 再生して見るときの映像の高さ。**書き出しの画質とは別物。**
@@ -309,11 +309,16 @@ export function TransportInfo({
           {Number.isInteger(fps) ? fps : fps.toFixed(2)}fps
         </span>
       )}
-      <span className="tc">
+      {/* **全体の長さもタイムコードで書く**（2026-08-05）。
+          前はここだけ `01:00.0`（分:秒.コンマ）で、すぐ下のモニタの時刻は
+          `00:00:00:00`（時:分:秒:フレーム）だった。**同じ画面に流儀が2つ**あると、
+          目を移すたびに読み替えが要る（しかも「.0」がフレームだと誤解される）。
+          いまの位置と全体の長さは**並べて引き算する物**なので、特に揃える価値が高い。 */}
+      <span className="tc" title="全体の長さ（時:分:秒:フレーム）">
         {playRate !== 0 && Math.abs(playRate) !== 1
           ? `${playRate > 0 ? '' : '-'}${Math.abs(playRate)}x / `
           : ''}
-        {formatTime(duration)}
+        {formatTimecode(duration, fps)}
       </span>
     </>
   )
