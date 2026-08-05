@@ -33,7 +33,8 @@ import { spawn } from 'node:child_process'
 import { cpus } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { CHAPTERS, COST_SEC, SERIAL_ONLY } from './lib/chapters.mjs'
+import { readFileSync } from 'node:fs'
+import { BASELINE_PATH, CHAPTERS, COST_SEC, SERIAL_ONLY } from './lib/chapters.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..')
@@ -115,13 +116,19 @@ const bins = shard(parallelNames, WORKERS)
 
 console.log(`\n\x1b[1m章ごとに並列で回します\x1b[0m  ${WORKERS}並列`)
 console.log(`  同時に回す: ${parallelNames.length}章`)
-console.log(`  1つずつ回す: ${SERIAL_ONLY.length}章（時間を測るので隣に邪魔をさせない）\n`)
+// **0 のときに「1つずつ回す: 0章（隣に邪魔をさせない）」と出すと嘘になる。**
+// 空は「そういう章が無い」であって、何かを守っているわけではない
+if (SERIAL_ONLY.length)
+  console.log(`  1つずつ回す: ${SERIAL_ONLY.length}章（時間を測るので隣に邪魔をさせない）`)
+console.log('')
 bins.forEach((b, i) => console.log(`  [${i}] 見込み${b.sec}秒  ${b.names.join(' / ')}`))
 console.log('')
 
 await Promise.all(bins.map((b, i) => worker(b.names, i, results)))
-console.log(`\n\x1b[90m  ここから1つずつ（時間を測る章）\x1b[0m`)
-await worker(SERIAL_ONLY, 'S', results)
+if (SERIAL_ONLY.length) {
+  console.log(`\n\x1b[90m  ここから1つずつ（時間を測る章）\x1b[0m`)
+  await worker(SERIAL_ONLY, 'S', results)
+}
 
 // ---------------------------------------------------------------------------
 const ok = results.reduce((s, r) => s + r.ok, 0)
@@ -130,6 +137,23 @@ const 走らず = results.filter((r) => !r.ran)
 // **赤が1件も無いのに 0 以外で終わった章**＝途中で死んでいる。
 // 数字の上では健全に見えるので、ここで名指ししないと通ってしまう
 const 途中死 = results.filter((r) => r.ran && !r.ngNames.length && r.code !== 0)
+
+/**
+ * **基準（`npm run solo` の実測）より緑が少ない章**＝途中で終わっている。
+ *
+ * 終了コードだけでは足りない。並列を初めて回した日は
+ * 「緑9・赤0・けれど本当は23件」だった。**数でも見る。**
+ * 基準が無ければ「調べていない」と言う（黙って通さない）。
+ */
+let baseline = null
+try {
+  baseline = JSON.parse(readFileSync(join(ROOT, BASELINE_PATH), 'utf-8'))
+} catch {
+  /* まだ無い */
+}
+const 足りない = baseline
+  ? results.filter((r) => baseline[r.name] != null && r.ok + r.ngNames.length < baseline[r.name])
+  : []
 const 分 = (Date.now() - t0) / 60000
 
 console.log(`\n\x1b[1m結果: 緑 ${ok} / 赤 ${ng.length}\x1b[0m   ${分.toFixed(1)}分`)
@@ -150,11 +174,25 @@ if (途中死.length) {
       `\n  **「その章はもともとその件数」と読まないこと。** 最後まで走っていません`
   )
 }
+if (!baseline) {
+  console.error(
+    `\n\x1b[33m基準がありません（${BASELINE_PATH}）。\x1b[0m` +
+      `\n  **件数が足りているかを見ていません。** \`npm run solo\` を1回回してください\n`
+  )
+} else if (足りない.length) {
+  console.error(
+    `\n\x1b[31m基準より件数が少ない章:\x1b[0m\n` +
+      足りない
+        .map((r) => `  ${r.name}  ${r.ok + r.ngNames.length}件 / 基準 ${baseline[r.name]}件`)
+        .join('\n') +
+      `\n\n  途中で終わっています。**確認を足したなら \`npm run solo\` で基準を取り直すこと。**\n`
+  )
+}
 if (ng.length) {
   console.error(`\n\x1b[1m直すべきもの\x1b[0m`)
   for (const n of ng) console.error(`  ・${n}`)
 }
-if (ng.length || 走らず.length || 途中死.length) {
+if (ng.length || 走らず.length || 途中死.length || 足りない.length || !baseline) {
   console.error(
     `\n**並列で出た赤は、そのまま信じないこと。**` +
       `\n  同じ章を単独で回して同じか確かめる: node e2e/run.mjs --chapter=<章>` +

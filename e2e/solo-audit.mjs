@@ -25,9 +25,10 @@
 // 直し方は、その章の頭で自分の前提を作ること（`resetProject()` など）。
 
 import { spawn } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { CHAPTERS } from './lib/chapters.mjs'
+import { CHAPTERS, BASELINE_PATH } from './lib/chapters.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ONE = (process.argv.find((a) => a.startsWith('--chapter=')) ?? '').slice(10)
@@ -118,6 +119,14 @@ console.log(
     `\n  → 全部独立させれば、並列の下限は **${(最長 / 60).toFixed(1)}分**` +
     `（いまの通しは約13分）`
 )
+
+// **基準として書き出す**（`npm run e2e:par` がこれと突き合わせる）。
+// 全章を回したときだけ。1章だけの実行で他章の基準を消さない
+if (!ONE && !走らず.length) {
+  const base = Object.fromEntries(rows.map((r) => [r.name, r.ok]))
+  writeFileSync(join(HERE, '..', BASELINE_PATH), JSON.stringify(base, null, 2) + '\n', 'utf-8')
+  console.log(`\n  基準を書きました: ${BASELINE_PATH}（章ごとの緑の数）`)
+}
 
 // **1件も走らなかった章があるなら赤。** 「調べたつもりで調べていない」を通さない
 if (走らず.length) {
