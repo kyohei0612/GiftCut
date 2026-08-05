@@ -156,6 +156,42 @@ export function scrollForZoomAtPlayhead(
   return Math.max(0, t * nz - anchorX)
 }
 
+/**
+ * 拡大バーで寄せたあと、**再生ヘッドを画面から追い出さない**ように横位置を直す。
+ *
+ * ## なぜ「軸にする」ではなく「追い出さない」か（2026-08-05）
+ *
+ * バーの端（●）は**掴んだ所がそのまま端になる**直接操作。ここを再生ヘッド軸に
+ * すると、寄せるたびに横位置がヘッドから決まるので、**掴んでいる●が指の下から
+ * 逃げる**（掴んだ端が思った所に来ない）。直接操作の手応えが壊れる。
+ *
+ * → **●は指に付いてくるまま**にして、**ヘッドが画面の外へ出そうなときだけ**
+ *   見える所まで送る。「見失わない」という目的は満たしつつ、手応えは壊さない。
+ *
+ * ※ ホイールはカーソル軸、キーボードはヘッド軸（`state/useViewNav`）。
+ *   入口ごとに違うのは、手がどこにあるかが違うから。
+ *
+ * @param scrollLeft つまみが決めた横位置（px）
+ * @param t          再生ヘッドの時刻（秒）
+ * @param nz         これから当てる拡大率（px / 秒）
+ * @param viewW      見えている幅（px）
+ * @param pad        端ぎりぎりで戻さないための余白（px）
+ */
+export function keepPlayheadVisible(
+  scrollLeft: number,
+  t: number,
+  nz: number,
+  viewW: number,
+  pad = 60
+): number {
+  const x = t * nz
+  // 左へはみ出した → ヘッドが左端＋余白に来るまで戻す
+  if (x < scrollLeft + pad) return Math.max(0, x - pad)
+  // 右へはみ出した → ヘッドが右端−余白に来るまで送る
+  if (x > scrollLeft + viewW - pad) return Math.max(0, x - viewW + pad)
+  return Math.max(0, scrollLeft)
+}
+
 /** つまみを丸ごと動かしたとき（移動だけ。拡大率は変えない） */
 export function panFromSpan(
   aNext: number,

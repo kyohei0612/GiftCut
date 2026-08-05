@@ -49,6 +49,7 @@ import { usePlaybackEngineCtx } from './playbackEngineContext'
 import { useProjectFileCtx } from './projectFileContext'
 import { useProjectTemplatesCtx } from './projectTemplatesContext'
 import { useShortcutPrefsCtx } from './shortcutPrefsContext'
+import { useViewNavCtx } from './viewNavContext'
 import { useTelopAnimCtx } from './telopAnimContext'
 import { useTelopEditCtx } from './telopEditContext'
 import { useTimelineEditCtx } from './timelineEditContext'
@@ -112,6 +113,8 @@ export interface UseKeyboardDeps {
   saveProjectFn: () => void | Promise<void>
   openProjectFn: () => void | Promise<void>
   openExportDialog: () => void
+  /** タイムラインを寄せる／引く（**軸は再生ヘッド**。式は state/useViewNav） */
+  zoomAtPlayhead: (dir: 1 | -1) => void
 }
 
 /**
@@ -125,6 +128,8 @@ export interface UseKeyboardDeps {
  * ——忘れると、その窓を開けている間だけ裏のタイムラインが勝手に動く。
  */
 function useKeyboardDeps(): UseKeyboardDeps {
+  // 拡大（= / -）。**軸は再生ヘッド**（式は state/useViewNav に1つだけ）
+  const { zoomAtPlayhead } = useViewNavCtx()
   const { shortcuts, prefsOpen, capturingId } = useShortcutPrefsCtx()
   const { setTool, toggleSnap } = useAppChromeCtx()
   const { togglePlay, shuttleForward, shuttleReverse, stopPlayback, seekTo } =
@@ -170,7 +175,7 @@ function useKeyboardDeps(): UseKeyboardDeps {
     closeSelectedGaps, closeGapAtPlayhead, rippleDeleteVideoSegments,
     rippleToPrevCut, rippleToNextCut,
     duplicateSelected, duplicateSelectedSegments, cutAtPlayhead, addTelop, addMarkerAtPlayhead,
-    saveProjectFn, openProjectFn, openExportDialog
+    saveProjectFn, openProjectFn, openExportDialog, zoomAtPlayhead
   }
 }
 
@@ -378,7 +383,11 @@ export function useKeyboard(): void {
       exportVideo: () => {
         if (deps.exporting) return // 書き出し中は受け付けない
         deps.openExportDialog()
-      }
+      },
+      // **軸は再生ヘッド**（`state/useViewNav` の zoomAtPlayhead）。
+      // ホイールはカーソル基準のまま——手がマウスに無い入口では狙えないので分けてある
+      zoomIn: () => deps.zoomAtPlayhead(1),
+      zoomOut: () => deps.zoomAtPlayhead(-1)
     }
     dispatch[id]()
   }

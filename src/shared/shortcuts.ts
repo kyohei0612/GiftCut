@@ -51,7 +51,11 @@ export const DEFAULT_SHORTCUTS = {
   addMarker: 'm',
   saveProject: 'ctrl+s',
   openProject: 'ctrl+o',
-  exportVideo: 'ctrl+m' // Premiere と同じ「書き出し」
+  exportVideo: 'ctrl+m', // Premiere と同じ「書き出し」
+  // Premiere と同じ = / -。**軸は再生ヘッド**——手がマウスに無いので、
+  // カーソルを軸にしても狙えない（ホイールはカーソル基準のまま。入口ごとに変えてある）
+  zoomIn: '=',
+  zoomOut: '-'
 }
 export type ShortcutId = keyof typeof DEFAULT_SHORTCUTS
 export type Shortcuts = Record<ShortcutId, string>
@@ -95,7 +99,9 @@ export const ACTION_LIST: { id: ShortcutId; label: string; group: string }[] = [
   { id: 'paste', label: '貼り付け', group: '編集' },
   { id: 'duplicate', label: '複製', group: '編集' },
   { id: 'addTelop', label: 'テロップを追加', group: '編集' },
-  { id: 'addMarker', label: 'マーカーを追加', group: '編集' }
+  { id: 'addMarker', label: 'マーカーを追加', group: '編集' },
+  { id: 'zoomIn', label: 'タイムラインを拡大（再生ヘッド基準）', group: '表示' },
+  { id: 'zoomOut', label: 'タイムラインを縮小（再生ヘッド基準）', group: '表示' }
 ]
 
 /**

@@ -10,11 +10,18 @@
 // こちらの仕事は、掴んだ場所を読んでそこへ渡すところまで。
 
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { barSpan, minZoom, panFromSpan, zoomFromSpan } from '../../../../shared/zoomBar'
+import {
+  barSpan,
+  keepPlayheadVisible,
+  minZoom,
+  panFromSpan,
+  zoomFromSpan
+} from '../../../../shared/zoomBar'
 
 export function ZoomBar({
   totalSec,
   zoom,
+  playheadSecRef,
   limits,
   scrollRef,
   onApply
@@ -25,6 +32,16 @@ export function ZoomBar({
   limits: { min: number; max: number }
   /** 横に送る入れ物（いまどこを見ているかを読む・書く） */
   scrollRef: React.RefObject<HTMLDivElement | null>
+  /**
+   * 再生ヘッドの時刻（秒）を入れてある箱。**寄せたときに画面から追い出さない**ために使う。
+   *
+   * **値ではなく ref で受ける。** 値で受けると、再生中は毎コマこの部品が
+   * 描き直される（`TimelineArea` が `currentTime` を受け取らないのと同じ理由）。
+   * 読むのは掴んで動かしている最中だけなので、ref で足りる。
+   *
+   * 軸にはしない——軸にすると掴んでいる●が指の下から逃げる（shared/zoomBar）
+   */
+  playheadSecRef: React.MutableRefObject<number>
   /** 決まった拡大率と見る位置を当てる */
   onApply: (zoom: number, scrollLeft: number) => void
 }): JSX.Element {
@@ -77,7 +94,10 @@ export function ZoomBar({
       // ここで下げる。Ctrl+ホイールと「↔ 全体表示」も同じ shared/zoomBar を通る
       const lo = minZoom(w, totalSec, limits.min)
       const r = zoomFromSpan(next, totalSec, w, { min: lo, max: limits.max }, grab)
-      onApply(r.zoom, r.scrollLeft)
+      // **再生ヘッドを画面から追い出さない**（2026-08-05・本人の指定）。
+      // 軸にはしない——軸にすると横位置がヘッドから決まるので、
+      // **掴んでいる●が指の下から逃げる**（理由は shared/zoomBar に書いてある）
+      onApply(r.zoom, keepPlayheadVisible(r.scrollLeft, playheadSecRef.current, r.zoom, w))
     }
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove)

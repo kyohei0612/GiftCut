@@ -94,7 +94,8 @@ export function TimelineArea(): JSX.Element {
   // **currentTime は受け取らない。** 受けると、再生ヘッドが動くたびに
   // タイムライン全体（帯277個）が描き直される。時刻が要るのは再生ヘッドだけなので、
   // あちらが自分で見に行く（components/timeline/Ruler の Playhead）
-  const { fps } = usePlaybackCtx()
+  // `currentTimeRef` は拡大バーへ渡す（**値ではなく ref**。上の理由と同じ）
+  const { fps, currentTimeRef } = usePlaybackCtx()
   const { videoSrc, mediaItems } = useMediaCtx()
   const { timelineH } = useLayout()
   const { videoGhost, seGhost, imgGhost, marquee, snapLineX, overwriteIds } = useDragPreviewCtx()
@@ -473,6 +474,7 @@ export function TimelineArea(): JSX.Element {
         totalSec={Math.max(1, duration)}
         zoom={zoom}
         limits={{ min: ZOOM_MIN, max: ZOOM_MAX }}
+        playheadSecRef={currentTimeRef}
         scrollRef={scrollRef}
         onApply={(z, left) => {
           setZoom(z)

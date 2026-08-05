@@ -13,8 +13,9 @@
 import { clamp } from '../../../shared/timeline'
 // 全体が収まる率と、引ける下限。**式はあちらに1つだけ**（フィット・拡大バー・
 // Ctrl+ホイールの3か所が同じ所へ行き着くようにするため）
-import { fitZoom, minZoom } from '../../../shared/zoomBar'
+import { fitZoom, minZoom, scrollForZoomAtPlayhead } from '../../../shared/zoomBar'
 import { ZOOM_MAX, ZOOM_MIN } from './useView'
+import { usePlaybackCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
 
 export interface UseViewNavDeps {
@@ -28,7 +29,13 @@ export interface UseViewNavDeps {
 }
 
 export interface ViewNav {
-  /** 再生ヘッドを軸にして寄る／引く */
+  /**
+   * **再生ヘッドを軸にして**寄る／引く（`+1` で寄る、`-1` で引く）。
+   *
+   * キーボード（`=` / `-`）と拡大バーが、どちらもここを通る。
+   * **ホイールだけは通らない**——あちらの軸はカーソルの下（`useTimelineWheel`）。
+   */
+  zoomAtPlayhead: (dir: 1 | -1) => void
   /** 中身がちょうど収まる拡大率に合わせる */
   fitTimelineZoom: () => void
   /** 目盛りを擦った位置へ飛ぶ */
@@ -38,6 +45,8 @@ export interface ViewNav {
 export function useViewNav(deps: UseViewNavDeps): ViewNav {
   const { scrollRef, trackInnerRef, contentEndRef, seekTo } = deps
   const { setZoom, zoomRef } = useViewCtx()
+  // 拡大の軸に使う再生ヘッドの時刻。**state ではなく ref**（掴んでいる最中も読む）
+  const { currentTimeRef } = usePlaybackCtx()
 
 
   // 「連れてくる」（revealPlayhead）と「飛ばして見せる」（seekAndReveal）は
@@ -45,6 +54,31 @@ export function useViewNav(deps: UseViewNavDeps): ViewNav {
   //   連れてくる … state/useTimelineBox（縦の追従と同じ持ち主。飛ばす側を要らない）
   //   飛ばして見せる … state/usePlaybackEngine（飛ばす本人）
   // へ移した。ここは飛ばす側を要るだけの片道になっている。
+
+  /**
+   * **再生ヘッドを軸にして寄る／引く。**
+   *
+   * ## 入口ごとに軸を変えてある（2026-08-05・本人の指定）
+   *
+   *   ホイール    カーソルの下（`state/useTimelineWheel`。狙った所へ寄れる）
+   *   キーボード  ここ。**手がマウスに無いので、カーソルを軸にしても狙えない**
+   *   拡大バー    ここ（バー全体を俯瞰していて、カーソルは「バーの上」に居る）
+   *
+   * 刻みはホイール1ノッチと同じ 1.15 倍。**別の数にしない**——
+   * 同じ「1回寄る」なのに入口で幅が違うと、持ち替えるたびに勘が外れる。
+   */
+  function zoomAtPlayhead(dir: 1 | -1): void {
+    const el = scrollRef.current
+    if (!el) return
+    const t = currentTimeRef.current
+    const headX = t * zoomRef.current - el.scrollLeft
+    const lo = minZoom(el.clientWidth, contentEndRef.current, ZOOM_MIN)
+    const nz = clamp(zoomRef.current * (dir > 0 ? 1.15 : 0.87), lo, ZOOM_MAX)
+    setZoom(nz)
+    requestAnimationFrame(() => {
+      if (el) el.scrollLeft = scrollForZoomAtPlayhead(t, nz, headX, el.clientWidth)
+    })
+  }
 
   // タイムラインの拡大率を「中身がちょうど収まる」ところに合わせる。
   //
@@ -68,5 +102,5 @@ export function useViewNav(deps: UseViewNavDeps): ViewNav {
     seekTo((cx - rect.left) / zoomRef.current)
   }
 
-  return { fitTimelineZoom, scrubFromClientX }
+  return { zoomAtPlayhead, fitTimelineZoom, scrubFromClientX }
 }
