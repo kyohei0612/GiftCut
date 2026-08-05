@@ -1,0 +1,19 @@
+#!/bin/sh
+# コミット前に型チェックとテストを走らせる。
+# 作者はコードを読まない前提なので、壊れた状態が履歴に入らないようここで止める。
+# 意図的に飛ばすときだけ  git commit --no-verify
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+if [ ! -d node_modules ]; then
+  echo "pre-commit: node_modules が無いので検証をスキップします"
+  exit 0
+fi
+
+echo "pre-commit: npm run verify"
+if ! npm run verify; then
+  echo ""
+  echo "検証が失敗したのでコミットを中止しました。"
+  echo "型エラー・テスト失敗はどちらも本物の不整合です。直してからコミットしてください。"
+  exit 1
+fi

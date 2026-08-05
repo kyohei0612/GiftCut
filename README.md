@@ -54,6 +54,20 @@ npm run dist                インストーラを作る
 npm run check:packaged      配布物が本当に動くかを確かめる
 ```
 
+### コミット前の自動検証を有効にする（clone したら1回）
+
+```bash
+git config core.hooksPath .githooks
+```
+
+**壊れた状態が履歴に入らないように、コミット前に `npm run verify` を回す。**
+`.git/hooks/` は clone しても付いてこないので、リポジトリの `.githooks/` を
+見るように git へ教える。飛ばしたいときだけ `git commit --no-verify`。
+
+2026-08-05 まで、この網はこの PC の `.git/hooks/` にしか無かった
+（`scripts/verify-hook.mjs` の配線も同様にユーザ設定側にあった）。
+**ファイルはあるのに入口が無い**という形は、探しても見つからない。
+
 確認の作り方について、この作業で繰り返し効いた考え方が2つあります。
 
 - **「できない」を確かめる前に、まず同じ操作が「できる」ことを確かめる。**
