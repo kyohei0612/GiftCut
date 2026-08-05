@@ -123,6 +123,39 @@ export function minZoom(viewW: number, totalSec: number, floor: number): number 
   return Number.isFinite(fit) && fit > 0 ? Math.min(floor, fit) : floor
 }
 
+/**
+ * 拡大したあとの横位置。**再生ヘッドを軸にする**（プレミアと同じ）。
+ *
+ * ## なぜカーソルではなく再生ヘッドか（2026-08-05・本人の指定）
+ *
+ * 前はカーソルの下の時刻を留めていた。**寄る先が毎回マウスの位置で変わる**ので、
+ * 「寄ってから編集する」流れだと、寄った直後に見たい所（＝いま作業している時刻）が
+ * 画面の端へ行ってしまう。編集で軸になるのは**いつも再生ヘッド**。
+ *
+ * ## 画面の外に居るときは、真ん中へ連れてくる
+ *
+ * ヘッドが見えていない状態でそのまま軸にすると、**画面の外の一点を留める**ことになり、
+ * 寄るほど遠ざかる（見えない所を中心に回る）。見えていないなら真ん中へ寄せる
+ * ——プレミアで寄ると再生ヘッドの所へ行く、という体感はこれ。
+ *
+ * @param t       再生ヘッドの時刻（秒）
+ * @param nz      これから当てる拡大率（px / 秒）
+ * @param headX   いまヘッドが画面のどこに居るか（px。負や幅超えは「画面の外」）
+ * @param viewW   見えている幅（px）
+ * @returns 当てるべき `scrollLeft`（px。負にはしない）
+ */
+export function scrollForZoomAtPlayhead(
+  t: number,
+  nz: number,
+  headX: number,
+  viewW: number
+): number {
+  // 見えているなら**そのままの位置に留める**（画面が動いたように見えない）
+  const visible = headX >= 0 && headX <= viewW
+  const anchorX = visible ? headX : viewW / 2
+  return Math.max(0, t * nz - anchorX)
+}
+
 /** つまみを丸ごと動かしたとき（移動だけ。拡大率は変えない） */
 export function panFromSpan(
   aNext: number,

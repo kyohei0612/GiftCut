@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { barSpan, zoomFromSpan, panFromSpan, fitZoom, minZoom } from './zoomBar'
+import {
+  barSpan,
+  zoomFromSpan,
+  panFromSpan,
+  fitZoom,
+  minZoom,
+  scrollForZoomAtPlayhead
+} from './zoomBar'
 
 const TOTAL = 100 // 秒
 const VIEW = 800 // px
@@ -110,5 +117,48 @@ describe('引ける下限と、全体が収まる率', () => {
   it('幅が測れないときは、これまでの下限のまま（起動直後に 0 で潰れない）', () => {
     expect(minZoom(0, 451, 6)).toBe(6)
     expect(minZoom(NaN, 451, 6)).toBe(6)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 拡大の軸は再生ヘッド（プレミアと同じ。2026-08-05・本人の指定）
+//
+// **画面越しには確かめにくい所。** 寄ったあとに画面が数十px ずれても
+// 「そういうものか」と見えてしまい、目では気づけない。数で固定する。
+describe('拡大したときの横位置（軸は再生ヘッド）', () => {
+  /** 寄せたあと、ヘッドが画面のどこに来るか（px） */
+  const headAfter = (t: number, nz: number, headX: number, viewW = 1000): number =>
+    t * nz - scrollForZoomAtPlayhead(t, nz, headX, viewW)
+
+  it('**ヘッドが画面に見えていれば、同じ位置に留まる**', () => {
+    // 100秒地点。ヘッドが画面の 200px に居る状態から 40px/秒 へ寄せる。
+    // 寄せたあとも 200px の所に居ること＝画面が動いたように見えない
+    expect(headAfter(100, 40, 200)).toBe(200)
+  })
+
+  it('引いたときも同じ位置に留まる', () => {
+    expect(headAfter(100, 5, 300)).toBe(300)
+  })
+
+  it('**画面の外に居たら、真ん中へ連れてくる**（見えない点を軸にしない）', () => {
+    // 軸をそのまま使うと、寄るほど遠ざかる（見えていない所を中心に回る）
+    expect(headAfter(100, 40, -500)).toBe(500)
+    expect(headAfter(100, 40, 1800)).toBe(500)
+  })
+
+  it('端（0 と 幅ちょうど）は「見えている」に入れる', () => {
+    expect(headAfter(100, 40, 0)).toBe(0)
+    expect(headAfter(100, 40, 1000)).toBe(1000)
+  })
+
+  it('**先頭の近くでは、留まれずに左へ寄る**（そこは正しい）', () => {
+    // 左に送る余地が無い（scrollLeft は負にできない）ので、頭のうちは
+    // ヘッドが左へ滑る。**留めようとして先頭より手前を見せてはいけない**
+    expect(scrollForZoomAtPlayhead(10, 5, 300, 1000)).toBe(0)
+    expect(headAfter(10, 5, 300)).toBe(50) // 10秒 × 5px/秒 の所に見える
+  })
+
+  it('0秒なら必ず先頭（負の scrollLeft を作らない）', () => {
+    expect(scrollForZoomAtPlayhead(0, 40, 500, 1000)).toBe(0)
   })
 })
