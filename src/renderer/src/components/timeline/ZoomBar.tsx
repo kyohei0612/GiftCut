@@ -10,18 +10,24 @@
 // こちらの仕事は、掴んだ場所を読んでそこへ渡すところまで。
 
 import { useEffect, useRef, useState, type JSX } from 'react'
-import {
-  barSpan,
-  minZoom,
-  panFromSpan,
-  scrollForZoomAtPlayhead,
-  zoomFromSpan
-} from '../../../../shared/zoomBar'
+import { barSpan, minZoom, panFromSpan, zoomFromSpan } from '../../../../shared/zoomBar'
+
+// ## 効きの強さは、いじらないと決めた（2026-08-06）
+//
+// 「細いつまみでは過敏、太いつまみでは鈍い」のは本当で、本人からも
+// 「小さいバーの時めっちゃ感度いいけど、大きくなると弱い」と出た。
+// 原因は倍率が**見えている秒数の逆数**だから——バーというUIの素の性質。
+//
+// 一律3倍にする／動いた距離を倍率の対数に効かせる、を順に試したが、
+// **どちらも「指の下の物が指どおりに動く」を削って買っていた。**
+// 結論:「基本マウスとぴったりがいい。バーの動きはプレミアプロみたく」。
+//
+// 一定の効きが欲しいときの道は別にある——Ctrl+ホイール（1段ずつ）と
+// キーボードの拡大（再生ヘッド軸）。**入口ごとに性格を分ける**方で持つ。
 
 export function ZoomBar({
   totalSec,
   zoom,
-  playheadSecRef,
   limits,
   scrollRef,
   onApply
@@ -32,16 +38,6 @@ export function ZoomBar({
   limits: { min: number; max: number }
   /** 横に送る入れ物（いまどこを見ているかを読む・書く） */
   scrollRef: React.RefObject<HTMLDivElement | null>
-  /**
-   * 再生ヘッドの時刻（秒）を入れてある箱。**寄せたときに画面から追い出さない**ために使う。
-   *
-   * **値ではなく ref で受ける。** 値で受けると、再生中は毎コマこの部品が
-   * 描き直される（`TimelineArea` が `currentTime` を受け取らないのと同じ理由）。
-   * 読むのは掴んで動かしている最中だけなので、ref で足りる。
-   *
-   * 軸にはしない——軸にすると掴んでいる●が指の下から逃げる（shared/zoomBar）
-   */
-  playheadSecRef: React.MutableRefObject<number>
   /** 決まった拡大率と見る位置を当てる */
   onApply: (zoom: number, scrollLeft: number) => void
 }): JSX.Element {
@@ -78,12 +74,6 @@ export function ZoomBar({
     const rect = bar.getBoundingClientRect()
     const base = barSpan(scroll.scrollLeft, scroll.clientWidth, totalSec, zoom)
     const sx = e.clientX
-    // **掴んだ瞬間の、再生ヘッドの画面位置**（px）。拡大の軸に使う。
-    //
-    // 動かしている最中に測り直さない。`zoom` はこの関数を作った時の値で固定
-    // されているので、途中で測ると**古い拡大率で位置を出す**ことになり、
-    // 軸が毎フレームずれる（＝バーが暴れる）。
-    const headX0 = playheadSecRef.current * zoom - scroll.scrollLeft
     const at = (x: number): number => (x - rect.left) / Math.max(1, rect.width)
     const onMove = (ev: PointerEvent): void => {
       const w = scroll.clientWidth
@@ -93,40 +83,40 @@ export function ZoomBar({
         onApply(zoom, panFromSpan(base.a + d, base, totalSec, zoom))
         return
       }
-      // 端のボッチ。掴んでいない側はそのまま残す（shared/zoomBar が面倒をみる）
+      // 端のボッチ。**掴んだ端が指の所へ来る。反対の端は動かない**（プレミアと同じ）。
       //
-      // **バーの外まで引ける**（2026-08-06・本人の指定）。
+      // ## 2026-08-06 に二度まわり道して、ここへ戻った
       //
-      // ここは前まで 0〜1 に丸めていた。すると●を端まで持っていっても
-      // 「全体がちょうど1画面」までしか行かず、**バーでは最大まで縮小できない**
-      // ——Ctrl+ホイールは下限（`minZoom`）まで引けるので、
-      // **同じ物を操る2つの入口で、行ける所が違う**状態だった。
+      //   ① 再生ヘッドを軸にした   →「●が指から逃げる」
+      //   ② 動いた距離を倍率の対数に →「加速してるみたいで気持ち悪い」
       //
-      // 丸めるのをやめると、端を越えたぶんは「1画面より広い範囲」になり、
-      // 下の `zoomFromSpan` が下限で止めてくれる。つまみは端で止まって見えるが、
-      // **指を外へ動かし続ければ引き続ける**——止まったのではなく、
-      // つまみが表せる範囲を超えただけ（全部見えている状態は端から端までしか描けない）。
+      // 本人の言葉:「**基本マウスとぴったりがいい。バーの動きはプレミアプロみたく**」。
+      //
+      // 直接操作は、**指の下の物が指どおりに動く**ことが値打ちで、
+      // それを崩すと「賢いが読めない」物になる。効きの強さや軸の親切さは、
+      // どれも指との一致を削って買っている。**買わない。**
+      //
+      // 効きが場所で変わる（細いつまみほど過敏）のは、倍率が見えている秒数の
+      // 逆数だから。それは**バーというUIの素の性質**で、直せば別物になる。
+      // 一定の効きが欲しいときは Ctrl+ホイール（あちらは1段ずつ）。
+      //
+      // ## バーの外まで引ける
+      //
+      // 丸めていないので、端を越えたぶんは「1画面より広い範囲」になり、
+      // 下限（`minZoom`）まで引き切れる。つまみは端で止まって見えるが、
+      // **指を外へ動かし続ければ引き続ける**（全部見えている状態は端までしか描けない）。
+      // 丸めていた頃は「全体がちょうど1画面」で止まり、
+      // **ホイールでは引けるのにバーでは引けない**状態だった。
       const p = at(ev.clientX)
       const next = grab === 'l' ? { a: p, b: base.b } : { a: base.a, b: p }
-      // **目一杯引いたら全体が見える**（プレミアと同じ）。下限は中身の長さで決まるので
-      // ここで下げる。Ctrl+ホイールと「↔ 全体表示」も同じ shared/zoomBar を通る
+      // **目一杯引いたら全体が見える**（プレミアと同じ）。下限は中身の長さで決まる。
+      // Ctrl+ホイールと「↔ 全体表示」も同じ shared/zoomBar を通る
       const lo = minZoom(w, totalSec, limits.min)
       const r = zoomFromSpan(next, totalSec, w, { min: lo, max: limits.max }, grab)
-      // **軸は再生ヘッド**（2026-08-06・本人の指定で戻した）。
-      //
-      // ## 一度「追い出さないだけ」にして、戻した
-      //
-      // 08-05 は「●が指の下から逃げるから軸にしない」で、はみ出したときだけ
-      // 送り返す形にしていた。**それが逆に読めない動きを作った**（本人の言葉:
-      // 「拡大バーを触った瞬間だけ再生バーに追従するため、そこがぶつかって
-      // 拡大バーがバグる」）——ほとんどの間は指に付いてくるのに、
-      // **ヘッドが端に来た瞬間だけ**別の力で引っぱられる。
-      // いつ起きるかが手前で読めないので、不具合に見える。
-      //
-      // 常に軸にすれば、動きは1つだけになる。●は指から離れるが、
-      // **離れ方はいつも同じ**（ヘッドへ寄っていく）ので予測できる。
-      // ホイールがカーソル軸なのは変えない——手がそこにあるので迷わない。
-      onApply(r.zoom, scrollForZoomAtPlayhead(playheadSecRef.current, r.zoom, headX0, w))
+      // **再生ヘッドは追いかけない。** 追いかけると指との一致が崩れる
+      //（それが①のまわり道だった）。ヘッドへ寄せたいときはキーボードの拡大
+      //（`state/useViewNav` が `scrollForZoomAtPlayhead` を使う）。
+      onApply(r.zoom, r.scrollLeft)
     }
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove)

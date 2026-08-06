@@ -296,6 +296,91 @@ export default async function (C) {
     }
   })
 
+  await check('**拡大バーを掴んでいる間、再生ヘッドが震えない**', async () => {
+    // ## 「震える」を機械の言葉にする
+    //
+    // 本人の報告:「バーを小さくしたときめっちゃ再生バーが震える」。
+    // 寄せ続けている間、ヘッドは**一方向へ動き続ける**はず
+    //（拡大の軸から遠ざかるか近づくかのどちらか）。
+    // 行ったり来たりするなら、**1フレームごとに違う値で描かれている**。
+    //
+    // 疑っているのは二段構え——拡大率は即時・横位置は次のフレーム。
+    // 途中の1フレームだけ「新しい倍率 × 古い横位置」で描かれる。
+    // **寄せているほど、その食い違いは px で大きくなる**（＝小さいバーで目立つ）。
+    await resetProject()
+    // **深く寄せる。** 症状は「つまみが小さいとき」なので、
+    // 浅い寄せでは出ない（6段で試して緑になり、条件が足りていなかった）
+    await ctrlWheel(-120, 14)
+
+    // **毎フレーム記録する。**
+    //
+    // 動かすたびに測る形では捕まらない——測る前に次のフレームが来て、
+    // **補正の済んだ値しか見えない**。目に見える震えは補正前の1フレームなので、
+    // 「待ってから測る」検査は**必ず緑になる**（実際に一度そうなった）。
+    await page.evaluate(() => {
+      window.__hx = []
+      const loop = () => {
+        const p = document.querySelector('.playhead')
+        if (p) window.__hx.push(Math.round(p.getBoundingClientRect().x))
+        window.__raf = requestAnimationFrame(loop)
+      }
+      loop()
+    })
+
+    const knob = await page.locator('.zbk-r').first().boundingBox()
+    await page.mouse.move(knob.x + knob.width / 2, knob.y + knob.height / 2)
+    await page.mouse.down()
+    // **指を止めずに動かす。** 1回ごとに待つと、待っている間に描き直しが
+    // 落ち着いてしまう。人の手は止まらないので、そちらへ寄せる
+    for (let i = 1; i <= 40; i++) {
+      await page.mouse.move(knob.x - i * 4, knob.y + knob.height / 2)
+    }
+    await page.waitForTimeout(200)
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+
+    const xs = await page.evaluate(() => {
+      cancelAnimationFrame(window.__raf)
+      const v = window.__hx
+      delete window.__hx
+      delete window.__raf
+      return v
+    })
+    assert(xs.length > 20, `フレームを記録できていない（${xs.length}コマ）`)
+    // **向きが何度も反転したら震えている。**
+    // 1回の反転は許す（軸をまたぐと向きは変わるので、それは正しい動き）。
+    //
+    // **止まっているフレームは先に詰める。** 詰めずに隣どうしを比べると、
+    // 間に「動いていないコマ」が挟まった反転を飛ばしてしまう
+    //（片方が 0 だと比較が成立しないため）。指は連続で動いていないので、
+    // 止まっているコマの方がむしろ多い
+    const 向き = []
+    for (let i = 1; i < xs.length; i++) {
+      const d = xs[i] - xs[i - 1]
+      if (d !== 0) 向き.push(Math.sign(d))
+    }
+    let 反転 = 0
+    for (let i = 1; i < 向き.length; i++) if (向き[i] !== 向き[i - 1]) 反転++
+    assert(
+      反転 <= 1,
+      `寄せている間にヘッドが ${反転} 回も向きを変えた` +
+        `（動いたコマ ${向き.length} / 全 ${xs.length}コマ、x: ${xs.join(' ')}）`
+    )
+
+    // **1コマでどれだけ飛ぶかも見る。**
+    //
+    // 行ったり来たりしていなくても、**1コマで画面を横切る**なら
+    // 目には「暴れている」と映る。向きの反転だけ見ていると、そちらを取り逃がす。
+    // 深く寄せているとき、バーは 1px の指の動きで倍率が大きく変わるので
+    // （倍率は見えている秒数の逆数）、ここが出やすい。
+    let 最大 = 0
+    for (let i = 1; i < xs.length; i++) 最大 = Math.max(最大, Math.abs(xs[i] - xs[i - 1]))
+    assert(
+      最大 < 400,
+      `1コマで ${最大}px 飛んだ（画面を横切る勢い。x: ${xs.join(' ')}）`
+    )
+  })
+
   await check('**バーで引き切ると、ホイールで引き切るのと同じ所まで行く**', async () => {
     // 入口が違っても行き着く先は同じでなければならない。
     // 2026-08-06 まで**バーだけ手前で止まっていた**（バーは 0〜1 に丸めていたので
