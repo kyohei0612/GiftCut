@@ -9,7 +9,7 @@
 //
 // ここでは state を変えたら ref も必ず追いつくように、1か所で面倒を見る。
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** 既定の拡大率（px / 秒） */
 export const DEFAULT_ZOOM = 24
@@ -49,16 +49,50 @@ export function clampZoom(v: unknown): number {
 
 export interface View {
   zoom: number
-  setZoom: React.Dispatch<React.SetStateAction<number>>
+  /** **値だけ受ける**（関数で渡さない。理由は下） */
+  setZoom: (v: number) => void
   /** 掴んでいる最中に読む用（描き直しを待たない） */
   zoomRef: React.MutableRefObject<number>
 }
 
 export function useView(): View {
-  const [zoom, setZoom] = useState(DEFAULT_ZOOM)
+  const [zoom, setZoomState] = useState(DEFAULT_ZOOM)
   const zoomRef = useRef(DEFAULT_ZOOM)
+
+  /**
+   * **控えは、その場で書く。**
+   *
+   * ## なぜ useEffect ではいけないか（2026-08-06）
+   *
+   * 前は `useEffect(() => { zoomRef.current = zoom }, [zoom])` だった。
+   * 控えが新しくなるのは**描き直しが済んだ後**。
+   *
+   * ところがホイールは**1フレームに何発も来る**（トラックパッドや、
+   * ホイールを勢いよく回したとき）。ホイールの処理はその場その場で
+   * `zoomRef.current` を読んで次の倍率を出すので、
+   * **同じフレームに来た分は全部が同じ古い値から計算する**
+   * ——結果、何発回しても**1フレームぶんしか進まない**。
+   *
+   * 実測: Ctrl+ホイールを一度に30発送って、引き切れずに止まった
+   * （中身 4928px。バーで引き切ると 1456px まで行く）。
+   * **入口によって行ける所が違う**状態で、しかも「効きが悪い」としか見えない。
+   *
+   * → 控えを先に書く。描き直しは後から追いつけばよい
+   *  （画面に出る値は state の方で、こちらは「いまこの瞬間」を読む用）。
+   *
+   * **関数で渡す形（`setZoom(p => p + 1)`）は受けない。** 受けると
+   * ここで新しい値が分からず、控えを書けない。呼ぶ側は全部が値渡し
+   * （2026-08-06 時点で6か所とも）。
+   */
+  const setZoom = useCallback((v: number): void => {
+    zoomRef.current = v
+    setZoomState(v)
+  }, [])
+
+  // 別の道（前回の続きの復元など）で state が変わったときの取りこぼし止め
   useEffect(() => {
     zoomRef.current = zoom
   }, [zoom])
+
   return { zoom, setZoom, zoomRef }
 }

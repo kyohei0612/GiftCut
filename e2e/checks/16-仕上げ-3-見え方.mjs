@@ -22,6 +22,39 @@ import { join } from 'node:path'
 export default async function (C) {
   const { assert, check, clipLayout, fx, outDir, page, resetProject, setDialogFiles, v1Clips } = C
 
+  /**
+   * Ctrl+ホイールを送る（**3つの確認で使うので、外に出してある**）。
+   *
+   * **`page.mouse.wheel` は使えない。** Playwright のあれは修飾キーを乗せないので、
+   * `keyboard.down('Control')` と組み合わせても `ctrlKey: false` で届き、
+   * アプリ側はただの横スクロールとして扱う。
+   * **アプリは無罪なのに「拡大していない」と出る**（実際に一度そう読んで、
+   * アプリを疑って半時間を落とした）。だから本物の WheelEvent を投げる。
+   */
+  const ctrlWheel = async (deltaY, times) => {
+    await page.evaluate(
+      ({ deltaY, times }) => {
+        const el = document.querySelector('.track-scroll')
+        if (!el) throw new Error('.track-scroll が無い')
+        const r = el.getBoundingClientRect()
+        for (let i = 0; i < times; i++) {
+          el.dispatchEvent(
+            new WheelEvent('wheel', {
+              deltaY,
+              ctrlKey: true,
+              clientX: r.left + r.width * 0.4,
+              clientY: r.top + 20,
+              bubbles: true,
+              cancelable: true
+            })
+          )
+        }
+      },
+      { deltaY, times }
+    )
+    await page.waitForTimeout(400)
+  }
+
   await check('色を付けたまま保存して開き直すと、色が残っている', async () => {
     await resetProject()
     await v1Clips().nth(0).click({ button: 'right' })
@@ -192,38 +225,6 @@ export default async function (C) {
     // のどちらか分からない。**区別できない検査は、直す場所を教えてくれない**
     const innerW = async () => (await inner.boundingBox()).width
 
-    /**
-     * Ctrl+ホイールを送る。
-     *
-     * **`mouse.wheel` は使えない。** Playwright のあれは修飾キーを乗せないので、
-     * `keyboard.down('Control')` と組み合わせても `ctrlKey: false` で届き、
-     * アプリ側はただの横スクロールとして扱う。
-     * **アプリは無罪なのに「拡大していない」と出る**（実際に一度そう読んだ）。
-     */
-    const ctrlWheel = async (deltaY, times) => {
-      await page.evaluate(
-        ({ deltaY, times }) => {
-          const el = document.querySelector('.track-scroll')
-          if (!el) throw new Error('.track-scroll が無い')
-          const r = el.getBoundingClientRect()
-          for (let i = 0; i < times; i++) {
-            el.dispatchEvent(
-              new WheelEvent('wheel', {
-                deltaY,
-                ctrlKey: true,
-                clientX: r.left + r.width * 0.4,
-                clientY: r.top + 20,
-                bubbles: true,
-                cancelable: true
-              })
-            )
-          }
-        },
-        { deltaY, times }
-      )
-      await page.waitForTimeout(400)
-    }
-
     const w0 = (await thumb.boundingBox()).width
     const iw0 = await innerW()
     await ctrlWheel(-120, 5)
@@ -246,6 +247,81 @@ export default async function (C) {
     assert(
       w2 > w1 + 2,
       `ホイールで引いてもバーが戻らない（つまみ ${Math.round(w1)} → ${Math.round(w2)}px）`
+    )
+  })
+
+  await check('**つまみの太さ ＝ いま見えている割合**（どの拡大率でも）', async () => {
+    // ## なぜ「動いたか」ではなく「合っているか」を見るか
+    //
+    // 上の確認は「寄ったら細くなる」しか見ていない。**向きが合っていれば通る**ので、
+    // 割合が半分でも倍でも気づけない。
+    //
+    // バーは「タイムライン全体のうち、いまどこを見ているか」を表す唯一の物なので、
+    // **数が合っていないと読み違える**——本人が「拡大してもバーが伸び切ってるのは
+    // おかしい」と言えたのは絵を見比べたからで、機械は何も言っていなかった。
+    //
+    // 見えている割合（表示幅 ÷ 中身の幅）と、つまみの割合（つまみ ÷ バー）を
+    // **3つの拡大率で突き合わせる**。
+    await resetProject()
+    const 実測 = async () =>
+      await page.evaluate(() => {
+        const sc = document.querySelector('.track-scroll')
+        const bar = document.querySelector('.zoom-bar')
+        const th = document.querySelector('.zoom-bar-thumb')
+        return {
+          見え: sc.clientWidth / Math.max(1, sc.scrollWidth),
+          つまみ: th.getBoundingClientRect().width / bar.getBoundingClientRect().width
+        }
+      })
+
+    for (const [名, 回数] of [
+      ['そのまま', 0],
+      ['少し寄る', 4],
+      ['もっと寄る', 8]
+    ]) {
+      if (回数) await ctrlWheel(-120, 回数)
+      const r = await 実測()
+      // **つまみには下限（28px）がある**ので、うんと寄せると割合は合わなくなる。
+      // 下限に当たっていない範囲だけを見る（当たっていたら、そこは見ない）
+      const 下限割合 = await page.evaluate(
+        () => 28 / document.querySelector('.zoom-bar').getBoundingClientRect().width
+      )
+      if (r.つまみ <= 下限割合 + 0.005) continue
+      const 差 = Math.abs(r.つまみ - r.見え)
+      assert(
+        差 < 0.03,
+        `${名}: つまみの割合が実際と合っていない` +
+          `（見えている ${(r.見え * 100).toFixed(1)}% / つまみ ${(r.つまみ * 100).toFixed(1)}%）`
+      )
+    }
+  })
+
+  await check('**バーで引き切ると、ホイールで引き切るのと同じ所まで行く**', async () => {
+    // 入口が違っても行き着く先は同じでなければならない。
+    // 2026-08-06 まで**バーだけ手前で止まっていた**（バーは 0〜1 に丸めていたので
+    // 「全体がちょうど1画面」までしか行かず、ホイールは下限まで引けた）。
+    // 動くので気づけない——**片方でしか行けない場所がある**のは読めない
+    await resetProject()
+    const 中身 = async () =>
+      await page.evaluate(() => document.querySelector('.track-scroll').scrollWidth)
+
+    await ctrlWheel(120, 30) // ホイールで引き切る
+    const ホイール = await 中身()
+
+    await ctrlWheel(-120, 10) // いったん寄せてから、今度はバーで引き切る
+    const bar = await page.locator('.zoom-bar').first().boundingBox()
+    const knob = await page.locator('.zbk-r').first().boundingBox()
+    await page.mouse.move(knob.x + knob.width / 2, knob.y + knob.height / 2)
+    await page.mouse.down()
+    // **バーの外まで引く。** 端で止めると「全体が1画面」までしか行かない
+    await page.mouse.move(bar.x + bar.width + 400, knob.y + knob.height / 2, { steps: 12 })
+    await page.mouse.up()
+    await page.waitForTimeout(600)
+    const バー = await 中身()
+
+    assert(
+      Math.abs(バー - ホイール) < 8,
+      `行き着く先が違う（ホイール ${Math.round(ホイール)}px / バー ${Math.round(バー)}px）`
     )
   })
 }
