@@ -523,5 +523,81 @@ export default async function (C) {
     )
   })
 
+  await check('**Ctrl+ホイールで拡大すると、下の拡大バーも連れて動く**', async () => {
+    // 拡大の入口は3つある（ホイール／バー／キーボード）が、
+    // **見ている所を表しているのはバー1本だけ**。どの入口で寄っても
+    // バーがそれを映していないと、「いまどこを見ているか」が読めなくなる。
+    //
+    // ここまで、バーは**自分を掴んだときしか**見られていなかった。
+    // ホイールで寄ってもバーが動かない、は誰にも気づけない状態だった（本人が発見）。
+    await resetProject()
+    const thumb = page.locator('.zoom-bar-thumb').first()
+    const inner = page.locator('.track-inner').first()
+    const box = await inner.boundingBox()
+    assert(box, 'タイムラインが見つからない')
+
+    // **中身の幅も測る。**「つまみが動かない」だけでは、
+    //   ・拡大はできているが、バーが映していない
+    //   ・そもそも拡大していない
+    // のどちらか分からない。**区別できない検査は、直す場所を教えてくれない**
+    const innerW = async () => (await inner.boundingBox()).width
+
+    /**
+     * Ctrl+ホイールを送る。
+     *
+     * **`mouse.wheel` は使えない。** Playwright のあれは修飾キーを乗せないので、
+     * `keyboard.down('Control')` と組み合わせても `ctrlKey: false` で届き、
+     * アプリ側はただの横スクロールとして扱う。
+     * **アプリは無罪なのに「拡大していない」と出る**（実際に一度そう読んだ）。
+     */
+    const ctrlWheel = async (deltaY, times) => {
+      await page.evaluate(
+        ({ deltaY, times }) => {
+          const el = document.querySelector('.track-scroll')
+          if (!el) throw new Error('.track-scroll が無い')
+          const r = el.getBoundingClientRect()
+          for (let i = 0; i < times; i++) {
+            el.dispatchEvent(
+              new WheelEvent('wheel', {
+                deltaY,
+                ctrlKey: true,
+                clientX: r.left + r.width * 0.4,
+                clientY: r.top + 20,
+                bubbles: true,
+                cancelable: true
+              })
+            )
+          }
+        },
+        { deltaY, times }
+      )
+      await page.waitForTimeout(400)
+    }
+
+    const w0 = (await thumb.boundingBox()).width
+    const iw0 = await innerW()
+    await ctrlWheel(-120, 5)
+    const w1 = (await thumb.boundingBox()).width
+    const iw1 = await innerW()
+    assert(
+      iw1 > iw0 + 2,
+      `そもそも拡大していない（中身の幅 ${Math.round(iw0)} → ${Math.round(iw1)}px）`
+    )
+    // 寄る＝見えている範囲が狭くなる＝つまみが細くなる
+    assert(
+      w1 < w0 - 2,
+      `拡大はしたのにバーが映していない` +
+        `（中身 ${Math.round(iw0)}→${Math.round(iw1)}px ／ つまみ ${Math.round(w0)}→${Math.round(w1)}px）`
+    )
+
+    // 引く方も見る。**寄る側だけ見ると、下限の食い違いを取り逃がす**
+    await ctrlWheel(120, 8)
+    const w2 = (await thumb.boundingBox()).width
+    assert(
+      w2 > w1 + 2,
+      `ホイールで引いてもバーが戻らない（つまみ ${Math.round(w1)} → ${Math.round(w2)}px）`
+    )
+  })
+
   // =========================================================================
 }

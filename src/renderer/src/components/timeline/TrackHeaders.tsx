@@ -145,45 +145,37 @@ export function TrackHeaders({
                 </button>
                 {/* ---- ここから先は**列（役割）が固定。どの段も必ず4枠** ----
                   *
-                  *   1: 🔒 ロック
-                  *   2: 👁 表示（映像）／♪＋ BGM追加（BGMの段）／空き
-                  *   3: M ミュート（音声）／空き
-                  *   4: S ソロ（音声）／空き
+                  *   映像  1:🔒  2:👁      3:空き  4:空き
+                  *   音声  1:🔒  2:M       3:S     4:♪＋（BGMの段）／空き
                   *
-                  * **段によって枠の数が違うと、右揃えのぶんだけ位置がずれる。**
+                  * **枠の数が違うと、右揃えのぶんだけ位置がずれる。**
                   * 2026-08-05 に画面を4倍にして測ったら、V は4枠・A1/A2 は3枠・
                   * A3（♪＋あり）は4枠で、**A1/A2 だけ 20px 右へずれ、A3 だけ
                   * 偶然 V と揃っていた**。揃える意図は前から書いてあったのに、
                   * **映像側にだけ空きを置いて音声側に置いていなかった**——片方だけ直した型。
                   *
-                  * ## なぜ ♪＋ を 👁 と同じ列に入れたか
+                  * ## 空きは**後ろ**へ寄せる（2026-08-06・本人の指定）
                   *
-                  * 役割ごとに5枠にすると、見出しは 128px 固定なので
-                  * **名前に残るのが 41px → 18px** になり、「A1」すら出なくなる。
-                  * 👁 は映像だけ・♪＋ は音声だけで、**同じ段に両方出ることが無い**ので、
-                  * 1つの列を分け合わせて4枠に収めた。よく押す 🔒 / M / S の位置が
-                  * 全段で揃うことを優先している。 */}
-                {tr.kind === 'video' ? (
-                  <button
-                    className={`th-btn ${st.hidden ? 'th-off' : ''}`}
-                    title="表示/非表示"
-                    onClick={() => onToggle(tr.id, 'hidden')}
-                  >
-                    {st.hidden ? '🙈' : '👁'}
-                  </button>
-                ) : tr.id === bgmTrackId ? (
-                  <button
-                    className="th-btn th-bgm-add"
-                    title="このトラックに音声ファイル（BGM等）を追加"
-                    onClick={onAddBgm}
-                  >
-                    ♪＋
-                  </button>
-                ) : (
-                  <span className="th-btn th-ms-blank" aria-hidden="true" />
-                )}
+                  * 前は 2列目を「👁／♪＋／空き」で分け合わせていた。数は揃ったが、
+                  * **A1・A2 は 2列目が空きなので、🔒 と M の間に穴が開く**。
+                  * 映像は 🔒👁 が隣り合っているのに、音声だけ離れて見えた
+                  * ——「オーディオのUIが違う」。
+                  *
+                  * 押す物を前から詰めて、空きを後ろへ回すと、
+                  * **どの段も左端から隙間なく並ぶ**。よく押す 🔒 / M / S が
+                  * 全段で揃うことは、そのまま保たれる（1・2・3列目）。
+                  *
+                  * ♪＋ を最後に置けるのは、**押す頻度がいちばん低い**から
+                  * （BGM を足すのは編集の最初に一度）。 */}
                 {tr.kind === 'video' ? (
                   <>
+                    <button
+                      className={`th-btn ${st.hidden ? 'th-off' : ''}`}
+                      title="表示/非表示"
+                      onClick={() => onToggle(tr.id, 'hidden')}
+                    >
+                      {st.hidden ? '🙈' : '👁'}
+                    </button>
                     <span className="th-ms th-ms-blank" aria-hidden="true" />
                     <span className="th-ms th-ms-blank" aria-hidden="true" />
                   </>
@@ -203,6 +195,17 @@ export function TrackHeaders({
                     >
                       S
                     </button>
+                    {tr.id === bgmTrackId ? (
+                      <button
+                        className="th-btn th-bgm-add"
+                        title="このトラックに音声ファイル（BGM等）を追加"
+                        onClick={onAddBgm}
+                      >
+                        ♪＋
+                      </button>
+                    ) : (
+                      <span className="th-btn th-ms-blank" aria-hidden="true" />
+                    )}
                   </>
                 )}
               </span>

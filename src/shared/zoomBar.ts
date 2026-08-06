@@ -71,9 +71,19 @@ export function zoomFromSpan(
   limits: { min: number; max: number },
   anchor: 'l' | 'r' | 'move' = 'move'
 ): { zoom: number; scrollLeft: number } {
-  const a = Math.min(Math.max(0, span.a), 1)
+  // **バーの外へはみ出した値も、そのまま受ける**（2026-08-06・本人の指定）。
+  //
+  // 前はここで 0〜1 に丸めていた。すると●を端まで持っていっても
+  // 「全体がちょうど1画面」までしか行かず、**バーでは最大まで縮小できない**。
+  // Ctrl+ホイールは下限（`minZoom`）まで引けるので、
+  // **同じ物を操る2つの入口で、行ける所が違う**状態だった。
+  //
+  // 丸めをやめると (b-a) が 1 を超えられる＝1画面より広い範囲を指せるので、
+  // 下の `limits.min` まで引き切れる。**行き過ぎは limits が止める**ので、
+  // ここで先回りして丸める必要はない。
+  const a = span.a
   // 端どうしが重なると秒数が 0 になって割り算が壊れる。ほんの少しだけ空ける
-  const b = Math.min(Math.max(a + 1e-6, span.b), 1)
+  const b = Math.max(a + 1e-6, span.b)
   const sec = Math.max(1e-6, (b - a) * totalSec)
   const zoom = Math.min(limits.max, Math.max(limits.min, viewW / sec))
   // 限界に当たると、その範囲は画面いっぱいにならない。
@@ -156,41 +166,18 @@ export function scrollForZoomAtPlayhead(
   return Math.max(0, t * nz - anchorX)
 }
 
-/**
- * 拡大バーで寄せたあと、**再生ヘッドを画面から追い出さない**ように横位置を直す。
- *
- * ## なぜ「軸にする」ではなく「追い出さない」か（2026-08-05）
- *
- * バーの端（●）は**掴んだ所がそのまま端になる**直接操作。ここを再生ヘッド軸に
- * すると、寄せるたびに横位置がヘッドから決まるので、**掴んでいる●が指の下から
- * 逃げる**（掴んだ端が思った所に来ない）。直接操作の手応えが壊れる。
- *
- * → **●は指に付いてくるまま**にして、**ヘッドが画面の外へ出そうなときだけ**
- *   見える所まで送る。「見失わない」という目的は満たしつつ、手応えは壊さない。
- *
- * ※ ホイールはカーソル軸、キーボードはヘッド軸（`state/useViewNav`）。
- *   入口ごとに違うのは、手がどこにあるかが違うから。
- *
- * @param scrollLeft つまみが決めた横位置（px）
- * @param t          再生ヘッドの時刻（秒）
- * @param nz         これから当てる拡大率（px / 秒）
- * @param viewW      見えている幅（px）
- * @param pad        端ぎりぎりで戻さないための余白（px）
- */
-export function keepPlayheadVisible(
-  scrollLeft: number,
-  t: number,
-  nz: number,
-  viewW: number,
-  pad = 60
-): number {
-  const x = t * nz
-  // 左へはみ出した → ヘッドが左端＋余白に来るまで戻す
-  if (x < scrollLeft + pad) return Math.max(0, x - pad)
-  // 右へはみ出した → ヘッドが右端−余白に来るまで送る
-  if (x > scrollLeft + viewW - pad) return Math.max(0, x - viewW + pad)
-  return Math.max(0, scrollLeft)
-}
+// **`keepPlayheadVisible` は消した**（2026-08-06・本人の指定）。
+//
+// 08-05 は「拡大バーの●は直接操作だから、ヘッドを軸にすると指の下から逃げる」
+// という理屈で、**はみ出しそうなときだけ送り返す**関数を置いていた。
+// 理屈は通っていたが、実際に触ると読めない動きになった（本人の言葉:
+// 「拡大バーを触った瞬間だけ再生バーに追従するため、そこがぶつかって
+// 拡大バーがバグる」）。
+//
+// **ほとんどの間は指に付いてくるのに、端に来た瞬間だけ別の力が働く。**
+// いつ切り替わるかが手前で読めない物は、正しく動いていても不具合に見える。
+// → バーも `scrollForZoomAtPlayhead` に統一した。●は指から離れるが、
+//   **離れ方がいつも同じ**なので予測できる。
 
 /** つまみを丸ごと動かしたとき（移動だけ。拡大率は変えない） */
 export function panFromSpan(

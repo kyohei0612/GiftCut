@@ -5,8 +5,7 @@ import {
   panFromSpan,
   fitZoom,
   minZoom,
-  scrollForZoomAtPlayhead,
-  keepPlayheadVisible
+  scrollForZoomAtPlayhead
 } from './zoomBar'
 
 const TOTAL = 100 // 秒
@@ -57,6 +56,23 @@ describe('つまみから拡大率を出す', () => {
   it('限界より寄れない・引けない', () => {
     expect(zoomFromSpan({ a: 0, b: 0.001 }, TOTAL, VIEW, LIM).zoom).toBe(LIM.max)
     expect(zoomFromSpan({ a: 0, b: 1 }, 10000, VIEW, LIM).zoom).toBe(LIM.min)
+  })
+
+  // **バーの外へ引けないと、入口ごとに行ける所が変わる**（2026-08-06）。
+  // Ctrl+ホイールは下限まで引けるのに、バーは「全体が1画面」で止まっていた。
+  // 同じ物を操る2つの入口で、片方だけ最大まで縮小できないのは読めない
+  it('**バーの端を越えて引ける**（越えたぶんは下限で止まる）', () => {
+    const edge = zoomFromSpan({ a: 0, b: 1 }, TOTAL, VIEW, LIM)
+    const past = zoomFromSpan({ a: 0, b: 1.8 }, TOTAL, VIEW, LIM)
+    expect(past.zoom).toBeLessThan(edge.zoom)
+    expect(past.zoom).toBeGreaterThanOrEqual(LIM.min)
+  })
+
+  it('左の●も端を越えて引ける', () => {
+    const edge = zoomFromSpan({ a: 0, b: 1 }, TOTAL, VIEW, LIM, 'l')
+    const past = zoomFromSpan({ a: -0.8, b: 1 }, TOTAL, VIEW, LIM, 'l')
+    expect(past.zoom).toBeLessThan(edge.zoom)
+    expect(past.scrollLeft).toBeGreaterThanOrEqual(0)
   })
 
   // **細さの下限をここに置いてはいけない。** 置くと、短い素材では
@@ -165,34 +181,13 @@ describe('拡大したときの横位置（軸は再生ヘッド）', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 拡大バーは「軸にする」ではなく「追い出さない」（2026-08-05・本人の指定）
+// **「追い出さないだけ」はやめた**（2026-08-06・本人の指定で軸へ戻した）
 //
-// 端の●は**掴んだ所がそのまま端になる**直接操作。ここをヘッド軸にすると
-// 横位置がヘッドから決まるので、**掴んでいる●が指の下から逃げる**。
-// ●は指に付いてくるまま、ヘッドが外へ出そうなときだけ送る。
-describe('拡大バー: 再生ヘッドを画面から追い出さない', () => {
-  it('**見えているうちは動かさない**（掴んだ●が指の下から逃げない）', () => {
-    // 100秒地点・40px/秒 → ヘッドは 4000px。画面は 3500〜4500 を見ている
-    expect(keepPlayheadVisible(3500, 100, 40, 1000)).toBe(3500)
-  })
-
-  it('右へはみ出したら、右端の少し内側まで送る', () => {
-    // ヘッド 4000px。画面が 2000〜3000 だと右に出ている
-    expect(keepPlayheadVisible(2000, 100, 40, 1000)).toBe(4000 - 1000 + 60)
-  })
-
-  it('左へはみ出したら、左端の少し内側まで戻す', () => {
-    // ヘッド 4000px。画面が 5000〜6000 だと左に出ている
-    expect(keepPlayheadVisible(5000, 100, 40, 1000)).toBe(4000 - 60)
-  })
-
-  it('**端ぎりぎりでも余白ぶんは内側へ入れる**（次の一手で即はみ出さない）', () => {
-    // ヘッドが右端ちょうど（4000 = 3000 + 1000）だと、余白 60 に食い込んでいる
-    expect(keepPlayheadVisible(3000, 100, 40, 1000)).toBe(3060)
-  })
-
-  it('先頭より手前へは行かない', () => {
-    expect(keepPlayheadVisible(0, 0, 40, 1000)).toBe(0)
-    expect(keepPlayheadVisible(-100, 1, 40, 1000)).toBe(0)
-  })
-})
+// 08-05 は「●が指の下から逃げるから軸にしない」で、ヘッドが画面の外へ出そうな
+// ときだけ送り返す `keepPlayheadVisible` を使っていた。**それが逆に読めない
+// 動きを作った**——ほとんどの間は指に付いてくるのに、**端に来た瞬間だけ**
+// 別の力で引っぱられる。いつ起きるか手前で読めないので、不具合に見える。
+//
+// いまは拡大バーも `scrollForZoomAtPlayhead`（上のブロック）。動きが1つになる。
+// 関数も試験もここで消した——**呼ばれない物を残すと、次に読む人が
+// 「バーはこう動く」と信じる**（コメントにそう書いてあった）。

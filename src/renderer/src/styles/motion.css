@@ -321,10 +321,13 @@
   background: #3d4550;
   border: 1px solid #5a6472;
   border-radius: 6px;
-  cursor: grab;
-}
-.zoom-bar-thumb:active {
-  cursor: grabbing;
+  /* **真ん中は普通の矢印**（2026-08-06・本人の指定）。
+     前は「手」にしていたが、手は**掴んで運ぶ**印。ここは見る所を左右へ
+     動かすだけで、運んでいる物は無い。しかも隣の●は ew-resize（拡大の印）
+     なので、**同じバーの上で2種類の意味を予告する**ことになり、
+     どちらが起きるのか手前で読めなかった。
+     いま予告するのは1つだけ——「●なら拡大、それ以外は普通」。 */
+  cursor: default;
 }
 .zoom-bar-knob {
   position: absolute;

@@ -77,6 +77,30 @@ export function useLaneResize(deps: UseLaneResizeDeps) {
     const startH = kind === 'video' ? videoTrackHRef.current : audioTrackHRef.current
     const rows = Math.max(1, kind === 'video' ? above + TRACK_PAD_ROWS : above)
     const setter = kind === 'video' ? setVideoTrackH : setAudioTrackH
+    // **まとめて変えるなら、個別の指定は捨てる**（2026-08-06）。
+    //
+    // 段の高さは「種類ごとの既定」と「段ごとの指定」の2段構えで、
+    // 指定がある段は既定を見ない。**だから Shift で「まとめて」変えても、
+    // 指定を持っている段だけ動かない。**
+    //
+    // 実際に起きた形（本人の画面を測った）:
+    //
+    //   音声の既定 96.5 ／ 段ごと {A1:44, A2:26}
+    //   → A1 44・A2 26・**A3 だけ 97**
+    //
+    // 「A3 からまた大きい」に見えるが、A3 が特別なのではなく
+    // **A3 だけが既定を見ている**。どの段に指定が残っているかは画面から
+    // 読めないので、原因に辿り着けない。
+    // → まとめて変えると宣言したときは、その種類の指定を消して**本当に揃える**。
+    setLaneH((p) => {
+      const next: Record<string, number> = {}
+      for (const [id, h] of Object.entries(p)) {
+        // 種類は id の頭で決まる（V…=映像 / A…=音声）
+        const isVideo = id.startsWith('V')
+        if ((kind === 'video') !== isVideo) next[id] = h
+      }
+      return next
+    })
     // 掴んでいる間は、どこへ動かしても行を変える手のままにする
     // （途中で別のカーソルに化けると「外れた」ように見える）
     const prevCursor = document.body.style.cursor
