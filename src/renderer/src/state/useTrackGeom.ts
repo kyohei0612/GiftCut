@@ -14,6 +14,7 @@
 import { useMemo } from 'react'
 import type { Cue } from '../lib/srt'
 import type { Track, TrackState } from '../lib/projectTypes'
+import { laneHeightOf } from '../lib/laneHeight'
 // 重ねる動画の長さ。**正典は shared/timeline**（画面と書き出しで同じ物を通す）
 import { vcLen } from '../../../shared/timeline'
 
@@ -34,15 +35,24 @@ export function useTrackGeom(deps: UseTrackGeomDeps) {
   const v1Index = useMemo(() => tracks.findIndex((t) => t.id === 'V1'), [tracks])
   const a1Index = useMemo(() => tracks.findIndex((t) => t.id === 'A1'), [tracks])
 
-  /** 段の太さ。id を渡せばその段の値、種類だけなら種類の値 */
-  const trackHOf = (idOrKind: string): number => {
-    const own = laneH[idOrKind]
-    if (own != null) return own
-    if (idOrKind === 'video' || idOrKind === 'audio')
-      return idOrKind === 'video' ? videoTrackH : audioTrackH
-    const t = tracks.find((x) => x.id === idOrKind)
-    return t?.kind === 'audio' ? audioTrackH : videoTrackH
-  }
+  /**
+   * 段の太さ。id を渡せばその段の値、種類だけなら種類の値。
+   *
+   * **決め方は `lib/laneHeight` に出した**（2026-08-06）。
+   * 「A3 だけ大きいのはなぜか」に答えるのに、前はアプリを起動して
+   * 実寸を測るしかなかった。外に出したので機械で押さえられる
+   * ——「A3 と V3 は既定で同じ高さ」を試験が見張っている。
+   */
+  const trackHOf = (idOrKind: string): number =>
+    laneHeightOf(
+      {
+        laneH,
+        videoTrackH,
+        audioTrackH,
+        kindOf: (id: string) => tracks.find((x) => x.id === id)?.kind
+      },
+      idOrKind
+    )
 
   /** 段IDの番号（V3→3）。対になる音声の段は同じ番号（V3→A3） */
   const trackNum = (id: string): number => Number(id.slice(1)) || 0
