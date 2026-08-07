@@ -327,7 +327,10 @@ export default async function (C) {
     // 元から 0秒だったのか区別が付かない
     const dropX = Math.round(v1row.width * 0.6)
     assert(dropX > 200, `落とす位置が左に寄りすぎて確かめられない（${dropX}px）`)
-    await dndFromBin('test_video', '[data-tid="V1"]', { x: dropX, y: 10 })
+    const r = await dndFromBin('test_video', '[data-tid="V1"]', { x: dropX, y: 10 })
+    // **1本目のときは影を出さない。** どこへ落としても 0秒からなので、
+    // 「ここに入ります」を指しても指した所には入らない（本人の指定）
+    assert(!r.ghost, '空のタイムラインなのに、置き先の影が出ている')
     await page.waitForTimeout(900)
 
     const after = await clipLayout()

@@ -143,12 +143,22 @@ export function useMediaPlace(deps: UseMediaPlaceDeps) {
     const inner = trackInnerRef.current
     const scroll = scrollRef.current
     if (!inner || !scroll) return
+    // **1本目を置くときは、影を出さない**（2026-08-07・本人の指定）。
+    //
+    // 空のタイムラインはどこへ落としても 0秒から始まるので、
+    // 「ここに入ります」を指しても**指した所には入らない**。
+    // 影を 0秒へ出す形も試したが、それだと**カーソルから離れた所で影だけが動く**
+    // ——何が起きているのか読めない。
+    // 代わりに案内（`.tl-empty`）が「どこへ落としても、0秒から並びます」と
+    // 先に言っているので、置く前に分かる。
+    if (timelineEmpty()) {
+      clearDropGhosts()
+      return
+    }
     const rect = inner.getBoundingClientRect()
     const view = scroll.getBoundingClientRect()
     const raw = Math.max(0, (clamp(clientX, view.left, view.right) - rect.left) / zoomRef.current)
-    // **影も置く時刻と同じ規則で出す。** ここだけ落とした位置のままだと、
-    // 「見えていた所と違う所へ入った」になる（置く側は placeDropped）
-    const t = placeStartSec(snapClipStart(raw, dragSeDurRef.current), timelineEmpty())
+    const t = snapClipStart(raw, dragSeDurRef.current)
     const yRel = clamp(clientY, view.top, view.bottom) - rect.top
     const dur = dragSeDurRef.current
     if (m.kind === 'audio') {
