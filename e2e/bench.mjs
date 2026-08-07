@@ -55,6 +55,10 @@ import { makeReporter } from './lib/benchReport.mjs'
 import { readArgs, prepareFixture } from './lib/benchSetup.mjs'
 // **止まっている間に何をしているか**まで見る（--cpu のときだけ）
 import { makeCpuProfiler } from './lib/cpuProfile.mjs'
+// 時間まわり（その回を信じていいか・何に時間を食ったか）
+import { 素の重さを測る, 時計を作る } from './lib/benchClock.mjs'
+// 触っている間のコマ落ちを記録する仕掛け（話題が1つなので分けてある）
+import { makeMeasure } from './lib/benchMeasure.mjs'
 // 触ったときのもたつきを測る7項目（本体は素材づくり・記録・まとめだけ持つ）
 import { runOpsChecks } from './bench-ops.mjs'
 // 流して見る2項目（**触ったときのもたつき**とは見ている物が違うので分けてある）
@@ -74,19 +78,8 @@ const { KEEP, DO_EXPORT, DO_LIMITS, MINUTES, REAL, SELFCHECK, EDITS, PROFILE, WA
 
 const nowSec = () => Date.now() / 1000
 
-// **どこに時間がかかっているかを、あとから言えるようにする**（2026-08-07）。
-//
-// 通しは30分以上かかるのに、**内訳を出す物が無かった**。「まだ18%」と言われても
-// 何が長いのか答えられない——**測る道具なのに、自分の時間は測っていなかった。**
-//
-// 項目ごとの時間は各行に出ている（`8.9秒間` など）が、それは**触っている間**だけ。
-// 素材づくり・起動・書き出し・限界さがしは**どこにも出ていない**。そこを埋める。
-const 区切り = []
-let 区切りT = Date.now()
-const 区切る = (名) => {
-  区切り.push({ 名, 秒: (Date.now() - 区切りT) / 1000 })
-  区切りT = Date.now()
-}
+// 時間まわり（素の重さ・段ごとの時間）は ./lib/benchClock
+const { 区切る, 出す: 内訳を出す } = 時計を作る()
 
 // ---------------------------------------------------------------------------
 // 素材づくり（作ったものは .cache に置いて次回から使い回す）
@@ -163,45 +156,8 @@ try {
   await page.waitForSelector('.app', { timeout: 30000 })
   page.setDefaultTimeout(20000)
 
-  // **測る前に「何もしていないとき」を測る**（2026-08-07）。
-  //
-  // この道具の数字は、**機械が他に取られているかどうかで2倍変わる**。
-  // 今日それで何度も惑わされた——同じコードで横スクロールが 20.8ms と 50.0ms、
-  // 全項目が同時に悪化し、所要も 9.0秒 → 15.0秒 に伸びていた（chrome が1コア分）。
-  //
-  // **触らずに2秒ぶんのコマを数えれば、その回が使い物になるか先に分かる。**
-  // 何もしていないのに 4.2ms（毎秒240コマ相当）から離れているなら、
-  // そのあとの数字は**アプリのせいではない**。
-  //
-  // ※ 止めない。**測れないと決めつけるのはこちらの仕事ではない**ので、
-  //   数字を出して読む人に渡す（自動で捨てると、本物の悪化まで消える）。
-  const 素の重さ = await page.evaluate(
-    () =>
-      new Promise((ok) => {
-        const 間 = []
-        let last = performance.now()
-        const t0 = last
-        const tick = (t) => {
-          間.push(t - last)
-          last = t
-          if (t - t0 < 2000) requestAnimationFrame(tick)
-          else {
-            間.sort((a, b) => a - b)
-            ok({ 中央: 間[Math.floor(間.length / 2)] ?? 0, 数: 間.length })
-          }
-        }
-        requestAnimationFrame(tick)
-      })
-  )
-  const 取られている = 素の重さ.中央 > 8
-  console.log(
-    (取られている ? '[33m' : '[90m') +
-      `  何もしていないときのコマ間隔: 中央値 ${fmt(素の重さ.中央)}ms（${素の重さ.数}コマ）` +
-      (取られている
-        ? ' ← **機械が他に取られている。この回の数字はアプリのせいとは限らない**'
-        : '') +
-      '[0m'
-  )
+  // **触る前に、機械が空いているかを見る**（理由は ./lib/benchClock）
+  await 素の重さを測る(page, fmt)
 
   const outDir = join(fx.dir, 'out')
   mkdirSync(outDir, { recursive: true })
@@ -227,104 +183,8 @@ try {
     return page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0)
   }
 
-  /** 操作している間の描画のコマ落ちを記録する */
-  /**
-   * 操作しながら重さを測る。
-   *
-   * fn は「操作が成立しなかったら throw する」こと。成立の確認が無い項目は、
-   * 何も起きていないのに「軽い」という数字を出してしまう。
-   *
-   * broken を渡すと --selfcheck でそれを実行し、**落ちることを確かめる**。
-   * 落ちなければ、その項目は何も見ていないということ。
-   */
-  /**
-   * @param setup 記録を始める**前**に走らせる手（入口づくり）。
-   *   ここに置いた分は数字に入らない。**測りたい操作だけを `fn` に残すこと。**
-   */
-  async function measure(name, fn, broken, setup) {
-    if (SELFCHECK) {
-      if (!broken) {
-        await done('自己点検', name, 'わざと間違える手順が用意されていない', 'warn')
-        return
-      }
-      await say('自己点検', name, 'わざと間違えて、ちゃんと落ちるかを見る')
-      let threw = false
-      try {
-        await broken()
-      } catch {
-        threw = true
-      }
-      await done(
-        '自己点検',
-        name,
-        threw ? 'わざと間違えると、ちゃんと落ちる' : '間違えても合格してしまう（何も見ていない）',
-        threw ? 'ok' : 'ng'
-      )
-      return
-    }
-    await say('動作', name, '触っている間のコマ落ちを記録中')
-    // **入口を作る手は、記録に入れない**（2026-08-07）。
-    //
-    // 記録は `fn` の中を丸ごと拾うので、入口づくり（全体表示へ戻す等）の重さも
-    // 混ざる。**入口の重さは「どこから戻るか」で変わる**ので、アプリを1行も
-    // 変えていないのに数字が動く——`拡大・縮小` は同じコードで
-    // **95% が 16.6ms と 54.1ms（3倍）／引っかかりが 1回と 24回**に割れた。
-    //
-    // 「項目が自分で入口を決める」（2026-08-04 に4か所直した）だけでは足りない。
-    // **決めた入口へ行く動作そのものを測ってしまう**からで、そこを外に出す。
-    if (setup) await setup()
-    await page.evaluate(() => {
-      window.__frames = []
-      window.__sampling = true
-      let last = performance.now()
-      const tick = (t) => {
-        window.__frames.push(t - last)
-        last = t
-        if (window.__sampling) requestAnimationFrame(tick)
-      }
-      requestAnimationFrame(tick)
-    })
-    const t0 = nowSec()
-    let failed = null
-    if (cpu) await cpu.start()
-    try {
-      await fn()
-    } catch (e) {
-      failed = e?.message ?? String(e) // 操作そのものが成立しなかった
-    }
-    const elapsed = nowSec() - t0
-    const frames = await page.evaluate(() => {
-      window.__sampling = false
-      return window.__frames
-    })
-    const s = frameStats(frames)
-    // **成立しなかったときも出す。** 何をしていて成立しなかったのかが、
-    // そのまま原因になっていることがある
-    if (cpu) await cpu.stop(name)
-    if (failed) return done('動作', name, `操作が成立しなかった: ${failed}`, 'ng')
-    if (!s) return done('動作', name, '（描画が記録できなかった）', 'warn')
-    // **窓が裏に回ったら、それは測定不成立。アプリのせいにしない。**
-    //
-    // 前に出たら Chromium は rAF を**1秒に1回**へ絞る。すると中央値が
-    // ぴったり 1000ms 付近になり、所要時間も 26秒 → 98.8秒 に膨らむ。
-    // これを黙って通すと「アプリが致命的に重い」という顔の赤が6件並ぶ
-    // （2026-08-04、別のセッションが Electron を起動して前面を奪ったとき実際にそうなった。
-    //   数字だけ見て「描画が重い」と読み違えるところだった）。
-    if (s.median > 500)
-      return done(
-        '動作',
-        name,
-        `測れていない: 1コマが ${fmt(s.median)}ms（＝毎秒1コマ）。**窓が裏に回されている**。` +
-          '他のアプリや別の e2e が前面を取っていないか確かめて、測り直すこと',
-        'ng'
-      )
-    const detail =
-      `中央値 ${fmt(s.median)}ms / 95% ${fmt(s.p95)}ms / 最悪 ${fmt(s.worst)}ms` +
-      ` / 引っかかり ${s.janky}回（${fmt(elapsed)}秒間）`
-    // 60fps=16.7ms。33ms(30fps)までは普通に触れる。50ms超が続くともたつきを感じる。
-    await done('動作', name, detail, s.p95 <= 33 ? 'ok' : s.p95 <= 60 ? 'warn' : 'ng')
-  }
-
+  // 触っている間のコマ落ちを記録する仕掛けは ./lib/benchMeasure
+  const measure = makeMeasure({ page, say, done, cpu, fmt, nowSec, SELFCHECK })
   // ---- 1. 読み込み -----------------------------------------------------
   await say('動作', 'プロジェクトを開く', `${MINUTES}分・テロップ${WANT_TELOPS}枚を復元中`)
   const restore = page.locator('.restore-btns button', { hasText: '復元' }).first()
@@ -550,17 +410,7 @@ try {
 
   // ---- まとめ ----------------------------------------------------------
   区切る(DO_EXPORT ? '書き出して確かめる' : '最後の確認')
-  // **時間の内訳を出す**（2026-08-07）。長い順。
-  // 「まだ18%」に答えられる物が無かったので足した。**測る道具なのに、
-  // 自分の時間は測っていなかった。**
-  const 合計 = 区切り.reduce((a, b) => a + b.秒, 0)
-  console.log(`
-[1m時間の内訳[0m  合計 ${fmt(合計 / 60)}分。長い順:`)
-  for (const r of [...区切り].sort((a, b) => b.秒 - a.秒)) {
-    if (r.秒 < 0.5) continue
-    const 割合 = Math.round((r.秒 / 合計) * 100)
-    console.log(`  ${String(fmt(r.秒)).padStart(7)}秒  ${String(割合).padStart(3)}%  ${r.名}`)
-  }
+  内訳を出す(fmt)
   const ng = rows.filter((r) => r.verdict === 'ng').length
   const warn = rows.filter((r) => r.verdict === 'warn').length
   // **本物のプロジェクトで測ったときに「60分・テロップ200枚」と出さない。**
