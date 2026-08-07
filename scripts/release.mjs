@@ -66,6 +66,33 @@ if (!env.GH_TOKEN && !env.GITHUB_TOKEN) {
 const run = (name) =>
   spawnSync('npm', ['run', name], { stdio: 'inherit', shell: true, env }).status ?? 1
 
+// **先に、空のリリースを作っておく**（2026-08-07）。
+//
+// これを入れるまで、`npm run release` は**1回目が必ず落ちていた**（5回連続）。
+// 原因は競争で、ログには自分で書いてあった:
+//
+//   • creating GitHub release  reason=release doesn't exist tag=v0.1.31
+//   • creating GitHub release  reason=release doesn't exist tag=v0.1.31   ← 2つ走る
+//   ⨯ 422 Unprocessable Entity … "code": "already_exists"
+//
+// electron-builder は**添付ごとに発行を走らせる**ので、どちらも「まだ無い」を見て
+// から作りに行く。先に作った方が勝ち、負けた方が 422 で**ビルドごと落ちる**。
+// 2回目が通るのは、そのとき既にリリースが在るから——**回数が問題ではなく、
+// 「在るかどうか」だけが問題だった。**
+//
+// だから、こちらで1回だけ作っておく。既に在るなら何もしない（`gh` が言ってくる）。
+// **失敗しても止めない**——ここが本筋ではないので、発行に進んで数える側に任せる。
+const tag = `v${JSON.parse(readFileSync('package.json', 'utf8')).version}`
+{
+  const r = spawnSync('gh', ['release', 'create', tag, '--title', tag, '--notes', tag], {
+    encoding: 'utf8'
+  })
+  const 既にある = (r.stderr ?? '').includes('already exists')
+  if (r.status === 0) console.log(`${tag} の入れ物を作りました（発行はここへ足していきます）`)
+  else if (既にある) console.log(`${tag} は既にあります（そのまま足します）`)
+  else console.error(`\x1b[33m入れ物を作れませんでした: ${(r.stderr ?? '').trim()}\x1b[0m`)
+}
+
 const published = run('publish:only')
 if (published !== 0)
   console.error(`\n\x1b[33m発行が終了コード ${published} で終わりました。` +

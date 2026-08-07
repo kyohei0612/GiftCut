@@ -95,4 +95,22 @@ describe('拡大バーの●', () => {
     const move = px('.zoom-bar-thumb', 'min-width') - hitW
     expect(move).toBeGreaterThanOrEqual(8)
   })
+
+  it('**横は 24px ある**（WCAG 2.2 の下限）', () => {
+    expect(hitW).toBeGreaterThanOrEqual(24)
+  })
+
+  // **縦は 24 にしない。** バーの上の余白は 2px しかないので、24 にすると
+  // 上へ 6px はみ出して **4px がタイムラインの中へ食い込む**。●はつまみと
+  // 一緒に動くため、段のいちばん下に「押すと拡大が始まる帯」が現れて左右へ動く。
+  // 小さいままより悪い形（CLAUDE.md の hitArea の行）。
+  // 縦を伸ばすならバー自体を高くする話で、それはタイムラインの高さを削る判断。
+  it('**上の段へ食い込まない**（縦に広げすぎない）', () => {
+    const 上のはみ出し =
+      (px('.zoom-bar-knob::before', 'height') - px('.zoom-bar', 'height')) / 2
+    // バーの上余白（margin の1つ目）を超えて出た分が、タイムラインを盗む
+    const 上余白 = Number(/margin:\s*(-?[\d.]+)px/.exec(rule('.zoom-bar'))?.[1] ?? NaN)
+    expect(上余白, '.zoom-bar の margin が読めない（書き方が変わった）').not.toBeNaN()
+    expect(上のはみ出し - 上余白).toBeLessThanOrEqual(2)
+  })
 })
