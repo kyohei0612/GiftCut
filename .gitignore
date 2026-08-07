@@ -27,6 +27,8 @@ e2e/walk/
 e2e/ui-shots/
 # 右パネルの導線を撮った物（npm run audit）。実素材の名前が写るので履歴に入れない
 e2e/audit/
+# UI/UX を見て回った物（画面を撮るだけ）。上と同じ理由で履歴に入れない
+e2e/ux-tour/
 # 1コマずつの確認が作る動画と表（作り直せる）
 e2e/frames/
 # 演出を1コマずつ撮った帯と判定表（npm run presets。作り直せる）
