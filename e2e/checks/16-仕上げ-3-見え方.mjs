@@ -206,6 +206,58 @@ export default async function (C) {
     )
   })
 
+  await check('**遠くまで送っても、目盛りが尽きない**', async () => {
+    // **軽くするために入れた間引きが、そのまま危険になる**（2026-08-07）。
+    // 目盛りは前後1画面ぶん多めに作り、**半画面ぶん動いたら作り直す**。
+    // 余白のほうが広いので理屈では安全だが、**理屈で安全と言い切らない**
+    //（間引きを 1.5画面へ緩めた瞬間に、送った先が空白になる）。
+    //
+    // これを入れる前は、横に1px 送るたびにタイムライン全体を描き直していた
+    //（負荷チェックで 33.2ms → 20.8ms。-37%）。
+    const scroll = page.locator('.track-scroll').first()
+    const 余地 = await scroll.evaluate((el) => el.scrollWidth - el.clientWidth)
+    assert(余地 > 2000, `送れる余地が足りない（${余地}px）。この確認が成り立たない`)
+    // 何画面ぶんも送って、そのつど目盛りが右端まで届いているかを見る
+    for (const 割合 of [0.15, 0.4, 0.7, 1]) {
+      await scroll.evaluate((el, r) => (el.scrollLeft = (el.scrollWidth - el.clientWidth) * r), 割合)
+      await page.waitForTimeout(250)
+      const 状態 = await scroll.evaluate((el) => {
+        const 目盛り = [...el.querySelectorAll('.tick')]
+          .map((t) => parseFloat(t.style.left))
+          .sort((a, b) => a - b)
+        // 刻みの幅（隣どうしの間隔のいちばん狭い所）。**端の許容はここまで**
+        let 刻み = Infinity
+        for (let i = 1; i < 目盛り.length; i++) {
+          const d = 目盛り[i] - 目盛り[i - 1]
+          if (d > 0.5 && d < 刻み) 刻み = d
+        }
+        return {
+          left: el.scrollLeft,
+          w: el.clientWidth,
+          最小: 目盛り.length ? 目盛り[0] : null,
+          最大: 目盛り.length ? 目盛り[目盛り.length - 1] : null,
+          数: 目盛り.length,
+          刻み: Number.isFinite(刻み) ? 刻み : 0
+        }
+      })
+      assert(状態.数 > 0, `${Math.round(割合 * 100)}% の所で目盛りが1本も無い`)
+      // 見えている範囲を、目盛りが覆っていること（端が空かない）。
+      // **許すのは刻み1つぶんまで。** 尺の終わりは刻みの倍数とは限らないので、
+      // 最後の目盛りより先に目盛りは存在しない（そこを 0 許容にすると偽の赤になる）
+      const 余白 = 状態.刻み + 2
+      assert(
+        状態.最小 <= 状態.left + 余白,
+        `${Math.round(割合 * 100)}% の所で左端が空いている（目盛りの最小 ${Math.round(状態.最小)} / 見ている左 ${Math.round(状態.left)} / 刻み ${Math.round(状態.刻み)}）`
+      )
+      assert(
+        状態.最大 >= 状態.left + 状態.w - 余白,
+        `${Math.round(割合 * 100)}% の所で右端が空いている（目盛りの最大 ${Math.round(状態.最大)} / 見ている右 ${Math.round(状態.left + 状態.w)} / 刻み ${Math.round(状態.刻み)}）`
+      )
+    }
+    await scroll.evaluate((el) => (el.scrollLeft = 0))
+    await page.waitForTimeout(200)
+  })
+
   await check('**横スワイプ（deltaX）でタイムラインが横に送れる**', async () => {
     // **`overflow-x: auto` を隠した日に、これだけ黙って死んでいた**（2026-08-06→08-07）。
     // 横の送りは4つ（拡大バー／ホイール／Shift+ホイール／横スワイプ）あるが、

@@ -238,15 +238,22 @@ export async function runOpsChecks(ctx) {
   await measure(
     'タイムラインを横にスクロールする',
     async () => {
+      // **往復を5回する**（2026-08-07）。1往復（約2秒・470コマ）だと 95% が
+      // 24.9〜33.3ms に散り、**追いたい差（1〜2割）より測定のばらつきの方が大きい**。
+      // 道具の分解能が足りないと、何を直しても「効いたかどうか分からない」になる。
+      // 標本が5倍なら、ばらつきは約 √5＝2.2倍 細くなる。
       const x0 = await firstClipX()
       await page.mouse.move(visMid, visY(60))
-      for (let i = 0; i < 20; i++) {
-        await page.mouse.wheel(160, 0)
-        await page.waitForTimeout(25)
+      for (let 回 = 0; 回 < 5; 回++) {
+        for (let i = 0; i < 20; i++) {
+          await page.mouse.wheel(160, 0)
+          await page.waitForTimeout(25)
+        }
+        if (回 === 0 && Math.abs((await firstClipX()) - x0) < 10)
+          throw new Error(await なぜ送れないか())
+        for (let i = 0; i < 20; i++) await page.mouse.wheel(-160, 0) // 戻す
+        await page.waitForTimeout(300)
       }
-      if (Math.abs((await firstClipX()) - x0) < 10) throw new Error(await なぜ送れないか())
-      for (let i = 0; i < 20; i++) await page.mouse.wheel(-160, 0) // 戻す
-      await page.waitForTimeout(300)
     },
     // わざと間違える: タイムラインの外（プレビューの上）でホイールする。
     // ※縦にホイールしても横に動くので、それでは「間違い」にならない

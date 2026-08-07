@@ -71,7 +71,6 @@ export interface TimelineView {
   /** 切片の位置（秒）。横位置はここから決まる */
   segLayout: W['segLayout']
   /** 目盛りの刻み */
-  rulerTicks: W['rulerTicks']
   /** 上下の余白 */
   padTop: W['padTop']
   padBottom: W['padBottom']
@@ -107,7 +106,7 @@ export function useTimelineViewValue() {
   const { srcOfSeg } = useMediaCtx()
   const { silenceCut } = useSilenceDuckCtx()
   const { shortcuts } = useShortcutPrefsCtx()
-  const { duration, rulerTicks } = useTimelineSpanCtx()
+  const { duration } = useTimelineSpanCtx()
   const { tool, setTool, snap } = useAppChromeCtx()
   const { segLayout } = useSegLayoutCtx()
   const { padTop, padBottom } = useLaneHeightsCtx()
@@ -122,7 +121,7 @@ export function useTimelineViewValue() {
     silenceCut, shortcuts, duration,
     tool, setTool, snap,
     hoverX, setHoverX, lastHoverPaintRef,
-    segLayout, rulerTicks, padTop, padBottom, trackHOf, inView,
+    segLayout, padTop, padBottom, trackHOf, inView,
     scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll,
     fitTimelineZoom
   }

@@ -17,10 +17,7 @@
 // - `TimelineSpanProvider` … 囲い。中で4つを心臓から読んで1回だけ呼ぶ
 // - `useTimelineSpanCtx` … 見に行く。囲いの外で呼んだら、その場で落とす
 import { createContext, useContext, type ReactNode } from 'react'
-import { usePlaybackCtx } from './playbackContext'
-import { useViewCtx } from './viewContext'
 import { useSegLayoutCtx } from './segLayoutContext'
-import { useTimelineBoxCtx } from './timelineBoxContext'
 import { useTimelineSpan } from './useTimelineSpan'
 
 /** **手で書かない。** 作っている側から引く（ズレようがない） */
@@ -30,14 +27,14 @@ const Ctx = createContext<TimelineSpanValue | null>(null)
 
 export function TimelineSpanProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const { videoTLen } = useSegLayoutCtx()
-  const { zoom } = useViewCtx()
-  const { fps } = usePlaybackCtx()
-  const { scrollRef } = useTimelineBoxCtx()
-  const value = useTimelineSpan({ videoTLen, zoom, fps, scrollRef })
+  // **拡大率も窓も、もう要らない**（2026-08-07。目盛りを `useRulerTicks` へ移した）。
+  // ここが `zoom` を見ていた頃は、寄るだけでこの囲いの値が変わり、
+  // 見に行っている側が全部描き直されていた
+  const value = useTimelineSpan({ videoTLen })
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
-/** タイムラインの長さと目盛りを見に行く。囲いの外で呼んだら、その場で落とす */
+/** タイムラインの長さを見に行く。囲いの外で呼んだら、その場で落とす */
 export function useTimelineSpanCtx(): TimelineSpanValue {
   const v = useContext(Ctx)
   if (!v) throw new Error('useTimelineSpanCtx は TimelineSpanProvider の中でしか使えません')

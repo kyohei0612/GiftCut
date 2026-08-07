@@ -67,6 +67,9 @@ import { useLayout } from '../../state/layoutContext'
 import { useDragPreviewCtx } from '../../state/dragPreviewContext'
 import { useTimelineOps } from '../../state/timelineOpsContext'
 import { useTimelineView } from '../../state/timelineViewContext'
+// **目盛りだけは、目盛りが自分で作る**（2026-08-07）。
+// 心臓に置くと、横に1px 送るたびにタイムライン全体が描き直された（-37%）
+import { useRulerTicks } from '../../state/useRulerTicks'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface TimelineAreaProps {
@@ -92,7 +95,7 @@ export function TimelineArea(): JSX.Element {
     cueTrack, vcLen, mediaMeta, srcOfSeg, pairedAudioOf, trackNum, motionLabel,
     silenceCut, shortcuts, duration,
     tool, setTool, snap, hoverX, setHoverX, lastHoverPaintRef,
- segLayout, rulerTicks, padTop, padBottom, trackHOf, inView,
+ segLayout, padTop, padBottom, trackHOf, inView,
     scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll,
     fitTimelineZoom
   } = useTimelineView()
@@ -114,6 +117,7 @@ export function TimelineArea(): JSX.Element {
   const { videoSrc, mediaItems } = useMediaCtx()
   const { timelineH } = useLayout()
   const { videoGhost, seGhost, imgGhost, marquee, snapLineX, overwriteIds } = useDragPreviewCtx()
+  const rulerTicks = useRulerTicks(scrollRef, zoom, duration, fps)
   return (
     <section
       className="timeline"
