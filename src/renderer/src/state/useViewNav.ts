@@ -14,9 +14,7 @@ import { clamp } from '../../../shared/timeline'
 // 全体が収まる率と、引ける下限。**式はあちらに1つだけ**（フィット・拡大バー・
 // Ctrl+ホイールの3か所が同じ所へ行き着くようにするため）
 import { fitZoom, minZoom, scrollForZoomAtPlayhead } from '../../../shared/zoomBar'
-// **下限は固定値ではない**（2026-08-06）。「全体がちょうど収まる率」なので
-// 中身の長さで毎回変わる。だから ZOOM_MIN は使わない
-import { ZOOM_MAX } from './useView'
+import { ZOOM_MAX, ZOOM_MIN } from './useView'
 import { usePlaybackCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
 
@@ -84,7 +82,7 @@ export function useViewNav(deps: UseViewNavDeps): ViewNav {
     const headX = t * zoomRef.current - el.scrollLeft
     // **下限は「全体がちょうど収まる率」。材料はバーが描く長さ**（`duration`）。
     // `contentEnd` で出すと、バーの端と倍率の限界が食い違う（2026-08-06）
-    const lo = minZoom(el.clientWidth, durationRef.current)
+    const lo = minZoom(el.clientWidth, durationRef.current, ZOOM_MIN)
     const nz = clamp(zoomRef.current * (dir > 0 ? 1.15 : 0.87), lo, ZOOM_MAX)
     setZoom(nz)
     requestAnimationFrame(() => {
@@ -107,7 +105,7 @@ export function useViewNav(deps: UseViewNavDeps): ViewNav {
     // 見せても仕方がない）。一度ここも `duration` にして、
     // **短い素材で4倍ぶん引きすぎ、確認が3件赤くなった**（2026-08-06）。
     const end = Math.max(contentEndRef.current, 10)
-    setZoom(clamp(fitZoom(vw, end), minZoom(vw, durationRef.current), ZOOM_MAX))
+    setZoom(clamp(fitZoom(vw, end), minZoom(vw, durationRef.current, ZOOM_MIN), ZOOM_MAX))
     requestAnimationFrame(() => {
       if (scrollRef.current) scrollRef.current.scrollLeft = 0
     })

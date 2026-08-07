@@ -250,18 +250,21 @@ export default async function (C) {
     )
   })
 
-  await check('**つまみの太さ ＝ いま見えている割合**（どの拡大率でも）', async () => {
+  await check('**つまみの太さは、見えている秒数に比例する**（どの拡大率でも）', async () => {
     // ## なぜ「動いたか」ではなく「合っているか」を見るか
     //
-    // 上の確認は「寄ったら細くなる」しか見ていない。**向きが合っていれば通る**ので、
-    // 割合が半分でも倍でも気づけない。
+    // 「寄ったら細くなる」だけの確認は、**向きが合っていれば通る**ので、
+    // 割合が半分でも倍でも気づけない。数を突き合わせる。
     //
-    // バーは「タイムライン全体のうち、いまどこを見ているか」を表す唯一の物なので、
-    // **数が合っていないと読み違える**——本人が「拡大してもバーが伸び切ってるのは
-    // おかしい」と言えたのは絵を見比べたからで、機械は何も言っていなかった。
+    // ## 何と突き合わせるか（2026-08-07 に決まりが変わった）
     //
-    // 見えている割合（表示幅 ÷ 中身の幅）と、つまみの割合（つまみ ÷ バー）を
-    // **3つの拡大率で突き合わせる**。
+    // バーが描くのは**引き切ったときに見える範囲**（タイムラインの長さではない。
+    // 本人の指定:「バーのマックス状態を、かなり引いたタイムラインの状態に」）。
+    // なので「つまみの割合＝見えている割合」はもう成り立たない。
+    //
+    // 成り立つのは比例関係:**つまみの太さ × 中身の幅 ＝ 一定**
+    // （つまみ ∝ 見えている秒数 = 表示幅/倍率、中身の幅 ∝ 倍率。積から倍率が消える）。
+    // 3つの拡大率で積がほぼ同じことを見る。
     await resetProject()
     const 実測 = async () =>
       await page.evaluate(() => {
@@ -269,11 +272,12 @@ export default async function (C) {
         const bar = document.querySelector('.zoom-bar')
         const th = document.querySelector('.zoom-bar-thumb')
         return {
-          見え: sc.clientWidth / Math.max(1, sc.scrollWidth),
+          中身: Math.max(1, sc.scrollWidth),
           つまみ: th.getBoundingClientRect().width / bar.getBoundingClientRect().width
         }
       })
 
+    const 積たち = []
     for (const [名, 回数] of [
       ['そのまま', 0],
       ['少し寄る', 4],
@@ -281,17 +285,22 @@ export default async function (C) {
     ]) {
       if (回数) await ctrlWheel(-120, 回数)
       const r = await 実測()
-      // **つまみには下限（28px）がある**ので、うんと寄せると割合は合わなくなる。
-      // 下限に当たっていない範囲だけを見る（当たっていたら、そこは見ない）
+      // **つまみには下限（28px）がある**ので、うんと寄せると比例が壊れる。
+      // 下限に当たっていない範囲だけを見る
       const 下限割合 = await page.evaluate(
         () => 28 / document.querySelector('.zoom-bar').getBoundingClientRect().width
       )
       if (r.つまみ <= 下限割合 + 0.005) continue
-      const 差 = Math.abs(r.つまみ - r.見え)
+      積たち.push({ 名, 積: r.つまみ * r.中身 })
+    }
+    assert(積たち.length >= 2, `比べられる点が足りない（${積たち.length}点）`)
+    const 基準 = 積たち[0].積
+    for (const p of 積たち) {
+      const ずれ = Math.abs(p.積 - 基準) / 基準
       assert(
-        差 < 0.03,
-        `${名}: つまみの割合が実際と合っていない` +
-          `（見えている ${(r.見え * 100).toFixed(1)}% / つまみ ${(r.つまみ * 100).toFixed(1)}%）`
+        ずれ < 0.05,
+        `${p.名}: つまみが見えている秒数に比例していない` +
+          `（積 ${Math.round(基準)} → ${Math.round(p.積)}、ずれ ${(ずれ * 100).toFixed(1)}%）`
       )
     }
   })

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   barSpan,
+  barTotalSec,
   viewSpan,
   zoomFromSpan,
   panFromSpan,
@@ -146,32 +147,55 @@ describe('引ける下限と、全体が収まる率', () => {
     expect(fitZoom(1000, 0)).toBeCloseTo(96, 6)
   })
 
-  it('**長い素材では下限が下がる**（451秒の実データ。全体が入る所まで引ける）', () => {
-    const z = minZoom(1000, 451)
+  it('**長い素材では下限が下がる**（451秒の実データ。6px/秒では全体が入らない）', () => {
+    const z = minZoom(1000, 451, 6)
     expect(z).toBeCloseTo(960 / 451, 6) // ≒ 2.13px/秒
+    expect(z).toBeLessThan(6)
     // ここまで引ければ、451秒 × 2.13 ≒ 960px ＝ 窓に収まる
     expect(451 * z).toBeLessThanOrEqual(1000)
   })
 
-  // **ここは 2026-08-06 に決まりごと変わった。**
-  // 前は「短い素材では、全体が収まる所よりさらに引ける」だった（固定の下限 6 まで）。
-  // やめた理由は下のバーが表せないから——全部見えた時点でつまみは端から端＝満杯で、
-  // その先は**倍率だけ下がってバーが動かない**。本人の言葉:
-  // 「縮小時、ここをマックスの値として下のバーの大きさをしてほしい」
-  it('**短い素材でも「全体が収まる所」で止まる**（バーの端＝倍率の限界）', () => {
-    // 20秒なら 960/20 = 48px/秒。ここが下限＝これ以上は引けない
-    expect(minZoom(1000, 20)).toBeCloseTo(48, 6)
+  it('**短い素材では、全体が収まった先も引ける**（引ける範囲を狭めない）', () => {
+    // 20秒なら全体が収まる率は 48px/秒。そこで止めると**今より引けなくなる**ので、
+    // 小さい方（＝固定の下限 6）を採る
+    expect(minZoom(1000, 20, 6)).toBe(6)
   })
 
-  it('**下限まで引くと、ちょうど窓に収まる**（どの長さでも）', () => {
-    for (const sec of [20, 60, 451]) {
-      expect(sec * minZoom(1000, sec)).toBeLessThanOrEqual(1000)
-    }
+  it('幅が測れないときは、固定の下限のまま（起動直後に 0 で潰れない）', () => {
+    expect(minZoom(0, 451, 6)).toBe(6)
+    expect(minZoom(NaN, 451, 6)).toBe(6)
+  })
+})
+
+// **バーが描くのは「引き切って見える範囲」**（2026-08-06・本人の指定）。
+// 「バーのマックス状態を、かなり引いたタイムラインの状態にしてほしい」
+//
+// 一度は逆（全体が収まる所を限界にする）にしたが、本人が欲しかったのは
+// **引ける範囲はそのままで、バーの方を伸ばす**だった。
+describe('バーが描く範囲', () => {
+  it('**引き切ると、ちょうど満杯になる**（短い素材）', () => {
+    // 20秒・窓1000px・下限6 → 引き切ると 1000/6 ≒ 167秒ぶん見える
+    const total = barTotalSec(1000, 20, 6)
+    expect(total).toBeCloseTo(1000 / 6, 6)
+    // その倍率で描くと、見えている範囲＝バーの範囲＝満杯
+    expect(barSpan(0, 1000, total, 6)).toEqual({ a: 0, b: 1 })
   })
 
-  it('幅が測れないときでも潰れない（起動直後に 0 を掴む）', () => {
-    expect(minZoom(0, 451)).toBeGreaterThan(0)
-    expect(minZoom(NaN, 451)).toBeGreaterThan(0)
+  it('**全体が収まった所では、まだ満杯ではない**（そこから先も引ける）', () => {
+    const total = barTotalSec(1000, 20, 6)
+    const s = barSpan(0, 1000, total, fitZoom(1000, 20))
+    expect(s.b - s.a).toBeLessThan(1)
+  })
+
+  it('長い素材では、素材の長さとほぼ同じ（下限＝全体が収まる率のため）', () => {
+    // 451秒なら下限は 960/451 ≒ 2.13px/秒。引き切って見えるのは
+    // 1000/2.13 ≒ 470秒（fitZoom の余白 40px のぶんだけ素材より少し長い）
+    expect(barTotalSec(1000, 451, 6)).toBeCloseTo((451 * 1000) / 960, 6)
+  })
+
+  it('タイムラインより短くはならない', () => {
+    expect(barTotalSec(1000, 451, 6)).toBeGreaterThanOrEqual(451)
+    expect(barTotalSec(1000, 20, 6)).toBeGreaterThanOrEqual(20)
   })
 })
 

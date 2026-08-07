@@ -10,7 +10,15 @@
 // こちらの仕事は、掴んだ場所を読んでそこへ渡すところまで。
 
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { barSpan, minZoom, panFromSpan, viewSpan, zoomFromSpan } from '../../../../shared/zoomBar'
+import {
+  barSpan,
+  barTotalSec,
+  minZoom,
+  panFromSpan,
+  scrollForZoomAtPlayhead,
+  viewSpan,
+  zoomFromSpan
+} from '../../../../shared/zoomBar'
 
 // ## 効きの強さは、いじらないと決めた（2026-08-06）
 //
@@ -30,8 +38,19 @@ export function ZoomBar({
   zoom,
   limits,
   scrollRef,
+  playheadSecRef,
   onApply
 }: {
+  /**
+   * 再生ヘッドの時刻（秒）。**●で寄せ引きするときの軸**（2026-08-07・本人の指定）。
+   *
+   * 「プレミアみたいに、再生バーを基準にタイムラインが横に伸びてく感じ。
+   * 　どこに再生バーがあっても。いまは左右端基準でしょ？」
+   *
+   * 値ではなく ref で受ける——再生中に毎コマ描き直さないため
+   * （読むのは掴んで動かしている最中だけ）。
+   */
+  playheadSecRef: React.MutableRefObject<number>
   /**
    * タイムライン全体の長さ（秒）。**バーが描くのはこの範囲で、引ける下限もここから出す。**
    *
@@ -67,7 +86,16 @@ export function ZoomBar({
   }, [scrollRef])
   const el = scrollRef.current
   const viewW = el?.clientWidth ?? 0
-  const span = barSpan(el?.scrollLeft ?? 0, viewW, totalSec, zoom)
+  /**
+   * **バーが描く範囲（秒）。タイムラインの長さではなく、引き切って見える秒数。**
+   *
+   * 本人の指定:「バーのマックス状態を、かなり引いたタイムラインの状態にしてほしい」。
+   * 長さそのものを描くと、**全部見えた時点で満杯**になり、そこから先は
+   * 引いてもつまみが動かない。引き切った所を満杯にすれば、その区間も動く。
+   * 詳しくは shared/zoomBar の `barTotalSec`。
+   */
+  const barTotal = barTotalSec(viewW, totalSec, limits.min)
+  const span = barSpan(el?.scrollLeft ?? 0, viewW, barTotal, zoom)
 
   /** 掴んだ所から離すまでを面倒みる。`grab` は掴んだ物 */
   const start = (e: React.PointerEvent, grab: 'l' | 'r' | 'move'): void => {
@@ -81,60 +109,41 @@ export function ZoomBar({
     // **掴む起点は丸めない方**（`viewSpan`）。描いてある位置から出し直すと、
     // 両端（全部見えている／寄り切っている）で**掴んだ瞬間に倍率が飛ぶ**。
     // 理由は shared/zoomBar の `viewSpan` に書いてある
-    const base = viewSpan(scroll.scrollLeft, scroll.clientWidth, totalSec, zoom)
+    const base = viewSpan(scroll.scrollLeft, scroll.clientWidth, barTotal, zoom)
     const sx = e.clientX
+    // **掴んだ瞬間の、再生ヘッドの画面位置**（px）。寄せ引きの軸に使う。
+    // 動かしている最中に測り直さない——`zoom` はこの関数を作った時の値で
+    // 固定なので、途中で測ると古い倍率で位置を出して軸が毎フレームずれる
+    const headX0 = playheadSecRef.current * zoom - scroll.scrollLeft
     const at = (x: number): number => (x - rect.left) / Math.max(1, rect.width)
     const onMove = (ev: PointerEvent): void => {
       const w = scroll.clientWidth
       if (grab === 'move') {
         // つまみを丸ごと動かす。**拡大率は変えない**
         const d = (ev.clientX - sx) / Math.max(1, rect.width)
-        onApply(zoom, panFromSpan(base.a + d, base, totalSec, zoom))
+        onApply(zoom, panFromSpan(base.a + d, base, barTotal, zoom))
         return
       }
-      // 端のボッチ。**掴んだ端が指の所へ来る。反対の端は動かない**（プレミアと同じ）。
+      // 端のボッチ。**動いた量で倍率を決め、軸は再生バー**（2026-08-07・本人の指定）。
       //
-      // ## 2026-08-06 に二度まわり道して、ここへ戻った
+      // 「プレミアみたいに、再生バーを基準にタイムラインが横に伸びてく感じ。
+      // 　どこに再生バーがあっても。いまは左右端基準でしょ？」
       //
-      //   ① 再生ヘッドを軸にした   →「●が指から逃げる」
-      //   ② 動いた距離を倍率の対数に →「加速してるみたいで気持ち悪い」
-      //
-      // 本人の言葉:「**基本マウスとぴったりがいい。バーの動きはプレミアプロみたく**」。
-      //
-      // 直接操作は、**指の下の物が指どおりに動く**ことが値打ちで、
-      // それを崩すと「賢いが読めない」物になる。効きの強さや軸の親切さは、
-      // どれも指との一致を削って買っている。**買わない。**
-      //
-      // 効きが場所で変わる（細いつまみほど過敏）のは、倍率が見えている秒数の
-      // 逆数だから。それは**バーというUIの素の性質**で、直せば別物になる。
-      // 一定の効きが欲しいときは Ctrl+ホイール（あちらは1段ずつ）。
+      // 倍率は「掴んだ所からの動いた量」で出す（絶対位置で置き直さない——
+      // 両端でつまみの座標が飽和しているので、置き直すと掴んだ瞬間に飛ぶ）。
+      // 横位置は倍率から**再生バーの画面位置を留める**ように決める。
+      // これで、どこに再生バーが居ても、その場を中心に伸び縮みする。
       //
       // ## バーの外まで引ける
       //
-      // 丸めていないので、端を越えたぶんは「1画面より広い範囲」になり、
-      // 下限（`minZoom`）まで引き切れる。つまみは端で止まって見えるが、
-      // **指を外へ動かし続ければ引き続ける**（全部見えている状態は端までしか描けない）。
-      // 丸めていた頃は「全体がちょうど1画面」で止まり、
-      // **ホイールでは引けるのにバーでは引けない**状態だった。
-      // **掴んだ所からの「動いた量」で動かす**（絶対位置で置き直さない）。
-      //
-      // 絶対位置だと、両端で**掴んだ瞬間に飛ぶ**。全部見えている状態では
-      // つまみは 0〜1 で頭打ちなのに倍率はその先も下がっているので、
-      // 描いてある位置から出し直した途端に「1画面ぶん」へ戻ってしまう。
-      // 動いた量なら、押した瞬間は 0＝何も起きない。
+      // 動いた量に上限を置いていないので、端を越えても引き続けられる。
+      // 下限（`minZoom`）はバーが描く長さ（`barTotal`＝引き切って見える範囲）から
+      // 出すので、**つまみが満杯＝もう引けない**が一致する。
       const d = at(ev.clientX) - at(sx)
       const next = grab === 'l' ? { a: base.a + d, b: base.b } : { a: base.a, b: base.b + d }
-      // **目一杯引いたら全体が見える。そこが限界**（2026-08-06・本人の指定）。
-      //
-      // 材料は `totalSec`＝**このバーが描いている長さそのもの**。
-      // だから「全部見えた ＝ つまみが端から端 ＝ もう引けない」が一致する。
-      // Ctrl+ホイールもキーボードも同じ長さを見るので、入口で限界が変わらない
-      const lo = minZoom(w, totalSec)
-      const r = zoomFromSpan(next, totalSec, w, { min: lo, max: limits.max }, grab)
-      // **再生ヘッドは追いかけない。** 追いかけると指との一致が崩れる
-      //（それが①のまわり道だった）。ヘッドへ寄せたいときはキーボードの拡大
-      //（`state/useViewNav` が `scrollForZoomAtPlayhead` を使う）。
-      onApply(r.zoom, r.scrollLeft)
+      const lo = minZoom(w, barTotal, limits.min)
+      const r = zoomFromSpan(next, barTotal, w, { min: lo, max: limits.max }, grab)
+      onApply(r.zoom, scrollForZoomAtPlayhead(playheadSecRef.current, r.zoom, headX0, w))
     }
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove)
