@@ -72,6 +72,7 @@ import type { Ratio } from './useExportSettings'
 import { useTimelineBoxCtx } from './timelineBoxContext'
 import { useTimelineWheel } from './useTimelineWheel'
 import { audioLaneFor } from '../../../shared/lanes'
+import { placeStartSec } from '../../../shared/emptyTimeline'
 import { useDismissOnOutside } from './useDismissOnOutside'
 import { RECENT_KEY } from '../lib/appConst'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
@@ -229,7 +230,7 @@ export function useAppWiring() {
   // （何と比べて決めるか・なぜ変わったときだけ見直すかも中にある）
   const { projectJsonRef, autosaveNg } = useAutosaveMarkCtx()
   // 素材を掴んで落とす（どの段の、どこへ置くか）は state/useMediaDrop
-  const { placeImage, placeSE } = useMediaDropCtx()
+  const { placeImage, placeSE, timelineEmpty } = useMediaDropCtx()
   /**
    * 素材を**再生ヘッドの位置へ置く**（素材をダブルクリックしたとき）。
    *
@@ -242,8 +243,10 @@ export function useAppWiring() {
    * 置く物は読み込む物を要る、という輪になっていた。
    */
   function addMediaAtPlayhead(m: MediaItem): void {
-    // 「いまこの瞬間」を見る（再生中は state の描き直しが遅れてずれる）
-    const t = currentTimeRef.current
+    // 「いまこの瞬間」を見る（再生中は state の描き直しが遅れてずれる）。
+    // **ただし、まだ何も置いていなければ 0秒**（規則は shared/emptyTimeline）。
+    // 掴んで落とす道と揃える——入口によって始まる場所が違うと、どちらが正しいか読めない
+    const t = placeStartSec(currentTimeRef.current, timelineEmpty())
     if (m.kind === 'video') void placeVideoAtDrop(m.path, t, false)
     // **音の置き先を A2 に固定しない**（判定は shared/lanes の audioLaneFor）。
     // 掴んで落とすときは狙った段へ行くのに、ここだけ固定だった

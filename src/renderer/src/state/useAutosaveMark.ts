@@ -24,6 +24,7 @@ import { useMediaCtx } from './mediaContext'
 import { useExportCtx } from './exportContext'
 import { useIconsCtx } from './iconsContext'
 import { useProjectStateCtx } from './projectStateContext'
+import { timelineIsEmpty } from '../../../shared/emptyTimeline'
 import type { RestoreState } from '../components/dialogs/ProjectDialogs'
 
 export interface UseAutosaveMarkDeps {
@@ -48,13 +49,12 @@ export function useAutosaveMark(deps: UseAutosaveMarkDeps) {
    */
   const hasProjectContent = (): boolean =>
     !!videoPath ||
-    cues.length > 0 ||
-    segments.length > 0 ||
-    seClips.length > 0 ||
-    imgClips.length > 0 ||
     markers.length > 0 ||
-    vClips.length > 0 ||
-    mediaItems.length > 0
+    mediaItems.length > 0 ||
+    // **帯の5種類は書き写さず `shared/emptyTimeline` から引く**（2026-08-07）。
+    // 同じ5項目を2か所に並べると、種類が増えた日に片方だけ直る
+    // ——このリポジトリで4回起きた型。**足す場所を1つにする**
+    !timelineIsEmpty({ segments, vClips, cues, seClips, imgClips })
   const { cues, segments, seClips, imgClips, vClips, markers } = useDoc()
   const { tracks, trackStates } = useTracksCtx()
   const { videoPath, sources, mediaItems } = useMediaCtx()

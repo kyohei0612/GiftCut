@@ -288,5 +288,56 @@ export default async function (C) {
     await page.waitForTimeout(300)
   })
 
+  await check('**まっさらなタイムラインへ落とすと、どこへ落としても 0秒から**', async () => {
+    // プレミアと同じ（本人の指定・2026-08-07）。まだ1本も置いていない状態では、
+    // 落とした横位置を見ずに 0秒へ付ける。規則は src/shared/emptyTimeline。
+    //
+    // **右の方へ落とす**こと——左端に落として 0秒になっても、
+    // 規則が効いたのか元から 0秒だったのか区別が付かない
+    await resetProject()
+    // **まず本当に空にする。** 開いた直後は3本入っているので、
+    // ここを飛ばすと「空のとき」を一度も試さないまま緑になる
+    const v1 = page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)')
+    const n0 = await v1.count()
+    assert(n0 > 0, '開いた直後に帯が無い（この確認が成り立たない）')
+    await page.locator('.track-scroll').first().click({ position: { x: 30, y: 30 } })
+    await page.keyboard.press('Control+a')
+    await page.waitForTimeout(200)
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(600)
+    assert((await v1.count()) === 0, '全部消しても帯が残っている（空から始められない）')
+
+    const inner = await page.locator('.track-inner').first().boundingBox()
+    const v1row = await page.locator('[data-tid="V1"]').first().boundingBox()
+    // **右の方へ落とす。** 左端に落として 0秒になっても、規則が効いたのか
+    // 元から 0秒だったのか区別が付かない
+    const dropX = Math.round(v1row.width * 0.6)
+    assert(dropX > 200, `落とす位置が左に寄りすぎて確かめられない（${dropX}px）`)
+    await dndFromBin('test_video', '[data-tid="V1"]', { x: dropX, y: 10 })
+    await page.waitForTimeout(900)
+
+    const after = await clipLayout()
+    assert(after.length > 0, '落としたのに1本も置かれていない')
+    const 左 = Math.min(...after.map((c) => c.x))
+    assert(
+      Math.abs(左 - inner.x) <= 3,
+      `0秒から入っていない（帯の左 ${左}px / 0秒は ${Math.round(inner.x)}px。` +
+        `${dropX}px の所へ落とした）`
+    )
+    // **自分で戻して、戻ったことを確かめる。**
+    // ここは「全部消す → 置く」の2手なので、取り消しも2回要る。
+    // `resetProject()` はここでは効かない——**この項目がまだ終わっていない間は
+    // 「触った」印が立っておらず、素通りして帰る**。次の章は帯がある前提で
+    // 始まるので、空のまま渡すと章ごと落ちる（2026-08-07 に実際に落とした）
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(600)
+    assert(
+      (await v1.count()) === n0,
+      `後片付けできていない（${n0}本に戻らず ${await v1.count()}本。次の章が空から始まる）`
+    )
+  })
+
   // =========================================================================
 }

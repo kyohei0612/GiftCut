@@ -22,10 +22,13 @@ export default async function (C) {
     v1Clips,
   } = C
 
-  // クリップ1つぶんの幅（5秒）。章をまたいで持ち回さず、その場で測る
-  const W = await clipW()
   section('4. カットとキー操作の続き')
   await resetProject()
+  // クリップ1つぶんの幅（5秒）。章をまたいで持ち回さず、その場で測る。
+  // **開き直したあとで測る**（2026-08-07）。前は resetProject より先に測っていて、
+  // 「前の章が帯を残している」に黙って寄りかかっていた——前の章が空で終わると、
+  // 章そのものが「実行に失敗」で落ちる（項目が1つも走らない）
+  const W = await clipW()
 
   await check('C でカッター、V で矢印に戻る', async () => {
     await page.keyboard.press('c')

@@ -44,6 +44,9 @@ import { newTrackState } from '../lib/trackState'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 // どの段に置けるか・埋まっていたら避ける。**画面を起動せずに確かめられる側**
 import { audioLaneFor, avoidBusyLane } from '../../../shared/lanes'
+// 空のタイムラインへ置いたら 0秒（判定と規則は1か所）
+import { timelineIsEmpty, placeStartSec } from '../../../shared/emptyTimeline'
+import { useRef } from 'react'
 import type { UseMediaDropDeps } from './useMediaDrop'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
@@ -81,8 +84,25 @@ export function useMediaPlace(deps: UseMediaPlaceDeps) {
   } = deps
   const {
     cuesRef, seClips, setSeClips, seClipsRef, seIdCounter, imgClipsRef, imgIdCounter,
-    setImgClips, vClips, setVClips, vClipsRef, vClipIdCounter
+    setImgClips, vClips, setVClips, vClipsRef, vClipIdCounter, segments
   } = useDoc()
+  /**
+   * **タイムラインに帯が1本も無いか。**
+   *
+   * 判定そのものは `shared/emptyTimeline`（ここには数えるための控えだけ置く）。
+   * 掴んでいる最中に呼ぶので、`segments` は state のままだと1回ぶん古い物を読む
+   * ——他の4種類に ref があるのと同じ理由で、ここでも控えを取る。
+   */
+  const segRef = useRef(segments)
+  segRef.current = segments
+  const timelineEmpty = (): boolean =>
+    timelineIsEmpty({
+      segments: segRef.current,
+      vClips: vClipsRef.current,
+      cues: cuesRef.current,
+      seClips: seClipsRef.current,
+      imgClips: imgClipsRef.current
+    })
   const {
     setSelectedImgIds, setSelectedSeIds, setSelectedVClipIds, selectedMediaIds
   } = useSel()
@@ -126,7 +146,9 @@ export function useMediaPlace(deps: UseMediaPlaceDeps) {
     const rect = inner.getBoundingClientRect()
     const view = scroll.getBoundingClientRect()
     const raw = Math.max(0, (clamp(clientX, view.left, view.right) - rect.left) / zoomRef.current)
-    const t = snapClipStart(raw, dragSeDurRef.current)
+    // **影も置く時刻と同じ規則で出す。** ここだけ落とした位置のままだと、
+    // 「見えていた所と違う所へ入った」になる（置く側は placeDropped）
+    const t = placeStartSec(snapClipStart(raw, dragSeDurRef.current), timelineEmpty())
     const yRel = clamp(clientY, view.top, view.bottom) - rect.top
     const dur = dragSeDurRef.current
     if (m.kind === 'audio') {
@@ -214,7 +236,9 @@ export function useMediaPlace(deps: UseMediaPlaceDeps) {
     ev: { target: EventTarget | null; ctrlKey: boolean }
   ): Promise<void> {
     const list = dragList(grabbed)
-    let t = t0
+    // **空のタイムラインへ置いたら 0秒から**（判定は shared/emptyTimeline に1つ）。
+    // 落とす道・端で受ける道の両方がここを通るので、ここ1か所で足りる
+    let t = placeStartSec(t0, timelineEmpty())
     for (const m of list) {
       if (m.kind === 'video') {
         const vt = videoDropLane(ev, yRel)
@@ -372,15 +396,19 @@ export function useMediaPlace(deps: UseMediaPlaceDeps) {
     const res = await window.giftcut.addMedia()
     if (!res?.paths?.length) return
     const track = trackForNewBgm(currentTimeRef.current)
+    // まだ何も置いていなければ 0秒から（落とす道・ダブルクリックと同じ規則）
+    const t = placeStartSec(currentTimeRef.current, timelineEmpty())
     for (const p of res.paths) {
       const name = p.split(/[\\/]/).pop() ?? '音声'
-      await placeSE({ id: -1, path: p, name, kind: 'audio' }, currentTimeRef.current, track)
+      await placeSE({ id: -1, path: p, name, kind: 'audio' }, t, track)
     }
     if (track !== EXTRA_AUDIO_TRACK) showToast(track + ' に追加しました。')
   }
   return {
     placeImage, updateDropGhost, imgLaneAt, dragList, durOf, placeDropped,
     clearDropGhosts, dropMediaNearest, videoDropLane, placeVClip, placeSE,
-    trackForNewBgm, addBgm
+    trackForNewBgm, addBgm,
+    // 置く道は落とす以外にもある（ビンのダブルクリック）ので、判定だけ外へ出す
+    timelineEmpty
   }
 }
