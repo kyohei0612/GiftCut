@@ -195,6 +195,28 @@ export async function runOpsChecks(ctx) {
   /** 一番左のクリップの画面上の位置（横スクロールしたかを確かめるのに使う） */
   const firstClipX = async () =>
     (await page.locator('[data-tid="V1"] .video-clip').first().boundingBox())?.x ?? NaN
+  /**
+   * 送れなかったときに、**なぜ送れないのかを言う**（2026-08-07）。
+   *
+   * 「横にスクロールしていない」だけだと、
+   *   ・ホイールが効いていない（アプリの不具合）
+   *   ・そもそも送る余地が無い（引き切っていて中身が収まっている＝測る前提が崩れている）
+   * のどちらか分からない。前者はアプリを直す話、後者は入口を作る話で、**直す先が違う**。
+   * 実際、この赤を見て最初に立てた見立ては後者だったが、確かめずに直しにいくと外す。
+   */
+  const なぜ送れないか = async () => {
+    const s = await page.locator('.track-scroll').first().evaluate((el) => ({
+      left: Math.round(el.scrollLeft),
+      w: Math.round(el.scrollWidth),
+      c: Math.round(el.clientWidth)
+    }))
+    const 余地 = s.w - s.c
+    return (
+      `横にスクロールしていない（scrollLeft ${s.left} / 中身 ${s.w}px / 窓 ${s.c}px` +
+      `＝送れる余地 ${余地}px）` +
+      (余地 <= 0 ? ' ← **送る余地が無い**。引き切っている＝測る前提が崩れている' : '')
+    )
+  }
   await measure(
     'タイムラインを横にスクロールする',
     async () => {
@@ -204,7 +226,7 @@ export async function runOpsChecks(ctx) {
         await page.mouse.wheel(160, 0)
         await page.waitForTimeout(25)
       }
-      if (Math.abs((await firstClipX()) - x0) < 10) throw new Error('横にスクロールしていない')
+      if (Math.abs((await firstClipX()) - x0) < 10) throw new Error(await なぜ送れないか())
       for (let i = 0; i < 20; i++) await page.mouse.wheel(-160, 0) // 戻す
       await page.waitForTimeout(300)
     },

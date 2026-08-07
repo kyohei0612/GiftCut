@@ -206,6 +206,41 @@ export default async function (C) {
     )
   })
 
+  await check('**横スワイプ（deltaX）でタイムラインが横に送れる**', async () => {
+    // **`overflow-x: auto` を隠した日に、これだけ黙って死んでいた**（2026-08-06→08-07）。
+    // 横の送りは4つ（拡大バー／ホイール／Shift+ホイール／横スワイプ）あるが、
+    // **横スワイプだけはブラウザが `overflow-x` でやっていた**ので、
+    // 隠すと一緒に消えた。CSS には「横へ送る手は減らない」と書いてあったが嘘だった。
+    //
+    // 誰も気づけなかったのは、**e2e が横の送りを1つも見ていなかった**から。
+    // 見つけたのは負荷チェック（普段は回さない）。だからここへ移す。
+    const scroll = page.locator('.track-scroll').first()
+    // 送る余地があること自体を先に確かめる（余地が無ければ、この確認は成り立たない）
+    const 余地 = await scroll.evaluate((el) => el.scrollWidth - el.clientWidth)
+    assert(余地 > 200, `送れる余地が無い（${余地}px）。この確認が成り立たない`)
+    await scroll.evaluate((el) => (el.scrollLeft = 0))
+    await page.waitForTimeout(150)
+    await scroll.evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      for (let i = 0; i < 5; i++)
+        el.dispatchEvent(
+          new WheelEvent('wheel', {
+            deltaX: 120,
+            deltaY: 0,
+            clientX: r.left + r.width / 2,
+            clientY: r.top + 30,
+            bubbles: true,
+            cancelable: true
+          })
+        )
+    })
+    await page.waitForTimeout(300)
+    const 送れた = await scroll.evaluate((el) => el.scrollLeft)
+    assert(送れた > 100, `横スワイプで送れていない（scrollLeft ${送れた} / 余地 ${余地}px）`)
+    await scroll.evaluate((el) => (el.scrollLeft = 0))
+    await page.waitForTimeout(150)
+  })
+
   await check('**Ctrl+ホイールで拡大すると、下の拡大バーも連れて動く**', async () => {
     // 拡大の入口は3つある（ホイール／バー／キーボード）が、
     // **見ている所を表しているのはバー1本だけ**。どの入口で寄っても

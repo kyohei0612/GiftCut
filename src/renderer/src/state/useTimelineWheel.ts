@@ -83,6 +83,19 @@ export function useTimelineWheel() {
       } else if (e.deltaY !== 0) {
         e.preventDefault()
         el.scrollLeft += e.deltaY
+      } else if (e.deltaX !== 0) {
+        // **横そのもの（トラックパッドの横スワイプ・横チルト）**（2026-08-07）。
+        //
+        // ここは前は**書く必要が無かった**——`.track-scroll` が `overflow-x: auto`
+        // で、横の送りはブラウザがやっていた。08-06 に横のスクロールバーを隠すため
+        // `overflow: hidden auto` にした日から、**ブラウザの分だけが黙って死んだ。**
+        //
+        // CSS には「横へ送る手は減らない（拡大バー／ホイール／Shift+ホイール。
+        // どれも scrollLeft を直に書くので隠しても効く）」と書いてあるが、
+        // **数え漏れていた**。横スワイプだけはこちらが書いていなかった。
+        // 隠した物の裏で動いていた既定は、隠すと一緒に消える。
+        e.preventDefault()
+        el.scrollLeft += e.deltaX
       }
     }
     el.addEventListener('wheel', onWheel, { passive: false })
