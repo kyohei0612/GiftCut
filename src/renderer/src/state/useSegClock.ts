@@ -64,10 +64,26 @@ export function useSegClock(deps: UseSegClockDeps) {
   } = usePlaybackCtx()
   // 追従の様子を記録に残すときの間引き（1秒に1回。毎コマ出すと記録が埋まる）
   const lastDriftLogRef = useRef(0)
+  /** **実際に画面へ出た最後のコマ**（`requestVideoFrameCallback` が教えてくれる地の値） */
+  const 出たコマRef = useRef<{ 時刻: number; いつ: number } | null>(null)
+  const 出たコマ待ちRef = useRef(false)
 
   // 順再生（壁時計マスター）: 再生ヘッドは実時間で常に一定速度に進め、動画がそれを追いかける。
   // これで動画がカットでシークして一瞬もたついても、再生ヘッドは絶対に止まらない。
   function startVideoSegClock(): void {
+    // ※ **「動画が動き出すまで壁時計を止める」は入れて、外した**（2026-08-08）。
+    //
+    // 再生開始で必ず入る 280ms を消す狙いで、動画の時刻が動き出すまで基準を
+    // 今へ寄せ直し続ける形にした。**開始の 280ms は実際に消えた**（記録で
+    // `ズレ 0ms` が9回並んだ）が、**その1秒後にまた 274〜331ms が入り**、
+    // さらに**再生ヘッドが 0.7倍速で進む**という新しい不具合を作った
+    //（1秒経って 0.7秒しか進まない）。**足した物の方が悪かったので外した。**
+    //
+    // 残っている事実:
+    //   ・再生開始の約1秒後に 270〜330ms が入る（**カットは跨いでいなくても**）
+    //   ・入れ替えの瞬間のズレは 42〜47ms で一定（ここは小さい）
+    //   ・主スレッドは空いていて、落としたコマもほぼ無い
+    // → **立ち上がりで動画が一度つっかえている**所までは確か。直し方は未確定。
     const tick = (): void => {
       const vv = videoRef.current
       if (!vv) {
@@ -173,6 +189,27 @@ export function useSegClock(deps: UseSegClockDeps) {
         // 速さで詰めるのは動画プレイヤーが昔からやっている手で、±10%なら見ても
         // 聞いても分からない（音の高さは preservesPitch が既定で保たれる）。
         // 0.25秒のズレなら2.5秒で消える。その間ずっと絵は流れ続ける。
+        // **実際に画面へ出たコマの時刻を控える**（2026-08-08）。
+        //
+        // `currentTime` は「動画の再生位置」であって、**その絵が画面に出た時刻ではない**。
+        // 復号が追いつかないと、`currentTime` は進んでいるのに画面は前のコマのまま——
+        // つまり `currentTime` で測る限り、**本当の遅れは見えない**。
+        //
+        // `requestVideoFrameCallback` は**コマが画面へ出た瞬間**に、そのコマの
+        // `mediaTime` を教えてくれる。これが唯一の地の値。
+        //
+        // ここまで見立てを4回外している（入れ替えの瞬間／プロキシ／シークの判定／
+        // 壁時計の保持）。**全部 `currentTime` を信じて組み立てていた。**
+        const rvfc = (vv as HTMLVideoElement & {
+          requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number
+        }).requestVideoFrameCallback
+        if (rvfc && !出たコマ待ちRef.current) {
+          出たコマ待ちRef.current = true
+          rvfc.call(vv, (_now, meta) => {
+            出たコマRef.current = { 時刻: meta.mediaTime, いつ: performance.now() }
+            出たコマ待ちRef.current = false
+          })
+        }
         const drift = src.srcTime - vv.currentTime // ＋なら動画が遅れている
         // **これが「テロップだけ先に動く」の正体になり得る。**
         // 文字は再生ヘッドの時刻で動き、動画はここで追いかけている。
@@ -311,11 +348,46 @@ export function useSegClock(deps: UseSegClockDeps) {
         // 数字で分かる。頼んだ通りに入っていないのか、入っているのに効かないのか。
         if (now - lastDriftLogRef.current > 1000) {
           lastDriftLogRef.current = now
+          // **どこを再生していたかも残す**（2026-08-08）。
+          // 本人の観察「**毎回同じ所**でつまる」を確かめるのに要る。
+          // 位置が毎回同じなら素材のその場所の話、バラつくなら機械の都合の話で、
+          // **直す先がまったく違う**。いまの記録では区別が付かなかった。
+          const L = segLayoutRef.current[src.index]
+          // **裏で鳴りっぱなしの面が無いかを数える**（2026-08-08）。
+          //
+          // 本人の観察「**一度カクつくと、その素材はどこを再生してもずっとカクつく**」。
+          // 記録も「同じ所」ではなく**戻らない悪化**を示していた（30〜120秒 中央22ms →
+          // 210秒 中央339ms）。**何かが溜まっている**形。
+          //
+          // 疑っているのは助走で走らせた面。掃除（表以外を止める）は
+          // `useVideoSync` の**元動画が切り替わったときしか走らない**ので、
+          // **素材が1本のプロジェクトでは一度も走らない**。入れ替わらないまま
+          // 停止・シークすると、その面は誰にも止められず最後まで復号し続ける。
+          //
+          // 表は1枚のはずなので、**2枚以上が動いていたら溜まっている。**
+          let 動いている = 0
+          videoElsRef.current.forEach((v) => {
+            if (!v.paused && !v.ended) 動いている++
+          })
           perf.mark(
             `追従: ズレ ${Math.round(drift * 1000)}ms / ` +
               `頼んだ速さ ${r.toFixed(3)} / 実際 ${vv.playbackRate.toFixed(3)} / ` +
               `補正 ${fixingDriftRef.current ? 'あり' : 'なし'}(${corr.toFixed(3)}) / ` +
-              `切片の速度 ${(src.speed ?? 1).toFixed(2)}`
+              `切片の速度 ${(src.speed ?? 1).toFixed(2)} / ` +
+              `位置 ${pos.toFixed(1)}秒 → 元 ${src.srcTime.toFixed(1)}秒 / ` +
+              `切片 ${src.index}（長さ ${(L?.len ?? 0).toFixed(1)}秒）/ ` +
+              `**画面に出た絵 ${
+                出たコマRef.current
+                  ? `${出たコマRef.current.時刻.toFixed(2)}秒（${Math.round(
+                      performance.now() - 出たコマRef.current.いつ
+                    )}ms前）→ 本当の遅れ ${Math.round(
+                      (src.srcTime - 出たコマRef.current.時刻) * 1000
+                    )}ms**`
+                  : '取れず（rVFC 無し）**'
+              } / ` +
+              `面 ${動いている}/${videoElsRef.current.size} 動いている（表は1枚）/ ` +
+              `<video> 全部で ${document.querySelectorAll('video').length}枚・` +
+              `鳴っているの ${[...document.querySelectorAll('video')].filter((v) => !v.paused).length}枚`
           )
         }
       } else if (!vv.paused) {
