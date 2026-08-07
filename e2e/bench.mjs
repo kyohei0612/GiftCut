@@ -57,6 +57,8 @@ import { readArgs, prepareFixture } from './lib/benchSetup.mjs'
 import { makeCpuProfiler } from './lib/cpuProfile.mjs'
 // 触ったときのもたつきを測る7項目（本体は素材づくり・記録・まとめだけ持つ）
 import { runOpsChecks } from './bench-ops.mjs'
+// 流して見る2項目（**触ったときのもたつき**とは見ている物が違うので分けてある）
+import { runPlayChecks } from './bench-play.mjs'
 // 50回編集して50回戻す（履歴・メモリ・元どおりか）
 import { runHistoryChecks } from './bench-history.mjs'
 // 実際に焼いて、完走するか・音が抜けないか・絵が出ているかを見る
@@ -71,6 +73,20 @@ const { KEEP, DO_EXPORT, DO_LIMITS, MINUTES, REAL, SELFCHECK, EDITS, PROFILE, WA
   readArgs()
 
 const nowSec = () => Date.now() / 1000
+
+// **どこに時間がかかっているかを、あとから言えるようにする**（2026-08-07）。
+//
+// 通しは30分以上かかるのに、**内訳を出す物が無かった**。「まだ18%」と言われても
+// 何が長いのか答えられない——**測る道具なのに、自分の時間は測っていなかった。**
+//
+// 項目ごとの時間は各行に出ている（`8.9秒間` など）が、それは**触っている間**だけ。
+// 素材づくり・起動・書き出し・限界さがしは**どこにも出ていない**。そこを埋める。
+const 区切り = []
+let 区切りT = Date.now()
+const 区切る = (名) => {
+  区切り.push({ 名, 秒: (Date.now() - 区切りT) / 1000 })
+  区切りT = Date.now()
+}
 
 // ---------------------------------------------------------------------------
 // 素材づくり（作ったものは .cache に置いて次回から使い回す）
@@ -120,7 +136,9 @@ try {
   // **`video` も受け取ること**——限界さがしが作り物を組み立てるのに要る。
   // 受け取り忘れると `video is not defined` で**最後の最後に**落ちる
   //（最初のコミットからそうなっていて、限界さがしは一度も走っていなかった）。
+  区切る('起動前の準備')
   const prepared = await prepareFixture({ REAL, MINUTES, PROFILE, MINUS, DO_LIMITS, DO_EXPORT })
+  区切る('素材とプロジェクトを用意')
   fx = prepared.fx
   const totalSec = prepared.totalSec
   const video = prepared.video
@@ -144,6 +162,46 @@ try {
   setPage(page)
   await page.waitForSelector('.app', { timeout: 30000 })
   page.setDefaultTimeout(20000)
+
+  // **測る前に「何もしていないとき」を測る**（2026-08-07）。
+  //
+  // この道具の数字は、**機械が他に取られているかどうかで2倍変わる**。
+  // 今日それで何度も惑わされた——同じコードで横スクロールが 20.8ms と 50.0ms、
+  // 全項目が同時に悪化し、所要も 9.0秒 → 15.0秒 に伸びていた（chrome が1コア分）。
+  //
+  // **触らずに2秒ぶんのコマを数えれば、その回が使い物になるか先に分かる。**
+  // 何もしていないのに 4.2ms（毎秒240コマ相当）から離れているなら、
+  // そのあとの数字は**アプリのせいではない**。
+  //
+  // ※ 止めない。**測れないと決めつけるのはこちらの仕事ではない**ので、
+  //   数字を出して読む人に渡す（自動で捨てると、本物の悪化まで消える）。
+  const 素の重さ = await page.evaluate(
+    () =>
+      new Promise((ok) => {
+        const 間 = []
+        let last = performance.now()
+        const t0 = last
+        const tick = (t) => {
+          間.push(t - last)
+          last = t
+          if (t - t0 < 2000) requestAnimationFrame(tick)
+          else {
+            間.sort((a, b) => a - b)
+            ok({ 中央: 間[Math.floor(間.length / 2)] ?? 0, 数: 間.length })
+          }
+        }
+        requestAnimationFrame(tick)
+      })
+  )
+  const 取られている = 素の重さ.中央 > 8
+  console.log(
+    (取られている ? '[33m' : '[90m') +
+      `  何もしていないときのコマ間隔: 中央値 ${fmt(素の重さ.中央)}ms（${素の重さ.数}コマ）` +
+      (取られている
+        ? ' ← **機械が他に取られている。この回の数字はアプリのせいとは限らない**'
+        : '') +
+      '[0m'
+  )
 
   const outDir = join(fx.dir, 'out')
   mkdirSync(outDir, { recursive: true })
@@ -436,13 +494,17 @@ try {
   // 触ったときのもたつきを測る7項目は ./bench-ops。
   // **道具は束で1つだけ渡す**——個別に渡すと17個になり、項目を1つ足すたびに
   // ここを書き換えることになる（`useAppWiring` を剥がしたときと同じ形）。
+  区切る('起動して開く・最初の確認')
   await runOpsChecks({
     measure, page, fmt, MINUTES, totalSec,
     visL, visR, visMid, visY, inner, clip,
-    zoomIn, seekTo0, scrollToFirst, zoomUntilGrabbable, headX, timelineWidth,
-    // **20秒流してずれを見る**項目が使う（コマ落ちではなく「合っているか」を見るので、
-    // measure ではなく自分で say/done を出し、途中の画面も撮る）
-    shot, say, done
+    zoomIn, seekTo0, scrollToFirst, zoomUntilGrabbable, headX, timelineWidth
+  })
+  // 流して見る2項目は ./bench-play。**「合っているか」は measure では測れない**ので、
+  // あちらは自分で say/done を出し、途中の画面も撮る
+  区切る('触ったときのもたつき（7項目）')
+  await runPlayChecks({
+    measure, page, fmt, MINUTES, seekTo0, headX, shot, say, done
   })
 
   // 自己点検はここまで（この先は「測る」ではなく「壊れていないか見る」なので、
@@ -459,6 +521,7 @@ try {
   const rb = await page.locator('.ruler').boundingBox()
   /** 見くらべに使う時刻。**画面上の位置ではなく秒で指す**（理由は ./lib/benchView） */
   const SEEK_SEC = 20
+  区切る('流して見る（2項目）')
   await runHistoryChecks({
     page, say, done, shot, heap, heap0, mb, fmt, EDITS, nowSec,
     similarity, prev, visL, visR, rb, seekAt, headSec, SEEK_SEC
@@ -468,12 +531,14 @@ try {
   // 「重いかどうか」だけだと、どこまで足していいのか分からない。
   // 現実にありうる範囲から少しずつ上げて、崩れる手前を見つける。
   // 中身は ./bench-limits.mjs（約380行あるので別ファイル）
+  区切る('50回編集して50回戻す')
   if (DO_LIMITS) await findLimits({ ROOT, nowSec, say, done, app, fx, page, setZoom, heap, video, totalSec })
 
   // ---- 7. 書き出し（目と耳） -------------------------------------------
   // 中身は ./bench-export。**「完走した」で終わらせない**（無音・真っ黒でも
   // ファイルはできる）ので、尺・大きさ・音量・明るさまで見る
   if (DO_EXPORT) {
+    区切る('限界さがし（19軸）')
     await runExportChecks({
       say, done, fmt, mb, MINUTES, totalSec, nowSec,
       page, sh, join, existsSync, statSync, meanVolume, silentSec, brightness,
@@ -484,6 +549,18 @@ try {
   }
 
   // ---- まとめ ----------------------------------------------------------
+  区切る(DO_EXPORT ? '書き出して確かめる' : '最後の確認')
+  // **時間の内訳を出す**（2026-08-07）。長い順。
+  // 「まだ18%」に答えられる物が無かったので足した。**測る道具なのに、
+  // 自分の時間は測っていなかった。**
+  const 合計 = 区切り.reduce((a, b) => a + b.秒, 0)
+  console.log(`
+[1m時間の内訳[0m  合計 ${fmt(合計 / 60)}分。長い順:`)
+  for (const r of [...区切り].sort((a, b) => b.秒 - a.秒)) {
+    if (r.秒 < 0.5) continue
+    const 割合 = Math.round((r.秒 / 合計) * 100)
+    console.log(`  ${String(fmt(r.秒)).padStart(7)}秒  ${String(割合).padStart(3)}%  ${r.名}`)
+  }
   const ng = rows.filter((r) => r.verdict === 'ng').length
   const warn = rows.filter((r) => r.verdict === 'warn').length
   // **本物のプロジェクトで測ったときに「60分・テロップ200枚」と出さない。**
