@@ -31,6 +31,7 @@
 // - `useSegClock` … 下の2つを返す唯一の入口
 // - `startVideoSegClock` … 壁時計マスターで進めながら、A面/B面を入れ替える
 // - `xfBStyle` … つなぎ目の B面の見た目（fade/slide/wipe）を進捗から作る
+import { useRef } from 'react'
 import { clamp, tToSource } from '../../../shared/timeline'
 import { isNeutralZoom } from '../lib/clipLook'
 import { perf } from '../lib/perfMonitor'
@@ -61,6 +62,8 @@ export function useSegClock(deps: UseSegClockDeps) {
     clockStartWallRef, clockStartPosRef, seekCooldownRef, xfadeUntilRef,
     fixingDriftRef, preparedRef, currentSegRef
   } = usePlaybackCtx()
+  // 追従の様子を記録に残すときの間引き（1秒に1回。毎コマ出すと記録が埋まる）
+  const lastDriftLogRef = useRef(0)
 
   // 順再生（壁時計マスター）: 再生ヘッドは実時間で常に一定速度に進め、動画がそれを追いかける。
   // これで動画がカットでシークして一瞬もたついても、再生ヘッドは絶対に止まらない。
@@ -95,8 +98,19 @@ export function useSegClock(deps: UseSegClockDeps) {
         if (prep && prep.segIdx === src.index && curSrcId === prep.srcId) {
           const pre = videoElsRef.current.get(elKey(prep.srcId, prep.half))
           if (pre) {
-            // **待ち時間ゼロの切り替え。** 飛び先はすでに復号済み
-            perf.mark('カット: 温めてあった面へ入れ替え')
+            // **待ち時間ゼロの切り替え。** 飛び先はすでに復号済み。
+            //
+            // **入れ替えた瞬間のズレも一緒に残す**（2026-08-07）。
+            // 記録を見ると、カットのたびに遅れが 250〜317ms 跳ねて、そのあと
+            // ±3% でゆっくり戻る——戻り切る前に次のカットが来るので、
+            // 平均 191ms の遅れが常時残っていた。**波形と音が食い違う正体はこれ**
+            //（再生ヘッドは壁時計、音は動画側なので、遅れたぶんだけずれて聞こえる）。
+            //
+            // 跳ねる理由の見立ては「助走（0.45秒）より `play()` の立ち上げ（約300ms）が
+            // 長く、入れ替えた時点でまだ手前に居る」。**ただし確かめていないので、
+            // ここで実測を残す。** 見立てが正しければ 250〜300ms 前後が並ぶはず
+            const 入替時ズレ = Math.round((src.srcTime - pre.currentTime) * 1000)
+            perf.mark(`カット: 温めてあった面へ入れ替え（ズレ ${入替時ズレ}ms）`)
             // **音量は必ず引き継ぐ。**
             // 音量を決める effect は「いま表になっている要素」にしか書かない。
             // 温めてある面は触られていないので、既定の 1.0（最大）のまま。
@@ -254,16 +268,56 @@ export function useSegClock(deps: UseSegClockDeps) {
         // 小さすぎるズレは触らない——毎コマ速さを書き換えると、かえって揺れる。
         // 入るのは大きくズレた時だけ。出るのはほぼ0に戻ってから（履歴＝上の ref 参照）。
         // 幅も小さく取る。カットで止まらなくなった今、ズレはそもそも溜まらない。
+        // **前提が実測で崩れたので、詰め方を強くした**（2026-08-07・本人のプレテスト）。
+        //
+        // ここには「カットで止まらなくなった今、ズレはそもそも溜まらない」と
+        // 書いてあり、それを理由に **入るのは100ms超・幅は±3%** にしてあった。
+        // **溜まっていた。**
+        //
+        //   カットなし（切片1本を10秒流す）… ズレ 52→61ms で固定。**補正は一度も入らない**
+        //                                    （100ms に届かないので、仕様どおり放置）
+        //   カットあり                      … 1回で 250〜330ms 注入。±3% では
+        //                                    次のカットまでに戻り切らず、平均 191ms が常時残る
+        //
+        // **これが「波形と音がミスマッチ」の正体。** 再生ヘッドは壁時計、音は動画側なので、
+        // 遅れたぶんだけ「ヘッドの下の波形」と「聞こえる音」が食い違う。
+        //
+        // 直し方は上の説明どおり——**幅を広げる**。すぐ上に
+        // 「±10%なら見ても聞いても分からない（音の高さは preservesPitch で保たれる）」と
+        // 自分で書いてあるのに、使っていたのは ±3% だけだった。
+        //
+        //   入る   0.1 → **0.05秒**（1.5コマ。ここから触れば2コマ以上ずれない）
+        //   出る   0.02 → **0.015秒**（入る値と離して、出たり入ったりさせない）
+        //   幅     ±3% → **±10%**（330ms なら 3.3秒で消える。前は 11秒かかっていた）
+        //   効き   0.25 → **0.5**（55ms を2秒で詰める。前は4秒でも足りなかった）
         if (fixingDriftRef.current) {
-          if (Math.abs(drift) < 0.02) fixingDriftRef.current = false
-        } else if (Math.abs(drift) > 0.1) {
+          if (Math.abs(drift) < 0.015) fixingDriftRef.current = false
+        } else if (Math.abs(drift) > 0.05) {
           fixingDriftRef.current = true
         }
         const corr = fixingDriftRef.current
-          ? Math.max(-0.03, Math.min(0.03, drift * 0.25))
+          ? Math.max(-0.1, Math.min(0.1, drift * 0.5))
           : 0
         const r = Math.min(rate * src.speed * (1 + corr), 16)
         if (Math.abs(vv.playbackRate - r) > 5e-3) vv.playbackRate = r
+        // **詰まっているかを、1秒に1回だけ記録に残す**（2026-08-07）。
+        //
+        // 実測（本人のプレテスト）で、**焼直（プロキシ）のとき遅れが 330ms 前後に
+        // 張り付いて減らなかった**（原本のときは 66ms）。±3% で詰めているなら
+        // 4秒で 120ms 戻るはずが、21ms しか戻っていない——**補正が効いていない。**
+        //
+        // ここで見立てを立てて直すと、また外す（今日すでに4回外した）。
+        // **頼んだ速さ・実際の速さ・補正の有無**を並べれば、どこで落ちているかが
+        // 数字で分かる。頼んだ通りに入っていないのか、入っているのに効かないのか。
+        if (now - lastDriftLogRef.current > 1000) {
+          lastDriftLogRef.current = now
+          perf.mark(
+            `追従: ズレ ${Math.round(drift * 1000)}ms / ` +
+              `頼んだ速さ ${r.toFixed(3)} / 実際 ${vv.playbackRate.toFixed(3)} / ` +
+              `補正 ${fixingDriftRef.current ? 'あり' : 'なし'}(${corr.toFixed(3)}) / ` +
+              `切片の速度 ${(src.speed ?? 1).toFixed(2)}`
+          )
+        }
       } else if (!vv.paused) {
         // 動画尾部より先（テロップのみ区間）→ 動画は止めて再生ヘッドだけ進める
         vv.pause()
