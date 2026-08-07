@@ -7,6 +7,7 @@
 // 大きさを見せてから聞く（回線によっては数分かかるため）。
 
 import type { JSX } from 'react'
+import { useEscClose } from '../../lib/useEscClose'
 
 export interface SubtitleModel {
   /** 手元にあるか */
@@ -65,6 +66,9 @@ export function SubtitleDialog({
         return ''
     }
   }
+  // Escape でも閉じる。**走っている間は受け付けない**——聞き取り中に消えても
+  // 処理は止まらず、見えなくなるだけで戻れない（理由は lib/useEscClose）
+  useEscClose(onClose, !busy)
   return (
     <div className="export-overlay">
       <div className="restore-box">

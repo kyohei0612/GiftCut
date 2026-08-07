@@ -24,12 +24,10 @@ import { useEffect } from 'react'
 import { useToastCtx } from './toastContext'
 import type { Ask } from './useAsk'
 import type { RestoreState } from '../components/dialogs/ProjectDialogs'
-import type { TemplatePickerState } from './useProjectTemplates'
 import { useAskCtx } from './askContext'
 import { useAutosaveMarkCtx } from './autosaveMarkContext'
 import { useProjectFileCtx } from './projectFileContext'
 import { useProjectIOCtx } from './projectIOContext'
-import { useProjectTemplatesCtx } from './projectTemplatesContext'
 
 // **`any` で受けない。** ここは呼ぶ側（`useAppWiring`）が実物を渡す入口なので、
 // 型がズレた瞬間に呼び出し側で落ちる＝手で書いても腐らない。
@@ -53,7 +51,6 @@ export interface UseAutosaveDraftDeps {
   /** 形は書き写さず引く（同じ物が4か所で要る） */
   askConfirm: Ask['askConfirm']
   setRestorePrompt: React.Dispatch<React.SetStateAction<RestoreState | null>>
-  setTemplatePicker: React.Dispatch<React.SetStateAction<TemplatePickerState | null>>
 }
 
 export function useAutosaveDraft(): void {
@@ -65,7 +62,6 @@ export function useAutosaveDraft(): void {
   } = useAutosaveMarkCtx()
   const { applyProjectData } = useProjectFileCtx()
   const { askConfirm } = useAskCtx()
-  const { setTemplatePicker } = useProjectTemplatesCtx()
   const { showToast } = useToastCtx()
 
   useEffect(() => {
@@ -122,9 +118,17 @@ export function useAutosaveDraft(): void {
         })
         return
       }
-      // 自動保存の復元が無い時だけ、テンプレート選択を出す（あれば）
-      const t = await window.giftcut?.listTemplates?.()
-      if (t?.ok && t.items.length) setTemplatePicker({ items: t.items, startup: true })
+      // **起動時にテンプレート選択で塞がない**（2026-08-07）。
+      //
+      // 前は、自動保存の復元が無ければ全面の覆いを出していた。
+      // 初めて入れた人が**アプリを見る前に選択を迫られる**形で、
+      // 閉じるまで何一つ押せない（画面を撮って回る見学も、ここで全部止まった）。
+      //
+      // テンプレートは慣れた人の道具で、初回に要る物ではない。
+      // 入口は**ファイル →「テンプレートを開く…」**に前からあるので、
+      // 塞がなくても辿り着ける。
+      //
+      // ※ 消したのは「起動時に自動で開く」だけ。選択そのものは同じ物を使う。
     })
   }, [])
 

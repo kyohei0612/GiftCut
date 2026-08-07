@@ -12,6 +12,7 @@
 
 // 下げ方の設定は、書き出し側と同じ物を使う（別に定義すると必ずズレる）
 import type { DuckOpts } from '../../../../shared/ducking'
+import { useEscClose } from '../../lib/useEscClose'
 
 export interface SilenceCutState {
   /** これより静かなら無音とみなす（dB） */
@@ -46,6 +47,8 @@ export function SilenceCutDialog({
   onApply: () => void
   onClose: () => void
 }): React.JSX.Element {
+  // Escape でも閉じる（覆いの作法。理由は lib/useEscClose）
+  useEscClose(onClose)
   return (
     <div className="export-overlay" onClick={onClose}>
       <div className="restore-box sil-box" onClick={(e) => e.stopPropagation()}>
@@ -158,6 +161,8 @@ export function DuckingDialog({
   onFind: () => void
   onClose: () => void
 }): React.JSX.Element {
+  // Escape でも閉じる（覆いの作法。理由は lib/useEscClose）
+  useEscClose(onClose)
   return (
     <div className="export-overlay" onClick={onClose}>
       <div className="restore-box sil-box" onClick={(e) => e.stopPropagation()}>

@@ -9,6 +9,7 @@
 // （例外は「消す？」の2段階だけ。押し間違い防止の一時的な状態で、外に出す意味が無い）
 
 import { useState } from 'react'
+import { useEscClose } from '../../lib/useEscClose'
 
 /**
  * 長い道は**尻を残して、頭を … にする**。
@@ -71,6 +72,8 @@ export function ExportSettingsDialog({
     opts.resP === 2160 ? '4K（2160p）' : opts.resP === 720 ? 'HD（720p）' : opts.resP === 480 ? 'SD（480p）' : 'フルHD（1080p）'
   // 名前が空でも押させない（名前の無いファイルは作れない）
   const ready = !!dir && !!name.trim()
+  // Escape でも閉じる（覆いの作法。理由は lib/useEscClose）
+  useEscClose(onClose)
   return (
     <div className="export-overlay" onPointerDown={onClose}>
       <div className="restore-box" onPointerDown={(e) => e.stopPropagation()}>
@@ -241,6 +244,9 @@ export function TemplatePicker({
 }): React.JSX.Element {
   // どれを「消す？」の状態にしているか。**押し間違いで消えないように2段階にする**
   const [confirming, setConfirming] = useState<string | null>(null)
+  // Escape でも閉じる。**「空で始める」と同じ意味**にしておく
+  //（起動直後の一枚目なので、閉じられないと何も触れない）
+  useEscClose(onClose)
   return (
     <div className="export-overlay">
       <div className="restore-box">

@@ -129,9 +129,23 @@ export function PropertiesPanel(props: PropertiesPanelProps): JSX.Element {
             </div>
           )}
           <label className="field-label">テロップ テキスト</label>
+          {/* **空のまま作られるので、次に何をするかを入れ物の中に書く**（2026-08-07）。
+              「＋テロップ」を押すと空の箱がタイムラインに出るが、
+              プレビューには採寸用の代役（あ）が見えるだけで、
+              次にどこへ打てばいいかが画面から読めなかった。
+
+              ## 自動で焦点を入れるのは**やめた**（同日中に撤回）
+
+              「空のときだけ焦点を取る」を入れたら、**1文字のショートカットが
+              全部死んだ**——テロップを足した直後に T を押すと、次のテロップが
+              できる代わりに文字欄へ「T」と打ち込まれる。
+              通しが `T キーで文字ができ、もう一度押すと1段上にできる` で捕まえた。
+
+              入れ物の中の案内だけなら、キーボードを奪わずに同じ問いに答えられる。 */}
           <textarea
             className="text-input"
             value={telop.text}
+            placeholder="ここへ文字を入れる"
             onChange={(e) => telop.onText(e.target.value)}
             rows={Math.max(1, telop.text.split('\n').length)}
           />
