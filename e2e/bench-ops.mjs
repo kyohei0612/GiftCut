@@ -106,15 +106,10 @@ export async function runOpsChecks(ctx) {
   })
   void clip
 
+  /** 拡大・縮小を測るときの入口の幅（記録の外で作る。下の setup が埋める） */
+  let 拡大の入口W = 0
   await measure('タイムラインを拡大・縮小する', async () => {
-    // **入口を自分で決める。** 前の項目（掴んで動かす）が残した拡大率から始めると、
-    // 同じ10ノッチでも通る倍率の帯が毎回変わり、**コードを何も変えていないのに
-    // 95% が 45.9 → 108.3ms まで揺れた**（2026-08-04、4回の実測）。
-    // 全体表示から10ノッチ寄せて10ノッチ戻す、と決めれば毎回同じ道を通る。
-    const fit = page.locator('.tl-zoom button').first()
-    if (await fit.count()) await fit.click().catch(() => {})
-    await page.waitForTimeout(500)
-    const w0 = await timelineWidth()
+    const w0 = 拡大の入口W
     await zoomIn(visMid, visY(40), 10)
     const w1 = await timelineWidth()
     if (w1 <= w0 * 1.2) throw new Error(`拡大できていない（${w0} → ${w1}px）`)
@@ -139,6 +134,29 @@ export async function runOpsChecks(ctx) {
     }
     const w1 = await timelineWidth()
     if (w1 <= w0 * 1.2) throw new Error(`拡大できていない（${w0} → ${w1}px）`)
+  },
+  // **入口づくり（記録の外）。** 全体表示から10ノッチ寄せて10ノッチ戻す、と
+  // 決めれば毎回同じ道を通る（2026-08-04）。
+  //
+  // **ここを記録に入れてはいけない**（2026-08-07）。全体表示へ戻す手の重さは
+  // 「どこから戻るか」で変わるので、混ぜると同じコードで 16.6ms と 54.1ms に割れる。
+  //
+  // **入口が作れなければ落とす。** 前は
+  //   `if (await fit.count()) await fit.click().catch(() => {})`
+  // で、押せなくても・押しても効かなくても黙って進んでいた
+  //（CLAUDE.md 7番「測る側は成立しなければ落ちるに倒す」）。
+  async () => {
+    const fit = page.locator('.tl-zoom button').first()
+    if (!(await fit.count())) throw new Error('全体表示のボタンが無い（入口が作れない）')
+    await fit.click()
+    await page.waitForTimeout(500)
+    拡大の入口W = await timelineWidth()
+    // **本当に全体表示になったか。** 押せたことと効いたことは別
+    const 窓 = (await page.locator('.track-scroll').first().boundingBox()).width
+    if (Math.abs(拡大の入口W - 窓) > 窓 * 0.25)
+      throw new Error(
+        `全体表示になっていない（中身 ${Math.round(拡大の入口W)}px / 窓 ${Math.round(窓)}px）`
+      )
   })
 
   /** 再生ヘッドの画面上の位置（動いたかを確かめるのに使う） */
