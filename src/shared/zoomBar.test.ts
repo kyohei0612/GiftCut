@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   barSpan,
+  viewSpan,
   zoomFromSpan,
   panFromSpan,
   fitZoom,
@@ -11,6 +12,34 @@ import {
 const TOTAL = 100 // 秒
 const VIEW = 800 // px
 const LIM = { min: 6, max: 240 }
+
+// **描くための値と、掴むための値は別**（2026-08-06）。
+// つまみは 0〜1 に収まるが、倍率はその外へも動く。両端で食い違うので、
+// 掴んだときに「描いてある位置」から倍率を出し直すと**その瞬間に飛ぶ**
+//（本人の言葉:「ワープする」）。掴むときは丸めない方（viewSpan）を使う。
+describe('丸めない範囲（掴むときの起点）', () => {
+  it('全部見えているときは 1 を超える（描く方は 1 で止まる）', () => {
+    // 100秒 × 4px/秒 = 400px しかないのに、画面は 800px ある＝2画面ぶん見えている
+    const 掴む = viewSpan(0, VIEW, TOTAL, 4)
+    expect(掴む.b - 掴む.a).toBeCloseTo(2)
+    expect(barSpan(0, VIEW, TOTAL, 4)).toEqual({ a: 0, b: 1 })
+  })
+
+  it('普通に寄っているときは、描く方と同じ', () => {
+    const 掴む = viewSpan(0, VIEW, TOTAL, 32)
+    const 描く = barSpan(0, VIEW, TOTAL, 32)
+    expect(掴む.a).toBeCloseTo(描く.a)
+    expect(掴む.b).toBeCloseTo(描く.b)
+  })
+
+  it('**掴んだ範囲から倍率を出すと、元の倍率に戻る**（掴んだ瞬間に飛ばない）', () => {
+    for (const z of [4, 8, 32, 200]) {
+      const s = viewSpan(0, VIEW, TOTAL, z)
+      const r = zoomFromSpan(s, TOTAL, VIEW, { min: 0.1, max: 1000 })
+      expect(r.zoom).toBeCloseTo(z, 5)
+    }
+  })
+})
 
 describe('拡大バーの範囲', () => {
   it('全部見えているときは端から端まで', () => {
@@ -117,23 +146,32 @@ describe('引ける下限と、全体が収まる率', () => {
     expect(fitZoom(1000, 0)).toBeCloseTo(96, 6)
   })
 
-  it('**長い素材では下限が下がる**（451秒の実データ。6px/秒では全体が入らない）', () => {
-    const z = minZoom(1000, 451, 6)
+  it('**長い素材では下限が下がる**（451秒の実データ。全体が入る所まで引ける）', () => {
+    const z = minZoom(1000, 451)
     expect(z).toBeCloseTo(960 / 451, 6) // ≒ 2.13px/秒
-    expect(z).toBeLessThan(6)
     // ここまで引ければ、451秒 × 2.13 ≒ 960px ＝ 窓に収まる
     expect(451 * z).toBeLessThanOrEqual(1000)
   })
 
-  it('**短い素材では今までどおり**（引ける範囲を狭めない）', () => {
-    // 20秒なら全体が収まる率は 48px/秒。そこを下限にすると**今より引けなくなる**ので、
-    // 小さい方（＝これまでの下限 6）を採る
-    expect(minZoom(1000, 20, 6)).toBe(6)
+  // **ここは 2026-08-06 に決まりごと変わった。**
+  // 前は「短い素材では、全体が収まる所よりさらに引ける」だった（固定の下限 6 まで）。
+  // やめた理由は下のバーが表せないから——全部見えた時点でつまみは端から端＝満杯で、
+  // その先は**倍率だけ下がってバーが動かない**。本人の言葉:
+  // 「縮小時、ここをマックスの値として下のバーの大きさをしてほしい」
+  it('**短い素材でも「全体が収まる所」で止まる**（バーの端＝倍率の限界）', () => {
+    // 20秒なら 960/20 = 48px/秒。ここが下限＝これ以上は引けない
+    expect(minZoom(1000, 20)).toBeCloseTo(48, 6)
   })
 
-  it('幅が測れないときは、これまでの下限のまま（起動直後に 0 で潰れない）', () => {
-    expect(minZoom(0, 451, 6)).toBe(6)
-    expect(minZoom(NaN, 451, 6)).toBe(6)
+  it('**下限まで引くと、ちょうど窓に収まる**（どの長さでも）', () => {
+    for (const sec of [20, 60, 451]) {
+      expect(sec * minZoom(1000, sec)).toBeLessThanOrEqual(1000)
+    }
+  })
+
+  it('幅が測れないときでも潰れない（起動直後に 0 を掴む）', () => {
+    expect(minZoom(0, 451)).toBeGreaterThan(0)
+    expect(minZoom(NaN, 451)).toBeGreaterThan(0)
   })
 })
 

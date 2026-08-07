@@ -67,6 +67,20 @@ export function useTimelineSpan(deps: UseTimelineSpanDeps) {
     const cueEnd = cues.length ? Math.max(...cues.map((c) => c.end)) : 0
     return Math.max(cueEnd, videoTLen, seEnd, imgEnd, vcEnd)
   }, [cues, videoTLen, seEnd, imgEnd, vcEnd])
+  /**
+   * **引ける下限を出すのに使う**（2026-08-06）。
+   *
+   * 下限は「全体がちょうど収まる率」で、その"全体"は**バーが描く長さ**＝
+   * こちら（`duration`）でなければならない。`contentEnd` で出すと、
+   * バーの端と倍率の限界が食い違って「引いたのにバーが動かない」区間ができる。
+   *
+   * ホイールもキーボードも、聞かれた瞬間の値が要る（描き直しを待てない）ので控えを置く。
+   */
+  const durationRef = useRef(60)
+  useEffect(() => {
+    durationRef.current = duration
+  }, [duration])
+
   const contentEndRef = useRef(0)
   useEffect(() => {
     contentEndRef.current = contentEnd
@@ -106,5 +120,5 @@ export function useTimelineSpan(deps: UseTimelineSpanDeps) {
     }))
   }, [zoom, duration, fps, scrollTick, scrollRef])
 
-  return { seEnd, imgEnd, vcEnd, duration, contentEnd, contentEndRef, rulerTicks }
+  return { seEnd, imgEnd, vcEnd, duration, durationRef, contentEnd, contentEndRef, rulerTicks }
 }

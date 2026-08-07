@@ -53,6 +53,33 @@ export function barSpan(
 }
 
 /**
+ * **丸めない**見えている範囲。掴んで動かすときの起点に使う。
+ *
+ * ## なぜ `barSpan` と分けるか（2026-08-06）
+ *
+ * `barSpan` は**描くための値**なので 0〜1 に収まっている。
+ * ところが倍率はその外側へも動く——全部見えた後もさらに引けるし、
+ * つまみが下限（28px）に達した後もさらに寄れる。
+ * **つまり両端で、描いてある位置と本当の倍率が食い違う。**
+ *
+ * その状態で●を掴み、描いてある位置から倍率を出し直すと、
+ * **掴んだ瞬間に本当の倍率へ飛ぶ**（本人の言葉:「ワープする」）。
+ *
+ * こちらは丸めないので、掴んだ時点の値が本当の倍率と一致する。
+ * 掴んだ瞬間に何も起きない＝飛ばない。
+ */
+export function viewSpan(
+  scrollLeft: number,
+  viewW: number,
+  totalSec: number,
+  zoom: number
+): BarSpan {
+  const contentW = Math.max(1, totalSec * zoom)
+  const a = scrollLeft / contentW
+  return { a, b: a + viewW / contentW }
+}
+
+/**
  * つまみを動かした結果から、拡大率と見ている位置を出す。
  *
  * **端を動かしたときは、反対の端をそのまま残す。** 右を掴んだのに左が動くと、
@@ -122,15 +149,25 @@ export function fitZoom(viewW: number, totalSec: number): number {
  *
  * プレミアと同じく「目一杯引いたら全体が見える」に変える。
  *
- * ## ただし今までできた引きは1つも減らさない
+ * ## 「全体が収まる所」で止める（2026-08-06・本人の指定でここへ来た）
  *
- * `floor` との**小さい方**を採る。短い素材では全体が収まる率の方が大きいので、
- * 下限は今までどおり `floor`（＝全体より更に引けて、右に空白が出る）。
- * 大きい方を採ると、短い素材で**今より引けなくなる**。
+ * 前は固定の下限（`floor`）との**小さい方**を採っていた。短い素材では
+ * 全体が収まる率の方が大きいので、**そこからさらに引けて右に空白が出た**。
+ *
+ * それをやめた理由は、**下のバーが表せなくなるから**。
+ * バーのつまみは「見えている割合」なので、全部見えた時点で端から端まで＝満杯。
+ * その先も引けると、**倍率だけ下がってバーは動かない**——本人の言葉:
+ * 「縮小時、ここをマックスの値として下のバーの大きさをしてほしい。
+ * 　この時点でバーがマックスやから、そこよ」。
+ *
+ * 全体が収まる所を限界にすると、**バーの端＝倍率の限界**が一致する。
+ * 「引いたのにバーが動かない」区間そのものが消える。
+ *
+ * ※ 引数を減らした（前は固定の下限を受けていた）。**限界は中身の長さだけで決まる。**
  */
-export function minZoom(viewW: number, totalSec: number, floor: number): number {
+export function minZoom(viewW: number, totalSec: number): number {
   const fit = fitZoom(viewW, totalSec)
-  return Number.isFinite(fit) && fit > 0 ? Math.min(floor, fit) : floor
+  return Number.isFinite(fit) && fit > 0 ? fit : 1
 }
 
 /**

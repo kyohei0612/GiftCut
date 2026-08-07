@@ -26,8 +26,8 @@ const Ctx = createContext<ViewNavValue | null>(null)
 export function ViewNavProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const { seekTo } = usePlaybackEngineCtx()
   const { scrollRef, trackInnerRef } = useTimelineBoxCtx()
-  const { contentEndRef } = useTimelineSpanCtx()
-  const value = useViewNav({ scrollRef, trackInnerRef, contentEndRef, seekTo })
+  const { contentEndRef, durationRef } = useTimelineSpanCtx()
+  const value = useViewNav({ scrollRef, trackInnerRef, contentEndRef, durationRef, seekTo })
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

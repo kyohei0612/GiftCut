@@ -75,18 +75,44 @@ export default async function (C, W) {
     assert(nWide > 0, '寄せても、つまみが1つも出ていない')
 
     // 引く＝帯が細くなる → 掴めない幅のつまみは出さない
+    //
+    // **「必ず 14px を切る」とは書けない**（2026-08-06）。引ける下限が
+    // 「全体がちょうど収まる所」になったので、短い素材では
+    // 目一杯引いても帯が 46px あったりする（前は固定の下限まで引けて細くできた）。
+    // → 見るのは**規則そのもの**にする: 細い帯につまみが付いていないこと。
+    //   これなら、どこまで引けるかに寄りかからない
     await wheel(1, 30)
     const wThin = await bandW()
     const nThin = await trims()
-    assert(wThin < 14, `引いても帯が細くならない（${wThin}px）`)
-    assert(nThin < nWide, `帯が ${wThin}px なのに、つまみが減らない（${nWide} → ${nThin}）`)
+    assert(wThin < wWide, `引いても帯が細くならない（${wWide} → ${wThin}px）`)
+    assert(nThin <= nWide, `引いたのに、つまみが増えた（${nWide} → ${nThin}）`)
+
+    // **細い帯につまみが付いていないこと**（これが本体の規則）
+    const 違反 = await page.evaluate(() => {
+      const 悪い = []
+      for (const c of document.querySelectorAll('.telop-clip, .video-clip')) {
+        const w = c.getBoundingClientRect().width
+        if (w <= 14 && c.querySelector('.clip-trim')) 悪い.push(Math.round(w))
+      }
+      return 悪い
+    })
+    assert(
+      違反.length === 0,
+      `掴めない細さ（${違反.join('/')}px）の帯につまみが出ている`
+    )
 
     // 寄せ直すと戻る（掴めなくなったままにしない）。
     // **幅が戻るまで寄せる**——同じ回数では戻らない（引くときに下限へ張り付くため）
     for (let i = 0; i < 6 && (await bandW()) <= 14; i++) await wheel(-1, 10)
     const wBack = await bandW()
     assert(wBack > 14, `寄せ直しても帯が広がらない（${wBack}px）`)
-    assert((await trims()) > nThin, '帯が広がったのに、つまみが戻らない')
+    // **「増える」とは書けない。** 引いてもつまみが消えないことがある
+    //（下限が「全体が収まる所」になり、帯が 14px を切らなくなったため）。
+    // ここで見たいのは「掴めなくなったままにしない」なので、減っていなければよい
+    assert(
+      (await trims()) >= nThin,
+      `帯が ${wBack}px に広がったのに、つまみが減った（${nThin} → ${await trims()}）`
+    )
   })
 
   // **細すぎる演出の帯は作らない。**

@@ -28,7 +28,9 @@ import { clamp } from '../../../shared/timeline'
 // 「バーでは引けるのにホイールでは引けない」という食い違いになる
 //（shared/zoomBar の冒頭が、まさにその型を警告している）
 import { minZoom } from '../../../shared/zoomBar'
-import { ZOOM_MAX, ZOOM_MIN } from './useView'
+// **下限は固定値ではない**（2026-08-06）。「全体がちょうど収まる率」なので
+// 中身の長さで毎回変わる。だから ZOOM_MIN は使わない
+import { ZOOM_MAX } from './useView'
 import { usePlaybackCtx } from './playbackContext'
 import { useTimelineBoxCtx } from './timelineBoxContext'
 import { useTimelineSpanCtx } from './timelineSpanContext'
@@ -53,7 +55,7 @@ export function useTimelineWheel() {
   // 上限・下限は state/useView の定数なので、ここで直に import する
   const { scrollRef } = useTimelineBoxCtx()
   const { zoom, setZoom, zoomRef } = useViewCtx()
-  const { contentEndRef } = useTimelineSpanCtx()
+  const { durationRef } = useTimelineSpanCtx()
   const { playing, currentTime } = usePlaybackCtx()
 
   useEffect(() => {
@@ -69,7 +71,10 @@ export function useTimelineWheel() {
         const timeAt = (el.scrollLeft + mx) / zoomRef.current
         // **目一杯引いたら全体が見える**（下限は shared/zoomBar が決める）。
         // 拡大バーの端と同じ所へ行き着かせる
-        const lo = minZoom(el.clientWidth, contentEndRef.current, ZOOM_MIN)
+        // **下限は「全体がちょうど収まる率」。材料はバーが描く長さ**（`duration`）。
+        // 前は `contentEnd` で出していたので、バーの端と限界が食い違い、
+        // 「引いたのにバーが動かない」区間ができていた（2026-08-06）
+        const lo = minZoom(el.clientWidth, durationRef.current)
         const nz = clamp(zoomRef.current * (e.deltaY < 0 ? 1.15 : 0.87), lo, ZOOM_MAX)
         setZoom(nz)
         requestAnimationFrame(() => {

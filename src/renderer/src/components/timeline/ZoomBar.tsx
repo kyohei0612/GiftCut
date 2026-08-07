@@ -10,7 +10,7 @@
 // こちらの仕事は、掴んだ場所を読んでそこへ渡すところまで。
 
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { barSpan, minZoom, panFromSpan, zoomFromSpan } from '../../../../shared/zoomBar'
+import { barSpan, minZoom, panFromSpan, viewSpan, zoomFromSpan } from '../../../../shared/zoomBar'
 
 // ## 効きの強さは、いじらないと決めた（2026-08-06）
 //
@@ -32,7 +32,13 @@ export function ZoomBar({
   scrollRef,
   onApply
 }: {
-  /** タイムライン全体の長さ（秒） */
+  /**
+   * タイムライン全体の長さ（秒）。**バーが描くのはこの範囲で、引ける下限もここから出す。**
+   *
+   * 別の長さ（物が置いてある終わり）で下限を出すと、バーの端と倍率の限界が
+   * 食い違い、**引いたのにバーが動かない区間**ができる。Ctrl+ホイールも
+   * キーボードも同じ長さを見る（2026-08-06）。
+   */
   totalSec: number
   zoom: number
   limits: { min: number; max: number }
@@ -72,7 +78,10 @@ export function ZoomBar({
     const scroll = scrollRef.current
     if (!bar || !scroll) return
     const rect = bar.getBoundingClientRect()
-    const base = barSpan(scroll.scrollLeft, scroll.clientWidth, totalSec, zoom)
+    // **掴む起点は丸めない方**（`viewSpan`）。描いてある位置から出し直すと、
+    // 両端（全部見えている／寄り切っている）で**掴んだ瞬間に倍率が飛ぶ**。
+    // 理由は shared/zoomBar の `viewSpan` に書いてある
+    const base = viewSpan(scroll.scrollLeft, scroll.clientWidth, totalSec, zoom)
     const sx = e.clientX
     const at = (x: number): number => (x - rect.left) / Math.max(1, rect.width)
     const onMove = (ev: PointerEvent): void => {
@@ -107,11 +116,20 @@ export function ZoomBar({
       // **指を外へ動かし続ければ引き続ける**（全部見えている状態は端までしか描けない）。
       // 丸めていた頃は「全体がちょうど1画面」で止まり、
       // **ホイールでは引けるのにバーでは引けない**状態だった。
-      const p = at(ev.clientX)
-      const next = grab === 'l' ? { a: p, b: base.b } : { a: base.a, b: p }
-      // **目一杯引いたら全体が見える**（プレミアと同じ）。下限は中身の長さで決まる。
-      // Ctrl+ホイールと「↔ 全体表示」も同じ shared/zoomBar を通る
-      const lo = minZoom(w, totalSec, limits.min)
+      // **掴んだ所からの「動いた量」で動かす**（絶対位置で置き直さない）。
+      //
+      // 絶対位置だと、両端で**掴んだ瞬間に飛ぶ**。全部見えている状態では
+      // つまみは 0〜1 で頭打ちなのに倍率はその先も下がっているので、
+      // 描いてある位置から出し直した途端に「1画面ぶん」へ戻ってしまう。
+      // 動いた量なら、押した瞬間は 0＝何も起きない。
+      const d = at(ev.clientX) - at(sx)
+      const next = grab === 'l' ? { a: base.a + d, b: base.b } : { a: base.a, b: base.b + d }
+      // **目一杯引いたら全体が見える。そこが限界**（2026-08-06・本人の指定）。
+      //
+      // 材料は `totalSec`＝**このバーが描いている長さそのもの**。
+      // だから「全部見えた ＝ つまみが端から端 ＝ もう引けない」が一致する。
+      // Ctrl+ホイールもキーボードも同じ長さを見るので、入口で限界が変わらない
+      const lo = minZoom(w, totalSec)
       const r = zoomFromSpan(next, totalSec, w, { min: lo, max: limits.max }, grab)
       // **再生ヘッドは追いかけない。** 追いかけると指との一致が崩れる
       //（それが①のまわり道だった）。ヘッドへ寄せたいときはキーボードの拡大

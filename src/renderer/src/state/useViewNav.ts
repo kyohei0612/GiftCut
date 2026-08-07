@@ -14,7 +14,9 @@ import { clamp } from '../../../shared/timeline'
 // 全体が収まる率と、引ける下限。**式はあちらに1つだけ**（フィット・拡大バー・
 // Ctrl+ホイールの3か所が同じ所へ行き着くようにするため）
 import { fitZoom, minZoom, scrollForZoomAtPlayhead } from '../../../shared/zoomBar'
-import { ZOOM_MAX, ZOOM_MIN } from './useView'
+// **下限は固定値ではない**（2026-08-06）。「全体がちょうど収まる率」なので
+// 中身の長さで毎回変わる。だから ZOOM_MIN は使わない
+import { ZOOM_MAX } from './useView'
 import { usePlaybackCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
 
@@ -23,8 +25,16 @@ export interface UseViewNavDeps {
   scrollRef: React.RefObject<HTMLDivElement>
   /** 目盛りとクリップが乗っている中身（擦った位置を測るのに使う） */
   trackInnerRef: React.RefObject<HTMLDivElement>
-  /** 中身の終わり（秒）。フィットの基準。掴んでいる最中も読むので ref */
+  /** 中身の終わり（秒）。**「↔ 全体表示」の基準**（素材を見せる操作なので、こちら） */
   contentEndRef: React.MutableRefObject<number>
+  /**
+   * 画面に出す長さ（秒）。**引ける下限はこちらから出す。**
+   *
+   * `contentEnd` ではない——下限は「全体がちょうど収まる率」で、
+   * その"全体"は**下の拡大バーが描く長さ**でなければ、
+   * バーの端と倍率の限界が食い違う（2026-08-06）。
+   */
+  durationRef: React.MutableRefObject<number>
   seekTo: (t: number) => void
 }
 
@@ -43,7 +53,7 @@ export interface ViewNav {
 }
 
 export function useViewNav(deps: UseViewNavDeps): ViewNav {
-  const { scrollRef, trackInnerRef, contentEndRef, seekTo } = deps
+  const { scrollRef, trackInnerRef, contentEndRef, durationRef, seekTo } = deps
   const { setZoom, zoomRef } = useViewCtx()
   // 拡大の軸に使う再生ヘッドの時刻。**state ではなく ref**（掴んでいる最中も読む）
   const { currentTimeRef } = usePlaybackCtx()
@@ -72,7 +82,9 @@ export function useViewNav(deps: UseViewNavDeps): ViewNav {
     if (!el) return
     const t = currentTimeRef.current
     const headX = t * zoomRef.current - el.scrollLeft
-    const lo = minZoom(el.clientWidth, contentEndRef.current, ZOOM_MIN)
+    // **下限は「全体がちょうど収まる率」。材料はバーが描く長さ**（`duration`）。
+    // `contentEnd` で出すと、バーの端と倍率の限界が食い違う（2026-08-06）
+    const lo = minZoom(el.clientWidth, durationRef.current)
     const nz = clamp(zoomRef.current * (dir > 0 ? 1.15 : 0.87), lo, ZOOM_MAX)
     setZoom(nz)
     requestAnimationFrame(() => {
@@ -87,8 +99,15 @@ export function useViewNav(deps: UseViewNavDeps): ViewNav {
   // ↔ を押しても全体が見えなかった**（451秒だと 2,706px 要る）。
   function fitTimelineZoom(): void {
     const vw = scrollRef.current?.clientWidth ?? 800
+    // **「↔ 全体表示」が見せるのは「素材」。だから `contentEnd`。**
+    //
+    // 引ける下限（`duration` 基準）と混ぜないこと。あちらは
+    //「これ以上引けない所」で、こちらは「素材がちょうど入る所」。
+    // 素材が短いときは**こちらの方が寄っている**（60秒ぶんの空白まで
+    // 見せても仕方がない）。一度ここも `duration` にして、
+    // **短い素材で4倍ぶん引きすぎ、確認が3件赤くなった**（2026-08-06）。
     const end = Math.max(contentEndRef.current, 10)
-    setZoom(clamp(fitZoom(vw, end), minZoom(vw, end, ZOOM_MIN), ZOOM_MAX))
+    setZoom(clamp(fitZoom(vw, end), minZoom(vw, durationRef.current), ZOOM_MAX))
     requestAnimationFrame(() => {
       if (scrollRef.current) scrollRef.current.scrollLeft = 0
     })
