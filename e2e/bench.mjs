@@ -78,7 +78,7 @@ const nowSec = () => Date.now() / 1000
 // 結果の記録と、画面に出す札は ./lib/benchReport（測る側は say / done しか使わない）
 // ---------------------------------------------------------------------------
 const { rows, setPage, say, done, finish } = makeReporter(
-  16 + (DO_LIMITS ? 6 : 0) + (DO_EXPORT ? 4 : 0)
+  17 + (DO_LIMITS ? 6 : 0) + (DO_EXPORT ? 4 : 0)
 )
 
 // ---------------------------------------------------------------------------
@@ -439,7 +439,10 @@ try {
   await runOpsChecks({
     measure, page, fmt, MINUTES, totalSec,
     visL, visR, visMid, visY, inner, clip,
-    zoomIn, seekTo0, scrollToFirst, zoomUntilGrabbable, headX, timelineWidth
+    zoomIn, seekTo0, scrollToFirst, zoomUntilGrabbable, headX, timelineWidth,
+    // **20秒流してずれを見る**項目が使う（コマ落ちではなく「合っているか」を見るので、
+    // measure ではなく自分で say/done を出し、途中の画面も撮る）
+    shot, say, done
   })
 
   // 自己点検はここまで（この先は「測る」ではなく「壊れていないか見る」なので、
