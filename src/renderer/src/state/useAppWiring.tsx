@@ -120,7 +120,27 @@ export function useAppWiring() {
   const { videoTrackH, audioTrackH } = useLaneHeightsCtx()
   // 再生の「今」（時刻・流しているか・速さ）。**追いかけの仕組みは動かしていない**
   const {
-    currentTime, currentTimeRef, durationRef,
+    // **`currentTime` は受け取らない**（2026-08-08）。
+    //
+    // ここで受け取ると、**再生中は毎秒60回このフックが作り直される**——
+    // つまり**アプリの骨格ごと**。`memo` を付けていない子（タイムラインの帯すべて）が
+    // 全部巻き添えになるので、**切れば切るほど1回が重くなり、時間とともに悪化する。**
+    //
+    // 実測（本人のプレテスト）。作り直しが増えるほど、絵の遅れがそのまま増えた:
+    //
+    //   作り直し 18回/秒 → 遅れ   0ms
+    //   　　　　 61回/秒 → 遅れ  56ms
+    //   　　　　 69回/秒 → 遅れ 263ms
+    //   　　　　 79回/秒 → 遅れ 339ms
+    //
+    // **`App.tsx` には「受け取らない」と書いてあり、実際に受け取っていなかった。**
+    // ところが**その手前のここが受け取っていた**ので、意味が無かった
+    //（フックが購読していれば、使わなくても作り直される）。
+    // 直した先の手前が残っている、今日3回目の型。
+    //
+    // 時刻が要る所は自分で見に行く（再生ヘッドは `components/timeline/Ruler`、
+    // 時刻表示は `components/panels/PreviewBars`）。**「いま」が要るだけなら `currentTimeRef`。**
+    currentTimeRef, durationRef,
     playing, playRateUI,
     fps
     // 追いかけの時計まわりも心臓が持っている。**App で別に宣言しないこと**
@@ -360,6 +380,6 @@ export function useAppWiring() {
     menus, paneGeom, playRateUI, previewCtx, ratio, rightPanel, startResize, timelineOps,
     timelineView, tool, unpopPane, selectedIds, selectedVideoIds, selectedAudioIds, selectedSeIds,
     selectedImgIds, selectedVClipIds, selectedTrans, selectedTelopTrans, selectedMarkerId,
-    selectedTrackId, currentTime, fps
+    selectedTrackId, fps
   }
 }

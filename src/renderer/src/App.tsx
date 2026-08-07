@@ -8,13 +8,12 @@ import {
 import { loadIconAssign } from './lib/iconLibrary'
 import { loadJson, loadRecentProjects, useProjectState } from './state/useProjectState'
 import { DEFAULT_TRACKS, initTrackStates } from './lib/trackState'
-import { FPS, RECENT_KEY, RECENT_MAX } from './lib/appConst'
+import { RECENT_KEY, RECENT_MAX } from './lib/appConst'
 
 
 import { useTracks } from './state/useTracks'
 import { useView } from './state/useView'
 import { useToast } from './state/useToast'
-import { usePlayback } from './state/usePlayback'
 import { useDragPreview } from './state/useDragPreview'
 import { useAppWiring } from './state/useAppWiring'
 
@@ -243,7 +242,6 @@ export default function App(): React.JSX.Element {
   const tracks = useTracks(DEFAULT_TRACKS, initTrackStates)
   const view = useView()
   const toast = useToast()
-  const playback = usePlayback(FPS)
   const dragPreview = useDragPreview()
   // **読むのは起動時の1回だけ。** 出来上がった値を渡すと、画面が描き直される
   // たびに localStorage から8つ読んで JSON を解析することになる（使うのは初回だけ）。
@@ -272,7 +270,7 @@ export default function App(): React.JSX.Element {
       (c) => <ViewProvider value={view}>{c}</ViewProvider>,
       (c) => <ToasterProvider value={toast}>{c}</ToasterProvider>,
       (c) => <IconsProvider>{c}</IconsProvider>,
-      (c) => <PlaybackProvider value={playback}>{c}</PlaybackProvider>,
+      (c) => <PlaybackProvider>{c}</PlaybackProvider>,
       (c) => <ExportProvider>{c}</ExportProvider>,
       (c) => <MediaProvider>{c}</MediaProvider>,
       (c) => <ProjectStateProvider value={projectState}>{c}</ProjectStateProvider>,
