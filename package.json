@@ -36,7 +36,6 @@
     "release": "npm run verify && npm run check:ffmpeg && npm run build && node scripts/release.mjs",
     "publish:only": "electron-builder --win --config electron-builder.yml --publish always",
     "check:release": "node scripts/check-release.mjs",
-    "walk": "node e2e/walk.mjs",
     "frames": "vitest run --config vitest.frames.config.ts",
     "presets": "node e2e/telop-presets.mjs",
     "check:swap": "node scripts/check-swap.mjs"

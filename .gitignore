@@ -22,8 +22,7 @@ e2e/.cache/
 e2e/bench-shots/
 # 画面写真は**リポジトリに入れない**。
 # 実素材（他人の動画）がプレビューにもサムネにも写り込むため。
-# どれも道具を回せば作り直せる（npm run walk / npm run bench / e2e）。
-e2e/walk/
+# どれも道具を回せば作り直せる（npm run bench / e2e）。
 e2e/ui-shots/
 # 右パネルの導線を撮った物（npm run audit）。実素材の名前が写るので履歴に入れない
 e2e/audit/
