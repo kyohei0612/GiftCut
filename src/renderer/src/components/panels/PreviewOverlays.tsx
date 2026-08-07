@@ -177,12 +177,16 @@ export function ZoomAnchor({
  *
  * 市松模様（＝透明）だけだと、初見では「壊れている？」に見える。
  * **次に何をすればいいか**を書く。
+ *
+ * **文言は渡してもらう**（2026-08-07）。同じ形の案内がタイムラインにも要ったので、
+ * 見た目だけここに置いて、何を書くかは使う側が決める。
+ * 作り直すと、片方の言い回しだけが変わっていく（このリポジトリで4回起きた型）。
  */
-export function ScreenEmpty(): JSX.Element {
+export function ScreenEmpty({ title, sub }: { title: string; sub: string }): JSX.Element {
   return (
     <div className="screen-empty">
-      <div className="screen-empty-title">動画をここにドラッグ</div>
-      <div className="screen-empty-sub">右の「＋ ファイル追加」からでも読み込めます</div>
+      <div className="screen-empty-title">{title}</div>
+      <div className="screen-empty-sub">{sub}</div>
     </div>
   )
 }

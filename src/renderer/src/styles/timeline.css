@@ -450,3 +450,28 @@
   font-variant-numeric: tabular-nums;
 }
 
+
+/* **まだ何も置いていないときの案内**（components/timeline/TimelineArea.tsx）。
+
+   置く前に読ませたいのは2つだけ——「ここへ落とす」と「0秒から並ぶ」。
+   それ以上書くと、読まずに飛ばされる（初めて開いた人が見る最初の面なので、
+   文字数がそのまま「難しそう」になる）。
+
+   `pointer-events: none` は必須。案内が落とす操作を横取りすると、
+   **書いてあるとおりにやったのに何も起きない**——一番たちが悪い形になる。
+
+   **ここが持つのは置く場所だけ。** 見た目（囲み・字の大きさ・色）は
+   プレビューと同じ `.screen-empty`（monitor.css）が持っている。
+   書き写すと、片方の見た目だけが変わっていく。 */
+.tl-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  /* **段の背景より前に出す。** 素で置くと、後ろに来る `.track-inner`
+     （position: relative）が上に描かれて、**在るのに見えない**
+     ——最初に z-index: 0 で書いて実際にそうなった（2026-08-07） */
+  z-index: 6;
+}

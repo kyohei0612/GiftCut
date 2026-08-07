@@ -307,6 +307,20 @@ export default async function (C) {
     await page.waitForTimeout(600)
     assert((await v1.count()) === 0, '全部消しても帯が残っている（空から始められない）')
 
+    // **空になったら案内が出る。** 何をすればいいか分からない面を作らない
+    const 案内 = page.locator('.tl-empty')
+    assert(await 案内.isVisible(), 'タイムラインが空なのに、案内が出ていない')
+    // 書いてあるとおりに落とせること（案内が操作を横取りしていない）
+    const 素通り = await page.evaluate(() => {
+      const el = document.querySelector('.tl-empty')
+      const r = el.getBoundingClientRect()
+      return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.className ?? ''
+    })
+    assert(
+      !素通り.includes('tl-empty'),
+      `案内が落とす操作を横取りしている（真ん中で当たるのは ${素通り}）`
+    )
+
     const inner = await page.locator('.track-inner').first().boundingBox()
     const v1row = await page.locator('[data-tid="V1"]').first().boundingBox()
     // **右の方へ落とす。** 左端に落として 0秒になっても、規則が効いたのか
@@ -324,6 +338,8 @@ export default async function (C) {
       `0秒から入っていない（帯の左 ${左}px / 0秒は ${Math.round(inner.x)}px。` +
         `${dropX}px の所へ落とした）`
     )
+    assert((await 案内.count()) === 0, '置いたのに「ここへドラッグ」の案内が残っている')
+
     // **自分で戻して、戻ったことを確かめる。**
     // ここは「全部消す → 置く」の2手なので、取り消しも2回要る。
     // `resetProject()` はここでは効かない——**この項目がまだ終わっていない間は

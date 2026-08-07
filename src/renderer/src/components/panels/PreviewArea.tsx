@@ -385,7 +385,12 @@ export function PreviewArea(): JSX.Element {
                 }}
               />
             )}
-            {!videoSrc && !activeCues.length && <ScreenEmpty />}
+            {!videoSrc && !activeCues.length && (
+              <ScreenEmpty
+                title="動画をここにドラッグ"
+                sub="右の「＋ ファイル追加」からでも読み込めます"
+              />
+            )}
             <ProgressBadges proxyPct={proxyPct} packPct={packPct} />
             {editingId != null &&
               activeCues.some((c: { id: number }) => c.id === editingId) && (

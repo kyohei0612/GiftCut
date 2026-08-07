@@ -52,6 +52,9 @@ import {
 import { formatTime } from '../../lib/srt'
 import { formatTimecode } from '../../../../shared/timeline'
 import { formatCombo } from '../../../../shared/shortcuts'
+import { timelineIsEmpty } from '../../../../shared/emptyTimeline'
+// 「まだ何も無い」の見た目は、プレビューと同じ物を使う（作り直さない）
+import { ScreenEmpty } from '../panels/PreviewOverlays'
 import { EXTRA_AUDIO_TRACK, newTrackState } from '../../lib/trackState'
 import { useDoc } from '../../state/contentContext'
 import { useSel } from '../../state/selectionContext'
@@ -93,7 +96,10 @@ export function TimelineArea(): JSX.Element {
     scrollRef, trackInnerRef, thBodyRef, syncTimelineVScroll,
     fitTimelineZoom
   } = useTimelineView()
-  const { markers, setMarkers, vClips, imgClips } = useDoc()
+  const { markers, setMarkers, vClips, imgClips, segments, cues, seClips } = useDoc()
+  // 帯が1本も無いか。**数え方は書き写さず `shared/emptyTimeline` から引く**
+  //（置く側〈0秒から〉と案内〈出す・出さない〉が、同じ「空」で動く）
+  const タイムラインが空 = timelineIsEmpty({ segments, vClips, cues, seClips, imgClips })
   const {
     selectedTrans, selectedTrackId, selectedMarkerId, setSelectedMarkerId,
      editingMarkerId, setEditingMarkerId
@@ -273,6 +279,19 @@ export function TimelineArea(): JSX.Element {
             void placeDropped(m, t, yRel, { target: e.target, ctrlKey: e.ctrlKey })
           }}
         >
+          {/* **まだ何も置いていないときの案内**（2026-08-07・本人の指定。プレミアと同じ）。
+              空のタイムラインは「ここで何をすればいいか」を何も言わないので、
+              最初の一手が分からない。落とす先も 0秒から始まることも、
+              **やってみる前に**読めるようにする（規則は shared/emptyTimeline）。
+              `pointer-events: none` で通す——案内が落とす操作の邪魔をしたら本末転倒 */}
+          {タイムラインが空 && (
+            <div className="tl-empty">
+              <ScreenEmpty
+                title="ここへ素材をドラッグ＆ドロップ"
+                sub="どこへ落としても、0秒から並びます"
+              />
+            </div>
+          )}
           <div
             className={`track-inner ${tool === 'trackFwd' ? 'cur-track-fwd' : tool === 'trackBack' ? 'cur-track-back' : ''}`}
             ref={trackInnerRef}
