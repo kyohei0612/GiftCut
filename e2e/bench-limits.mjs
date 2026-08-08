@@ -33,6 +33,8 @@ import { frameStats } from './lib/measure.mjs'
 import { fmt, mb } from './lib/fmt.mjs'
 // 何を1軸ずつ増やすかの表（19軸）。**測り方は知らない**——借りるのは素材だけ
 import { makeSweeps } from './bench-limits-axes.mjs'
+// 軸ごとの時間を控える。**本体と同じ物を借りる**（作り直さない）
+import { 時計を作る } from './lib/benchClock.mjs'
 
 /**
  * @param {object} ctx 本体から借りる物
@@ -381,6 +383,12 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
     return out
   }
 
+  // **19軸のどれが長いのかが、書かれてから一度も出ていなかった。**
+  // 「5分超の軸がある」ことだけ分かっていて、どれかは不明のまま
+  // `やること.md` に残っていた（2026-08-08 に埋めた）。
+  // ここで区切っておくと、通しを待たずに名指しできる
+  const 軸時計 = 時計を作る()
+  軸時計.区切る('素材の用意（画像・動画・別ファイル）')
   for (const sw of sweeps) {
     let lastOk = null
     let broke = null
@@ -451,7 +459,12 @@ export async function findLimits({ ROOT, nowSec, say, done, app, fx, page, setZo
       slope
     // 測れていないものは **問題あり（ng）**。△ にすると「まあ動いた」に見える
     await done('動作', `どこまで耐えるか: ${sw.name}`, detail, notMeasured ? 'ng' : broke ? 'warn' : 'ok')
+    // **軸ごとに区切る。** 打ち切った軸は途中で `break` して短く終わるので、
+    // 「長い＝重い」ではない（最後まで試し切った軸ほど長くなる）。そこは
+    // 上の各行（どこで崩れたか）と突き合わせて読むこと
+    軸時計.区切る(sw.name)
   }
+  軸時計.出す(fmt, '軸ごとの時間（限界さがし）')
 
   // 元のプロジェクトに戻しておく（このあとの書き出しを本来の条件でやるため）
   await app.evaluate((_e, p) => {

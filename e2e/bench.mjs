@@ -424,12 +424,17 @@ try {
   // 中身は ./bench-limits.mjs（約380行あるので別ファイル）
   区切る('50回編集して50回戻す')
   if (DO_LIMITS) await findLimits({ ROOT, nowSec, say, done, app, fx, page, setZoom, heap, video, totalSec })
+  // **ここで区切る。** 前は下の `if (DO_EXPORT)` の中にあったので、
+  // **`npm run bench:limits`（＝限界さがしのための口）でだけ印が打たれず**、
+  // 8.9分がまとめの「最後の確認」に化けていた（2026-08-08 に見つけた）。
+  // 通し（両方オン）では正しく出るので、**通しを見ている限り気づけない**型。
+  // 限界さがしをしない回はここが 0秒になり、内訳から自動で落ちる（0.5秒未満）
+  区切る('限界さがし（19軸）')
 
   // ---- 7. 書き出し（目と耳） -------------------------------------------
   // 中身は ./bench-export。**「完走した」で終わらせない**（無音・真っ黒でも
   // ファイルはできる）ので、尺・大きさ・音量・明るさまで見る
   if (DO_EXPORT) {
-    区切る('限界さがし（19軸）')
     await runExportChecks({
       say, done, fmt, mb, MINUTES, totalSec, nowSec,
       page, sh, join, existsSync, statSync, meanVolume, silentSec, brightness,
