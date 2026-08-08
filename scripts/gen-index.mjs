@@ -33,7 +33,13 @@ import { fileURLToPath } from 'node:url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SKIP = new Set(['node_modules', 'out', 'dist', '.git', 'shots'])
 const WATCH = ['src', 'e2e', 'scripts']
-const EXT = /\.(ts|tsx|mjs)$/
+// **css も数える**（2026-08-09）。`.ts/.tsx/.mjs` だけだったので、styles/ の
+// 17本が「それ、もうある？」の網から外れていた——**`.snap-line` の二重定義は
+// CSS で起きた**のに、見た目の質問に目次が答えられない形だった。
+// `headline()` は `/* */` を元から読めるので、拾う対象を足すだけでよい。
+// （fileSize の検査が 08-05 に .css/.md へ広がったのと同じ「数えたつもりで
+//   数えていない」型。md は目次に載せない——説明の1行目が見出しではないため）
+const EXT = /\.(ts|tsx|mjs|css)$/
 
 /** 1行の説明をどこまで載せるか（長い説明は次の行へ続くので、頭だけで足りる） */
 const MAX_DESC = 78
@@ -60,7 +66,9 @@ function headline(lines) {
     if (!l) continue
     const m = l.match(/^(?:\/\/|\/\*\*?|\*)\s*(.*)$/)
     if (!m) return null // コメントでない行に当たった＝冒頭コメントが無い
-    const t = m[1].trim()
+    // css の1行コメントは `/* 説明 */` と閉じまで同じ行に来るので、閉じは説明から落とす。
+    // 「===== 見出し =====」の飾りの = も落とす（説明は中の言葉）
+    const t = m[1].trim().replace(/\s*\*\/\s*$/, '').replace(/^=+\s*|\s*=+$/g, '')
     if (!t || t === '*/') continue
     // **飾りの区切り線は説明ではない。** `shared/timeline.ts` は `====…` で始まっていて、
     // そのまま採ると目次に「====」と並ぶ（実際に作ってみて出た）
