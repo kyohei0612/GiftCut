@@ -62,8 +62,38 @@ const ROOT = join(HERE, '..')
 const WORKERS =
   Number((process.argv.find((a) => a.startsWith('--workers=')) ?? '').slice(10)) ||
   Math.max(2, Math.min(4, Math.floor(cpus().length / 3)))
+/**
+ * **絞り込み（`--only=<語>`）。**
+ *
+ * ## ここに無かったせいで、絞ったつもりの通しが走っていた（2026-08-08）
+ *
+ * `npm run e2e` は 2026-08-05 に並列（このファイル）へ移ったが、
+ * **`--only` の道は `run.mjs` に残されたまま**だった。下の `PASS` にも
+ * 入っていないので子へ渡らず、`npm run e2e -- --only=見え方 --fast` は
+ * **黙って全件（269件・4.1分）走る。** CLAUDE.md が案内している道そのもの。
+ *
+ * 知らないフラグは `includes` で拾うだけ＝**無視されて全件になる**という
+ * 落とし穴は CLAUDE.md の1番と3番に書いてあるのに、**案内している当の
+ * コマンドが同じ穴に落ちていた。**
+ *
+ * ## 章で絞れるなら章で絞る（絞れなければ全章へ渡す）
+ *
+ * `run.mjs` の `--only` は**確認名か節の名前**で絞る。章の名前に当たるなら
+ * その章だけ回せば起動も1回で済むが、当たらない語（確認名の一部）でも
+ * 使えないと困るので、**当たらなければ全章へ渡して中で絞らせる**。
+ * 遅いが、黙って全件通すよりずっとよい。
+ *
+ * ※ **章で絞れたときは `--only` を子へ渡さない。** 渡すと、章の中の節や
+ *   確認名にその語が無い場合に**1件も残らない**（章名は `16-仕上げ` だが、
+ *   中の節は `見え方` のように別の言葉）。章を絞った時点で仕事は済んでいる。
+ */
+const ONLY = (process.argv.find((a) => a.startsWith('--only=')) ?? '').slice(7)
+// **語が章の名前に当たるならその章だけ**。当たらなければ全章へ渡して中で絞らせる
+const 章で当たった = ONLY ? CHAPTERS.filter((c) => c.includes(ONLY)) : []
 /** run.mjs へそのまま渡す物 */
-const PASS = process.argv.filter((a) => /^--(fast|slow|ratio=)/.test(a))
+const PASS = process.argv.filter((a) =>
+  章で当たった.length ? /^--(fast|slow|ratio=)/.test(a) : /^--(fast|slow|ratio=|only=)/.test(a)
+)
 
 /**
  * 長い順に、いま一番空いている担当へ配る。
@@ -165,23 +195,36 @@ async function worker(names, id, results) {
 
 const t0 = Date.now()
 const results = []
-const parallelNames = CHAPTERS.filter((c) => !SERIAL_ONLY.includes(c))
+const 対象 = 章で当たった.length ? 章で当たった : CHAPTERS
+const serialNames = 対象.filter((c) => SERIAL_ONLY.includes(c))
+const parallelNames = 対象.filter((c) => !SERIAL_ONLY.includes(c))
 const bins = shard(parallelNames, WORKERS)
 
 console.log(`\n\x1b[1m章ごとに並列で回します\x1b[0m  ${WORKERS}並列`)
+if (ONLY)
+  console.log(
+    `\x1b[33m  絞り込み: --only=${ONLY}\x1b[0m` +
+      (章で当たった.length
+        ? `（章の名前に当たったので ${対象.length}章だけ回します）`
+        : `（章の名前には当たらないので全${CHAPTERS.length}章を回し、中で確認名を絞ります）`)
+  )
 console.log(`  同時に回す: ${parallelNames.length}章`)
 // **0 のときに「1つずつ回す: 0章（隣に邪魔をさせない）」と出すと嘘になる。**
 // 空は「そういう章が無い」であって、何かを守っているわけではない
-if (SERIAL_ONLY.length)
-  console.log(`  1つずつ回す: ${SERIAL_ONLY.length}章（時間を測るので隣に邪魔をさせない）`)
+if (serialNames.length)
+  console.log(`  1つずつ回す: ${serialNames.length}章（時間を測るので隣に邪魔をさせない）`)
 console.log('')
-bins.forEach((b, i) => console.log(`  [${i}] 見込み${b.sec}秒  ${b.names.join(' / ')}`))
+// **空の担当は出さない。** 絞ると章より担当の方が多くなり、`[1] 見込み0秒` が
+// 名前なしで並ぶ——**動いていないのか、名前を出し損ねたのか**が読めない
+bins.forEach((b, i) => {
+  if (b.names.length) console.log(`  [${i}] 見込み${b.sec}秒  ${b.names.join(' / ')}`)
+})
 console.log('')
 
 await Promise.all(bins.map((b, i) => worker(b.names, i, results)))
-if (SERIAL_ONLY.length) {
+if (serialNames.length) {
   console.log(`\n\x1b[90m  ここから1つずつ（時間を測る章）\x1b[0m`)
-  await worker(SERIAL_ONLY, 'S', results)
+  await worker(serialNames, 'S', results)
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +257,10 @@ try {
  *
  * ※ 各担当は下ごしらえに 01章（2件）を通すので、そのぶんを足して比べる
  */
-const 足りない = baseline
+// **絞ったら件数は正当に減る。** ここを黙って通すと「基準より少ない＝途中で
+// 死んだ」という嘘の赤が必ず出るので、比較そのものをやめる。**やめたことは下で言う**
+// ——黙って外すと「見ているつもりで見ていない」になる（CLAUDE.md 7番）
+const 足りない = baseline && !ONLY
   ? results.filter((r) => {
       const want =
         r.names.reduce((s, n) => s + (baseline[n] ?? 0), 0) +
@@ -242,7 +288,13 @@ if (途中死.length) {
       `\n  **「その章はもともとその件数」と読まないこと。** 最後まで走っていません`
   )
 }
-if (!baseline) {
+if (ONLY) {
+  console.error(
+    `\n\x1b[33m絞って回したので、件数が足りているかは見ていません（--only=${ONLY}）。\x1b[0m` +
+      `\n  **ここの緑を「通しでも緑」と読まないこと。**` +
+      `\n  順番に依存する項目があります（CLAUDE.md 2番）。最後は絞らずに1回\n`
+  )
+} else if (!baseline) {
   console.error(
     `\n\x1b[33m基準がありません（${BASELINE_PATH}）。\x1b[0m` +
       `\n  **件数が足りているかを見ていません。** \`npm run solo\` を1回回してください\n`

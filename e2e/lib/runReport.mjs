@@ -181,7 +181,11 @@ async function check(name, fn, opts = {}) {
   try {
     touchedRef.dirty = true
     await fn()
-    results.push({ name, ok: true, ms: Date.now() - t0, section: curSection })
+    // **`setup` を控えること。** 下ごしらえは絞り込みを素通りする（上の 128/132行）ので、
+    // 控えておかないと**まとめ側が「本題が1件も走らなかった」を見分けられない**。
+    // 実際そうなっていて、`--only=見え方` が下ごしらえ9件だけで「全部通りました」と
+    // 出していた（2026-08-08。判定は ./runSummary）
+    results.push({ name, ok: true, ms: Date.now() - t0, section: curSection, setup: !!opts.setup })
     console.log(`  \x1b[32m✓\x1b[0m ${name}`)
     await banner({ status: 'ok', name: esc(name), section: esc(curSection), done: results.length, total })
   } catch (e) {
@@ -205,7 +209,7 @@ async function check(name, fn, opts = {}) {
         png = null
       }
     }
-    results.push({ name, ok: false, err: String(e?.message ?? e), state, png, ms: Date.now() - t0, section: curSection })
+    results.push({ name, ok: false, err: String(e?.message ?? e), state, png, ms: Date.now() - t0, section: curSection, setup: !!opts.setup })
     // **落ちた理由はその場で1行出す。**
     // 「回し終わってから報告書を読む」だと、読むためにもう一度回すことになる。
     // 印を付けておけば、流しっぱなしのまま ✓ ✗ 理由 だけを拾える。
