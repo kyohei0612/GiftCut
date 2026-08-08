@@ -65,7 +65,7 @@ import { readArgs, prepareFixture } from './lib/benchSetup.mjs'
 // **止まっている間に何をしているか**まで見る（--cpu のときだけ）
 import { makeCpuProfiler } from './lib/cpuProfile.mjs'
 // 時間まわり（その回を信じていいか・何に時間を食ったか）
-import { 素の重さを測る, 時計を作る } from './lib/benchClock.mjs'
+import { 素の重さを測る, 時計を作る, 焼き終わるまで待つ } from './lib/benchClock.mjs'
 // 触っている間のコマ落ちを記録する仕掛け（話題が1つなので分けてある）
 import { makeMeasure } from './lib/benchMeasure.mjs'
 // 触ったときのもたつきを測る7項目（本体は素材づくり・記録・まとめだけ持つ）
@@ -82,7 +82,7 @@ const require = createRequire(import.meta.url)
 const SHOTS = join(ROOT, 'e2e', 'bench-shots')
 // **何を測る相手にするか**（引数の解釈と素材づくり）は ./lib/benchSetup。
 // 引数は「どの素材を作るか」を決めるためだけにあるので、1つの話題にしてある
-const { KEEP, DO_EXPORT, DO_LIMITS, MINUTES, REAL, SELFCHECK, EDITS, PROFILE, WANT_TELOPS, MINUS, CPU, CPU_DEEP } =
+const { KEEP, DO_EXPORT, DO_LIMITS, MINUTES, REAL, SELFCHECK, EDITS, PROFILE, WANT_TELOPS, MINUS, CPU, CPU_DEEP, WAIT_PROXY } =
   readArgs()
 
 const nowSec = () => Date.now() / 1000
@@ -169,9 +169,12 @@ try {
   //
   // 書き出しは60分ぶんの映像を焼くので、そもそも60分の枠に収まらない。
   // → 中身ごとに分けて回す（`npm run bench` / `bench:limits` / `bench:export`）。
-  const 頭打ち分 = 20 + (DO_LIMITS ? 90 : 0) + (DO_EXPORT ? 180 : 0)
+  // **待ちを足したら頭打ちも足す。** 足さないと「焼き直しを待っている最中に
+  // 頭打ちで殺される」——08-08 に直したのと**まったく同じ型**（測る側が殺した
+  // だけの赤が、アプリの顔をして出る）を、ここで作り直すことになる
+  const 頭打ち分 = 20 + (DO_LIMITS ? 90 : 0) + (DO_EXPORT ? 180 : 0) + (WAIT_PROXY ? 15 : 0)
   watchdog(頭打ち分, () => app.close())
-  console.log(`[90m  頭打ち ${頭打ち分}分（触る20${DO_LIMITS ? ' + 限界90' : ''}${DO_EXPORT ? ' + 書き出し180' : ''}）[0m`)
+  console.log(`[90m  頭打ち ${頭打ち分}分（触る20${WAIT_PROXY ? ' + 焼き直し待ち15' : ''}${DO_LIMITS ? ' + 限界90' : ''}${DO_EXPORT ? ' + 書き出し180' : ''}）[0m`)
   setPage(page)
   await page.waitForSelector('.app', { timeout: 30000 })
   page.setDefaultTimeout(20000)
@@ -220,6 +223,14 @@ try {
     `${fmt(openSec)}秒`,
     openSec <= 10 ? 'ok' : openSec <= 30 ? 'warn' : 'ng'
   )
+
+  // **開いた直後に、裏の焼き直しが始まる。** `--wait-proxy` のときだけ、
+  // 終わるのを待ってから測る（理由は ./lib/benchClock の `焼き終わるまで待つ`）。
+  // 待った時間は測定に入れない——`区切る` で別の段にしておく
+  if (WAIT_PROXY) {
+    await 焼き終わるまで待つ(page)
+    区切る('裏の焼き直しの完了待ち')
+  }
 
   // ---- 2. 目: 中身がちゃんと描かれているか -----------------------------
   await say('目', '画面に中身が出ているか', 'タイムラインとプレビューを撮って測る')

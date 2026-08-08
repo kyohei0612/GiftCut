@@ -16,6 +16,8 @@
 //   型検査は `.mjs` を見ないので、**走らせるまで分からない**。
 //   割ったら必ず1回通すこと（CLAUDE.md の「割った拍子に検査が黙って死ぬ」と同じ型）。
 import { frameStats } from './measure.mjs'
+// **その項目を信じていいか**（周りの重さと、裏で焼いている最適化の進み）
+import { 周りを測る, 周りを書く } from './benchClock.mjs'
 export function makeMeasure({ page, say, done, cpu, fmt, nowSec, SELFCHECK }) {
   /** 操作している間の描画のコマ落ちを記録する */
   /**
@@ -63,6 +65,10 @@ export function makeMeasure({ page, say, done, cpu, fmt, nowSec, SELFCHECK }) {
     // 「項目が自分で入口を決める」（2026-08-04 に4か所直した）だけでは足りない。
     // **決めた入口へ行く動作そのものを測ってしまう**からで、そこを外に出す。
     if (setup) await setup()
+    // **入口を作り終えた直後に、周りを1回測る**（理由は ./benchClock の `周りを測る`）。
+    // 入口づくりより後なのは、setup が起こした仕事（読み込み・作り直し）も
+    // 「この項目が始まるときの周り」だから。
+    const 周り前 = await 周りを測る(page)
     await page.evaluate(() => {
       window.__frames = []
       window.__sampling = true
@@ -87,11 +93,15 @@ export function makeMeasure({ page, say, done, cpu, fmt, nowSec, SELFCHECK }) {
       window.__sampling = false
       return window.__frames
     })
+    const 周り後 = await 周りを測る(page)
     const s = frameStats(frames)
     // **成立しなかったときも出す。** 何をしていて成立しなかったのかが、
     // そのまま原因になっていることがある
     if (cpu) await cpu.stop(name)
-    if (failed) return done('動作', name, `操作が成立しなかった: ${failed}`, 'ng')
+    // 成立しなかったときこそ周りを出す。**待ちきれずに落ちた**のか、
+    // 本当に手順が合っていないのかは、ここを見ないと分けられない
+    if (failed)
+      return done('動作', name, `操作が成立しなかった: ${failed}` + 周りを書く(周り前, 周り後, fmt), 'ng')
     if (!s) return done('動作', name, '（描画が記録できなかった）', 'warn')
     // **窓が裏に回ったら、それは測定不成立。アプリのせいにしない。**
     //
@@ -110,7 +120,8 @@ export function makeMeasure({ page, say, done, cpu, fmt, nowSec, SELFCHECK }) {
       )
     const detail =
       `中央値 ${fmt(s.median)}ms / 95% ${fmt(s.p95)}ms / 最悪 ${fmt(s.worst)}ms` +
-      ` / 引っかかり ${s.janky}回（${fmt(elapsed)}秒間）`
+      ` / 引っかかり ${s.janky}回（${fmt(elapsed)}秒間）` +
+      周りを書く(周り前, 周り後, fmt)
     // 60fps=16.7ms。33ms(30fps)までは普通に触れる。50ms超が続くともたつきを感じる。
     await done('動作', name, detail, s.p95 <= 33 ? 'ok' : s.p95 <= 60 ? 'warn' : 'ng')
   }

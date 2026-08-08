@@ -34,6 +34,14 @@ const REAL = (process.argv.find((a) => a.startsWith('--project=')) ?? '').slice(
 // （実際、拡大していない・掴めていないのに合格していた項目が5つあった）。
 const SELFCHECK = process.argv.includes('--selfcheck')
 /**
+ * **裏の焼き直しが終わってから測る**（`--wait-proxy`）。
+ *
+ * 既定は付けない。**使う人はプロキシを焼きながら編集する**ので、焼いている
+ * 最中こそが本番。これは「振れている原因が焼き直しか」を切り分けるためだけの口。
+ * 待ち役の中身と理由は `./benchClock` の `焼き終わるまで待つ`。
+ */
+const WAIT_PROXY = process.argv.includes('--wait-proxy')
+/**
  * **止まっている間に何をしているか**を出す。中身は `./cpuProfile`。
  *
  *   --cpu       レイアウト・スタイル計算・JS・その他の内訳（**軽い**）
@@ -79,7 +87,7 @@ const MINUS = (process.argv.find((a) => a.startsWith('--minus=')) ?? '')
   .slice(8)
   .split(',')
   .filter(Boolean)
-  return { KEEP, DO_EXPORT, DO_LIMITS, MINUTES, REAL, SELFCHECK, EDITS, PROFILE, WANT_TELOPS, MINUS, CPU, CPU_DEEP }
+  return { KEEP, DO_EXPORT, DO_LIMITS, MINUTES, REAL, SELFCHECK, EDITS, PROFILE, WANT_TELOPS, MINUS, CPU, CPU_DEEP, WAIT_PROXY }
 }
 
 /**
