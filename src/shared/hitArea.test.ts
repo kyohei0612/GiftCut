@@ -96,21 +96,39 @@ describe('拡大バーの●', () => {
     expect(move).toBeGreaterThanOrEqual(8)
   })
 
-  it('**横は 24px ある**（WCAG 2.2 の下限）', () => {
+  it('**縦も横も 24px ある**（WCAG 2.2 の下限）', () => {
     expect(hitW).toBeGreaterThanOrEqual(24)
+    expect(px('.zoom-bar-knob::before', 'height')).toBeGreaterThanOrEqual(24)
   })
 
-  // **縦は 24 にしない。** バーの上の余白は 2px しかないので、24 にすると
-  // 上へ 6px はみ出して **4px がタイムラインの中へ食い込む**。●はつまみと
-  // 一緒に動くため、段のいちばん下に「押すと拡大が始まる帯」が現れて左右へ動く。
-  // 小さいままより悪い形（CLAUDE.md の hitArea の行）。
-  // 縦を伸ばすならバー自体を高くする話で、それはタイムラインの高さを削る判断。
-  it('**上の段へ食い込まない**（縦に広げすぎない）', () => {
-    const 上のはみ出し =
-      (px('.zoom-bar-knob::before', 'height') - px('.zoom-bar', 'height')) / 2
-    // バーの上余白（margin の1つ目）を超えて出た分が、タイムラインを盗む
-    const 上余白 = Number(/margin:\s*(-?[\d.]+)px/.exec(rule('.zoom-bar'))?.[1] ?? NaN)
-    expect(上余白, '.zoom-bar の margin が読めない（書き方が変わった）').not.toBeNaN()
-    expect(上のはみ出し - 上余白).toBeLessThanOrEqual(2)
+  /**
+   * **はみ出す先が、余白の中に収まっていること。**
+   *
+   * ●の判定はバー（12px）より高いので、必ず上下へはみ出す。**それ自体は
+   * 問題ではない**——2026-08-08 まで 20px でも 4px はみ出していた。
+   * 悪いのは**はみ出した先に段があるとき**で、そうなると段のいちばん下に
+   * 「押すと拡大が始まる帯」が現れて左右へ動く（小さいままより悪い）。
+   *
+   * だから見るのは高さではなく **「はみ出し ≦ 余白」**。余白を削られたら
+   * 黙って壊れるので、**両方 CSS から読んで突き合わせる**（このファイルの
+   * 冒頭にある「大きさ ≦ 隣との間隔」と同じ考え方）。
+   */
+  const 余白 = (n: number): number => {
+    const m = /margin:\s*([^;]+);/.exec(rule('.zoom-bar'))?.[1]
+    const 値 = m?.trim().split(/\s+/).map((s) => Number(s.replace('px', '')))
+    if (!値 || 値.some((v) => Number.isNaN(v)))
+      throw new Error('.zoom-bar の margin が読めない（書き方が変わった）')
+    // 1つなら全辺、2つなら 上下/左右、3つなら 上/左右/下
+    return 値.length === 1 ? 値[0] : n === 0 ? 値[0] : (値[2] ?? 値[0])
+  }
+  const はみ出し =
+    (px('.zoom-bar-knob::before', 'height') - px('.zoom-bar', 'height')) / 2
+
+  it('**上の段へ食い込まない**（はみ出す分を余白で先に確保してある）', () => {
+    expect(はみ出し).toBeLessThanOrEqual(余白(0))
+  })
+
+  it('**下へもはみ出しっぱなしにしない**', () => {
+    expect(はみ出し).toBeLessThanOrEqual(余白(2))
   })
 })
