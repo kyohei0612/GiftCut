@@ -185,15 +185,25 @@ try {
   const outDir = join(fx.dir, 'out')
   mkdirSync(outDir, { recursive: true })
   const exportPath = join(outDir, 'bench-export.mp4')
-  await app.evaluate(
-    ({ dialog }, { gcproj, save }) => {
-      const g = globalThis
-      g.__e2e = { open: [gcproj], save }
-      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: g.__e2e.open })
-      dialog.showSaveDialog = async () => ({ canceled: false, filePath: g.__e2e.save })
-    },
-    { gcproj: fx.gcproj, save: exportPath }
-  )
+  /**
+   * 窓（ファイル選択・保存先）の差し替え。**あとから差し替え直せる形にしてある**
+   * ——書き出しの正典（`lib/exportTarget.mjs` の `setExportTarget`）が
+   * 「置き場か名前が決まらなかったときの逃げ道」としてこの口を要求する。
+   * ※ **保存の差し替えだけでは焼く先は変わらない**（理由は ./bench-export.mjs）
+   */
+  const setDialogFiles = (open, save) =>
+    app.evaluate(
+      ({ dialog }, v) => {
+        const g = globalThis
+        g.__e2e = g.__e2e ?? {}
+        if (v.open) g.__e2e.open = v.open
+        if (v.save) g.__e2e.save = v.save
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: g.__e2e.open })
+        dialog.showSaveDialog = async () => ({ canceled: false, filePath: g.__e2e.save })
+      },
+      { open, save }
+    )
+  await setDialogFiles([fx.gcproj], exportPath)
 
   // 標本器（--cpu のときだけ。既定は null＝素通し）
   const cpu = CPU ? await makeCpuProfiler(app, page, CPU_DEEP) : null
@@ -440,7 +450,9 @@ try {
       page, sh, join, existsSync, statSync, meanVolume, silentSec, brightness,
       // **この2つを渡し忘れると、焼き終わった直後に ReferenceError で落ちる。**
       // 2026-08-04 の分割で実際に落ちていた（何分も焼いた後なので損害が大きい）
-      exportPath, SHOTS
+      exportPath, SHOTS,
+      // 焼く先の指定（正典 exportTarget.mjs）が要求する逃げ道
+      setDialogFiles
     })
   }
 

@@ -14,6 +14,9 @@
 // ## 中身
 //
 // - `runExportChecks` … 焼いて、完走・音・絵を測る
+// 焼く先の指定は e2e と同じ正典を使う（下で理由を書いてある）
+import { makeExportTools } from './lib/exportTarget.mjs'
+
 export async function runExportChecks(ctx) {
   const {
     say, done, fmt, mb, MINUTES, totalSec, nowSec,
@@ -21,13 +24,33 @@ export async function runExportChecks(ctx) {
     // 焼く先と、1コマ抜いた絵を置く所。**本体から出したときに受け取り忘れていて、
     // 焼き終わった直後に ReferenceError で落ちていた**（2026-08-04）。
     // 何分も焼いた後に落ちるので、いちばん損害の大きい抜け方をする
-    exportPath, SHOTS
+    exportPath, SHOTS,
+    // 保存の窓の差し替え口（置き場か名前が決まらなかったときの逃げ道。正典が要求する）
+    setDialogFiles
   } = ctx
   if (!exportPath || !SHOTS) throw new Error('焼く先（exportPath / SHOTS）が渡っていない')
     await say('耳', `${MINUTES}分ぶんを書き出す`, '完走するか・音が抜けないかを見る')
+    // **保存の窓を差し替えるだけでは、焼く先は変わらない**（2026-08-09）。
+    //
+    // 窓（export overlay）が「どこへ・どの名前で」を決めて `payload.outPath` で渡すので、
+    // main の `showSaveDialog` は呼ばれない（`exportRun.ts` の「画面側で決まっていれば
+    // 聞かない」）。ここは差し替えだけに頼っていたので、**焼いた物は全部
+    // Downloads へ落ち、`existsSync(exportPath)` は必ず 0 ＝完走しても
+    // 「完走しなかった」の赤が出る**形だった。書き出しはこれまで一度も
+    // 完走していなかったので、誰も踏んでいなかった。
+    //
+    // 実際に踏んだ夜、Downloads には **7本・7.2GB** の焼き残しが溜まっていた
+    // （`bench-60min(1..6).mp4`。temp ではないので `cleanBigTemp` の管轄外）。
+    //
+    // → 置き場は localStorage・名前は窓の欄。**手順の正典は
+    //   `e2e/lib/exportTarget.mjs`**（e2e の章はみんなこれ）。書き写さずに呼ぶ。
+    //   「正典はあるのに、その道を通っていない」型（CLAUDE.md 冒頭）の6件目。
+    const { setExportTarget, fillExportName } = makeExportTools(page, setDialogFiles)
+    await setExportTarget(exportPath)
     const t0 = nowSec()
     await page.keyboard.press('Control+m')
     await page.waitForSelector('.export-overlay')
+    await fillExportName(exportPath)
     await page.locator('button', { hasText: 'この設定で書き出す' }).first().click()
     let finished = true
     try {
