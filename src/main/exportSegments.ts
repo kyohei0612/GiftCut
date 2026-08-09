@@ -252,20 +252,46 @@ export function buildSegmentVideo(ctx: SegmentsCtx, o: SegmentsInput): string {
     // 従来どおり単純連結
     filter += `${segs.map((_, i) => `[sv${i}]`).join('')}concat=n=${segs.length}:v=1:a=0[vcat];`
   } else {
-    // 左から右へペアごとに連結: 間トランジションは xfade、それ以外は concat(n=2)。
+    // 左から右へ連結: 間トランジションは xfade、**連続する concat は1ノードに畳む**。
+    //
+    // ## なぜ畳むか（2026-08-09。書き出しが実時間の1.74倍かかる件の犯人だった）
+    //
+    // 前は concat=n=2 を切片の数だけ直列に繋いでいた。ffmpeg はコマごとに
+    // graph の全ノードを見て回るので、**この直列が居るだけで**（overlay や
+    // zoompan まで含めた）graph 全体が道連れで遅くなる。部品を1つずつ測ると
+    // 全部シロなのに全体だけ黒い、という出方をする——tv 基準（カット600・
+    // 頭5分の標本）の実測で、この畳みだけで映像側 470.6 → 184.7秒（2.5倍）。
+    //
+    // concat=n=K は n=2 の直列と**数学的に同じ**（出力のタイムスタンプは
+    // 入力の順に作り直される）ので、絵は1ビットも変わらない。
+    // xfade は両側の重なりが要るので畳めない——そこだけ接合が残る。
+    //
     // offset は「出力時間の累計 - d」（速度込みのタイムライン尺で計算）。名前は betweenName で検証。
     let cur = '[sv0]'
     let acc = segTLen(segs[0])
+    let pend: string[] = [] // 畳み待ちの [sv i]
+    let g = 0
+    const flush = (out: string): void => {
+      filter += `${cur}${pend.join('')}concat=n=${pend.length + 1}:v=1:a=0${out};`
+      cur = out
+      pend = []
+    }
     for (let i = 1; i < segs.length; i++) {
       const d = xfadeDurOf(segs, i - 1)
-      const out = i === segs.length - 1 ? '[vcat]' : `[vx${i}]`
-      if (d > 0)
+      const last = i === segs.length - 1
+      if (d > 0) {
+        if (pend.length) flush(`[vj${g++}]`)
+        const out = last ? '[vcat]' : `[vx${i}]`
         filter += `${cur}[sv${i}]xfade=transition=${betweenName(segs[i - 1]?.xfade?.type)}:duration=${d.toFixed(3)}:offset=${(acc - d).toFixed(3)}${out};`
-      else filter += `${cur}[sv${i}]concat=n=2:v=1:a=0${out};`
-      cur = out
+        cur = out
+      } else {
+        pend.push(`[sv${i}]`)
+        if (last) flush('[vcat]')
+      }
       acc += segTLen(segs[i])
     }
-    // hasX ⇒ 切片は2つ以上（xfadeDurOf が「次の切片あり」を要求）なので、ループは必ず [vcat] を出す
+    // hasX ⇒ 切片は2つ以上（xfadeDurOf が「次の切片あり」を要求）なので、
+    // ループは必ず [vcat] を出す（最後が xfade でも concat でも）
   }
   return filter
 }
@@ -312,13 +338,28 @@ export function buildSegmentAudio(ctx: SegmentsCtx, o: SegmentsInput): string {
   if (!hasX) {
     filter += `${segs.map((_, i) => `[sa${i}]`).join('')}concat=n=${segs.length}:v=0:a=1[acat];`
   } else {
+    // **連続する concat は1ノードに畳む**（理由は映像側の同じ場所のコメント。
+    // 音側も asplit の枝が同じ直列を作っていて、道連れの片棒だった）
     let cur = '[sa0]'
+    let pend: string[] = [] // 畳み待ちの [sa i]
+    let g = 0
+    const flush = (out: string): void => {
+      filter += `${cur}${pend.join('')}concat=n=${pend.length + 1}:v=0:a=1${out};`
+      cur = out
+      pend = []
+    }
     for (let i = 1; i < segs.length; i++) {
       const d = xfadeDurOf(segs, i - 1)
-      const out = i === segs.length - 1 ? '[acat]' : `[ax${i}]`
-      if (d > 0) filter += `${cur}[sa${i}]acrossfade=d=${d.toFixed(3)}${out};`
-      else filter += `${cur}[sa${i}]concat=n=2:v=0:a=1${out};`
-      cur = out
+      const last = i === segs.length - 1
+      if (d > 0) {
+        if (pend.length) flush(`[aj${g++}]`)
+        const out = last ? '[acat]' : `[ax${i}]`
+        filter += `${cur}[sa${i}]acrossfade=d=${d.toFixed(3)}${out};`
+        cur = out
+      } else {
+        pend.push(`[sa${i}]`)
+        if (last) flush('[acat]')
+      }
     }
   }
   return filter
