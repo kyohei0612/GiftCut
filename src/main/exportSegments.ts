@@ -123,6 +123,12 @@ export interface SegmentsCtx {
   outFps: number
   fpsArg: string
   useV: (idx: number) => string
+  /**
+   * 窓（source 時間の [start, end)）付きで映像を使う（`shared/filterLabels` の `useVAt`）。
+   * 窓が分かっていると split（全コマを全枝へコピー）ではなく segment（該当する枝へ
+   * だけ送る）で配れる。無ければ `useV` に落ちる（試験などはそのままでよい）
+   */
+  useVAt?: (idx: number, start: number, end: number) => string
   useA: (idx: number) => string
   ssOffsetOf: (idx: number, wantSec: number, audioUsed: boolean) => number
 }
@@ -150,7 +156,7 @@ export interface SegmentsResult {
 
 /** 切片の映像チェーン。`[sv i]` を作って `[vcat]` へ連結する */
 export function buildSegmentVideo(ctx: SegmentsCtx, o: SegmentsInput): string {
-  const { width, height, outFps, fpsArg, useV, ssOffsetOf } = ctx
+  const { width, height, outFps, fpsArg, useV, useVAt, ssOffsetOf } = ctx
   const { segs, srcInput, srcHasAudio, audioPresent } = o
   const scalePad = scalePadFilter(width, height, fpsArg)
   let filter = ''
@@ -229,7 +235,11 @@ export function buildSegmentVideo(ctx: SegmentsCtx, o: SegmentsInput): string {
       // この切片の音声を使うか（音声側の useSilence と同じ条件）
       const aUsed = audioPresent && !s.muted && !!srcHasAudio[s.srcIdx ?? 0]
       const off = ssOffsetOf(vin, trimStart, aUsed) // 入力 -ss を付けたぶん trim を前へずらす
-      filter += `${useV(vin)}trim=start=${(trimStart - off).toFixed(3)}:end=${(s.srcEnd - off).toFixed(3)},setpts=(PTS-STARTPTS)/${sp}${xf},${scalePad}${zm}${cr}${eq}${fade}${tb}${coreLabel};`
+      // **窓（trim の範囲）を添えて使う。** 窓が分かっていれば、解決側（filterLabels）が
+      // split ではなく segment で配れる——split=600 が「全コマ×600枝のコピー」に
+      // なっていたのが、書き出しの遅さの入口側の扇だった（2026-08-09）
+      const src = useVAt ? useVAt(vin, trimStart - off, s.srcEnd - off) : useV(vin)
+      filter += `${src}trim=start=${(trimStart - off).toFixed(3)}:end=${(s.srcEnd - off).toFixed(3)},setpts=(PTS-STARTPTS)/${sp}${xf},${scalePad}${zm}${cr}${eq}${fade}${tb}${coreLabel};`
     }
     // slide/wipe の頭/尻＝黒クリップとの xfade（映像がスライド/ワイプで出入り）。尺は不変。
     if (mIn || mOut) {

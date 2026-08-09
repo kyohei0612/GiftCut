@@ -74,7 +74,8 @@ import {
   newLabelUses,
   resolveInputLabels as resolveInputLabelsIn,
   useA as useAIn,
-  useV as useVIn
+  useV as useVIn,
+  useVAt as useVAtIn
 } from '../shared/filterLabels'
 import { filterScriptArgs, hasAudioStream, liveTmpDirs, videoEncoder } from './ffmpegRun'
 // 走らせる側（起動・進捗・中止・GPU で失敗したときの CPU でのやり直し）。
@@ -286,6 +287,8 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
   const labelUses = newLabelUses()
   const useV = (idx: number): string => useVIn(labelUses, idx)
   const useA = (idx: number): string => useAIn(labelUses, idx)
+  // 窓付き（本編の切片だけが使う）。窓が時間順なら split ではなく segment で配られる
+  const useVAt = (idx: number, s: number, e: number): string => useVAtIn(labelUses, idx, s, e)
   const resolveInputLabels = (f: string): string => resolveInputLabelsIn(labelUses, f)
 
   // 映像レイヤー素材に音声があるか（無い素材の [N:a] を参照すると書き出しが失敗する）
@@ -318,7 +321,7 @@ ipcMain.handle('export:run', async (e, payload: ExportPayload) => {
     // 切片を並べて [vcat] / [acat] を作るのは ./exportSegments。
     // **ベース映像のラベルがここで [vcat] に差し替わる**（カット無しなら元動画のまま）
     const built = buildSegments(
-      { width, height, outFps, fpsArg, useV, useA, ssOffsetOf },
+      { width, height, outFps, fpsArg, useV, useVAt, useA, ssOffsetOf },
       { segs, srcInput, srcHasAudio, audioPresent, nSrc }
     )
     filter += built.filter

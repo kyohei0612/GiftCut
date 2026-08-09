@@ -8,7 +8,7 @@
 // 文字列の置き換えだけなので `shared` へ出し、ここで固定する（2026-08-03）。
 
 import { describe, expect, it } from 'vitest'
-import { newLabelUses, resolveInputLabels, useA, useV } from './filterLabels'
+import { newLabelUses, resolveInputLabels, useA, useV, useVAt } from './filterLabels'
 
 describe('1本しか使わないとき', () => {
   it('**split しない**（余計な複製を挟むと、そのぶん書き出しが重くなる）', () => {
@@ -67,6 +67,67 @@ describe('入力が混ざっても取り違えない', () => {
     const u = newLabelUses()
     const f = [useV(u, 0), useV(u, 0), useA(u, 3), useV(u, 2)].join('|')
     expect(resolveInputLabels(u, f)).not.toMatch(/@[VA]\d+_\d+@/)
+  })
+})
+
+describe('窓付き（useVAt）は segment で配る', () => {
+  // split は**全コマを全枝へコピー**する。カット600だと「デコードした全コマ×600枝」で、
+  // 書き出しが実時間の1.74倍かかる件の入口側の扇だった（2026-08-09。骨組みの実測 13.9 → 3.2秒）。
+  // segment は各コマを**該当する枝へだけ**送る。
+  // わざと pickRouted を「常に空」へ戻すと、この describe の3件が赤くなる（確認済み・2026-08-09）
+  it('**時間順で重ならない窓は、split ではなく segment で配る**', () => {
+    const u = newLabelUses()
+    const f = `${useVAt(u, 0, 0, 5)}trim=start=0.000:end=5.000[a];${useVAt(u, 0, 5, 9)}trim=start=5.000:end=9.000[b]`
+    const got = resolveInputLabels(u, f)
+    expect(got).toBe(
+      '[0:v]segment=timestamps=5.000[xV0_0][xV0_1];[xV0_0]trim=start=0.000:end=5.000[a];[xV0_1]trim=start=5.000:end=9.000[b]'
+    )
+    expect(got).not.toContain('split')
+  })
+
+  it('**並べ替えられた窓も、境目は時間順で出す**（枝の対応は札のまま）', () => {
+    const u = newLabelUses()
+    // 出力順は B(10..12) → A(0..5) だが、source 時間では A が先
+    const f = `${useVAt(u, 0, 10, 12)}x[b];${useVAt(u, 0, 0, 5)}y[a]`
+    const got = resolveInputLabels(u, f)
+    // 境目は 10.000 の1本。枝の並びは時間順（A=札1 が先）
+    expect(got).toContain('[0:v]segment=timestamps=10.000[xV0_1][xV0_0];')
+    expect(got).toContain('[xV0_0]x[b]')
+    expect(got).toContain('[xV0_1]y[a]')
+  })
+
+  it('**重なる窓（xfade の食い込み等）は split へ逃がす**（正しさが先、速さは後）', () => {
+    const u = newLabelUses()
+    // 2つ目の窓が 4.5 から＝1つ目の [0,5) と重なる → 全部 split（segment では配れない）
+    const f = `${useVAt(u, 0, 0, 5)}x;${useVAt(u, 0, 4.5, 9)}y`
+    const got = resolveInputLabels(u, f)
+    expect(got).toContain('[0:v]split=2')
+    expect(got).not.toContain('segment=')
+  })
+
+  it('**窓ありと窓なしが混ざったら、丸ごと split**（分けると止まる。理由は pickRouted）', () => {
+    const u = newLabelUses()
+    const f = `${useVAt(u, 0, 0, 5)}x;${useVAt(u, 0, 5, 9)}y;${useV(u, 0)}z`
+    const got = resolveInputLabels(u, f)
+    expect(got).toContain('[0:v]split=3')
+    expect(got).not.toContain('segment=')
+    expect(got).not.toMatch(/@[VA]\d+_\d+@/)
+  })
+
+  it('同じ所から始まる窓（複製）も、丸ごと split', () => {
+    const u = newLabelUses()
+    const f = `${useVAt(u, 0, 0, 5)}x;${useVAt(u, 0, 0, 5)}y;${useVAt(u, 0, 5, 9)}z`
+    const got = resolveInputLabels(u, f)
+    expect(got).toContain('[0:v]split=3')
+    expect(got).not.toContain('segment=')
+  })
+
+  it('窓が1本だけなら segment にしない（従来どおり）', () => {
+    const u = newLabelUses()
+    const f = `${useVAt(u, 0, 0, 5)}x;${useV(u, 0)}y`
+    const got = resolveInputLabels(u, f)
+    expect(got).toContain('[0:v]split=2[xV0_0][xV0_1];')
+    expect(got).not.toContain('segment=')
   })
 })
 
