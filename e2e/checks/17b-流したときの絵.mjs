@@ -10,11 +10,15 @@
 // **しきい値は緩めない。** 絵が1コマ進むまで待ってから数え始める（下の stutterScan）。
 
 import { join } from 'node:path'
+import { makeDropChip } from '../lib/dropChip.mjs'
 
 export default async function (C) {
   const {
-    ONLY, SHOT_ONLY, assert, avgColor, check, page, resetProject, seekTo, shotDir, v1Clips
+    ONLY, SHOT_ONLY, assert, avgColor, check, closeTransAccs, page, resetProject, seekTo,
+    shotDir, touchedRef, v1Clips
   } = C
+  // 見本帳のチップを掴んで落とす（つなぎ目の演出はクリックでは付かない）。09c と共有
+  const dropChipAt = makeDropChip(page)
 
   // ---- カクつきを数で見る -------------------------------------------------
   //
@@ -277,6 +281,106 @@ export default async function (C) {
       dropped === 0,
       `つなぎ目で画面が抜けたコマがある（${dropped}/${ranges.length}コマ・模様の幅 ${ranges.map((r) => Math.round(r)).join(',')}）`
     )
+  })
+
+  await check('再生中、つなぎ目のディゾルブは帯の長さぶん「動いた絵」で溶ける', async () => {
+    // 報告（2026-08-16）:「実際の動画はめっちゃ早く切り替わる」。
+    //
+    // **透け具合（opacity）だけを見ても分からない。** あちらは CSS なので、
+    // 2本目が止まっていても綺麗に 0→1 へ変わる。既存の確認（09c）は
+    // **止めた状態で** opacity を測っていたので、ここは素通りしていた。
+    //
+    // 見るのは**2本目のコマが進んでいるか**。溶けている間ずっと止まった1コマが
+    // 薄く乗っているだけなら、絵は「d 秒かけて溶ける」ではなく
+    // 「途中でパッと変わる」になり、**書き出し（xfade は d 秒かけて混ぜる）と食い違う**。
+    await resetProject()
+    await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
+    await page.waitForTimeout(300)
+    if (!(await page.locator('.tpl-acc.open', { hasText: '動画クリップ' }).count())) {
+      await page.locator('.tpl-acc', { hasText: '動画クリップ' }).first().click()
+      await page.waitForTimeout(400)
+    }
+    // 既定の 0.4秒だと、rAF で取れる標本が20個ほどしか無く判定が荒い。1.0秒で置く
+    await page
+      .locator('.panel-body .sp-row', { hasText: '新規の長さ' })
+      .locator('input[type=range]')
+      .fill('1')
+    await page.waitForTimeout(200)
+    const b0 = await v1Clips().nth(0).boundingBox()
+    assert(b0, '1つ目のクリップが見つからない')
+    await dropChipAt('ディゾルブ', b0.x + b0.width - 2, b0.y + b0.height / 2)
+    const band = page.locator('.ttrans-xfade').first()
+    assert(await band.count(), '境目に落としてもディゾルブが付かない')
+    // 帯そのものから長さと位置を読む（**時刻を決め打ちにしない**。09c と同じ考え方）
+    const d = Number(/([\d.]+)s/.exec((await band.innerText()) ?? '')?.[1] ?? '0')
+    assert(d > 0.5, `帯から長さを読めない（「${await band.innerText()}」）`)
+    const geo = await page.evaluate(() => {
+      const el = document.querySelector('.ttrans-xfade')
+      const inner = document.querySelector('.track-inner')
+      if (!el || !inner) return null
+      const a = el.getBoundingClientRect()
+      return { right: a.right - inner.getBoundingClientRect().left, width: a.width }
+    })
+    assert(geo, '帯の位置を測れない')
+    const cutT = geo.right / (geo.width / d) // 帯の右端＝カット
+
+    // 溶け始めの手前から流し、2本目（.screen-video-b）の様子を毎コマ記録する
+    await seekTo(Math.max(0, cutT - d - 1.6))
+    await page.waitForTimeout(500)
+    await page.keyboard.press('Space')
+    const rows = await page.evaluate(
+      (ms) =>
+        new Promise((res) => {
+          const vb = document.querySelector('.screen-video-b')
+          if (!vb) return res(null)
+          const out = []
+          const t0 = performance.now()
+          const tick = () => {
+            out.push({
+              ms: Math.round(performance.now() - t0),
+              t: vb.currentTime,
+              paused: vb.paused,
+              op: Number(getComputedStyle(vb).opacity)
+            })
+            if (performance.now() - t0 < ms) requestAnimationFrame(tick)
+            else res(out)
+          }
+          tick()
+        }),
+      3000
+    )
+    await page.keyboard.press('Space')
+    await page.waitForTimeout(300)
+    assert(rows, '2本目の映像が見つからない')
+    // 溶けている間＝2本目が見えていて、まだ完全には出ていない区間
+    const win = rows.filter((r) => r.op > 0.02 && r.op < 0.98)
+    assert(win.length > 8, `溶けている区間を取れない（${win.length}コマ／${rows.length}コマ中）`)
+    const span = (win[win.length - 1].ms - win[0].ms) / 1000
+    const adv = win[win.length - 1].t - win[0].t
+    // **`paused` を判定に使わない。** `play()` を呼んだ瞬間に false になるので、
+    // 立ち上げ（実測で約300ms）を1ミリも捕まえられない——最初はこれで測っていて、
+    // **甘い判定のまま緑になった**。見るのは「コマが実際に動き出すまで」。
+    const 動き出す = win.find((r) => r.t > win[0].t + 0.01)
+    const 待ち = 動き出す ? 動き出す.ms - win[0].ms : null
+    const 止まったコマ = win.filter((r, i) => i > 0 && r.t <= win[i - 1].t + 0.001).length
+    const 待ち表記 = 待ち === null ? '最後まで動かず' : `${待ち}ms`
+    console.log(
+      `      \x1b[90m溶け ${span.toFixed(2)}秒 / 2本目が進んだ ${adv.toFixed(2)}秒 ` +
+        `/ 動き出すまで ${待ち表記} / 止まっていたコマ ${止まったコマ}/${win.length}\x1b[0m`
+    )
+    // **成立しなければ落ちる**判定にする（測れていない＝緑、にしない）
+    assert(span > d * 0.5, `溶けている区間が短すぎて測れない（${span.toFixed(2)}秒）`)
+    assert(
+      待ち !== null && 待ち <= 120,
+      `溶け始めてから ${待ち表記} 2本目のコマが止まったまま（${span.toFixed(2)}秒の重なりのうち）`
+    )
+    assert(
+      adv > span * 0.85,
+      `溶けている間、2本目のコマが進んでいない（${span.toFixed(2)}秒で ${adv.toFixed(2)}秒ぶんだけ）`
+    )
+    await closeTransAccs() // 開けた節は畳んで返す（開閉は保存されるため）
+    touchedRef.dirty = true
+    await resetProject()
   })
 
 }

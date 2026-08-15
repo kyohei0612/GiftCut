@@ -132,11 +132,17 @@ export function usePreviewFrame(deps: UsePreviewFrameDeps) {
       const bZoom = B.seg.zoom
       if (currentTime >= cut - d && currentTime < cut) {
         // トランジション中: B がソース頭の手前(srcStart - 残り*速度)から先読み。p=進捗0→1。
+        //
+        // **手前が足りないぶんは、最初のコマで止める**（書き出しの `tpad=start_mode=clone`
+        // と同じ絵にする）。止めないと、要求が 0秒に張り付いたまま B だけ流れ続け、
+        // ズレを直す度に頭へ引き戻される＝**先頭の0.25秒を繰り返す**別の絵になる。
+        const want = B.seg.srcStart - (cut - currentTime) * sp
         return {
           p: clamp(1 - (cut - currentTime) / d, 0, 1),
           type,
           blank,
-          srcTime: Math.max(0, B.seg.srcStart - (cut - currentTime) * sp),
+          srcTime: Math.max(0, want),
+          frozen: want <= 0,
           speed: sp,
           bUrl,
           bZoom
@@ -149,6 +155,7 @@ export function usePreviewFrame(deps: UsePreviewFrameDeps) {
           type,
           blank,
           srcTime: B.seg.srcStart + (currentTime - cut) * sp,
+          frozen: false, // カットを過ぎたら B は本編なので必ず動く
           speed: sp,
           bUrl,
           bZoom

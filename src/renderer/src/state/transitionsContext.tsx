@@ -18,7 +18,6 @@ import { useProjectStateCtx } from './projectStateContext'
 import { useSegLayoutCtx } from './segLayoutContext'
 import { useSel } from './selectionContext'
 import { useTimelineBoxCtx } from './timelineBoxContext'
-import { useToastCtx } from './toastContext'
 import { useTracksAdminCtx } from './tracksAdminContext'
 import { useTransitions } from './useTransitions'
 
@@ -34,11 +33,10 @@ export function TransitionsProvider({ children }: { children: ReactNode }): Reac
   const { setRightTab } = useAppChromeCtx()
   const { clearSegSel } = useSel()
   const { mainLocked } = useTracksAdminCtx()
-  const { showToast } = useToastCtx()
   const { transDur } = useProjectStateCtx()
   const value = useTransitions({
     segLayout, segLayoutRef, draggingTransRef, trackInnerRef, setRightTab,
-    clearSegSel, mainLocked, showToast, transDur
+    clearSegSel, mainLocked, transDur
   })
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

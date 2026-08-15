@@ -194,35 +194,33 @@ describe('tToSource / sourceToT', () => {
 
 // ===========================================================================
 describe('xfadeDurAt のクランプ', () => {
-  it('B のソース頭の余白を超えない（余白が無ければ 0）', () => {
-    // B は srcStart=0 → 先読みできる余白が無い → クロスディゾルブ不可
+  // **「B の頭の余白」は上限にしない**（2026-08-16）。
+  // 足りないぶんは書き出しが B の1コマ目で埋める（`main/exportSegments` の `tpad`）。
+  // それまでは余白が上限で、**貼ったばかりのクリップ（srcStart:0）には
+  // 一度も掛からなかった**——本人の報告「2秒に設定したのに 0.2秒」がこれ。
+  it('B が素材の頭から始まっていても、指定した長さで効く', () => {
     const L = layoutSegs([
       { srcStart: 0, srcEnd: 10, xfade: { dur: 1 } },
       { srcStart: 0, srcEnd: 10 }
     ])
-    expect(xfadeDurAt(L, 0)).toBe(0)
+    expect(xfadeDurAt(L, 0)).toBeCloseTo(1, 9)
   })
 
-  it('余白があれば指定長、足りなければ余白まで縮む', () => {
-    const full = layoutSegs([
-      { srcStart: 0, srcEnd: 10, xfade: { dur: 1 } },
-      { srcStart: 5, srcEnd: 15 }
-    ])
-    expect(xfadeDurAt(full, 0)).toBeCloseTo(1, 9)
-
+  it('B の頭の余白が少しでも、指定した長さのまま（縮めない）', () => {
     const short = layoutSegs([
       { srcStart: 0, srcEnd: 10, xfade: { dur: 2 } },
       { srcStart: 0.4, srcEnd: 10 }
     ])
-    expect(xfadeDurAt(short, 0)).toBeCloseTo(0.4, 9)
+    expect(xfadeDurAt(short, 0)).toBeCloseTo(2, 9)
   })
 
-  it('B の余白は速度で割る（2倍速なら余白も半分の時間しか稼げない）', () => {
+  it('速度が付いていても、上限は A/B のタイムライン長（＝ソース尺÷速度）', () => {
+    // B は 10秒ぶんのソースを2倍速＝タイムライン5秒。5秒を超える重なりは作れない
     const L = layoutSegs([
-      { srcStart: 0, srcEnd: 10, xfade: { dur: 5 } },
+      { srcStart: 0, srcEnd: 10, xfade: { dur: 8 } },
       { srcStart: 1, srcEnd: 11, speed: 2 }
     ])
-    expect(xfadeDurAt(L, 0)).toBeCloseTo(0.5, 9)
+    expect(xfadeDurAt(L, 0)).toBeCloseTo(5, 9)
   })
 
   it('A/B のタイムライン長を超えない', () => {

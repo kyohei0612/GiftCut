@@ -98,3 +98,52 @@ describe('切片の連結は、連続する concat を1ノードに畳む', () =
     expect(f).toContain('[aj0][sa3]acrossfade=d=0.500[acat]')
   })
 })
+
+// ===========================================================================
+// **貼ったばかりのクリップ（素材の頭から始まる）にも掛かること。**
+//
+// 受け側は本来 srcStart より d 秒手前から流す。手前が無いクリップは長らく
+// 「掛けられない」扱いで、`shared/timeline` が実効長を余白で頭打ちにしていた
+// ——結果、**後ろに置いた素材へは一度も掛からなかった**（報告:「2秒に設定
+// したのに 0.2秒」）。足りないぶんを埋める形に変えたので、ここで形を固定する。
+//
+// 尺が変わっていないことは ffmpeg で別に確かめてある（`headPadOf` の説明）。
+describe('頭の余白が足りない受け側は、足りないぶんを埋めて長さを合わせる', () => {
+  it('余白ゼロ: 重なりぶんを丸ごと最初のコマで埋める（映像）', () => {
+    // B は 0秒から始まる＝手前が1コマも無い → 0.5秒すべてを埋める
+    const f = buildSegmentVideo(ctx, input([seg(0, 2, { type: 'fade', dur: 0.5 }), seg(0, 2)]))
+    expect(f).toContain('tpad=start_duration=0.500:start_mode=clone')
+    expect(f).toContain('[sv0][sv1]xfade=transition=fade:duration=0.500:offset=1.500[vcat]')
+  })
+
+  it('余白が少しだけ: 足りないぶんだけ埋める（0.5 − 0.2 ＝ 0.3秒）', () => {
+    const f = buildSegmentVideo(ctx, input([seg(0, 2, { type: 'fade', dur: 0.5 }), seg(0.2, 2)]))
+    expect(f).toContain('tpad=start_duration=0.300:start_mode=clone')
+  })
+
+  it('速度が付いていたら、素材の余白は速度で割ってから引く（2倍速）', () => {
+    // srcStart 0.4 の素材を2倍速＝タイムラインで 0.2秒ぶんしか手前が無い
+    const f = buildSegmentVideo(
+      ctx,
+      input([seg(0, 2, { type: 'fade', dur: 0.5 }), { srcStart: 0.4, srcEnd: 4, speed: 2 }])
+    )
+    expect(f).toContain('tpad=start_duration=0.300:start_mode=clone')
+  })
+
+  it('余白が足りていれば、埋めない（従来どおり）', () => {
+    const f = buildSegmentVideo(ctx, input([seg(0, 2, { type: 'fade', dur: 0.5 }), seg(5, 7)]))
+    expect(f).not.toContain('tpad=')
+  })
+
+  it('音側も同じ長さだけ無音で埋める（埋め忘れると絵と音がズレる）', () => {
+    const f = buildSegmentAudio(ctx, input([seg(0, 2, { type: 'fade', dur: 0.5 }), seg(0, 2)]))
+    expect(f).toContain('adelay=500:all=1')
+    // 埋めるのは atempo の後（タイムライン秒で数える）・afade の前（st=0 が埋めた頭を指す）
+    expect(f).toMatch(/asetpts=PTS-STARTPTS,adelay=500:all=1/)
+  })
+
+  it('音側も、余白が足りていれば埋めない', () => {
+    const f = buildSegmentAudio(ctx, input([seg(0, 2, { type: 'fade', dur: 0.5 }), seg(5, 7)]))
+    expect(f).not.toContain('adelay=')
+  })
+})

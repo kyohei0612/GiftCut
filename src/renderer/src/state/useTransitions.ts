@@ -16,7 +16,7 @@
 // クリップを消したり並べ替えたりすると、どこにも掛からない演出が残る。
 // 残ったままだと、書き出しのときだけ知らない所に効く。
 
-import { clamp, layoutSegs, xfadeDurAt } from '../../../shared/timeline'
+import { clamp } from '../../../shared/timeline'
 import { transIco } from '../lib/transitions'
 import type { SegTrans, TransType } from '../lib/transitions'
 import type { SegLayout, VSeg } from '../lib/projectTypes'
@@ -24,7 +24,6 @@ import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useViewCtx } from './viewContext'
 import type { RightTab } from './useAppLayout'
-import type { Toast } from './useToast'
 
 export interface UseTransitionsDeps {
   segLayout: SegLayout[]
@@ -35,12 +34,11 @@ export interface UseTransitionsDeps {
   setRightTab: React.Dispatch<React.SetStateAction<RightTab>>
   clearSegSel: () => void
   mainLocked: () => boolean
-  showToast: (msg: string, type?: Toast['type']) => void
   transDur: number
 }
 
 export function useTransitions(deps: UseTransitionsDeps) {
-  const {  segLayoutRef, draggingTransRef, trackInnerRef, setRightTab,  mainLocked, showToast, transDur } = deps
+  const {  segLayoutRef, draggingTransRef, trackInnerRef, setRightTab,  mainLocked, transDur } = deps
   const { segments, setSegments } = useDoc()
   const {
     selectedTrans, setSelectedTrans, setSelectedIds, setSelectedTrackId, setEditingId,
@@ -195,15 +193,14 @@ export function useTransitions(deps: UseTransitionsDeps) {
     if (!drag || !r) return
     const nt: SegTrans = { type: drag.type, dur: transDur }
     if (r.kind === 'xfade') {
-      const next = segments.map((s, i) =>
-        s.id === r.segId && i < segments.length - 1 ? { ...s, xfade: nt } : s
-      )
-      setSegments(next)
-      const idx = next.findIndex((s) => s.id === r.segId)
-      if (idx >= 0 && xfadeDurAt(layoutSegs(next), idx) <= 0)
-        showToast(
-          '次のクリップの頭に素材の余白がないため間トランジションが効きません。\n（次のクリップの頭を少しトリムすると余白ができます）'
+      // 素材の頭が足りないクリップにも掛かる（足りないぶんは書き出しが最初のコマで
+      // 埋める。`main/exportSegments` の `headPadOf`）。**「効きません」の知らせは
+      // 消した**——2026-08-16 まで、貼ったばかりのクリップには本当に掛からなかった
+      setSegments(
+        segments.map((s, i) =>
+          s.id === r.segId && i < segments.length - 1 ? { ...s, xfade: nt } : s
         )
+      )
     } else {
       setSegments((prev) =>
         prev.map((s) => {

@@ -325,7 +325,11 @@ export function useVideoSync(): void {
       return
     }
     const rate = playRateRef.current
-    if (rate > 0) {
+    // **止めるコマは、流さずに止める。** 素材の手前が足りない受け側は、書き出しが
+    // 最初のコマを複製して埋める（`main/exportSegments` の tpad）。ここで流すと
+    // 要求が頭に張り付いたまま B だけ進み、ズレを直す度に引き戻される
+    // ＝**先頭の0.25秒を繰り返す**という、書き出しに無い絵になる。
+    if (rate > 0 && !xfPreview.frozen) {
       // シーク中は頼み直さない（着く前に書くと取り消されて、永久に追いつけない）
       if (!vb.seeking && Math.abs(vb.currentTime - xfPreview.srcTime) > 0.25)
         vb.currentTime = xfPreview.srcTime
@@ -333,7 +337,7 @@ export function useVideoSync(): void {
       if (Math.abs(vb.playbackRate - r) > 1e-3) vb.playbackRate = r
       if (vb.paused && !vb.ended) void vb.play().catch(() => {})
     } else {
-      // 停止中/逆再生はフレームシークのみ（スクラブでもディゾルブが見える）
+      // 停止中／逆再生／止めるコマは、頼んだ位置に置くだけ（スクラブでもディゾルブが見える）
       if (!vb.paused) vb.pause()
       if (Math.abs(vb.currentTime - xfPreview.srcTime) > 0.05) vb.currentTime = xfPreview.srcTime
     }

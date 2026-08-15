@@ -136,17 +136,32 @@ export function totalSegLen(segs: readonly TimeSeg[]): number {
 
 /**
  * 切片 i と i+1 の間のクロスディゾルブの実効長（秒）。0なら無効。
- * B 側がタイムラインより d 秒早くフェードインする方式のため、
- * d は A/B のタイムライン長と「B のソース頭の余白（srcStart/速度）」でクランプする。
- * 編集でトリムされて余白が減っても、ここで動的に安全な長さへ縮む。
+ *
+ * 上限は **A と B のタイムライン長だけ**。どちらかより長い重なりは作れない
+ *（重なりが切片からはみ出すと、その先の切片まで巻き込む）。
+ *
+ * ## 「B の頭の余白」は上限ではない（2026-08-16 に外した）
+ *
+ * 重なりの間、B は本来の位置より d 秒手前から流れる。だから長らく
+ * `srcStart/速度` を4つ目の上限にしていた——**素材の頭を切っていないクリップには
+ * 一切掛からない**ということ。実害はそのまま出ていて、本人の報告は
+ * 「2秒に設定したのに 0.2秒で切り替わる」だった（次のクリップが `00:00.1〜`）。
+ * **貼ったばかりのクリップは必ず `srcStart: 0`** なので、後ろに置いた素材へは
+ * 構造的に一度も掛からない。
+ *
+ * いまは足りないぶんを**Bの最初のコマで埋める**（`main/exportSegments` の `tpad`／
+ * 音は無音）。プロも素材が足りないときは同じことをする。ffmpeg で先に確かめた:
+ *
+ * ```
+ * 3秒 + 3秒 に 2秒の重なり（B の余白ゼロ）→ 出力 6.000秒・180コマ＝**尺は不変**
+ * 溶け終わりの絵 = B の1コマ目（33.8dB）  カット直後 = B の 0.10秒（38.6dB）
+ * ```
  */
 export function xfadeDurAt(layout: readonly Layout[], i: number): number {
   const A = layout[i]
   const B = layout[i + 1]
   if (!A?.seg.xfade || !B) return 0
-  let d = Math.min(A.seg.xfade.dur, A.len, B.len)
-  // 音声も同じ余白を使うので、映像を黒にしている区間でも必要
-  d = Math.min(d, B.seg.srcStart / segSpeed(B.seg))
+  const d = Math.min(A.seg.xfade.dur, A.len, B.len)
   return d > 0.01 ? d : 0
 }
 

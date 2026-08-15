@@ -18,6 +18,12 @@
 //   尻より先のコマを持っている必要がある（のりしろ）。そこまで変えるなら
 //   書き出し側の offset も一緒に直すこと。
 //
+// ## 「効きません」の帯（⚠）は消した（2026-08-16）
+//
+// 次のクリップが素材の先頭から始まっていると重ねる余地がゼロになる、という
+// 制限そのものを外した（足りないぶんは書き出しが最初のコマで埋める。
+// `main/exportSegments` の `headPadOf`）。**もう起きない状態の案内を残すと嘘になる。**
+//
 // ## 出さない場合が2つある
 //
 //   映像なしの切片      … V1 に何も描かないので帯も出さない
@@ -137,48 +143,25 @@ export function TransitionBands({
               <span className="ttrans-lb">
                 {transIco(L.seg.xfade?.type)} {xd.toFixed(1)}s
               </span>
+              {/* **持ち手は左端に置く。** 帯は [カット-d, カット) なので、
+                  右端はカットに釘付けで動かない——右に付けていた頃は、
+                  引っぱっても持ち手が付いてこず、帯だけ逆（左）へ伸びていた。
+                  係数が 2 だったのも、カットを中心に描いていた時代の名残
+                  （中心配置では端が d/2 ずつ動く）。左端は動く量と1対1なので -1。 */}
               <div
-                className="ttrans-resize ttrans-resize-r"
+                className="ttrans-resize ttrans-resize-l"
                 title="ドラッグで長さ変更"
                 onPointerDown={(e) => {
                   onSelect(L.seg.id, 'xfade')
                   onResizeStart(
                     e,
                     xd,
-                    2,
+                    -1,
                     (nd) => onSetDur(L.seg.id, 'xfade', nd),
                     Math.min(L.len, segLayout[L.index + 1]?.len ?? L.len)
                   )
                 }}
               />
-            </div>
-          )
-        } else if (L.seg.xfade && L.index < segLayout.length - 1) {
-          // **付いているのに効かない状態を、見えないままにしない。**
-          //
-          // 間のクロスは「次のクリップの頭より前」の素材を重ねて切り替える。
-          // 次のクリップが素材の先頭から始まっている（頭を切っていない）と
-          // 重ねる余地がゼロで、長さが 0 になる＝**帯も出ず、何も起きない。**
-          // 「付かない」と見えるのはこれ。知らせを1回出すだけでは流れて消える。
-          //
-          // 消さずに残すのは、**あとで頭をトリムすれば効き出す**から
-          // （消すと置き直しが要る）。効いていないことだけ、その場に出しておく。
-          boxes.push(
-            <div
-              key={`xf-dead-${L.seg.id}`}
-              className="ttrans ttrans-dead"
-              style={{ left: L.tEnd * zoom - 6, width: 12 }}
-              title={
-                `${transLabel(L.seg.xfade.type)}：いまは効きません。\n` +
-                '次のクリップが素材の先頭から始まっているため、重ねる余地がありません。\n' +
-                '次のクリップの頭を少しトリムすると効き出します（Delete で外せます）。'
-              }
-              onPointerDown={(e) => {
-                e.stopPropagation()
-                if (e.button === 0) onSelect(L.seg.id, 'xfade')
-              }}
-            >
-              <span className="ttrans-lb">⚠</span>
             </div>
           )
         }

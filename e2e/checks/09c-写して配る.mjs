@@ -24,6 +24,8 @@
 // **末尾の `resetProject()` を消さないこと。** 次（09d の先頭）は
 // まっさらな状態から始まる前提で書いてある。
 
+import { makeDropChip } from '../lib/dropChip.mjs'
+
 export default async function (C) {
   const {
     assert,
@@ -214,38 +216,9 @@ export default async function (C) {
     await resetProject()
   })
 
-  /**
-   * 見本帳のチップを、タイムラインの座標へ「掴んで落とす」。
-   *
-   * **トランジションは掴んで置く物なので、これが無いと一切自動化できない**
-   * （クリックでは付かない）。マウス操作では HTML5 の掴み落としは起きないので、
-   * その場で drag の一連を起こしてやる。
-   */
-  const dropChipAt = async (chipText, x, y) => {
-    await page.evaluate(
-      ({ chipText, x, y }) => {
-        const chip = [...document.querySelectorAll('.fx-item')].find((el) =>
-          (el.textContent ?? '').includes(chipText)
-        )
-        if (!chip) throw new Error(`見本帳に「${chipText}」が無い`)
-        const dt = new DataTransfer()
-        const ev = (t, el, more = {}) =>
-          el.dispatchEvent(
-            new DragEvent(t, { bubbles: true, cancelable: true, dataTransfer: dt, ...more })
-          )
-        ev('dragstart', chip)
-        const target = document.elementFromPoint(x, y)
-        if (!target) throw new Error('落とす先が見つからない')
-        const at = { clientX: x, clientY: y }
-        ev('dragenter', target, at)
-        ev('dragover', target, at)
-        ev('drop', target, at)
-        ev('dragend', chip)
-      },
-      { chipText, x, y }
-    )
-    await page.waitForTimeout(500)
-  }
+  // 見本帳のチップを掴んで落とす道具は ./lib/dropChip（**中身は動かしていない**）。
+  // つなぎ目の演出を測る確認は 17b にもあるので、書き写さず1か所から借りる。
+  const dropChipAt = makeDropChip(page)
 
   await check('カット間トランジションは、帯に描いてある区間で実際に掛かる', async () => {
     // 報告: 「貼ってある所より早く動く」。

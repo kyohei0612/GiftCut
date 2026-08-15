@@ -16,6 +16,7 @@
 //
 // - `XF_ALLOWED` … xfade が持っているトランジションの種類
 // - `xfadeDurOf` … ペア (i, i+1) の実効ディゾルブ長。**映像側と音声側の両方が通る**
+// - `headPadOf` … 頭を伸ばすとき、**素材が足りないぶん**（最初のコマで埋める秒数）
 // - `isDipT` … 沈んで戻る系（ディゾルブ/黒/白）か
 // - `dipCol` … ディップの色
 // - `motionName` … 頭/尻 slide/wipe の xfade 名
@@ -40,6 +41,10 @@ import type { ExportSeg } from './exportTypes'
 // モデルは「カット位置で完了する d 秒クロスフェード」——B側をソースの srcStart より
 // d*速度 だけ手前から取り出して頭を d 秒延長し、Aの尻と xfade で重ねる。
 // 出力尺 = lenA + (lenB + d) - d = 不変（テロップ/SEの enable 時刻に影響しない）。
+//
+// **手前が足りないクリップでも掛ける**（2026-08-16）。伸ばす先の素材が無いぶんは
+// 最初のコマを止めて埋める（`headPadOf`）。それまでは「余白が上限」だったので、
+// 貼ったばかりのクリップ（srcStart:0）には構造的に一度も掛からなかった。
 //
 // ※ 速度と「タイムライン上の長さ」は shared/timeline が正典。2026-08-03 まで
 //   ここに同じ式を手書きしていた（`spOf` / `tlenOf`）。**正典には Math.max(0, …) が
@@ -68,6 +73,28 @@ export function xfadeDurOf(segs: ExportSeg[], i: number): number {
   return i >= 0 && i < segs.length - 1 && segs[i].xfade && segs[i].xfade!.dur > 0.01
     ? segs[i].xfade!.dur
     : 0
+}
+
+/**
+ * 重なりのために頭を伸ばすとき、**素材が足りないぶん**（タイムライン秒）。0なら足りている。
+ *
+ * 受け側（B）はソースの `srcStart` より d 秒ぶん手前から流す約束だが、
+ * **貼ったばかりのクリップは必ず `srcStart: 0`** なので手前が無い。
+ * 長らくここを「掛けられない」の理由にしていて（`shared/timeline` の実効長を
+ * 余白で頭打ちにしていた）、**後ろに置いた素材へは一度も掛からなかった**。
+ * 本人の報告は「2秒に設定したのに 0.2秒で切り替わる」（次のクリップが `00:00.1〜`）。
+ *
+ * いまは足りないぶんを**最初のコマを止めて**埋める（`tpad=start_mode=clone`／
+ * 音は無音）。素材が足りないときにコマを繰り返すのは、プロの編集ソフトも同じ。
+ * ffmpeg だけで先に確かめてある（3秒+3秒に2秒の重なり・余白ゼロ）:
+ *
+ * ```
+ * 出力 6.000秒・180コマ＝**尺は不変**（テロップとSEの時刻がずれない）
+ * 溶け終わりの絵 = B の1コマ目（33.8dB）／カット直後 = B の 0.10秒（38.6dB）
+ * ```
+ */
+export function headPadOf(s: ExportSeg, headExt: number, sp: number): number {
+  return Math.max(0, headExt - s.srcStart / sp)
 }
 
 /** 沈んで戻る系（ディゾルブ/黒/白）か。この3つだけ fade フィルタで出す */
@@ -173,6 +200,9 @@ export function buildSegmentVideo(ctx: SegmentsCtx, o: SegmentsInput): string {
     const headExt = xfadeDurOf(segs, i - 1)
     const extLenN = lenN + headExt
     const trimStart = Math.max(0, s.srcStart - headExt * sp)
+    // 足りない頭は**最初のコマを止めて埋める**（`headPadOf` の説明）
+    const vpad = headPadOf(s, headExt, sp)
+    const pad = vpad > 0 ? `,tpad=start_duration=${vpad.toFixed(3)}:start_mode=clone` : ''
     const tin = s.transIn && s.transIn.dur > 0 && headExt <= 0 ? s.transIn : null
     const tout = s.transOut && s.transOut.dur > 0 && xfadeDurOf(segs, i) <= 0 ? s.transOut : null
     // dip系（ディゾルブ/黒/白）は fade フィルタで色付き in/out。ディゾルブ境界のディップは出さない。
@@ -239,7 +269,7 @@ export function buildSegmentVideo(ctx: SegmentsCtx, o: SegmentsInput): string {
       // split ではなく segment で配れる——split=600 が「全コマ×600枝のコピー」に
       // なっていたのが、書き出しの遅さの入口側の扇だった（2026-08-09）
       const src = useVAt ? useVAt(vin, trimStart - off, s.srcEnd - off) : useV(vin)
-      filter += `${src}trim=start=${(trimStart - off).toFixed(3)}:end=${(s.srcEnd - off).toFixed(3)},setpts=(PTS-STARTPTS)/${sp}${xf},${scalePad}${zm}${cr}${eq}${fade}${tb}${coreLabel};`
+      filter += `${src}trim=start=${(trimStart - off).toFixed(3)}:end=${(s.srcEnd - off).toFixed(3)},setpts=(PTS-STARTPTS)/${sp}${pad}${xf},${scalePad}${zm}${cr}${eq}${fade}${tb}${coreLabel};`
     }
     // slide/wipe の頭/尻＝黒クリップとの xfade（映像がスライド/ワイプで出入り）。尺は不変。
     if (mIn || mOut) {
@@ -341,9 +371,13 @@ export function buildSegmentAudio(ctx: SegmentsCtx, o: SegmentsInput): string {
     }
     // 映像と同じくディゾルブ受け側は頭を延長（acrossfade 後の合計尺が映像と一致する）
     const trimStart = Math.max(0, s.srcStart - headExt * sp)
+    // **足りないぶんは映像と同じ長さだけ埋める**（映像は最初のコマ、音は無音）。
+    // ここを埋め忘れると音だけ短くなり、acrossfade の位置が絵とズレる
+    const apadN = headPadOf(s, headExt, sp)
+    const apad = apadN > 0 ? `,adelay=${Math.round(apadN * 1000)}:all=1` : ''
     const ain = srcInput[s.srcIdx ?? 0]
     const off = ssOffsetOf(ain, trimStart, true) // 音声を使う入力に -ss は付けない（常に0）
-    filter += `${useA(ain)}atrim=start=${(trimStart - off).toFixed(3)}:end=${(s.srcEnd - off).toFixed(3)},asetpts=PTS-STARTPTS${tempo}${gain}${af}${afmt}[sa${i}];`
+    filter += `${useA(ain)}atrim=start=${(trimStart - off).toFixed(3)}:end=${(s.srcEnd - off).toFixed(3)},asetpts=PTS-STARTPTS${tempo}${apad}${gain}${af}${afmt}[sa${i}];`
   })
   if (!hasX) {
     filter += `${segs.map((_, i) => `[sa${i}]`).join('')}concat=n=${segs.length}:v=0:a=1[acat];`
