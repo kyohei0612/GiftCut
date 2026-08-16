@@ -58,3 +58,20 @@ export function clipXform(
   if (c.flipV) parts.push('scaleY(-1)')
   return parts.length ? parts.join(' ') : undefined
 }
+
+/**
+ * つなぎ目の演出（slide）と、切片の見た目（`clipXform`）を1つの transform にする。
+ *
+ * **動かす物ほど左**——上と同じ決まり。演出は「画面の上で右へ流す」ものなので、
+ * 反転・回転より外側（左）でなければ、反転した切片だけ逆へ流れる。
+ *
+ * 2026-08-17 に足した。プレビューの本線（`state/usePreviewFrame`）が
+ * **反転・回転を左に置いていた**——`clipXform` を 08-03 に直したときの
+ * 取り残しで、掴んで動かすと左右が真逆になる。同じ間違いを2か所で
+ * 別々に書いていたので、**繋ぎ方そのものをここへ出した**
+ * （B面＝`state/useSegClock` の `xfBStyle` も、いまはここを通る）。
+ */
+export function moveThen(move?: string, look?: string): string | undefined {
+  const s = [move, look].filter(Boolean).join(' ')
+  return s || undefined
+}

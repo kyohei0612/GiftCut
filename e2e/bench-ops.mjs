@@ -210,9 +210,20 @@ export async function runOpsChecks(ctx) {
     page
       .locator('.telop-clip')
       .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)).join(','))
-  /** 一番左のクリップの画面上の位置（横スクロールしたかを確かめるのに使う） */
-  const firstClipX = async () =>
-    (await page.locator('[data-tid="V1"] .video-clip').first().boundingBox())?.x ?? NaN
+  /**
+   * 一番左のクリップの画面上の位置（横スクロールしたかを確かめるのに使う）。
+   *
+   * **無ければ落とす。** 前は `?? NaN` で守っていたが、`Math.abs(NaN - x0) < 10` は
+   * **false ＝「送れた」**なので、送れていなくても素通りする——上の再生ヘッドで
+   * 2026-08-07 に直したのと同じ穴が、こちらに残っていた（CLAUDE.md 7番）。
+   * 引き切って帯が1枚絵になると `.video-clip` は消えるので、**そのときは
+   * 測る前提が崩れている**（入口の作り直しであって、通してよい話ではない）。
+   */
+  const firstClipX = async () => {
+    const box = await page.locator('[data-tid="V1"] .video-clip').first().boundingBox()
+    if (!box) throw new Error('V1 のクリップが画面に出ていない（横スクロールを測れない）')
+    return box.x
+  }
   /**
    * 送れなかったときに、**なぜ送れないのかを言う**（2026-08-07）。
    *

@@ -33,7 +33,7 @@
 // - `xfBStyle` … つなぎ目の B面の見た目（fade/slide/wipe）を進捗から作る
 import { useRef } from 'react'
 import { clamp, tToSource } from '../../../shared/timeline'
-import { isNeutralZoom } from '../lib/clipLook'
+import { moveThen } from '../lib/clipXform'
 import { perf } from '../lib/perfMonitor'
 import { usePlaybackCtx } from './playbackContext'
 import type { UsePlaybackEngineDeps } from './usePlaybackEngine'
@@ -418,34 +418,31 @@ export function useSegClock(deps: UseSegClockDeps) {
 
   // クロスディゾルブ/スライド/ワイプの videoB 見た目を type と進捗 p から作る。
   // fade=opacity、slide=translate、wipe=clip-path。ズーム変換と合成する。
-  function xfBStyle(xf: {
-    p: number
-    type: string
-    bZoom?: { scale: number; x: number; y: number }
-  }): React.CSSProperties {
+  function xfBStyle(xf: { p: number; type: string; bXform?: string }): React.CSSProperties {
     const p = xf.p
     const off = ((1 - p) * 100).toFixed(2)
-    // B側は「B切片自身のズーム」を使う（A側のズームを誤って適用しない）
-    const bz =
-      xf.bZoom && !isNeutralZoom(xf.bZoom)
-        ? `translate(${(xf.bZoom.x * 100).toFixed(3)}%, ${(xf.bZoom.y * 100).toFixed(3)}%) scale(${xf.bZoom.scale.toFixed(4)})`
-        : undefined
-    const zoom = bz ? ` ${bz}` : ''
+    // B側の見た目（寄り・回転・反転）は**B切片自身の物**を、正典 `lib/clipXform` で
+    // 作った物を受け取る（A側のズームを誤って適用しない）。
+    //
+    // 2026-08-17 まで、ここが `bZoom` から**自分で translate/scale の式を書いて**いた。
+    // 式が正典の写しだったうえに回転・反転が抜けていて、つなぎ目の間だけ
+    // B の反転が外れていた。**繋ぎ方（`moveThen`）も式も、持つのは正典1つ。**
+    const bx = xf.bXform
     switch (xf.type) {
       case 'slideleft':
-        return { opacity: 1, transform: `translateX(${off}%)${zoom}` } // Bは右から入る
+        return { opacity: 1, transform: moveThen(`translateX(${off}%)`, bx) } // Bは右から入る
       case 'slideright':
-        return { opacity: 1, transform: `translateX(-${off}%)${zoom}` } // 左から
+        return { opacity: 1, transform: moveThen(`translateX(-${off}%)`, bx) } // 左から
       case 'slideup':
-        return { opacity: 1, transform: `translateY(${off}%)${zoom}` } // 下から
+        return { opacity: 1, transform: moveThen(`translateY(${off}%)`, bx) } // 下から
       case 'slidedown':
-        return { opacity: 1, transform: `translateY(-${off}%)${zoom}` } // 上から
+        return { opacity: 1, transform: moveThen(`translateY(-${off}%)`, bx) } // 上から
       case 'wipeleft':
-        return { opacity: 1, transform: bz, clipPath: `inset(0 0 0 ${off}%)` }
+        return { opacity: 1, transform: bx, clipPath: `inset(0 0 0 ${off}%)` }
       case 'wiperight':
-        return { opacity: 1, transform: bz, clipPath: `inset(0 ${off}% 0 0)` }
+        return { opacity: 1, transform: bx, clipPath: `inset(0 ${off}% 0 0)` }
       default:
-        return { opacity: p, transform: bz } // fade（クロスディゾルブ）
+        return { opacity: p, transform: bx } // fade（クロスディゾルブ）
     }
   }
 

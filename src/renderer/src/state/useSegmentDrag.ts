@@ -23,7 +23,7 @@
 
 import { useRef } from 'react'
 import { startEdgeScroll } from '../lib/edgeScroller'
-import { clamp, layoutSegs, segSpeed } from '../../../shared/timeline'
+import { clamp, layoutSegs, segSpeed, segTLen } from '../../../shared/timeline'
 import { dragModeOf, movedEnough, type SegDropMode } from '../../../shared/dragMode'
 import { toggleSelect } from '../../../shared/clipEdit'
 import { formatTime } from '../lib/srt'
@@ -372,7 +372,10 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
       // クリップ長が変わった＝後続が詰まる/伸びるので、テロップ/SE/画像/マーカーも同量シフト
       if (cur) {
         const oldLen = (e0 - s0) / sp
-        const newLen = (cur.srcEnd - cur.srcStart) / segSpeed(cur)
+        // **正典で出す。** 手で書くと下限（`Math.max(0, ...)`）が落ちる——
+        // 08-03 に exportRun で同じ写しが実害になっている（画面は0で止まるのに
+        // 書き出しは負）。ここは後ろを詰める量なので、負になるとテロップ・SE が逆へずれる。
+        const newLen = segTLen(cur)
         shiftAfter(oldTEnd, newLen - oldLen)
       }
     }

@@ -2,8 +2,18 @@
 //
 // ## 掛ける順番に意味がある
 //
-// **映像自体を回す／反転する → 拡大する → 演出（slide / wipe）を掛ける**。
-// 順番を変えると、回した後に横へ流したいのに斜めに流れる、といったことが起きる。
+// CSS は**右にある物から先に**当たるので、**動かす物ほど左**に置く:
+//
+//   演出（slide） → 動かす・寄せる（translate/scale） → 回す → 反転
+//
+// **順番は自分で書かない。** 見た目は正典 `lib/clipXform`、演出との繋ぎは
+// 同ファイルの `moveThen` が持つ（画面と書き出しを揃える式なので、
+// 写すと片方だけ古くなる）。
+//
+// 2026-08-17 まで**ここだけ逆だった**（回転・反転が左）。そのせいで
+// 反転した映像はプレビューで右へ掴むと左へ動き、回した映像は回った向きへ動いた。
+// `lib/clipXform` は 08-03 に直っていたが、あちらが持つのは**重ねた物**
+// （映像レイヤー・画像）で、**再生ヘッド位置の本線はここ**だった。
 //
 // ## 演出は2通りの出し方がある
 //
@@ -27,7 +37,7 @@ import { dipColor } from '../lib/transitions'
 import { useDoc } from './contentContext'
 import { useMediaCtx } from './mediaContext'
 import { usePlaybackCtx } from './playbackContext'
-import { isNeutralZoom } from '../lib/clipLook'
+import { clipXform, moveThen } from '../lib/clipXform'
 import type { Layout } from '../../../shared/timeline'
 import type { Source, VSeg } from '../lib/projectTypes'
 
@@ -48,21 +58,20 @@ export function usePreviewFrame(deps: UsePreviewFrameDeps) {
   const { videoSrc, sources } = useMediaCtx()
   const { currentTime } = usePlaybackCtx()
 
-  // 再生ヘッド位置の切片の回転/反転（CSS transform）。ズーム/トランジションと合成する。
+  // 再生ヘッド位置の切片の「寄り・回転・反転」（CSS transform）。**正典1つで作る。**
+  // `curSegZoom` は動きの印を当てたあとの値（`useCurrentLook`）なので、
+  // ここへ motion は渡さない（二度掛けになる）。
   const curSegXform = (() => {
     const src = tToSource(segLayout, currentTime)
     const seg = src ? segments[src.index] : undefined
-    if (!seg) return ''
-    const parts: string[] = []
-    if (seg.rotate) parts.push(`rotate(${seg.rotate}deg)`)
-    if (seg.flipH) parts.push('scaleX(-1)')
-    if (seg.flipV) parts.push('scaleY(-1)')
-    return parts.join(' ')
+    if (!seg) return undefined
+    return clipXform({
+      rotate: seg.rotate,
+      flipH: seg.flipH,
+      flipV: seg.flipV,
+      zoom: curSegZoom
+    })
   })()
-  // 動画ズームのCSS変換（プレビュー用・現切片）。translateはフレーム比→%、原点は中心。
-  const videoZoomTransform = isNeutralZoom(curSegZoom)
-    ? undefined
-    : `translate(${(curSegZoom.x * 100).toFixed(3)}%, ${(curSegZoom.y * 100).toFixed(3)}%) scale(${curSegZoom.scale.toFixed(4)})`
   // 頭/尻トランジションのプレビュー。dip系(fade/黒/白)は色オーバーレイ、slide/wipeは映像自体を動かす。
   // 現在の切片の in/out と再生ヘッド位置から「進捗 p(0..1)」を出す。xfade境界のディップは出さない。
   const inOutPreview = (() => {
@@ -88,28 +97,28 @@ export function usePreviewFrame(deps: UsePreviewFrameDeps) {
     const opacity = inOutPreview.dir === 'in' ? 1 - inOutPreview.p : inOutPreview.p
     return { color: col, opacity }
   })()
-  // 頭/尻が slide/wipe のとき、メイン映像に掛けるCSS（回転/反転・ズーム変換と合成）。
+  // 頭/尻が slide/wipe のとき、メイン映像に掛けるCSS（切片の見た目と合成）。
   const videoMainStyle = (() => {
-    // トランジション（slide/wipe）分の transform / clipPath
-    const trans: React.CSSProperties = (() => {
-      const base: React.CSSProperties = { transform: videoZoomTransform }
-      if (!inOutPreview || dipColor(inOutPreview.type)) return base
+    // **演出ぶんだけ**を出す。寄り・回転・反転はここで混ぜない
+    //（混ぜると、繋ぎ方が2か所に書かれて片方だけ古くなる）
+    const trans: { move?: string; clipPath?: string } = (() => {
+      if (!inOutPreview || dipColor(inOutPreview.type)) return {}
       const { type, dir, p } = inOutPreview
       const off = (dir === 'in' ? 1 - p : p) * 100
-      const zoom = videoZoomTransform ? ` ${videoZoomTransform}` : ''
-      if (type === 'slideleft') return { transform: `translateX(${dir === 'in' ? off : -off}%)${zoom}` }
-      if (type === 'slideright') return { transform: `translateX(${dir === 'in' ? -off : off}%)${zoom}` }
-      if (type === 'slideup') return { transform: `translateY(${dir === 'in' ? off : -off}%)${zoom}` }
-      if (type === 'slidedown') return { transform: `translateY(${dir === 'in' ? -off : off}%)${zoom}` }
-      if (type === 'wipeleft') return { transform: videoZoomTransform, clipPath: `inset(0 0 0 ${off}%)` }
-      if (type === 'wiperight') return { transform: videoZoomTransform, clipPath: `inset(0 ${off}% 0 0)` }
-      return base
+      if (type === 'slideleft') return { move: `translateX(${dir === 'in' ? off : -off}%)` }
+      if (type === 'slideright') return { move: `translateX(${dir === 'in' ? -off : off}%)` }
+      if (type === 'slideup') return { move: `translateY(${dir === 'in' ? off : -off}%)` }
+      if (type === 'slidedown') return { move: `translateY(${dir === 'in' ? -off : off}%)` }
+      if (type === 'wipeleft') return { clipPath: `inset(0 0 0 ${off}%)` }
+      if (type === 'wiperight') return { clipPath: `inset(0 ${off}% 0 0)` }
+      return {}
     })()
-    // 現切片の回転/反転を先頭に合成（＝映像自体を回す/反転させてから、ズーム/スライドを掛ける）
-    const tf = [curSegXform, trans.transform].filter(Boolean).join(' ')
-    // クロップ（clip-path inset）。wipe中はwipe側のclipPathを優先（trans.clipPathがあればそれを使う）。
-    const clip = trans.clipPath ?? curCropInset
-    return { ...trans, transform: tf || undefined, clipPath: clip }
+    // **動かす物ほど左**（演出 → 寄り → 回す → 反転）。順番は `lib/clipXform` が持つ
+    // クロップ（clip-path inset）。wipe中はwipe側のclipPathを優先
+    return {
+      transform: moveThen(trans.move, curSegXform),
+      clipPath: trans.clipPath ?? curCropInset
+    }
   })()
 
   // クロスディゾルブのプレビュー状態: 再生ヘッドが [カット-d, カット) にいる間、
@@ -129,7 +138,12 @@ export function usePreviewFrame(deps: UsePreviewFrameDeps) {
       // マルチソース: B側は自分の元動画のURL/ズームでプレビュー（A側と別ソースでも正しい映像）
       const bs = srcOfSeg(B.seg)
       const bUrl = bs ? previewUrl(bs.path, bs.origUrl) : null
-      const bZoom = B.seg.zoom
+      // B側の見た目も**正典1つ**で作る（A側と同じ順番になる）。
+      //
+      // 2026-08-17 まで**ズームしか渡していなかった**ので、つなぎ目の間だけ
+      // B の回転・反転が外れ、切り替わり切った瞬間に元へ戻っていた。
+      // 動きの印は頭（0秒）で読む——B はまだ自分の先頭しか見せていない。
+      const bXform = clipXform(B.seg, 0)
       if (currentTime >= cut - d && currentTime < cut) {
         // トランジション中: B がソース頭の手前(srcStart - 残り*速度)から先読み。p=進捗0→1。
         //
@@ -145,7 +159,7 @@ export function usePreviewFrame(deps: UsePreviewFrameDeps) {
           frozen: want <= 0,
           speed: sp,
           bUrl,
-          bZoom
+          bXform
         }
       }
       if (currentTime >= cut && currentTime < cut + XF_GRACE) {
@@ -158,7 +172,7 @@ export function usePreviewFrame(deps: UsePreviewFrameDeps) {
           frozen: false, // カットを過ぎたら B は本編なので必ず動く
           speed: sp,
           bUrl,
-          bZoom
+          bXform
         }
       }
     }
@@ -190,7 +204,7 @@ export function usePreviewFrame(deps: UsePreviewFrameDeps) {
 
 
   return {
-    curSegXform, videoZoomTransform, inOutPreview, transOverlay, videoMainStyle,
+    curSegXform, inOutPreview, transOverlay, videoMainStyle,
     xfPreview, xfNextBUrl, xfDipOverlay
   }
 }

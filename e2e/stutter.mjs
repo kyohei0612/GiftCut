@@ -509,8 +509,17 @@ for (const res of RES_LIST) {
 
 console.log('\n===== まとめ =====')
 for (const r of results) {
-  // **音の抜けも不合格にする。** 絵が滑らかでも音が途切れれば使い物にならない
-  const audioBad = (r.audio?.gaps.length ?? 0) > 0
+  // **音の抜けも不合格にする。** 絵が滑らかでも音が途切れれば使い物にならない。
+  //
+  // ただし判定できるのは**測れた回だけ**（素材が無音なら抜けようが無いので、
+  // 鳴っていない回を × にすると素材のせいで赤くなる。上で `audio` を null にしている）。
+  //
+  // **2026-08-17 まで、測れなかった回が黙って「○ 滑らか」に混ざっていた。**
+  // `?? 0` で「抜け0回」に化けていたため——明細には「測れませんでした」と
+  // 正しく出るのに、まとめの1行と終了コードだけが「音も問題なし」と言っていた。
+  // 測っていないのに問題なしは、測って問題なしより悪い（下の「1つも測れていない」と同じ話）。
+  const 音を測れた = !!r.audio
+  const audioBad = 音を測れた && r.audio.gaps.length > 0
   const verdict = !r.played
     ? '？ 流れていない'
     : r.worstMs > 100
@@ -519,7 +528,9 @@ for (const r of results) {
         ? '× 音が抜ける'
         : r.frozenMs > r.ranMs * 0.2
           ? '△ ときどき止まる'
-          : '○ 滑らか'
+          : 音を測れた
+            ? '○ 滑らか'
+            : '○ 絵は滑らか（**音は測れていない**）'
   console.log(
     `${verdict}  ${r.res}p  速さ ${r.speed.toFixed(2)}倍 / 止まり最長 ${String(r.worstMs).padStart(4)}ms / ` +
       `合計 ${String(r.frozenMs).padStart(4)}/${r.ranMs}ms / ` +
@@ -528,8 +539,10 @@ for (const r of results) {
   )
 }
 const bad = results.filter(
-  (r) => r.played && (r.worstMs > 100 || (r.audio?.gaps.length ?? 0) > 0)
+  (r) => r.played && (r.worstMs > 100 || (r.audio ? r.audio.gaps.length > 0 : false))
 )
+/** 音を実際に測れた回（無音素材・経路に繋げなかった回は入らない） */
+const 音を測れた数 = results.filter((r) => r.audio).length
 // **1つも測れていないなら落とす。** 以前はここが緑になっていた——
 // 映像の無い下書きで走ると各画質が「プレビューに映像がありません」で continue し、
 // results が空のまま「どの画質も、絵は止まらず音も抜けませんでした」と出ていた。
@@ -548,8 +561,22 @@ if (!results.length) {
 console.log(
   bad.length
     ? `\nだめだった画質: ${bad.map((r) => r.res + 'p').join(', ')}`
-    : `\n${results.length}画質すべてで、絵は止まらず音も抜けませんでした`
+    : `\n${results.length}画質すべてで、絵は止まりませんでした` +
+      `（**音を測れたのは ${音を測れた数}/${results.length}**。測れた回に抜けはありません）`
 )
+// **音が1つも測れなかったなら落とす。** 絵だけ見て「問題なし」と読ませない。
+// 上の「1つも測れませんでした」（results が空）と同じ型の穴で、こちらは
+// **結果が並ぶぶん、緑に見える分だけ質が悪い。**
+if (!音を測れた数) {
+  console.error(
+    '\n**音は1つも測れませんでした。** この回で分かったのは絵のことだけです。\n' +
+      '  素材に音が入っていないか、音の経路に繋げませんでした。\n' +
+      '  音を測るなら、音のある素材を読み込むか `--project=<path>` で本物のプロジェクトを渡してください。'
+  )
+  await app.close().catch(() => {})
+  rmSync(tmp, { recursive: true, force: true })
+  process.exit(1)
+}
 
 await app.close().catch(() => {})
 rmSync(tmp, { recursive: true, force: true })

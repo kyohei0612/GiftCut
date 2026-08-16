@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { clipXform } from './clipXform'
+import { clipXform, moveThen } from './clipXform'
 
 // **画面と書き出しで、絵が同じ場所に出るか。**
 //
@@ -30,15 +30,21 @@ function toMatrix(css: string, w: number, h: number): number[] {
     A[0] * B[4] + A[2] * B[5] + A[4],
     A[1] * B[4] + A[3] * B[5] + A[5]
   ]
+  const px = (v: string, base: number): number =>
+    v.endsWith('%') ? (parseFloat(v) / 100) * base : parseFloat(v)
   let M = [1, 0, 0, 1, 0, 0]
   for (const m of css.matchAll(/(\w+)\(([^)]*)\)/g)) {
     const fn = m[1]
     const args = m[2].split(',').map((s) => s.trim())
     if (fn === 'translate') {
-      const px = (v: string, base: number): number =>
-        v.endsWith('%') ? (parseFloat(v) / 100) * base : parseFloat(v)
       M = mul(M, [1, 0, 0, 1, px(args[0], w), px(args[1] ?? '0', h)])
-    } else if (fn === 'scale') {
+      // **`translateX` / `translateY` も読む。** 知らない関数は黙って素通りするので、
+      // 足さないと「動かしていない（0）」と出る——2026-08-17、つなぎ目の演出
+      //（`translateX`）を測ろうとして**両方 0 になり、順番の違いが消えた**。
+      // 測る側が読めない形は、測れていないのと同じ（CLAUDE.md 7番）。
+    } else if (fn === 'translateX') M = mul(M, [1, 0, 0, 1, px(args[0], w), 0])
+    else if (fn === 'translateY') M = mul(M, [1, 0, 0, 1, 0, px(args[0], h)])
+    else if (fn === 'scale') {
       const s = parseFloat(args[0])
       M = mul(M, [s, 0, 0, parseFloat(args[1] ?? args[0]), 0, 0])
     } else if (fn === 'scaleX') M = mul(M, [parseFloat(args[0]), 0, 0, 1, 0, 0])
@@ -106,6 +112,39 @@ describe('画面と書き出しで、絵が同じ場所に出る', () => {
     expect(css.indexOf('translate')).toBe(0)
     expect(css.indexOf('rotate')).toBeGreaterThan(css.indexOf('translate'))
     expect(css.indexOf('scaleX')).toBeGreaterThan(css.indexOf('rotate'))
+  })
+
+  // ## つなぎ目の演出（slide）と重ねるとき
+  //
+  // プレビューは「切片の見た目」の**外側**に演出を掛ける。ここを間違えると、
+  // 反転した切片だけ演出が逆へ流れる。2026-08-17 まで実際にそうなっていた
+  //（`state/usePreviewFrame` が回転・反転を左に置いていた）。
+  //
+  // **わざと逆にした場合も一緒に確かめる**——「ずっと緑だから効いている」は
+  // 言えないので、逆順が本当に真逆の絵になることを、この場で見せておく。
+  describe('演出と見た目の繋ぎ（moveThen）', () => {
+    const 中心X = (css: string): number => toMatrix(css, W, H)[4] / W
+
+    it('**演出がいちばん左**（画面の向きで流れる）', () => {
+      const css = moveThen('translateX(25%)', clipXform({ flipH: true, rotate: 20 }))!
+      expect(css.indexOf('translateX')).toBe(0)
+      expect(css.indexOf('rotate')).toBeGreaterThan(0)
+      expect(css.indexOf('scaleX')).toBeGreaterThan(css.indexOf('rotate'))
+    })
+
+    it('反転していても、右へ流す演出は**右へ**流れる', () => {
+      expect(中心X(moveThen('translateX(25%)', clipXform({ flipH: true }))!)).toBeCloseTo(0.25, 5)
+    })
+
+    it('逆順に繋ぐと**左右が真逆**になる（＝この順番が効いている証拠）', () => {
+      expect(中心X(`${clipXform({ flipH: true })} translateX(25%)`)).toBeCloseTo(-0.25, 5)
+    })
+
+    it('片方しか無ければ、そのまま返す（空文字を style に置かない）', () => {
+      expect(moveThen(undefined, 'scaleX(-1)')).toBe('scaleX(-1)')
+      expect(moveThen('translateX(10%)', undefined)).toBe('translateX(10%)')
+      expect(moveThen(undefined, undefined)).toBeUndefined()
+    })
   })
 
   it('回しても反転しても、**寄せ方（scale）は変わらない**', () => {
