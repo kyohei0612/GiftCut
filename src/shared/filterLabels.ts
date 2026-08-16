@@ -109,6 +109,30 @@ export function resolveInputLabels(uses: LabelUses, filter: string): string {
    *
    * 境目の数字は trim と同じ `toFixed(3)` で出す。丸めが違うと、境目ちょうどの
    * コマがどちらの枝に入るかが trim と食い違う。
+   *
+   * ## 境目は「**手前の窓の終わり**」に置く（2026-08-16・本物で止まった）
+   *
+   * 前は「次の窓の始まり」に置いていた。**編集で捨てた隙間**（窓と窓の間）の
+   * コマが、そのとき**手前の枝**へ落ちる。手前の `trim` は `end` を過ぎて
+   * 完結しているので**誰も汲まない** → その枝のキューが詰まる → `segment` は
+   * 次のコマを出せない → 後ろの枝が永久に飢える。**カット編集した実物では、
+   * 隙間があるのが普通**なので、最初のカットで必ず止まる。
+   *
+   * 手前の窓の終わりに置くと、同じ隙間のコマは**次の枝**へ落ちる。
+   * 次の `trim` は `start` まで**汲んで捨てる**ので流れ、詰まらない。
+   * 出る絵は変わらない（どちらの置き方でも、通すコマを決めるのは `trim`）。
+   *
+   * 実物で確かめた（本人の8ソース・切片19・テロップ167枚の graph をそのまま）:
+   *
+   * ```
+   * 次の窓の始まり … time=00:00:15.44 で frame=906 のまま止まり、CPU だけ回る
+   *                  （最初のカット。窓 [20.007,35.340] に対し境目 35.709＝隙間 0.369秒）
+   * 手前の窓の終わり… 40秒ぶん通って exit 0。split へ戻した版とも同じく通る
+   * ```
+   *
+   * **08-09 に入れたときは見つからなかった。** 速さの照合に使った見本
+   *（`e2e/lib/fixture`）は1本の素材を**隙間なく**切っていて、隙間のある並びが
+   * 1つも無かった。試験は下の `filterLabels.test.ts` に足した。
    */
   const pickRouted = (idx: number, n: number): number[] => {
     const wins = uses.vw[idx] ?? []
@@ -119,14 +143,15 @@ export function resolveInputLabels(uses: LabelUses, filter: string): string {
     }
     if (cand.length < 2) return []
     cand.sort((a, b) => wins[a]!.s - wins[b]!.s)
-    let prevSr = -Infinity // 丸めた後の直前の境目
+    let prevEr = -Infinity // 丸めた後の直前の境目（＝手前の窓の終わり）
     let prevE = -Infinity
     for (const i of cand) {
       const w = wins[i]!
-      const sr = Number(w.s.toFixed(3))
-      // 丸めた後でも境目が進むこと（同じ 3桁に丸まる2つは、2つ目が空の枝になる）
-      if (!(sr > prevSr && w.s >= prevE - 1e-9)) return [] // 1つでも配れない＝丸ごと split
-      prevSr = sr
+      const er = Number(w.e.toFixed(3))
+      // 境目に使う「終わり」が、丸めた後でも進むこと（同じ3桁に丸まると空の枝ができる）。
+      // 重なり（w.s < 手前の終わり）は配れない＝丸ごと split
+      if (!(er > prevEr && w.s >= prevE - 1e-9)) return []
+      prevEr = er
       prevE = w.e
     }
     return cand
@@ -142,7 +167,8 @@ export function resolveInputLabels(uses: LabelUses, filter: string): string {
       if (routed.length) {
         // segment で配る（全か無かなので、この入力の使い方は全部ここに居る）
         const wins = uses.vw[idx]!
-        const bounds = routed.slice(1).map((i) => wins[i]!.s.toFixed(3))
+        // **手前の窓の終わり**で切る（上の「境目は…」の節。始まりで切ると隙間で詰まる）
+        const bounds = routed.slice(0, -1).map((i) => wins[i]!.e.toFixed(3))
         const outs = routed.map((i) => `[x${tag}${idx}_${i}]`)
         pre += `[${idx}:${st}]segment=timestamps=${bounds.join('|')}${outs.join('')};`
         routed.forEach((i) => {

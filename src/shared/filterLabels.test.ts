@@ -90,10 +90,48 @@ describe('窓付き（useVAt）は segment で配る', () => {
     // 出力順は B(10..12) → A(0..5) だが、source 時間では A が先
     const f = `${useVAt(u, 0, 10, 12)}x[b];${useVAt(u, 0, 0, 5)}y[a]`
     const got = resolveInputLabels(u, f)
-    // 境目は 10.000 の1本。枝の並びは時間順（A=札1 が先）
-    expect(got).toContain('[0:v]segment=timestamps=10.000[xV0_1][xV0_0];')
+    // 境目は「手前の窓の終わり」＝5.000 の1本。枝の並びは時間順（A=札1 が先）
+    expect(got).toContain('[0:v]segment=timestamps=5.000[xV0_1][xV0_0];')
     expect(got).toContain('[xV0_0]x[b]')
     expect(got).toContain('[xV0_1]y[a]')
+  })
+
+  // ===========================================================================
+  // **隙間のある並び**＝カット編集した実物。ここで止まっていた（2026-08-16）。
+  //
+  // 境目を「次の窓の始まり」に置くと、捨てた区間のコマが**手前の枝**へ落ちる。
+  // 手前の trim は end を過ぎて完結しているので誰も汲まず、キューが詰まって
+  // `segment` が次のコマを出せなくなる → 後ろの枝が永久に飢える。
+  // 本人の書き出しは**最初のカット（15.44秒）で止まり、CPU だけ回っていた**。
+  //
+  // 「手前の窓の終わり」に置けば、同じコマは次の枝へ落ち、次の trim が
+  // start まで汲んで捨てるので流れる。**出る絵は変わらない**（通すコマを
+  // 決めるのは trim であって、境目ではない）。
+  //
+  // 08-09 に入れたとき見つからなかったのは、速さの照合に使った見本が
+  // **隙間なく**切った並びだけだったから（上の1件目がまさにその形で、
+  // 隙間が無いと新旧どちらの置き方でも同じ数字になる）。
+  it('**隙間のある窓は、手前の終わりで切る**（次の始まりで切ると本物で止まる）', () => {
+    const u = newLabelUses()
+    // 5〜10秒は編集で捨てた区間。どちらの枝の trim も、ここを通さない
+    const f = `${useVAt(u, 0, 0, 5)}trim=start=0.000:end=5.000[a];${useVAt(u, 0, 10, 12)}trim=start=10.000:end=12.000[b]`
+    const got = resolveInputLabels(u, f)
+    expect(got).toContain('[0:v]segment=timestamps=5.000[xV0_0][xV0_1];')
+    // **捨てた区間の始まり（10.000）で切ってはいけない**
+    expect(got).not.toContain('timestamps=10.000')
+    expect(got).not.toContain('split')
+  })
+
+  it('隙間が何個あっても、境目は全部「手前の終わり」', () => {
+    const u = newLabelUses()
+    const f = [
+      `${useVAt(u, 0, 0, 5)}A`,
+      `${useVAt(u, 0, 8, 11)}B`,
+      `${useVAt(u, 0, 20, 25)}C`
+    ].join(';')
+    expect(resolveInputLabels(u, f)).toContain(
+      '[0:v]segment=timestamps=5.000|11.000[xV0_0][xV0_1][xV0_2];'
+    )
   })
 
   it('**重なる窓（xfade の食い込み等）は split へ逃がす**（正しさが先、速さは後）', () => {
