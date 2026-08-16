@@ -1,3 +1,8 @@
+// @vitest-environment jsdom
+//
+// ※ jsdom なのは `measure` の試験だけのため（`perf.start()` が
+//   `visibilitychange` を購読するので DOM が要る）。判定の試験は素の関数。
+//
 // 報告が言い当てる「いちばん疑わしいもの」の決まりごと。
 //
 // **しきい値を勘で動かさないための網。** 報告の言うことが日によって変わると、
@@ -6,7 +11,7 @@
 // ここで固定しているのは境目そのもの。**根拠は `perfMonitor.ts` の `verdicts` に書いてある。**
 
 import { describe, expect, it } from 'vitest'
-import { READING, verdicts, type PerfSample } from './perfMonitor'
+import { perf, READING, verdicts, type PerfSample } from './perfMonitor'
 
 /** 何も問題が出ていない1秒（ここから1つだけ崩して、その1つが言い当てられるかを見る） */
 const ok = (over: Partial<PerfSample> = {}): PerfSample => ({
@@ -84,6 +89,49 @@ describe('いちばん疑わしいものを言い当てる', () => {
     expect(READING.some((r) => r.includes('計算が重い'))).toBe(true)
     expect(READING.some((r) => r.includes('デコードが重い'))).toBe(true)
     expect(READING.some((r) => r.includes('画面の作りが重い'))).toBe(true)
+  })
+
+  describe('measure（誰が塞いだかを名前で残す）', () => {
+    // 記録に「塞いだ回数と時間」しか無く、**誰が止めたのかが1行も出なかった**
+    // ので足した（2026-08-16）。包むのは定期的に走る重い物。
+    it('**記録していない間は素通し**（包んだだけで遅くならない）', () => {
+      perf.stop()
+      let 呼ばれた = 0
+      const r = perf.measure('何か', () => {
+        呼ばれた++
+        return 42
+      })
+      expect(r).toBe(42)
+      expect(呼ばれた).toBe(1)
+      expect(perf.marks().some((m) => m.includes('何か'))).toBe(false)
+    })
+
+    it('30ms 以上かかった時だけ、名前と時間を残す', () => {
+      perf.start()
+      perf.measure('軽い方', () => 0) // すぐ返る＝残さない
+      const t0 = performance.now()
+      perf.measure('重い方', () => {
+        while (performance.now() - t0 < 35) {
+          /* 30ms を超えるまで待つ */
+        }
+      })
+      // **`report()` では見ない。** 1秒ごとの標本が1つも無いと
+      // 「まだ何も測っていません」で終わるので、印を直に読む
+      const 印 = perf.marks()
+      expect(印.some((m) => m.startsWith('⏱ 重い方'))).toBe(true)
+      expect(印.some((m) => m.includes('軽い方'))).toBe(false)
+      perf.stop()
+    })
+
+    it('中で落ちても、時間は残るし例外はそのまま外へ出る', () => {
+      perf.start()
+      expect(() =>
+        perf.measure('落ちる方', () => {
+          throw new Error('わざと')
+        })
+      ).toThrow('わざと')
+      perf.stop()
+    })
   })
 
   it('少し超えたくらいでは言わない（境目のすぐ内側）', () => {

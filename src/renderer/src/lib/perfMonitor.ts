@@ -225,6 +225,43 @@ export class PerfMonitor {
     if (this.events.length > MAX_SAMPLES) this.events.shift()
   }
 
+  /**
+   * いま溜まっている印（出来事）の名前。**試験と切り分け用。**
+   *
+   * `report()` は1秒ごとの標本が1つも無いと「まだ何も測っていません」で
+   * 終わるので、印だけを確かめたいときに読めない。
+   */
+  marks(): string[] {
+    return this.events.map((e) => e.what)
+  }
+
+  /**
+   * 定期の重い処理を測って、**塞いだときだけ名前で残す**。
+   *
+   * ## なぜ要るか（2026-08-16）
+   *
+   * 「プレビューがかくつく」の記録に、**塞いだ回数と時間しか無かった**。
+   * 再生中の58%の秒に 100〜190ms 止まっていることまでは分かるのに、
+   * **誰が止めたのかが1行も出ない**ので、何度録っても犯人へ辿り着けない。
+   *
+   * `longtask` の `attribution` は同じ枠内の JS では「不明」しか返さないので、
+   * **こちらから名札を付けて回る**しかない。包む相手は「定期的に走る重い物」
+   *（設定の写し・下書き・波形…）。1回の呼び出しに 30ms 以上かかった時だけ残す
+   *（60fps の2コマぶん。それ未満は絵に出ない）。
+   *
+   * 走っていない時（記録を取っていない時）は**素通し**なので、負担はゼロ。
+   */
+  measure<T>(what: string, fn: () => T): T {
+    if (!this.running) return fn()
+    const t0 = performance.now()
+    try {
+      return fn()
+    } finally {
+      const ms = Math.round(performance.now() - t0)
+      if (ms >= 30) this.mark(`⏱ ${what} ${ms}ms`)
+    }
+  }
+
   private now(): number {
     return Math.round((performance.now() - this.t0) / 100) / 10
   }

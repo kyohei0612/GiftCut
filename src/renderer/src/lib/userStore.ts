@@ -8,6 +8,7 @@ import {
   keysToRestore,
   pickUserData
 } from '../../../shared/userStore'
+import { perf } from './perfMonitor'
 
 /** いまの保存領域を、素の連想配列にする */
 function snapshot(): Record<string, string> {
@@ -53,11 +54,16 @@ export function startUserStoreMirror(everyMs = 4000): () => void {
   let last = snapshot()
   // 起動直後にも一度書く（初めての人にファイルを作ってあげる）
   void window.giftcut?.writeUserStore?.(last)
+  // **名札を付ける。** ここは localStorage を丸ごと読み直して比べるので、
+  // 中身が大きいと主スレッドを塞ぐ（実物で 2.66MB。うちアイコンの画像が 1.46MB）。
+  // 記録に出れば「再生中のかくつきの犯人か」がその場で分かる（`perf.measure`）
   const id = window.setInterval(() => {
-    const now = snapshot()
-    if (!changed(last, now)) return
-    last = now
-    void window.giftcut?.writeUserStore?.(now)
+    perf.measure('設定の写し（localStorage 全読み）', () => {
+      const now = snapshot()
+      if (!changed(last, now)) return
+      last = now
+      void window.giftcut?.writeUserStore?.(now)
+    })
   }, everyMs)
   // 閉じる直前にも書く（最後の操作を取りこぼさない）
   const onHide = (): void => {

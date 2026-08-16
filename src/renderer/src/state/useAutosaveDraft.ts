@@ -19,6 +19,7 @@
 //
 // 元は `useSessionMemory` の中にあり、**セッション保存 → 履歴 → ここ**の順で
 // 走っていた。`useAppWiring` ではこの順を保つこと（2026-08-03 に分けた）。
+import { perf } from '../lib/perfMonitor'
 import { AUTOSAVE_MS } from '../lib/appConst'
 import { useEffect } from 'react'
 import { useToastCtx } from './toastContext'
@@ -65,13 +66,18 @@ export function useAutosaveDraft(): void {
   const { showToast } = useToastCtx()
 
   useEffect(() => {
+    // **名札を付ける**（`perf.measure`）。プロジェクト全体を文字列にするので、
+    // 中身が大きいと主スレッドを塞ぐ。再生中は上の行で早く帰るはずだが、
+    // 「はず」を記録で確かめられるようにしておく
     const id = window.setInterval(() => {
-      if (!hasContentRef.current()) return
-      if (projectRevRef.current === autosavedRevRef.current) return // 何も変わっていない
-      autosavedRevRef.current = projectRevRef.current
-      const json = currentJsonRef.current()
-      if (json === lastAutosaveRef.current) return
-      void writeAutosave(json)
+      perf.measure('下書きの自動保存', () => {
+        if (!hasContentRef.current()) return
+        if (projectRevRef.current === autosavedRevRef.current) return // 何も変わっていない
+        autosavedRevRef.current = projectRevRef.current
+        const json = currentJsonRef.current()
+        if (json === lastAutosaveRef.current) return
+        void writeAutosave(json)
+      })
     }, AUTOSAVE_MS)
     return () => window.clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps

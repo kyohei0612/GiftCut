@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { perf } from '../lib/perfMonitor'
 import { waveIndexAt } from '../../../shared/timeline'
 
 interface Props {
@@ -67,7 +68,11 @@ export default function WaveformCanvas({
 }: Props): JSX.Element {
   const ref = useRef<HTMLCanvasElement>(null)
 
+  // **名札を付ける**（`perf.measure`）。1枚は軽いが、間引きの窓へ入ってきた帯が
+  // まとめて描き直されると積み上がる（bench の計測で **毎秒239回・fillRect 15.5万回**）。
+  // 30ms を超えた回だけ記録に名前で出る
   useEffect(() => {
+    perf.measure('波形を描く', () => {
     const cv = ref.current
     if (!cv) return
     const W = Math.max(1, Math.floor(width))
@@ -153,8 +158,9 @@ export default function WaveformCanvas({
       }
       const top = mid - hi * amp
       const bot = mid - lo * amp
-      ctx.fillRect(x, top, 1, Math.max(1, bot - top))
-    }
+        ctx.fillRect(x, top, 1, Math.max(1, bot - top))
+      }
+    })
   }, [min, max, srcStart, srcEnd, audioDuration, width, height, color])
 
   return <canvas ref={ref} style={{ width, height, display: 'block' }} />

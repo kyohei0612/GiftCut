@@ -66,7 +66,8 @@ export function useSegClock(deps: UseSegClockDeps) {
   const lastDriftLogRef = useRef(0)
   /** **実際に画面へ出た最後のコマ**（`requestVideoFrameCallback` が教えてくれる地の値） */
   const 出たコマRef = useRef<{ 時刻: number; いつ: number } | null>(null)
-  const 出たコマ待ちRef = useRef(false)
+  /** いま `requestVideoFrameCallback` を頼んである面。**真偽値では持たない**（下の説明） */
+  const 出たコマ待ちRef = useRef<HTMLVideoElement | null>(null)
 
   // 順再生（壁時計マスター）: 再生ヘッドは実時間で常に一定速度に進め、動画がそれを追いかける。
   // これで動画がカットでシークして一瞬もたついても、再生ヘッドは絶対に止まらない。
@@ -203,11 +204,21 @@ export function useSegClock(deps: UseSegClockDeps) {
         const rvfc = (vv as HTMLVideoElement & {
           requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number
         }).requestVideoFrameCallback
-        if (rvfc && !出たコマ待ちRef.current) {
-          出たコマ待ちRef.current = true
+        // **待ちは「どの面に頼んだか」で持つ**（2026-08-16）。
+        //
+        // 前は真偽値だった。カットで面を入れ替えると**出ていった面は `pause()` される**ので、
+        // その面に頼んだ `requestVideoFrameCallback` は**二度と呼ばれない**。
+        // 待ちが立ちっぱなしになり、**以後1回も頼み直さない**——記録は最初のカット以降
+        // ずっと同じコマ（実物で「画面に出た絵 1.47秒」）を指し続け、
+        // **「絵の遅れ 平均587ms・最大96秒」という嘘が報告の一番上に出ていた。**
+        // 1秒ごとの表の方（中央値24ms）が正しい。
+        if (rvfc && 出たコマ待ちRef.current !== vv) {
+          出たコマ待ちRef.current = vv
           rvfc.call(vv, (_now, meta) => {
-            出たコマRef.current = { 時刻: meta.mediaTime, いつ: performance.now() }
-            出たコマ待ちRef.current = false
+            // 入れ替えた後に古い面から遅れて届くことがある。**いま表の面の値だけ採る**
+            if (videoRef.current === vv)
+              出たコマRef.current = { 時刻: meta.mediaTime, いつ: performance.now() }
+            if (出たコマ待ちRef.current === vv) 出たコマ待ちRef.current = null
           })
         }
         const drift = src.srcTime - vv.currentTime // ＋なら動画が遅れている

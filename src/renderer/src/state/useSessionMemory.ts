@@ -26,6 +26,7 @@
 // ここの保存は「1つ前の描画の ref」を見て中身があるか判断しているので、
 // 写し取り（useHistoryCoalesce）を先に呼ぶと**起動直後に空で上書きしうる**。
 
+import { perf } from '../lib/perfMonitor'
 import { useEffect, useRef } from 'react'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
@@ -144,16 +145,20 @@ export function useSessionMemory(): void {
 
   // 再生位置 t は2秒ごとに保存（再生中の毎フレーム localStorage 書き込みを避ける）
   useEffect(() => {
+    // **名札を付ける**（`perf.measure`）。**再生中に必ず走る側**なので、
+    // かくつきの容疑者としては本命に近い（2秒ごとに localStorage を読んで書く）
     const iv = window.setInterval(() => {
-      if (!cuesRef.current.length && !segsRef.current.length) return
-      try {
-        const cur = JSON.parse(localStorage.getItem('giftcut.session') || '{}')
-        if (Math.abs((cur.t ?? -1) - currentTimeRef.current) < 0.5) return
-        cur.t = currentTimeRef.current
-        localStorage.setItem('giftcut.session', JSON.stringify(cur))
-      } catch {
-        /* 無視 */
-      }
+      perf.measure('再生位置の控え', () => {
+        if (!cuesRef.current.length && !segsRef.current.length) return
+        try {
+          const cur = JSON.parse(localStorage.getItem('giftcut.session') || '{}')
+          if (Math.abs((cur.t ?? -1) - currentTimeRef.current) < 0.5) return
+          cur.t = currentTimeRef.current
+          localStorage.setItem('giftcut.session', JSON.stringify(cur))
+        } catch {
+          /* 無視 */
+        }
+      })
     }, 2000)
     return () => window.clearInterval(iv)
   }, [])
