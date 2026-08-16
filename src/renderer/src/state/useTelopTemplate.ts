@@ -184,5 +184,26 @@ export function useTelopTemplate(deps: UseTelopTemplateDeps) {
     setEditingId(null)
   }
 
-  return { saveCurrentAsTemplate, deleteUserTemplate, applyTemplate, applyTemplateToCue }
+  /**
+   * **その人物（＝ラベルの色）のテロップ全部**に、見た目をまとめて当てる。
+   *
+   * 「アイコンで分けたあと、同じ見た目を1つずつ付け直すのがめんどう」への答え
+   *（2026-08-16・本人）。当たるのは**そのラベル色のテロップだけ**で、
+   * 位置と大きさは残す（`mergeTemplateKeepFrame`。既に置いた文字が飛ばない）。
+   */
+  function applyTemplateToLabel(label: string, tpl: TelopStyle): number {
+    let n = 0
+    setCues((prev) =>
+      prev.map((c) => {
+        if (c.label !== label) return c
+        n++
+        return { ...c, style: mergeTemplateKeepFrame(c.style, tpl), runs: undefined }
+      })
+    )
+    return n
+  }
+
+  return {
+    saveCurrentAsTemplate, deleteUserTemplate, applyTemplate, applyTemplateToCue, applyTemplateToLabel
+  }
 }

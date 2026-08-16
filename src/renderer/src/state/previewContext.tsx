@@ -131,6 +131,7 @@ export interface PreviewCtxValue {
   vcLen: W['vcLen']
   /** テロップに添える絵 */
   iconForCue: W['iconForCue']
+  ringForCue: W['ringForCue']
   /** 焼き直し・持ち出しの進み具合 */
   proxyPct: W['proxyPct']
 
@@ -218,7 +219,7 @@ export function usePreviewCtxValue(deps: { resetCount: () => number }) {
     usePreviewFrameCtx()
   const { v1Hidden, setTrackVolume } = useTracksAdminCtx()
   const { windowVClips, vcRefCb } = useVClipElsCtx()
-  const { iconForCue } = useCueIcon()
+  const { iconForCue, ringForCue } = useCueIcon()
   const {
     onVideoReframeStart, onVideoRotateStart, resetVideoZoom, zoomAnchor, toggleZoomAnchor,
     onZoomAnchorStart, selectPreviewOverlay
@@ -253,7 +254,7 @@ export function usePreviewCtxValue(deps: { resetCount: () => number }) {
     previewSources, previewUrl, monitorAspect,
     xfPreview, xfBStyle, xfNextBUrl, xfDipOverlay, transOverlay, videoMainStyle,
     curAdjustCss, curBlank, v1Hidden, videoTLen, activeCues, windowVClips,
-    vcRefCb, clipXform, vcLen, iconForCue, proxyPct,
+    vcRefCb, clipXform, vcLen, iconForCue, ringForCue, proxyPct,
     onVideoReframeStart, onVideoRotateStart, resetVideoZoom, resetCount: deps.resetCount,
     zoomAnchor, toggleZoomAnchor, onZoomAnchorStart,
     resetSelectedTelops, telopResetCount,

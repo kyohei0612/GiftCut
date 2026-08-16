@@ -254,6 +254,10 @@ export default function App(): React.JSX.Element {
     userTemplates: loadUserTemplates,
     iconAssign: loadIconAssign,
     laneIconAssign: () => loadJson<Record<string, string>>('giftcut.laneIconAssign', {}),
+    // 人物ごとの縁色・見た目。**アイコンの割り当てと同じ置き方**にしてある
+    //（localStorage に覚え、プロジェクトにも保存する）
+    iconRing: () => loadJson<Record<string, string>>('giftcut.iconRing', {}),
+    iconTemplate: () => loadJson<Record<string, string>>('giftcut.iconTemplate', {}),
     recentProjects: () => loadRecentProjects(RECENT_KEY, RECENT_MAX),
     newTelopStyle: defaultTelopStyle
   })

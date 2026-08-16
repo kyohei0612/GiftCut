@@ -36,6 +36,8 @@ export interface UseExportDeps {
   srcOfSeg: (seg: VSeg | undefined) => import('../lib/projectTypes').Source | undefined
   cueTrack: (c: import('../lib/srt').Cue) => string
   iconForCue: (c: import('../lib/srt').Cue) => string | undefined
+  /** アイコンの縁の色（人物ごと。**画面と同じ関数**を通すので焼けた絵がズレない） */
+  ringForCue: (c: import('../lib/srt').Cue) => string
   /** 実際に使う fps（'素材と同じ' を数値へ読み替える） */
   resolveExportFps: () => number
   // ※ 「動きが変わる時刻」（animBreakpoints）は受け取らない。
@@ -50,8 +52,11 @@ export interface UseExportDeps {
 }
 
 export function useExport(deps: UseExportDeps) {
-  const { stopPlayback, srcOfSeg, cueTrack, iconForCue, resolveExportFps, duckEnv, seEnd, v1Hidden } = deps
-  const { cues, segments, seClips, imgClips, vClips } = useDoc()  const { tracks, trackStates } = useTracksCtx()
+  const {
+    stopPlayback, srcOfSeg, cueTrack, iconForCue, ringForCue, resolveExportFps, duckEnv, seEnd, v1Hidden
+  } = deps
+  const { cues, segments, seClips, imgClips, vClips } = useDoc()
+  const { tracks, trackStates } = useTracksCtx()
   const {
     ratio, exportOpts, setExportOpts, masterVolume, loudnormLUFS, setShowExportDialog,
     setExportStatus, setExportPct, exportStatus,
@@ -226,7 +231,8 @@ export function useExport(deps: UseExportDeps) {
             iconSide,
             iconOffset.x,
             iconOffset.y,
-            iconAuto
+            iconAuto,
+            ringForCue(c)
           )
           if (box) frames.push({ png: box.png, start: c.start, end: c.end, x: box.x, y: box.y })
         } else {
@@ -257,7 +263,8 @@ export function useExport(deps: UseExportDeps) {
               iconSide,
               iconOffset.x,
               iconOffset.y,
-              iconAuto
+              iconAuto,
+              ringForCue(c)
             )
             if (seq) seq.pngs.push(png)
             else frames.push({ png, start: c.start + t0, end: c.start + t1 })

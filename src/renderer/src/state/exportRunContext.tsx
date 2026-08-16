@@ -29,7 +29,7 @@ export type ExportRunValue = ReturnType<typeof useExport>
 const Ctx = createContext<ExportRunValue | null>(null)
 
 export function ExportRunProvider({ children }: { children: ReactNode }): React.JSX.Element {
-  const { iconForCue } = useCueIcon()
+  const { iconForCue, ringForCue } = useCueIcon()
   const { resolveExportFps } = useExportCtx()
   const { srcOfSeg } = useMediaCtx()
   const { stopPlayback } = usePlaybackEngineCtx()
@@ -42,6 +42,7 @@ export function ExportRunProvider({ children }: { children: ReactNode }): React.
     srcOfSeg,
     cueTrack,
     iconForCue,
+    ringForCue,
     resolveExportFps,
     duckEnv,
     seEnd,

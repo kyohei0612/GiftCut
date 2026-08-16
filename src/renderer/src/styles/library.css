@@ -202,6 +202,31 @@
   font-size: 12px;
   color: #cfcfd6;
 }
+/* 人物の行（アイコン・縁の色・テロップの見た目）。**折り返す**——
+   横に4つ並ぶので、パネルが狭いと画像の一覧がはみ出して押せなくなる */
+.assign-row-person {
+  flex-wrap: wrap;
+}
+.assign-ring {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.assign-ring input {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: none;
+  cursor: pointer;
+}
+.assign-tpl {
+  font-size: 11px;
+  max-width: 150px;
+}
 .assign-picker {
   display: flex;
   gap: 5px;

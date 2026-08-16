@@ -68,6 +68,23 @@ export interface ProjectState {
   /** 段 → アイコン画像 */
   laneIconAssign: Record<string, string>
   setLaneIconAssign: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  /**
+   * ラベルの色 → **アイコンの縁の色**（2026-08-16・本人の指定「人物ごとに色を持たせる」）。
+   *
+   * 入っていない色は**ラベル色そのもの**を使う（今までと同じ見え方）。
+   * ラベル色は帯の色分けにも使うので、**縁だけ別の色にしたい**が通らなかった。
+   */
+  iconRing: Record<string, string>
+  setIconRing: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  /**
+   * ラベルの色 → **その人物のテロップの見た目**（テンプレートの名前）。
+   *
+   * 覚えておいて、アイコン設定から**まとめて当てられる**ようにするためだけの物。
+   * 勝手には当てない——後から色を付け替えた瞬間に、手で直した見た目が
+   * 黙って上書きされるのは事故になる。
+   */
+  iconTemplate: Record<string, string>
+  setIconTemplate: React.Dispatch<React.SetStateAction<Record<string, string>>>
 }
 
 /** 最近開いたプロジェクトを読む（壊れた記録は捨てる） */
@@ -110,6 +127,8 @@ export interface ProjectStateInit {
   userTemplates: () => TelopTemplate[]
   iconAssign: () => Record<string, string>
   laneIconAssign: () => Record<string, string>
+  iconRing: () => Record<string, string>
+  iconTemplate: () => Record<string, string>
   recentProjects: () => RecentProject[]
   newTelopStyle: () => TelopStyle
 }
@@ -130,6 +149,8 @@ export function useProjectState(init: ProjectStateInit): ProjectState {
 
   const [iconAssign, setIconAssignState] = useState<Record<string, string>>(init.iconAssign)
   const [laneIconAssign, setLaneIconAssign] = useState<Record<string, string>>(init.laneIconAssign)
+  const [iconRing, setIconRing] = useState<Record<string, string>>(init.iconRing)
+  const [iconTemplate, setIconTemplate] = useState<Record<string, string>>(init.iconTemplate)
 
   return {
     projectPath,
@@ -155,6 +176,10 @@ export function useProjectState(init: ProjectStateInit): ProjectState {
     iconAssign,
     setIconAssignState,
     laneIconAssign,
-    setLaneIconAssign
+    setLaneIconAssign,
+    iconRing,
+    setIconRing,
+    iconTemplate,
+    setIconTemplate
   }
 }

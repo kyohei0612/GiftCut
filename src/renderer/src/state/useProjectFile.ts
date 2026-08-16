@@ -96,7 +96,7 @@ export function useProjectFile(deps: UseProjectFileDeps) {
     // ※ テロップの整理（★/分類/自作フォルダ/自作テロップ）は ./useProjectTemplates へ。
     //   **混ぜるのはテンプレートを当てるときだけ**で、開く・保存には出てこなかった
     newTelopStyle, transDur, srtPath,
-    iconAssign, laneIconAssign, missingMedia
+    iconAssign, laneIconAssign, iconRing, iconTemplate, missingMedia
   } = useProjectStateCtx()
 
 
@@ -147,6 +147,9 @@ export function useProjectFile(deps: UseProjectFileDeps) {
         // 「個別にD&Dしたアイコンだけ残り、色で割り当てたアイコンが無警告で全部消える」。
         iconAssign,
         laneIconAssign,
+        // 人物ごとの縁色・見た目。**同じ理由で入れる**（別PCで開くと消える）
+        iconRing,
+        iconTemplate,
         // 書き出し設定・音量系もプロジェクトの一部（毎回やり直し＆設定違いでの再エンコード事故を防ぐ）
         exportOpts,
         loudnormLUFS,

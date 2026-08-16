@@ -34,9 +34,16 @@ function innerHtml(
   iconSide: 'left' | 'right' | 'top' | 'bottom' = 'left',
   iconOffsetX = 0,
   iconOffsetY = 0,
-  iconAuto = false
+  iconAuto = false,
+  /**
+   * アイコンの**縁の色**。既定はラベル色（2026-08-16 まではこれしか無かった）。
+   * 人物ごとの色は呼ぶ側（`useExport`）が `ringForCue` で引いて渡す——
+   * **画面と同じ関数**を通すので、プレビューと焼けた絵がズレない。
+   */
+  ringColor?: string
 ): string {
   const s = cue.style
+  const ring = ringColor || cue.label
   const scale = height / 1080
   const animClose = anim ? '</div>' : ''
   const fs = s.fontSize * scale
@@ -115,11 +122,11 @@ function innerHtml(
     const autoIcon =
       `<div style="position:absolute;left:0;top:50%;height:${autoIconH.toFixed(1)}px;aspect-ratio:1 / 1;z-index:0;` +
       `transform:translate(calc(-100% - ${autoGap.toFixed(1)}px + ${offX.toFixed(1)}px),calc(-50% + ${offY.toFixed(1)}px)) scale(${avatarScale});transform-origin:right center;">` +
-      `<img src="${avatar}" style="position:absolute;inset:0;width:100%;height:100%;display:block;box-sizing:border-box;border-radius:50%;object-fit:cover;border:${autoBorder.toFixed(1)}px solid ${cue.label};" /></div>`
+      `<img src="${avatar}" style="position:absolute;inset:0;width:100%;height:100%;display:block;box-sizing:border-box;border-radius:50%;object-fit:cover;border:${autoBorder.toFixed(1)}px solid ${ring};" /></div>`
     const contentStyle = [...baseContent, `position:relative`, `display:inline-block`, `width:max-content`].join(';')
     contentHtml = `<div style="${contentStyle}">${autoIcon}<div style="position:relative;z-index:1;">${textDiv}</div></div>`
   } else if (avatar) {
-    const iconHtml = `<img src="${avatar}" style="width:${iconLayoutPx.toFixed(1)}px;height:${iconLayoutPx.toFixed(1)}px;flex:0 0 auto;border-radius:50%;object-fit:cover;border:${(iconLayoutPx * 0.055).toFixed(1)}px solid ${cue.label};${commonTf}position:relative;z-index:0;" />`
+    const iconHtml = `<img src="${avatar}" style="width:${iconLayoutPx.toFixed(1)}px;height:${iconLayoutPx.toFixed(1)}px;flex:0 0 auto;border-radius:50%;object-fit:cover;border:${(iconLayoutPx * 0.055).toFixed(1)}px solid ${ring};${commonTf}position:relative;z-index:0;" />`
     const contentStyle = [
       ...baseContent,
       `display:flex`,
@@ -186,12 +193,14 @@ function cueToSvgDataUrl(
   iconSide: 'left' | 'right' | 'top' | 'bottom' = 'left',
   iconOffsetX = 0,
   iconOffsetY = 0,
-  iconAuto = false
+  iconAuto = false,
+  /** アイコンの縁の色（人物ごと。無ければラベル色）。素通しで `innerHtml` へ */
+  ringColor?: string
 ): string {
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
     `<foreignObject width="100%" height="100%">` +
-    `<div xmlns="http://www.w3.org/1999/xhtml">${innerHtml(cue, width, height, avatar, avatarScale, anim, iconSide, iconOffsetX, iconOffsetY, iconAuto)}</div>` +
+    `<div xmlns="http://www.w3.org/1999/xhtml">${innerHtml(cue, width, height, avatar, avatarScale, anim, iconSide, iconOffsetX, iconOffsetY, iconAuto, ringColor)}</div>` +
     `</foreignObject></svg>`
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
 }
@@ -207,7 +216,9 @@ export function renderCueToPng(
   iconSide: 'left' | 'right' | 'top' | 'bottom' = 'left',
   iconOffsetX = 0,
   iconOffsetY = 0,
-  iconAuto = false
+  iconAuto = false,
+  /** アイコンの縁の色（人物ごと。無ければラベル色） */
+  ringColor?: string
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image()
@@ -228,7 +239,7 @@ export function renderCueToPng(
       }
     }
     img.onerror = (): void => reject(new Error('テロップ画像化に失敗'))
-    img.src = cueToSvgDataUrl(cue, width, height, avatar, avatarScale, anim, iconSide, iconOffsetX, iconOffsetY, iconAuto)
+    img.src = cueToSvgDataUrl(cue, width, height, avatar, avatarScale, anim, iconSide, iconOffsetX, iconOffsetY, iconAuto, ringColor)
   })
 }
 
@@ -277,7 +288,9 @@ export function renderCueToPngBox(
   iconSide: 'left' | 'right' | 'top' | 'bottom' = 'left',
   iconOffsetX = 0,
   iconOffsetY = 0,
-  iconAuto = false
+  iconAuto = false,
+  /** アイコンの縁の色（人物ごと。無ければラベル色） */
+  ringColor?: string
 ): Promise<CuePng | null> {
   return new Promise((resolve, reject) => {
     const img = new Image()
@@ -322,7 +335,7 @@ export function renderCueToPngBox(
       }
     }
     img.onerror = (): void => reject(new Error('テロップ画像化に失敗'))
-    img.src = cueToSvgDataUrl(cue, width, height, avatar, avatarScale, anim, iconSide, iconOffsetX, iconOffsetY, iconAuto)
+    img.src = cueToSvgDataUrl(cue, width, height, avatar, avatarScale, anim, iconSide, iconOffsetX, iconOffsetY, iconAuto, ringColor)
   })
 }
 

@@ -45,6 +45,9 @@ import { useDoc } from '../../state/contentContext'
 import { useTracksCtx } from '../../state/tracksContext'
 import { usePlaybackCtx } from '../../state/playbackContext'
 import { useToastCtx } from '../../state/toastContext'
+import { useProjectStateCtx } from '../../state/projectStateContext'
+import { useLibraryCtx } from '../../state/libraryContext'
+import { useTelopTemplateCtx } from '../../state/telopTemplateContext'
 import { useExportCtx } from '../../state/exportContext'
 import { useIconsCtx } from '../../state/iconsContext'
 import { useDialogs } from '../../state/dialogsContext'
@@ -68,6 +71,10 @@ const {
   const { subtitleOpen, subModel, subtitleState, setSubMaxChars, setSubReplace } = useSubtitlePrefsCtx()
   const { cues, segments, seClips } = useDoc()
   const { tracks } = useTracksCtx()
+  // 人物ごとの縁色・見た目（アイコン設定の中で決める。2026-08-16）
+  const { iconRing, setIconRing, iconTemplate, setIconTemplate } = useProjectStateCtx()
+  const { localTemplates } = useLibraryCtx()
+  const { applyTemplateToLabel } = useTelopTemplateCtx()
   const { currentTime } = usePlaybackCtx()
   const { showToast } = useToastCtx()
   const {
@@ -243,6 +250,40 @@ const {
           laneAssign={laneIconAssign}
           onAssignColor={setIconForColor}
           onAssignLane={setIconForLane}
+          // 人物ごとの縁の色（2026-08-16）。空へ戻せる＝ラベル色に戻せる
+          ringColors={iconRing}
+          onRingColor={(color, ring) =>
+            setIconRing((prev) => {
+              const next = { ...prev }
+              if (ring) next[color] = ring
+              else delete next[color]
+              saveLS('giftcut.iconRing', next)
+              return next
+            })
+          }
+          // 人物ごとのテロップの見た目。**選んだ時と「当てる」の時だけ当たる**
+          templates={localTemplates}
+          templateOf={iconTemplate}
+          onPickTemplate={(color, name) => {
+            setIconTemplate((prev) => {
+              const next = { ...prev }
+              if (name) next[color] = name
+              else delete next[color]
+              saveLS('giftcut.iconTemplate', next)
+              return next
+            })
+            const tpl = name ? localTemplates.find((t) => t.name === name) : null
+            if (tpl) {
+              const n = applyTemplateToLabel(color, tpl.style)
+              showToast(`${n} 個のテロップに「${name}」を当てました。`, 'success')
+            }
+          }}
+          onApplyTemplate={(color) => {
+            const tpl = localTemplates.find((t) => t.name === iconTemplate[color])
+            if (!tpl) return
+            const n = applyTemplateToLabel(color, tpl.style)
+            showToast(`${n} 個のテロップに「${tpl.name}」を当て直しました。`, 'success')
+          }}
           hasTelop={cues.length > 0}
           onClose={() => setIconSettingsOpen(false)}
         />

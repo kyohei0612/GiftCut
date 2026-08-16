@@ -84,6 +84,12 @@ export function IconAssignSettings({
   laneAssign,
   onAssignColor,
   onAssignLane,
+  ringColors,
+  onRingColor,
+  templates,
+  templateOf,
+  onPickTemplate,
+  onApplyTemplate,
   hasTelop,
   onClose
 }: {
@@ -96,6 +102,23 @@ export function IconAssignSettings({
   laneAssign: Record<string, string>
   onAssignColor: (color: string, image: string | null) => void
   onAssignLane: (lane: string, image: string | null) => void
+  /**
+   * 人物（＝ラベルの色）ごとの**アイコンの縁の色**。空ならラベル色をそのまま使う。
+   * ラベル色は帯の色分けにも使うので、**縁だけ別にしたい**が通らなかった（2026-08-16）。
+   */
+  ringColors: Record<string, string>
+  onRingColor: (color: string, ring: string | null) => void
+  /**
+   * 人物ごとの**テロップの見た目**（テンプレートの名前）と、それを当てる操作。
+   *
+   * **勝手には当てない。** 選んだ時と「当てる」を押した時だけ、その人物の
+   * テロップ全部に当たる。自動にすると、後から色を付け替えた瞬間に
+   * 手で直した見た目が黙って上書きされる。
+   */
+  templates: { name: string }[]
+  templateOf: Record<string, string>
+  onPickTemplate: (color: string, name: string | null) => void
+  onApplyTemplate: (color: string) => void
   hasTelop: boolean
   onClose: () => void
 }): React.JSX.Element {
@@ -124,7 +147,7 @@ export function IconAssignSettings({
     <div className="prefs-overlay" onClick={onClose}>
       <div className="prefs-box" onClick={(e) => e.stopPropagation()}>
         <div className="prefs-head">
-          <span>アイコン設定 — 色／レーンごとに画像を割当</span>
+          <span>アイコン設定 — 人物（色）ごとに アイコン・縁の色・テロップの見た目</span>
           <button className="prefs-close" onClick={onClose}>
             ✕
           </button>
@@ -147,10 +170,49 @@ export function IconAssignSettings({
             </div>
           )}
           {colorRows.map((l) => (
-            <div className="assign-row" key={l.color}>
+            <div className="assign-row assign-row-person" key={l.color}>
               <span className="lg-swatch" style={{ background: l.color }} />
               <span className="assign-name">{l.name}</span>
               {picker(colorAssign[l.color], (img) => onAssignColor(l.color, img))}
+              {/* **縁の色は人物ごと。** 空ならラベル色（今までの見え方）。
+                  「戻す」で空に戻せる＝一度触ったら二度とラベル色へ戻せない、を作らない */}
+              <label className="assign-ring" title="アイコンの縁の色（未設定ならラベル色）">
+                縁
+                <input
+                  type="color"
+                  value={ringColors[l.color] || l.color}
+                  onChange={(e) => onRingColor(l.color, e.target.value)}
+                />
+              </label>
+              {ringColors[l.color] && (
+                <button className="btn small" onClick={() => onRingColor(l.color, null)}>
+                  縁を戻す
+                </button>
+              )}
+              {/* **この人のテロップの見た目。** 選ぶとその場で当たる。
+                  あとから足したテロップには「当てる」で追いつかせる */}
+              <select
+                className="assign-tpl"
+                value={templateOf[l.color] ?? ''}
+                onChange={(e) => onPickTemplate(l.color, e.target.value || null)}
+                title="この人物のテロップの見た目（選ぶと今あるぶんに当たります）"
+              >
+                <option value="">見た目：指定なし</option>
+                {templates.map((t) => (
+                  <option key={t.name} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              {templateOf[l.color] && (
+                <button
+                  className="btn small"
+                  onClick={() => onApplyTemplate(l.color)}
+                  title="この人物のテロップ全部に、いまの見た目を当て直します"
+                >
+                  当てる
+                </button>
+              )}
             </div>
           ))}
           <div className="sp-subhead" style={{ marginTop: 12 }}>

@@ -61,7 +61,8 @@ export function useAutosaveMark(deps: UseAutosaveMarkDeps) {
   const { ratio, exportOpts, loudnormLUFS, masterVolume } = useExportCtx()
   const { iconSide, iconOffset, iconScale, iconAuto, iconAnchorPos } = useIconsCtx()
   const {
-    projectPath, srtPath, missingMedia, newTelopStyle, transDur, iconAssign, laneIconAssign
+    projectPath, srtPath, missingMedia, newTelopStyle, transDur, iconAssign, laneIconAssign,
+    iconRing, iconTemplate
   } = useProjectStateCtx()
 
   /** 前回 下書きに書いた中身（変わったときだけ書き込む） */
@@ -153,6 +154,8 @@ export function useAutosaveMark(deps: UseAutosaveMarkDeps) {
     iconAnchorPos,
     iconAssign,
     laneIconAssign,
+    iconRing,
+    iconTemplate,
     exportOpts,
     loudnormLUFS,
     masterVolume,

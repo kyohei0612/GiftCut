@@ -143,6 +143,7 @@ export function TelopLayer({
   activeCues,
   cueTrack,
   iconForCue,
+  ringForCue,
   iconScale,
   iconAuto,
   iconSide,
@@ -162,6 +163,8 @@ export function TelopLayer({
   activeCues: Cue[]
   cueTrack: (c: Cue) => string
   iconForCue: (c: Cue) => string | undefined
+  /** アイコンの縁の色（人物ごと。無ければラベル色） */
+  ringForCue: (c: Cue) => string
   iconScale: number
   iconAuto: boolean
   iconSide: any
@@ -194,7 +197,7 @@ export function TelopLayer({
             style={c.style}
             runs={c.runs}
             iconImage={iconForCue(c)}
-            ringColor={c.label}
+            ringColor={ringForCue(c)}
             iconScale={iconScale}
             iconAuto={iconAuto}
             iconSide={iconSide}

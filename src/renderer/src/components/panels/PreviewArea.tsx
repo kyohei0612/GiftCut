@@ -63,7 +63,7 @@ export function PreviewArea(): JSX.Element {
     screenRef, videoRef, videoBRef, videoElsRef, elKey, activeHalf, effActiveSrcId,
     previewSources, previewUrl, monitorAspect, xfPreview, xfBStyle, xfNextBUrl,
     xfDipOverlay, transOverlay, videoMainStyle, curAdjustCss, curBlank, v1Hidden,
-    videoTLen, activeCues, windowVClips, vcRefCb, clipXform, vcLen, iconForCue,
+    videoTLen, activeCues, windowVClips, vcRefCb, clipXform, vcLen, iconForCue, ringForCue,
     proxyPct, onVideoReframeStart, onVideoRotateStart, resetVideoZoom,
     zoomAnchor, toggleZoomAnchor, onZoomAnchorStart,
     resetSelectedTelops, telopResetCount,
@@ -324,6 +324,7 @@ export function PreviewArea(): JSX.Element {
               activeCues={activeCues}
               cueTrack={cueTrack}
               iconForCue={iconForCue}
+              ringForCue={ringForCue}
               iconScale={iconScale}
               iconAuto={iconAuto}
               iconSide={iconSide}

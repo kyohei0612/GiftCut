@@ -86,7 +86,7 @@ export function useProjectApply(deps: UseProjectApplyDeps) {
   const { setFps } = usePlaybackCtx()
   const {
     setProjectPath, setSrtPath, setMissingMedia,
-    setNewTelopStyle, setTransDur, setIconAssignState, setLaneIconAssign
+    setNewTelopStyle, setTransDur, setIconAssignState, setLaneIconAssign, setIconRing, setIconTemplate
   } = useProjectStateCtx()
 
   async function applyProjectData(
@@ -269,6 +269,15 @@ export function useProjectApply(deps: UseProjectApplyDeps) {
     if (d.laneIconAssign && typeof d.laneIconAssign === 'object') {
       setLaneIconAssign(d.laneIconAssign)
       saveLS('giftcut.laneIconAssign', d.laneIconAssign)
+    }
+    // 人物ごとの縁色・見た目（同上。**片方だけ足すと開き直しで消える**）
+    if (d.iconRing && typeof d.iconRing === 'object') {
+      setIconRing(d.iconRing)
+      saveLS('giftcut.iconRing', d.iconRing)
+    }
+    if (d.iconTemplate && typeof d.iconTemplate === 'object') {
+      setIconTemplate(d.iconTemplate)
+      saveLS('giftcut.iconTemplate', d.iconTemplate)
     }
     // 書き出し設定・音量・トランジション既定長・既定テロップスタイル
     if (d.exportOpts && typeof d.exportOpts === 'object') {
