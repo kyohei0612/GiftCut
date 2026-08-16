@@ -17,7 +17,7 @@
 // 残ったままだと、書き出しのときだけ知らない所に効く。
 
 import { clamp } from '../../../shared/timeline'
-import { transIco } from '../lib/transitions'
+import { TRANS_MAX_SEC, transIco } from '../lib/transitions'
 import type { SegTrans, TransType } from '../lib/transitions'
 import type { SegLayout, VSeg } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
@@ -147,8 +147,8 @@ export function useTransitions(deps: UseTransitionsDeps) {
     e.preventDefault()
     const startX = e.clientX
     const z = zoomRef.current
-    // 上限は選択パネルのスライダー(max=2s)と揃える（表示矛盾を防ぐ）
-    const cap = Math.min(maxDur, 2)
+    // 上限は選択パネルのスライダーと揃える（`lib/transitions` の `TRANS_MAX_SEC` 1つから引く）
+    const cap = Math.min(maxDur, TRANS_MAX_SEC)
     const onMove = (ev: PointerEvent): void => {
       apply(clamp(startDur + (sign * (ev.clientX - startX)) / z, 0.05, cap))
     }
@@ -213,6 +213,24 @@ export function useTransitions(deps: UseTransitionsDeps) {
     const L = lay.find((l) => t >= l.tStart && t < l.tEnd) ?? lay[lay.length - 1]
     const f = (t - L.tStart) / Math.max(1e-6, L.len)
     const w = Math.min(transDur, L.len) * z
+    // **後ろにクリップがあるなら、尻は「間」にする**（2026-08-16・本人の報告:
+    // 「ケツに置いたとき、次のクリップではなく黒を参照するから黒い画面に切り替わる」）。
+    //
+    // 尻（`transOut`）は**黒／白へ沈む**演出で、相手が要らない。だから
+    // 途中のクリップの尻へ落とすと、次のクリップがあるのに黒へ落ちる。
+    // **並んでいる所で欲しいのは、ほぼ必ず「次への切り替え」**（プレミアも
+    // カットへ置いた物は次へ繋ぐ）。黒へ沈めたいのは**最後**か、
+    // 後ろが空白のときだけなので、そこだけ尻を残す。
+    if (f >= 0.5 && L.index < lay.length - 1 && !(lay[L.index + 1].seg as { gap?: boolean }).gap) {
+      const d = Math.min(transDur, L.len, lay[L.index + 1].len)
+      return {
+        segId: L.seg.id,
+        kind: 'xfade',
+        left: (L.len - d) * z,
+        width: d * z,
+        label: `間 ${transIco(drag.type)}`
+      }
+    }
     if (f < 0.5)
       return { segId: L.seg.id, kind: 'in', left: 0, width: w, label: `頭 ${transIco(drag.type)}` }
     return {

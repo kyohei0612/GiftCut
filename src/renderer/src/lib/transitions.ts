@@ -25,6 +25,19 @@ export const TRANS_TYPES: { type: TransType; ico: string; label: string }[] = [
   { type: 'wiperight', ico: '▶', label: 'ワイプ右' },
   { type: 'wipeleft', ico: '◀', label: 'ワイプ左' }
 ]
+/**
+ * つなぎ目の演出の長さの上限（秒）。**スライダーも帯のドラッグも、ここ1つを見る。**
+ *
+ * 2026-08-16 に 2秒 → 5秒。「もっと長くしたい」（本人）。
+ * 2秒だったのは、実効長が素材の余白で頭打ちになっていた時代の名残で、
+ * **その制限を外した日に上限だけが残っていた**（`shared/timeline` の `xfadeDurAt`）。
+ * いまは足りないぶんを最初のコマで埋めるので、素材の長さが許すかぎり掛けられる。
+ *
+ * ※ 実際に効く長さは、これとは別に**左右のクリップの長さ**で抑えられる
+ *   （3秒のクリップに5秒の重なりは作れない）。そちらが本当の上限。
+ */
+export const TRANS_MAX_SEC = 5
+
 export const transLabel = (t?: TransType): string =>
   TRANS_TYPES.find((x) => x.type === (t ?? 'fade'))?.label ?? 'ディゾルブ'
 export const transIco = (t?: TransType): string =>

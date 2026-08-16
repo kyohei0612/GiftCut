@@ -11,7 +11,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { buildTelopSVG } from './telopSvg'
-import { defaultTelopStyle } from './telopStyle'
+import { defaultTelopStyle, type TelopStyle } from './telopStyle'
+import { autoIconHeight } from './telopLayout'
 
 const box = (text: string, vertical: boolean): { textW: number; textH: number; svg: string } =>
   buildTelopSVG({ ...defaultTelopStyle(), vertical }, text)
@@ -54,5 +55,31 @@ describe('組版は書字方向の宣言に任せる', () => {
     const s = defaultTelopStyle()
     expect(s.vertical).toBeUndefined()
     expect(buildTelopSVG(s, 'あい').svg).not.toContain('vertical-rl')
+  })
+})
+
+// ===========================================================================
+// 自動調整のアイコンの高さ。**行数で変わらない**（2026-08-16・本人の指定）。
+//
+// 前は「テキストの塊の高さに合わせる」で `行の高さ × 行数 × 係数`（1行1.4/他1.15）
+// だったので、**1行を2行にした瞬間にアイコンが 1.64倍**になった。
+// いまは文字の大きさだけで決まる。式は `lib/telopLayout` の1か所で、
+// 画面（`TelopText`）と書き出し（`lib/rasterize`）が同じ物を呼ぶ。
+describe('自動調整のアイコンの大きさ', () => {
+  const style = (over: Partial<TelopStyle> = {}): TelopStyle => ({
+    ...defaultTelopStyle(),
+    ...over
+  })
+
+  it('**文字の大きさに比例する**（行間ぶんも効く）', () => {
+    const a = autoIconHeight(style({ fontSize: 60 }))
+    const b = autoIconHeight(style({ fontSize: 120 }))
+    expect(b).toBeCloseTo(a * 2, 6)
+    expect(autoIconHeight(style({ fontSize: 60, leading: 50 }))).toBeGreaterThan(a)
+  })
+
+  it('**行数を受け取らない**（2行にしてもアイコンは動かない）', () => {
+    // 引数に文字が無い＝構造として行数に依存できない。ここが崩れたら赤くする
+    expect(autoIconHeight.length).toBe(1)
   })
 })

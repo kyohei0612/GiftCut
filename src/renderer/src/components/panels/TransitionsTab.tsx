@@ -8,6 +8,7 @@
 // 置いた帯をクリックすれば長さと種類を変えられる。
 // 片方だけ別の操作にすると、置き方を2つ覚えることになる。
 
+import { TRANS_MAX_SEC } from '../../lib/transitions'
 import type { JSX } from 'react'
 import type { MotionPresetFile } from '../../../../shared/telopMotion'
 import { MotionPresetList } from './MotionPresetList'
@@ -87,10 +88,12 @@ function BandEditor({
       </div>
       <div className="sp-row">
         <span className="sp-label">長さ</span>
+        {/* 上限は `lib/transitions` の `TRANS_MAX_SEC` 1つから引く
+            （帯のドラッグも同じ物を見る。片方だけ動かすと表示が食い違う） */}
         <input
           type="range"
           min={0.05}
-          max={2}
+          max={TRANS_MAX_SEC}
           step={0.05}
           value={band.dur}
           onChange={(e) => band.onDur(Number(e.target.value), all)}

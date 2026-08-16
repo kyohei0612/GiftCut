@@ -18,10 +18,10 @@ import {
   computeTelopCss,
   textRectInFrame,
   ICON_BASE_PX,
-  LINE_BASE,
   type TelopStyle,
   type TextRun
 } from '../lib/telopStyle'
+import { autoIconHeight } from '../lib/telopLayout'
 
 interface Props {
   text: string
@@ -188,13 +188,10 @@ export default function TelopText({
     </div>
   )
   const textWrap = <div style={{ position: 'relative', zIndex: 1 }}>{textLayers}</div>
-  // 自動調整ON: 枠(固定ボックス)を参照せず、行数から高さを算出して左へ絶対配置＝つぶれない
-  // 1行だと小さすぎるので、1行=約1.8行分/2行=約2.1行分…と行数に対して緩やかに拡大。縦中央合わせ。
-  const lineCount = Math.max(1, text.split('\n').length)
-  const lhUnit = style.fontSize * (LINE_BASE + style.leading / 100) // 1行の高さ(1080基準px)
-  // アイコン高さ＝テキストブロック（1行目上端〜最終行下端）より少し大きいくらい。
-  // 1行だけは存在感を出すため少し増し（行間を増やしてもアイコンが爆発しない）。
-  const autoIconH = cqh(lhUnit * lineCount * (lineCount === 1 ? 1.4 : 1.15))
+  // アイコンの高さは **`lib/telopLayout` の `autoIconHeight` 1つから引く**
+  //（書き出し側 `lib/rasterize` も同じ物を呼ぶ。式を写すと画面と書き出しがズレる）。
+  // **行数では変わらない**——2行にした瞬間に顔が大きくなるのを止めた（2026-08-16）
+  const autoIconH = cqh(autoIconHeight(style))
   let body: JSX.Element
   if (iconImage && iconAuto) {
     const autoIcon = (

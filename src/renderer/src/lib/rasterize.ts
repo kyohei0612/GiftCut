@@ -15,9 +15,9 @@ import {
   buildTelopSVG,
   textRectInFrame,
   ICON_BASE_PX,
-  LINE_BASE,
   type AnimState
 } from './telopStyle'
+import { autoIconHeight } from './telopLayout'
 import { hexToRgba } from './telopFill'
 import type { Cue } from './srt'
 
@@ -106,11 +106,12 @@ function innerHtml(
 
   let contentHtml: string
   if (avatar && iconAuto) {
-    // テキストブロック（1行目上端〜最終行下端）より少し大きいくらい（行間で爆発しない）。
-    // 1行だけは存在感を出すため少し増し。TelopText.tsx と同式。
-    const lineCount = Math.max(1, cue.text.split('\n').length)
-    const lhUnit = fs * (LINE_BASE + s.leading / 100)
-    const autoIconH = lhUnit * lineCount * (lineCount === 1 ? 1.4 : 1.15)
+    // **式は `lib/telopLayout` の `autoIconHeight` 1つ。** 画面（`TelopText.tsx`）も
+    // 同じ物を呼ぶ。前はここに同じ行を書いて「TelopText.tsx と同式」とコメントで
+    // 約束していただけで、片方だけ直せば**書き出すまで気づけないズレ**になった
+    // **`scale` を掛ける。** 共通の式は 1080基準px を返すが、ここは出力の画素で
+    // 書くので、720p などでは縮める必要がある（掛け忘れると 1080p だけ合う）
+    const autoIconH = autoIconHeight(s) * scale
     const autoIcon =
       `<div style="position:absolute;left:0;top:50%;height:${autoIconH.toFixed(1)}px;aspect-ratio:1 / 1;z-index:0;` +
       `transform:translate(calc(-100% - ${autoGap.toFixed(1)}px + ${offX.toFixed(1)}px),calc(-50% + ${offY.toFixed(1)}px)) scale(${avatarScale});transform-origin:right center;">` +
