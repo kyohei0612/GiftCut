@@ -44,6 +44,23 @@ if (!existsSync(EXE)) {
   process.exit(2)
 }
 
+// **差し替えの荷物は、無ければ自分で作る。**
+//
+// `npm run dist` は作らない（作るのは `scripts/release.mjs` の中の make-bundle）ので、
+// 頭に書いてある `npm run dist && npm run check:swap` をそのまま叩くと、
+// **ENOENT の生スタックだけ出して落ちていた**（2026-08-17 に踏んだ）。
+// `npm run release:check` の最後も同じ所で落ちる並びだった。
+// ——**案内どおりに叩いて落ちる道は、案内が嘘なのと同じ。**
+const BUNDLE = join(ROOT, 'dist', `bundle-${pkg.version}.zip`)
+if (!existsSync(BUNDLE)) {
+  console.log(`差し替えの荷物が無いので作る（${BUNDLE}）`)
+  const made = spawnSync('node', [join(HERE, 'make-bundle.mjs')], { stdio: 'inherit' }).status
+  if (made !== 0 || !existsSync(BUNDLE)) {
+    console.error('差し替えの荷物を作れませんでした（scripts/make-bundle.mjs）')
+    process.exit(2)
+  }
+}
+
 /** 同梱より1つ新しい版として置く（そうでないと読み込み係が「用済み」と見なす） */
 const NEXT = pkg.version.replace(/(\d+)$/, (n) => String(Number(n) + 1))
 const FP = makeFingerprint(ROOT)
@@ -150,7 +167,17 @@ console.log('\n**土台（Electron）が違う差し替えは読まない**')
   else ng('捨てた理由が記録に無い')
 }
 
-for (const d of dirs) rmSync(d, { recursive: true, force: true })
+// **片付けで判定を覆さない。** 閉じた直後の Electron は置き場をまだ掴んでいることが
+// あり、`force: true` でも EPERM で例外になる（2026-08-17 に実際に踏んだ——
+// 3件とも緑を出した直後に、この行だけで終了コードが 1 になった）。
+// 消し損ねても temp に残るだけなので、**測った結果の方を返す**。
+for (const d of dirs) {
+  try {
+    rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  } catch (e) {
+    console.log(`  ※ 片付けきれなかった（${d}）: ${e.code ?? e}`)
+  }
+}
 
 console.log(
   failed === 0
