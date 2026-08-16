@@ -106,7 +106,9 @@ export function useTimelineViewValue() {
   const { srcOfSeg } = useMediaCtx()
   const { silenceCut } = useSilenceDuckCtx()
   const { shortcuts } = useShortcutPrefsCtx()
-  const { duration } = useTimelineSpanCtx()
+  // **タイムラインが見るのは `viewEnd`**（＝置いた物＋末尾の空白5分）。
+  // 帯の幅・目盛り・下のバーが全部ここから出る。理由は `useTimelineSpan` の冒頭
+  const { viewEnd: duration } = useTimelineSpanCtx()
   const { tool, setTool, snap } = useAppChromeCtx()
   const { segLayout } = useSegLayoutCtx()
   const { padTop, padBottom } = useLaneHeightsCtx()

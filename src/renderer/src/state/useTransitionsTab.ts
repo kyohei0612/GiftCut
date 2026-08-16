@@ -12,6 +12,7 @@
 //
 // ※ 揃えるのをやめると、画面側に「動画のときは…テロップのときは…」が生えて、
 //   片方だけ直す事故が起きる（このリポジトリで一番多い型）。
+import { useState } from 'react'
 import { useBandDragCtx } from './bandDragContext'
 import { useLibraryCtx } from './libraryContext'
 import { EMPTY_DRAG_IMG, setDragChip } from '../lib/dragChip'
@@ -38,7 +39,10 @@ export function useTransitionsTab() {
   } = useLibraryCtx()
   const { cues, segments } = useDoc()
   const { selectedTrans, setSelectedTrans, selectedTelopTrans, setSelectedTelopTrans } = useSel()
-  const { transDur, setTransDur } = useProjectStateCtx()
+  const { setTransDur } = useProjectStateCtx()
+  // **チェックはここに持つ。** プロジェクトには保存しない——「まとめて当てる」は
+  // その場の作業の仕方であって、作品の中身ではない（開き直したら素の状態から始める）
+  const [applyAll, setApplyAll] = useState(false)
 
   // ---- 選んでいる帯を、動画側とテロップ側で同じ形にする ----
   const seg = selectedTrans && segments.find((s) => s.id === selectedTrans.segId)
@@ -62,8 +66,11 @@ export function useTransitionsTab() {
           type: vt.type,
           dur: vt.dur,
           kinds: TRANS_TYPES,
-          onType: (t: string): void => setSelectedTransType(t as TransType),
-          onDur: updateSelectedTransDur,
+          onType: (t: string, all: boolean): void => setSelectedTransType(t as TransType, all),
+          onDur: (d: number, all: boolean): void => {
+            updateSelectedTransDur(d, all)
+            setTransDur(d) // **次に置く物もこの長さ**（「新規の長さ」を消したので、ここが唯一の入口）
+          },
           onDelete: deleteSelectedTrans,
           onDeselect: (): void => setSelectedTrans(null)
         }
@@ -80,8 +87,8 @@ export function useTransitionsTab() {
           type: isIn ? anim.in : anim.out,
           dur: isIn ? anim.inDur : anim.outDur,
           kinds: TELOP_MOTIONS,
-          onType: (t: string): void => setTelopTransType(t as AnimIn),
-          onDur: updateTelopTransDur,
+          onType: (t: string, all: boolean): void => setTelopTransType(t as AnimIn, all),
+          onDur: (d: number, all: boolean): void => updateTelopTransDur(d, all),
           onDelete: deleteSelectedTelopTrans,
           onDeselect: (): void => setSelectedTelopTrans(null)
         }
@@ -92,8 +99,8 @@ export function useTransitionsTab() {
     accSec,
     selectedVideoBand: videoBand,
     selectedTelopBand: telopBand,
-    newDur: transDur,
-    onNewDur: setTransDur,
+    applyAll,
+    onApplyAll: setApplyAll,
     videoKinds: TRANS_TYPES,
     telopKinds: TELOP_MOTIONS,
     onDragStartVideo: (x: { type: string; ico: string; label: string }, e: React.DragEvent): void => {

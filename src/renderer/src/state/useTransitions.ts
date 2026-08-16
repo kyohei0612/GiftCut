@@ -71,12 +71,50 @@ export function useTransitions(deps: UseTransitionsDeps) {
       prev.map((s) => (s.id === segId && s[key] ? { ...s, [key]: { ...s[key], ...patch } } : s))
     )
   }
-  // 選択中トランジションの長さ／種類を変更。
-  function updateSelectedTransDur(dur: number): void {
-    if (selectedTrans) patchSegTrans(selectedTrans.segId, selectedTrans.kind, { dur })
+  /** いま選んでいる帯の種類（無ければ null） */
+  function selectedType(): TransType | null {
+    if (!selectedTrans) return null
+    const s = segments.find((x) => x.id === selectedTrans.segId)
+    const t = !s
+      ? undefined
+      : selectedTrans.kind === 'xfade'
+        ? s.xfade
+        : selectedTrans.kind === 'in'
+          ? s.transIn
+          : s.transOut
+    return t?.type ?? null
   }
-  function setSelectedTransType(type: TransType): void {
-    if (selectedTrans) patchSegTrans(selectedTrans.segId, selectedTrans.kind, { type })
+  /**
+   * **同じ種類の演出すべて**に当てる（頭・間・尻をまたいで揃える）。
+   *
+   * 1つずつ選んで同じ数字を打ち直す作業をなくすため。揃える相手を
+   * 「種類が同じ物」にしてあるのは、**画面で見分けられる単位がそれだから**
+   * （置き場所は帯の位置で分かるが、置き場所ごとに別々に揃えたい場面が無い）。
+   */
+  function applySameType(patch: Partial<SegTrans>): void {
+    const cur = selectedType()
+    if (!cur) return
+    const fix = (t: SegTrans | undefined): SegTrans | undefined =>
+      t && t.type === cur ? { ...t, ...patch } : t
+    setSegments((prev) =>
+      prev.map((s) => ({
+        ...s,
+        transIn: fix(s.transIn),
+        transOut: fix(s.transOut),
+        xfade: fix(s.xfade)
+      }))
+    )
+  }
+  // 選択中トランジションの長さ／種類を変更（all＝同じ種類すべてに当てる）。
+  function updateSelectedTransDur(dur: number, all = false): void {
+    if (!selectedTrans) return
+    if (all) applySameType({ dur })
+    else patchSegTrans(selectedTrans.segId, selectedTrans.kind, { dur })
+  }
+  function setSelectedTransType(type: TransType, all = false): void {
+    if (!selectedTrans) return
+    if (all) applySameType({ type })
+    else patchSegTrans(selectedTrans.segId, selectedTrans.kind, { type })
   }
   // 選択中トランジションを削除。
   function deleteSelectedTrans(): void {

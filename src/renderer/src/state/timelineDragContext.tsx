@@ -44,7 +44,8 @@ export function TimelineDragProvider({ children }: { children: ReactNode }): Rea
   const { segLayout, segLayoutRef } = useSegLayoutCtx()
   const { snapClipStart, snapTime } = useSnapCtx()
   const { trackInnerRef, scrollRef } = useTimelineBoxCtx()
-  const { duration } = useTimelineSpanCtx()
+  // 落とせる範囲も末尾の空白まで（後ろへ足せないと、空白を用意した意味が無い）
+  const { viewEnd: duration } = useTimelineSpanCtx()
   const { v1Index, a1Index, cueTrack, trackNum, vcLen } = useTrackGeomCtx()
   const { telopLocked, reserveTrackPairForVideo, addVideoTrack } = useTracksAdminCtx()
   const { zoomRef } = useViewCtx()

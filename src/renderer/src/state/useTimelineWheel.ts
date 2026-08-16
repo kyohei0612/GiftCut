@@ -53,7 +53,9 @@ export function useTimelineWheel() {
   // 上限・下限は state/useView の定数なので、ここで直に import する
   const { scrollRef } = useTimelineBoxCtx()
   const { zoom, setZoom, zoomRef } = useViewCtx()
-  const { durationRef } = useTimelineSpanCtx()
+  // ホイールで引ける下限も、バー・ナビと同じ `viewEnd` から
+  //（入口ごとに行ける所が違うと「バーでは引けるのにホイールでは止まる」になる）
+  const { viewEndRef: durationRef } = useTimelineSpanCtx()
   const { playing, currentTime } = usePlaybackCtx()
 
   useEffect(() => {

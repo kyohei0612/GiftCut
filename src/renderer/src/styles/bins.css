@@ -35,6 +35,16 @@
   border-radius: 6px;
   padding: 3px;
 }
+/* 囲って選ぶときの枠。**見た目はタイムラインの投げ縄（.marquee）と揃える**——
+   同じ操作なのに別の色だと、別の物だと思われる。
+   位置は画面座標で持つので fixed（パネルを縦に送っても囲いがずれない） */
+.bin-marquee {
+  position: fixed;
+  border: 1px solid var(--accent-2);
+  background: #4ea1f022;
+  z-index: 25;
+  pointer-events: none;
+}
 .media-card:hover {
   background: #ffffff0d;
 }

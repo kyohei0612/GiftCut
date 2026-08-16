@@ -55,6 +55,19 @@
   flex: 1 1 auto;
   min-width: 40px;
 }
+/* チェック1つの行（「同じ種類すべてに当てる」）。**行ごと押せる**ように
+   label で包んであるので、文字の側を押しても効く（押す的が広い方が正しい） */
+.sp-check {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--muted);
+  user-select: none;
+}
+.sp-check input {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
 .sp-label {
   font-size: 11px;
   color: var(--muted);

@@ -39,13 +39,23 @@ export interface SelectedBand {
   type: string
   dur: number
   kinds: TransKind[]
-  onType: (type: string) => void
-  onDur: (dur: number) => void
+  /** `all`＝同じ種類の演出すべてに当てる（下の「まとめて」） */
+  onType: (type: string, all: boolean) => void
+  onDur: (dur: number, all: boolean) => void
   onDelete: () => void
   onDeselect: () => void
 }
 
-function BandEditor({ band }: { band: SelectedBand }): JSX.Element {
+function BandEditor({
+  band,
+  all,
+  onAll
+}: {
+  band: SelectedBand
+  /** 同じ種類すべてに当てるか */
+  all: boolean
+  onAll: (v: boolean) => void
+}): JSX.Element {
   return (
     <div className="sel-trans">
       <div className="sel-trans-head">
@@ -67,7 +77,7 @@ function BandEditor({ band }: { band: SelectedBand }): JSX.Element {
             <button
               key={x.type}
               className={`seg-btn ${band.type === x.type ? 'seg-on' : ''}`}
-              onClick={() => band.onType(x.type)}
+              onClick={() => band.onType(x.type, all)}
               title={x.label}
             >
               {x.ico}
@@ -83,10 +93,18 @@ function BandEditor({ band }: { band: SelectedBand }): JSX.Element {
           max={2}
           step={0.05}
           value={band.dur}
-          onChange={(e) => band.onDur(Number(e.target.value))}
+          onChange={(e) => band.onDur(Number(e.target.value), all)}
         />
         <span className="sp-val">{band.dur.toFixed(2)}s</span>
       </div>
+      {/* **1つずつ選んで同じ数字を打ち直す作業をなくす。**
+          揃える相手は「種類が同じ物」——画面で見分けられる単位がそれなので
+          （置き場所は帯の位置で分かるが、置き場所ごとに揃えたい場面が無い）。
+          ここで置いた長さは、**次に置く物の長さにもなる**（別のスライダーは持たない）。 */}
+      <label className="sp-row sp-check" title="いま選んでいる物と同じ種類の演出を、まとめて同じ長さ・種類にします">
+        <input type="checkbox" checked={all} onChange={(e) => onAll(e.target.checked)} />
+        <span>同じ種類すべてに当てる</span>
+      </label>
       <button className="btn small" onClick={band.onDeselect}>
         選択を解除
       </button>
@@ -100,8 +118,8 @@ export function TransitionsTab({
   accSec,
   selectedVideoBand,
   selectedTelopBand,
-  newDur,
-  onNewDur,
+  applyAll,
+  onApplyAll,
   videoKinds,
   telopKinds,
   onDragStartVideo,
@@ -129,9 +147,17 @@ export function TransitionsTab({
   selectedVideoBand: SelectedBand | null
   /** テロップ側で選んでいる帯（無ければ null） */
   selectedTelopBand: SelectedBand | null
-  /** これから置く物の長さ */
-  newDur: number
-  onNewDur: (v: number) => void
+  /**
+   * 同じ種類すべてに当てるか。
+   *
+   * **「新規の長さ」のスライダーは消した**（2026-08-16・本人の指定:
+   * 「新規で長さ変える奴意味わからんから消して欲しい。基本上の長さ設定で十分だ」）。
+   * 長さの入口が2つあると、選んでいる帯を変えたつもりで**これから置く物の方を
+   * 変えていた**、が起きる。いまは上の「長さ」1つで、そこで置いた値が
+   * そのまま次に置く物の長さになる。
+   */
+  applyAll: boolean
+  onApplyAll: (v: boolean) => void
   videoKinds: TransKind[]
   telopKinds: TransKind[]
   onDragStartVideo: (kind: TransKind, e: React.DragEvent) => void
@@ -184,8 +210,8 @@ export function TransitionsTab({
   )
   return (
     <div className="panel-body" ref={bodyRef}>
-      {selectedVideoBand && <BandEditor band={selectedVideoBand} />}
-      {selectedTelopBand && <BandEditor band={selectedTelopBand} />}
+      {selectedVideoBand && <BandEditor band={selectedVideoBand} all={applyAll} onAll={onApplyAll} />}
+      {selectedTelopBand && <BandEditor band={selectedTelopBand} all={applyAll} onAll={onApplyAll} />}
       {!selectedVideoBand && !selectedTelopBand && (
         // **見えていない物を指して案内しない。**
         // 節は畳んで始まる（1つ開くと他が押し出されるため）ので、
@@ -197,18 +223,6 @@ export function TransitionsTab({
           置いた<b>帯をクリック</b>で長さ・種類の変更／削除、<b>帯の端をドラッグ</b>で長さ変更。
         </div>
       )}
-      <div className="sp-row">
-        <span className="sp-label">新規の長さ</span>
-        <input
-          type="range"
-          min={0.05}
-          max={2}
-          step={0.05}
-          value={newDur}
-          onChange={(e) => onNewDur(Number(e.target.value))}
-        />
-        <span className="sp-val">{newDur.toFixed(2)}s</span>
-      </div>
       {accSec('transition', 'video', '🎬 動画クリップ', null, (
         <>
           {/* **開いた直後に読ませる量は1行まで。**

@@ -4,6 +4,7 @@
 // 読み込んだ SRT と、使っている色ラベルの一覧もここに出す
 // （「今このプロジェクトに何があるか」を1か所で見せるため）。
 
+import { useState } from 'react'
 import type { JSX, RefObject } from 'react'
 import { VirtualBlock } from '../VirtualBlock'
 import { useViewport } from '../useVirtual'
@@ -28,6 +29,77 @@ const KIND_HINT = {
 /** 素材ビンに並べる種類の順。**カードの並びはこの順**（範囲選択もこの順で入る） */
 const KIND_ORDER = ['video', 'audio', 'image'] as const
 
+/**
+ * **囲って選ぶ**（ラバーバンド）。何も無い所から引いたときだけ始める。
+ *
+ * カードは掴んでタイムラインへ運ぶ物（`draggable`）なので、**カードの上から
+ * 引き始めたら今までどおり「運ぶ」**。Explorer もプレミアも同じ流儀で、
+ * ここを取り違えると「選ぼうとしたら置いてしまった」が起きる。
+ *
+ * 位置は画面座標（`position: fixed`）で持つ。パネルは縦に送れるので、
+ * 中身の座標へ直すと送った瞬間に囲いがずれる——**測る物（カードの位置）も
+ * 画面座標なので、同じ物差しのまま使う。**
+ *
+ * ※ **ただ押しただけでは選択を触らない**（4px 動いてから）。触ると
+ *   「1つ選んで数値を直そうとしただけ」で選択が消える。
+ */
+function useBinMarquee(
+  bodyRef: RefObject<HTMLDivElement>,
+  selectedIds: number[],
+  onSelectMany: (ids: number[], base: number[]) => void
+): {
+  band: { left: number; top: number; width: number; height: number } | null
+  onPointerDown: (e: React.PointerEvent) => void
+} {
+  const [band, setBand] = useState<{
+    left: number
+    top: number
+    width: number
+    height: number
+  } | null>(null)
+  const onPointerDown = (e: React.PointerEvent): void => {
+    if (e.button !== 0) return
+    const el = e.target as HTMLElement
+    // カード・ボタン・節の見出しの上から引き始めたら、それぞれの持ち場に任せる
+    if (el.closest('.media-card, button, input')) return
+    const x0 = e.clientX
+    const y0 = e.clientY
+    const base = e.ctrlKey || e.metaKey ? selectedIds : []
+    let moved = false
+    const onMove = (ev: PointerEvent): void => {
+      const left = Math.min(x0, ev.clientX)
+      const top = Math.min(y0, ev.clientY)
+      const width = Math.abs(ev.clientX - x0)
+      const height = Math.abs(ev.clientY - y0)
+      if (!moved && width < 4 && height < 4) return
+      moved = true
+      setBand({ left, top, width, height })
+      const root = bodyRef.current
+      if (!root) return
+      // **並ぶ順のまま拾う**（`querySelectorAll` は画面に出ている順で返す）。
+      // 選んだ順＝置く順なので、若い番号から入る
+      const ids: number[] = []
+      root.querySelectorAll<HTMLElement>('.media-card[data-mid]').forEach((card) => {
+        const r = card.getBoundingClientRect()
+        const hit =
+          r.left < left + width && r.right > left && r.top < top + height && r.bottom > top
+        if (hit) ids.push(Number(card.dataset.mid))
+      })
+      onSelectMany(ids, base)
+    }
+    const onUp = (): void => {
+      setBand(null)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }
+  return { band, onPointerDown }
+}
+
 export function ProjectBinTab({
   bodyRef,
   accSec,
@@ -42,6 +114,7 @@ export function ProjectBinTab({
   onAddFolder,
   onImportSrt,
   onSelect,
+  onSelectMany,
   onOpenVideo,
   onRemove,
   onDragStart,
@@ -74,6 +147,11 @@ export function ProjectBinTab({
    * `shown` は**いま並んでいる順**（範囲で選んだときの並びに使う）。
    */
   onSelect: (id: number, mode: 'one' | 'toggle' | 'range', shown: number[]) => void
+  /**
+   * 囲って選んだ（何も無い所からドラッグ）。`base` は掴み始めた時点の選択
+   *（Ctrl のときだけ中身が入る＝足す）。
+   */
+  onSelectMany: (ids: number[], base: number[]) => void
   /** 動画のダブルクリック（読み込み or 案内） */
   onOpenVideo: (item: MediaItem) => void
   onRemove: (id: number) => void
@@ -90,8 +168,15 @@ export function ProjectBinTab({
   // 素材が何百件あっても、作るのは見えている行だけ。
   // 全部作っていた頃は、別ファイル500件で1操作が 94.5ms まで落ちた。
   const vp = useViewport(bodyRef)
+  const marquee = useBinMarquee(bodyRef, selectedIds, onSelectMany)
   return (
-    <div className="panel-body" ref={bodyRef} onDoubleClick={onAddFiles}>
+    <div
+      className="panel-body"
+      ref={bodyRef}
+      onDoubleClick={onAddFiles}
+      onPointerDown={marquee.onPointerDown}
+    >
+      {marquee.band && <div className="bin-marquee" style={marquee.band} />}
       <div className="bin-toolbar">
         <button className="btn small" onClick={onAddFiles} title="ファイルを追加">
           ＋ ファイル追加
@@ -149,6 +234,8 @@ export function ProjectBinTab({
                 {(m) => (
                   <div
                     key={m.id}
+                    // 囲って選ぶときに、ここから id を読む（`useBinMarquee`）
+                    data-mid={m.id}
                     className={`media-card ${m.path === activePath ? 'media-active' : ''} ${
                       selectedIds.includes(m.id) ? 'media-sel' : ''
                     }`}

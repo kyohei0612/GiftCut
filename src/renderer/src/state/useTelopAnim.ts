@@ -159,14 +159,47 @@ export function useTelopAnim(deps: UseTelopAnimDeps) {
     setRightTab('transition')
   }
 
-  function updateTelopTransDur(dur: number): void {
+  /**
+   * **同じ種類の出入りすべて**に当てる（動画クリップ側の `applySameType` と対）。
+   *
+   * 頭と尻をまたいで、いま選んでいる物と同じ種類の所だけ書き換える。
+   * **1回の setCues で済ませる**——`patchCueAnim` を枚数ぶん呼ぶと、
+   * テロップ1,200枚のプロジェクトで1,200回の更新になる。
+   */
+  function applySameAnimType(patch: { dur?: number; type?: AnimIn }): void {
     if (!selectedTelopTrans) return
+    const { cueId, kind } = selectedTelopTrans
+    const cur = cues.find((c) => c.id === cueId)?.style.anim
+    const from = cur ? (kind === 'in' ? cur.in : cur.out) : undefined
+    if (!from || from === 'none') return
+    setCues((prev) =>
+      prev.map((c) => {
+        const a = c.style.anim
+        if (!a) return c
+        const next = { ...a }
+        if (a.in === from) {
+          if (patch.type) next.in = patch.type
+          if (patch.dur != null) next.inDur = patch.dur
+        }
+        if (a.out === from) {
+          if (patch.type) next.out = patch.type
+          if (patch.dur != null) next.outDur = patch.dur
+        }
+        return { ...c, style: { ...c.style, anim: next } }
+      })
+    )
+  }
+
+  function updateTelopTransDur(dur: number, all = false): void {
+    if (!selectedTelopTrans) return
+    if (all) return applySameAnimType({ dur })
     const { cueId, kind } = selectedTelopTrans
     patchCueAnim(cueId, kind === 'in' ? { inDur: dur } : { outDur: dur })
   }
 
-  function setTelopTransType(type: AnimIn): void {
+  function setTelopTransType(type: AnimIn, all = false): void {
     if (!selectedTelopTrans) return
+    if (all) return applySameAnimType({ type })
     const { cueId, kind } = selectedTelopTrans
     patchCueAnim(cueId, kind === 'in' ? { in: type } : { out: type })
   }

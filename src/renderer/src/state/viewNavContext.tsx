@@ -26,8 +26,12 @@ const Ctx = createContext<ViewNavValue | null>(null)
 export function ViewNavProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const { seekTo } = usePlaybackEngineCtx()
   const { scrollRef, trackInnerRef } = useTimelineBoxCtx()
-  const { contentEndRef, durationRef } = useTimelineSpanCtx()
-  const value = useViewNav({ scrollRef, trackInnerRef, contentEndRef, durationRef, seekTo })
+  // **引ける下限は `viewEnd` から**（＝末尾の空白まで見える所まで引ける）。
+  // ↔（全体表示）が合わせる先は `contentEndRef` のままなので、押した絵は変わらない
+  const { contentEndRef, viewEndRef } = useTimelineSpanCtx()
+  const value = useViewNav({
+    scrollRef, trackInnerRef, contentEndRef, durationRef: viewEndRef, seekTo
+  })
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

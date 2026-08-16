@@ -300,17 +300,21 @@ export default async function (C) {
       await page.locator('.tpl-acc', { hasText: '動画クリップ' }).first().click()
       await page.waitForTimeout(400)
     }
-    // 既定の 0.4秒だと、rAF で取れる標本が20個ほどしか無く判定が荒い。1.0秒で置く
-    await page
-      .locator('.panel-body .sp-row', { hasText: '新規の長さ' })
-      .locator('input[type=range]')
-      .fill('1')
-    await page.waitForTimeout(200)
     const b0 = await v1Clips().nth(0).boundingBox()
     assert(b0, '1つ目のクリップが見つからない')
     await dropChipAt('ディゾルブ', b0.x + b0.width - 2, b0.y + b0.height / 2)
     const band = page.locator('.ttrans-xfade').first()
     assert(await band.count(), '境目に落としてもディゾルブが付かない')
+    // 既定の 0.4秒だと、rAF で取れる標本が20個ほどしか無く判定が荒い。**帯を選んで
+    // 「長さ」で 1.0秒にする**——長さの入口はここ1つ（「新規の長さ」は 2026-08-16 に消した）
+    await band.click()
+    await page.waitForTimeout(300)
+    const durRange = page
+      .locator('.sel-trans .sp-row', { hasText: '長さ' })
+      .locator('input[type=range]')
+    assert(await durRange.count(), '帯を選んでも「長さ」が出ない（選択の道が壊れている）')
+    await durRange.fill('1')
+    await page.waitForTimeout(300)
     // 帯そのものから長さと位置を読む（**時刻を決め打ちにしない**。09c と同じ考え方）
     const d = Number(/([\d.]+)s/.exec((await band.innerText()) ?? '')?.[1] ?? '0')
     assert(d > 0.5, `帯から長さを読めない（「${await band.innerText()}」）`)

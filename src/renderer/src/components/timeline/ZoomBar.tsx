@@ -137,11 +137,20 @@ export function ZoomBar({
       // ## バーの外まで引ける
       //
       // 動いた量に上限を置いていないので、端を越えても引き続けられる。
-      // 下限（`minZoom`）はバーが描く長さ（`barTotal`＝引き切って見える範囲）から
-      // 出すので、**つまみが満杯＝もう引けない**が一致する。
+      //
+      // **下限は `totalSec` から出す。ホイール・ナビと同じ引数で同じ関数を呼ぶ。**
+      // 以前はここだけ `barTotal`（＝引き切って見える秒数）を渡していた。
+      // あれは `viewW / 下限` なので、そこへもう一度 `fitZoom` を掛けると
+      // **余白のぶんだけ下限がさらに下がる**＝バーの方が先へ行ける。
+      // 床（6px/秒）が効いている間は差が出ず、**「全体が収まる率」が効く長さに
+      // なった瞬間だけ食い違う**——2026-08-16 に末尾の空白5分を足して表に出た
+      //（`16-仕上げ-3` の「バーで引き切ると、ホイールで引き切るのと同じ所まで行く」）。
+      //
+      // つまみの満杯と下限が一致する性質は保たれる: 下限まで引くと見えている秒数は
+      // `w / 下限` で、`barTotal` はそれ以上にならない（`barTotalSec` の max）。
       const d = at(ev.clientX) - at(sx)
       const next = grab === 'l' ? { a: base.a + d, b: base.b } : { a: base.a, b: base.b + d }
-      const lo = minZoom(w, barTotal, limits.min)
+      const lo = minZoom(w, totalSec, limits.min)
       const r = zoomFromSpan(next, barTotal, w, { min: lo, max: limits.max }, grab)
       onApply(r.zoom, scrollForZoomAtPlayhead(playheadSecRef.current, r.zoom, headX0, w))
     }
