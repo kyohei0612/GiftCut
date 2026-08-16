@@ -7,11 +7,129 @@
 // **`12-プレビュー.mjs` の最後から呼ばれる。** 章の宣言はしない。
 // 手前の「上書き」（12b）が置いたテロップが残っている前提の項目がある。
 
+import { join } from 'node:path'
+
 export default async function (C) {
   const {
     assert, avgColor, check, clipLayout, clipW, dragBy, outDir, page, placePiP,
-    resetProject, seekTo, setDialogFiles, touchedRef, trackHead, v1Clips
+    resetProject, seekTo, setDialogFiles, shotDir, touchedRef, trackHead, v1Clips
   } = C
+
+  await check('**反転した映像を掴むと、掴んだ向きへ動く**', async () => {
+    // 2026-08-17 まで**逆に動いていた**（右へ掴むと左へ行く）。
+    //
+    // ## なぜ今まで捕まらなかったか
+    //
+    // 掴む確認（12a の1件目）は `transform` の**文字列が変わったか**しか見て
+    // いなかった。逆向きでも文字列は変わるので、**必ず緑になる**。
+    // 反転を入れてから掴む道が、この確認群のどこにも無かった。
+    //
+    // ## 何で判定するか
+    //
+    // **絵が画面のどこへ出たか**（`getBoundingClientRect`）。transform を読むと
+    // 「掛かっている物の一覧」しか分からず、**掛ける順番の間違いが見えない**
+    // ——今回の不具合はまさに順番だった。矩形なら合成後の結果が出る。
+    //
+    // ## わざと壊して赤を見た（2026-08-17）
+    //
+    // `lib/clipXform` の `parts.push` の順を、translate が**後**に来るよう入れ替える。
+    // → `右へ 120px 掴んで -120px。途中 -60px`（きれいに鏡映し）で落ちる。
+    //
+    // **最初に選んだ壊し方は効かなかった。** `usePreviewFrame` の
+    // `moveThen(trans.move, curSegXform)` を逆にしても**緑のまま**だった——
+    // 演出（slide）が掛かっていない場面では片方が undefined で、
+    // 繋ぐ順が結果に出ない。**順番の本体は `clipXform` の中**にある。
+    // ここを取り違えると「効くと確かめた」つもりの見張りが残る（QA の 4e）。
+    // つなぎ目の演出と反転を重ねる道は、まだ機械で見ていない。
+    await resetProject()
+    await seekTo(12) // 画像（1〜5秒）と重ねた動画を外した所
+
+    // **反転するのは「再生ヘッドの下にある切片」。** 先頭の切片を反転すると、
+    // 画面に出ているのが別の切片のときに何も起きず、
+    // 「左右反転が掛かっていない」で落ちる（実際に1回そうなった）。
+    // クリップは3つあり、12秒の所に居るのが先頭とは限らない。
+    const headX = await page
+      .locator('.playhead')
+      .first()
+      .evaluate((el) => el.getBoundingClientRect().x)
+    const clips = v1Clips()
+    const n = await clips.count()
+    assert(n, 'V1 に映像クリップが無い')
+    let clip = null
+    for (let i = 0; i < n; i++) {
+      const b = await clips.nth(i).boundingBox()
+      if (b && headX >= b.x - 1 && headX <= b.x + b.width + 1) {
+        clip = clips.nth(i)
+        break
+      }
+    }
+    assert(clip, `再生ヘッド（x=${Math.round(headX)}）の下に V1 のクリップが無い`)
+    await clip.click()
+    await page.waitForTimeout(400)
+
+    const flip = page.locator('button[title="左右反転"]').first()
+    assert(await flip.count(), '「左右反転」のボタンが無い（切片を選べていない）')
+    await flip.click()
+    await page.waitForTimeout(400)
+
+    const vid = page.locator('.screen-video').first()
+    // **先に成立を確かめる。** 反転が入っていなければ、この項目は
+    // ただの「掴んだら動く」になり、何も試さないまま緑になる
+    const tf = await vid.evaluate((el) => el.style.transform || '')
+    assert(tf.includes('scaleX(-1)'), `左右反転が掛かっていない（transform: ${tf || '空'}）`)
+
+    const stage = await page.locator('.monitor-stage').first().boundingBox()
+    const shot = (name) =>
+      page.screenshot({
+        path: join(shotDir, `flip-drag-${name}.png`),
+        clip: {
+          x: Math.round(stage.x),
+          y: Math.round(stage.y),
+          width: Math.round(stage.width),
+          height: Math.round(stage.height)
+        }
+      })
+
+    const rectX = () => vid.evaluate((el) => el.getBoundingClientRect().x)
+    const box = await vid.boundingBox()
+    const cx = box.x + box.width / 2
+    const cy = box.y + box.height / 2
+    const x0 = await rectX()
+    await shot('1-掴む前')
+
+    // **右へ 120px。** 掴んでいる途中も1枚撮る（止め絵だけだと、
+    // 「動いた結果」は見えても「どちらへ流れたか」を人が確かめられない）
+    await page.mouse.move(cx, cy)
+    await page.mouse.down()
+    await page.mouse.move(cx + 60, cy, { steps: 5 })
+    await page.waitForTimeout(150)
+    await shot('2-動かしている最中')
+    const xMid = await rectX()
+    await page.mouse.move(cx + 120, cy, { steps: 5 })
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const x1 = await rectX()
+    await shot('3-離した後')
+
+    const 動いた = Math.round(x1 - x0)
+    assert(
+      Math.abs(動いた) > 20,
+      `反転した映像を右へ 120px 掴んだのに、絵がほとんど動いていない（${動いた}px）`
+    )
+    assert(
+      動いた > 0,
+      `**反転した映像が、掴んだ向きと逆へ動いた**（右へ 120px 掴んで ${動いた}px。` +
+        `途中 ${Math.round(xMid - x0)}px）。掛ける順番が逆＝反転した座標系の中で` +
+        `動かしている（lib/clipXform の moveThen を見ること）`
+    )
+    // 途中の1枚も同じ向きであること（行って戻る動きになっていないか）
+    assert(
+      xMid - x0 > 0,
+      `動かしている最中は逆へ流れている（途中 ${Math.round(xMid - x0)}px / 最後 ${動いた}px）`
+    )
+    touchedRef.dirty = true
+    await resetProject()
+  })
   await check('打ち直しの欄は、左右のパネルを押しても消えない（タイムラインでは消える）', async () => {
     // **打ちながら色やフォントを直しに行くのは、同じ一続きの作業。**
     // そこで閉じると、打ちかけの文字と「変えたかった選択そのもの」が消える
