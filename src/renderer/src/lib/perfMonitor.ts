@@ -53,6 +53,19 @@ export interface PerfSample {
    * この数字を見ないと切り分けられない。
    */
   videoLagMs: number
+  /**
+   * JS が使っているメモリ（MB）。取れない環境では 0。
+   *
+   * **「使っているほど重くなる・再起動で軽くなる」を数字で見るため**（2026-08-16）。
+   * 溜まり物があるなら、記録の間ずっと右肩上がりになる。増え続けていれば
+   * 主スレッドの停止も**掃除（GC）**の可能性が出てくる——これは
+   * `longtask` に名前が出ないので、他の名札が全部無罪だった時の最後の容疑者。
+   *
+   * ※ 見るのは**増え方**であって絶対値ではない。動画の復号器や
+   *   焼き直しの buffer は JS の外なので、ここには出ない（プロセス全体の
+   *   メモリとは一致しない）。
+   */
+  heapMB: number
   /** そのとき何をしていたか（再生中・画質など。あとで読むための手がかり） */
   note: string
 }
@@ -64,6 +77,18 @@ export interface PerfEvent {
 }
 
 const MAX_SAMPLES = 600 // 10分ぶん
+
+/**
+ * JS が使っているメモリ（MB）。**取れない環境では 0**（標準ではない API）。
+ *
+ * `performance.memory` は Chromium だけの物。Electron では取れるが、
+ * 型には無いので受け口をここで1つだけ書く（各所で `as any` を撒かない）。
+ */
+function heapMB(): number {
+  const m = (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory
+  const b = m?.usedJSHeapSize
+  return typeof b === 'number' ? Math.round(b / 1048576) : 0
+}
 
 /**
  * 見立ての規則。**出どころはここ1つ**。
@@ -344,6 +369,7 @@ export class PerfMonitor {
       renders: this.renders,
       droppedFrames: dropped,
       videoLagMs: Math.round(this.lagWorst),
+      heapMB: heapMB(),
       note: this.noteOf()
     }
     this.samples.push(s)
@@ -390,6 +416,17 @@ export class PerfMonitor {
       `- 画面の作り直し: 平均 ${avg((x) => x.renders)} 回/秒`,
       `- 動画が落としたコマ: 合計 ${s.reduce((a, x) => a + x.droppedFrames, 0)}`,
       `- 絵の遅れ: 平均 ${avg((x) => x.videoLagMs)}ms（最大 ${Math.max(...s.map((x) => x.videoLagMs))}ms）`,
+      // **溜まり物を見るのは「増え方」。** 絶対値ではない（動画の復号器や
+      // 焼き直しの buffer は JS の外なので、ここには出ない）。
+      // 「使っているほど重い・再起動で軽い」の裏取り用
+      ...(s[0].heapMB
+        ? [
+            `- JS のメモリ: ${s[0].heapMB} → ${s[s.length - 1].heapMB}MB` +
+              `（${s[s.length - 1].heapMB - s[0].heapMB >= 0 ? '+' : ''}${
+                s[s.length - 1].heapMB - s[0].heapMB
+              }MB / 最大 ${Math.max(...s.map((x) => x.heapMB))}MB）`
+          ]
+        : []),
       '',
       // **書き写さない。** 上の「いちばん疑わしいもの」と同じ規則なので、
       // 表（`RULES`）から作る。並べ直すと、しきい値を変えた日に片方だけ古くなる
@@ -403,11 +440,11 @@ export class PerfMonitor {
       '',
       '## 1秒ごと',
       '',
-      '| 秒 | fps | 最悪コマ(ms) | 塞いだ回数 | 塞いだ時間(ms) | 作り直し | 落コマ | 絵の遅れ(ms) | 状況 |',
-      '|---|---|---|---|---|---|---|---|---|',
+      '| 秒 | fps | 最悪コマ(ms) | 塞いだ回数 | 塞いだ時間(ms) | 作り直し | 落コマ | 絵の遅れ(ms) | メモリ(MB) | 状況 |',
+      '|---|---|---|---|---|---|---|---|---|---|',
       ...s.map(
         (x) =>
-          `| ${x.t} | ${x.fps} | ${x.worstFrameMs} | ${x.longTasks} | ${x.longTaskMs} | ${x.renders} | ${x.droppedFrames} | ${x.videoLagMs} | ${x.note} |`
+          `| ${x.t} | ${x.fps} | ${x.worstFrameMs} | ${x.longTasks} | ${x.longTaskMs} | ${x.renders} | ${x.droppedFrames} | ${x.videoLagMs} | ${x.heapMB} | ${x.note} |`
       ),
       ''
     ].join('\n')

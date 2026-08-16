@@ -20,6 +20,7 @@ const ok = (over: Partial<PerfSample> = {}): PerfSample => ({
   worstFrameMs: 17,
   longTasks: 0,
   longTaskMs: 0,
+  heapMB: 300,
   renders: 5,
   droppedFrames: 0,
   videoLagMs: 10,
