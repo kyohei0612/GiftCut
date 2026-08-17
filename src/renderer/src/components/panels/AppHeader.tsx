@@ -202,9 +202,11 @@ export function AppHeader(): JSX.Element {
       // 別PCへ渡す用。プロジェクトだけ渡しても素材が無ければ開けない
       {
         kind: 'item',
-        label: '素材ごとまとめて書き出す…（ZIP）',
+        label: '素材と設定ごとまとめて書き出す…（ZIP）',
         title:
-          '使っている素材を全部入れた ZIP を作ります。別のPCの GiftCut で開けば続きから編集できます',
+          '使っている素材に加えて、自分で足した効果音・テロップ素材・動きのプリセット・' +
+          'テンプレート・お気に入りも全部入れた ZIP を作ります。' +
+          '別のPCの GiftCut で開けば、渡す前と同じ状態から続けられます',
         onClick: () => {
           setFileMenuOpen(false)
           void packProjectFn()
@@ -214,7 +216,9 @@ export function AppHeader(): JSX.Element {
         kind: 'item',
         label: 'まとめたプロジェクトを開く…（ZIP）',
         title:
-          'まとめた ZIP を展開して開きます（素材はドキュメント/GiftCut/受け取ったプロジェクト に置きます）',
+          'まとめた ZIP を展開して開きます（素材はドキュメント/GiftCut/受け取ったプロジェクト に置きます）。' +
+          '入っていれば効果音・テロップ素材・お気に入りもこの機械へ入れます' +
+          '（この機械に既にある物は上書きしません）',
         onClick: () => {
           setFileMenuOpen(false)
           void openPackFn()

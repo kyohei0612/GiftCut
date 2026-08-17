@@ -226,6 +226,8 @@ const api = {
     ok: boolean
     path?: string
     files?: number
+    /** 一緒に入れた「アプリ側の持ち物」の数（素材フォルダ＋設定の控え） */
+    settings?: number
     missing?: string[]
     size?: number
     canceled?: boolean
@@ -239,6 +241,16 @@ const api = {
     dir?: string
     data?: unknown
     videoExists?: boolean
+    /** 一緒に入っていた「アプリ側の持ち物」を、この機械へ入れた結果（無ければ null） */
+    settings?: {
+      /** フォルダごとの件数（SE / telop-presets / …） */
+      added: Record<string, number>
+      /** 控えから足した鍵の数 */
+      keysAdded: number
+      /** この機械に既にあって、触らなかった鍵の数 */
+      keysKept: number
+      error?: string
+    } | null
     canceled?: boolean
     error?: string
   }> => ipcRenderer.invoke('pack:open', zipPath),

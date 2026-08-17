@@ -172,7 +172,8 @@ export function useProjectIO(deps: UseProjectIODeps) {
           (res.missing.length > 5 ? `\n…他 ${res.missing.length - 5} 件` : '')
         : ''
       showToast(
-        `まとめました（素材 ${res.files ?? 0} 件 / ${mb}MB）\n${res.path}${miss}`,
+        `まとめました（素材 ${res.files ?? 0} 件 ／ 設定・素材の置き場 ${res.settings ?? 0} 件 ／ ` +
+          `${mb}MB）\n${res.path}${miss}`,
         res.missing?.length ? 'error' : undefined
       )
     } finally {
@@ -196,7 +197,20 @@ export function useProjectIO(deps: UseProjectIODeps) {
       }
       await applyProjectData(res.data, !!res.videoExists, res.path ?? null)
       if (res.path) rememberProject(res.path)
-      showToast(`まとめを開きました。素材はここに展開しています:\n${res.dir}`)
+      // **設定が入ったかどうかは必ず言う。** 黙って入ると「勝手に変わった」に見えるし、
+      // 黙って入らないと「移したのに無い」の原因が分からない。
+      const s = res.settings
+      const folders = s ? Object.entries(s.added).map(([k, n]) => `${k} ${n}`) : []
+      const settingsLine = !s
+        ? '\n※ この ZIP には設定・素材の置き場が入っていません（素材だけのまとめ）'
+        : s.error
+          ? `\n※ 設定を入れられませんでした（プロジェクトは開けています）: ${s.error}`
+          : `\n設定・素材の置き場も入れました` +
+            (folders.length ? `（${folders.join(' / ')}）` : '') +
+            (s.keysAdded ? `／お気に入り等 ${s.keysAdded} 件` : '') +
+            (s.keysKept ? `／この機械に既にある ${s.keysKept} 件はそのまま` : '') +
+            (s.keysAdded ? '\n※ お気に入り・自作スタイル・人物は**次に開き直したときから**出ます' : '')
+      showToast(`まとめを開きました。素材はここに展開しています:\n${res.dir}${settingsLine}`)
     } finally {
       setPackPct(null)
     }

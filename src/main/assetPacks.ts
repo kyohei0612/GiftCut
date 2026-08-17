@@ -22,12 +22,13 @@
 
 import { app, dialog, ipcMain, shell } from 'electron'
 import { join } from 'path'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'fs'
+import { existsSync, mkdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { extractZip } from './zip'
-
-/** 更新で消えない置き場（ファイルメニューから開ける物）。無ければ作ってから開く */
-const ASSET_FOLDERS = ['SE', 'telop-presets', 'motion-presets', 'テンプレート'] as const
+import { mergeDir, rollbackWritten } from './assetInstall'
+// **一覧は `shared/userAssets` が持つ。ここで数えない。**
+// 2026-08-17 まではここが唯一の持ち主で、**持ち出す側からは見えなかった**
+import { ASSET_FOLDERS } from '../shared/userAssets'
 
 /** 素材パックと「フォルダを開く」の受け口。**app.whenReady() の中で1回だけ呼ぶ。** */
 export function registerAssetPackHandlers(): void {
@@ -61,39 +62,13 @@ ipcMain.handle('assets:importZip', async (_e, zipPath?: string) => {
     // 途中で失敗したときに戻せないと、半端に入った素材が残る。
     // 「取り込めませんでした」と言われたのに一部だけ入っている、が一番困る。
     const written: string[] = []
-    /** フォルダごと足す（同じ名前は上書き。無い物はそのまま残す） */
-    const merge = (from: string, to: string): number => {
-      let n = 0
-      mkdirSync(to, { recursive: true })
-      for (const name of readdirSync(from)) {
-        const src = join(from, name)
-        const dst = join(to, name)
-        const st = statSync(src)
-        if (st.isDirectory()) n += merge(src, dst)
-        else {
-          // すでに有る物は上書きしない印を付けておく（戻すときに消さないため）
-          if (!existsSync(dst)) written.push(dst)
-          copyFileSync(src, dst)
-          n++
-        }
-      }
-      return n
-    }
-    /** 入れた物を消して、元の状態へ戻す */
-    const rollback = (): void => {
-      for (const f of written) {
-        try {
-          rmSync(f, { force: true })
-        } catch {
-          /* 消せない物は残るが、できる限り戻す */
-        }
-      }
-    }
+    /** 入れた物を消して、元の状態へ戻す（道具は `./assetInstall`） */
+    const rollback = (): void => rollbackWritten(written)
     try {
       for (const folder of ASSET_FOLDERS) {
         const src = join(tmpDir, folder)
         if (!existsSync(src)) continue
-        const n = merge(src, join(base, folder))
+        const n = mergeDir(src, join(base, folder), written)
         if (n > 0) added[folder] = n
       }
     } catch (er) {

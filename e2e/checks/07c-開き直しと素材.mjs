@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process'
 export default async function (C) {
   const {
     app, assert, check, clipLayout, clipW, dndFromBin, dragBy, fx, outDir, page,
-    resetProject, section, setDialogFiles, touchedRef, v1Clips
+    resetProject, section, setDialogFiles, touchedRef, v1Clips, zipNames
   } = C
   await check('保存したプロジェクトは、そのファイルから開き直しても中身が残っている', async () => {
     // **「保存したつもり」が一番損害が大きい。**
@@ -277,6 +277,83 @@ export default async function (C) {
       `userData/telop-presets に置いた素材が読まれない（${got.n}件・ok=${got.ok}）` +
         '＝更新でユーザーの素材が消える置き場になっている疑い'
     )
+  })
+
+  await check('**サブPCへ移す: 素材と設定ごとまとめ、開くと置き場へ戻る**', async () => {
+    // 2026-08-17 に足した。**持ち出しの往復は、それまで e2e が1件も無かった。**
+    //
+    // ## なぜ往復で見るか
+    //
+    // 「ZIP に入っている」だけでは、移した先で使える保証にならない。
+    // 逆に「置き場に在る」だけでも、それが**元から在っただけ**かもしれない。
+    // → 入れる → **消す** → 開く → 戻っている、まで通して初めて確かめたことになる。
+    //
+    // わざと壊すなら `main/projectPackIpc` の `settingsForZip()` を `[]` にする。
+    // → 「ZIP に設定が入っていない」で落ちる（確認済み）。
+    const zip = join(outDir, '移行テスト.zip')
+    rmSync(zip, { force: true })
+    const seDir = join(fx.userData, 'SE')
+    const seFile = join(seDir, 'e2e-移行.wav')
+    const storeFile = join(fx.userData, 'ユーザー設定.json')
+    mkdirSync(seDir, { recursive: true })
+    writeFileSync(seFile, 'E2E_SE_中身', 'utf-8')
+    writeFileSync(storeFile, JSON.stringify({ 'giftcut.e2e移行': 'ここに在った' }), 'utf-8')
+
+    await setDialogFiles(null, zip)
+    await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
+    await page.waitForTimeout(300)
+    await page.locator('.menu-drop-item', { hasText: 'まとめて書き出す' }).first().click()
+    // **`existsSync` で待たない。** ZIP は作られた瞬間に真になり、
+    // 書き終わる前に読んで「壊れた ZIP」と出る（CLAUDE.md の「測れたか」）。
+    // 実際にそれで1回落ちた。**アプリ自身の「終わった」合図（お知らせ）を待つ。**
+    const 済んだ = async () =>
+      (await page.locator('.toast').allTextContents()).join(' ').includes('まとめました')
+    let 待った = 0
+    for (; 待った < 120 && !(await 済んだ()); 待った++) await page.waitForTimeout(500)
+    assert(
+      await 済んだ(),
+      `まとめ終わりのお知らせが出ない（${待った / 2}秒待った。いまのお知らせ: ` +
+        `${(await page.locator('.toast').allTextContents()).join(' / ') || 'なし'}）`
+    )
+    assert(existsSync(zip), `お知らせは出たのに ZIP が無い（${zip}）`)
+
+    const names = await zipNames(zip)
+    assert(
+      names.includes('設定/SE/e2e-移行.wav'),
+      `ZIP に置き場の素材が入っていない（設定/ で始まるもの: ${
+        names.filter((n) => n.startsWith('設定/')).slice(0, 5).join(' / ') || 'なし'
+      }）`
+    )
+    assert(names.includes('設定/ユーザー設定.json'), 'ZIP にお気に入り等の控えが入っていない')
+
+    // **まっさらなサブPCの真似。** ここで消さないと、次の assert は
+    // 「元から在っただけ」でも通る（＝何も試さないまま緑になる）
+    rmSync(seFile, { force: true })
+    rmSync(storeFile, { force: true })
+    assert(!existsSync(seFile), '消せていない（この先の確認が意味を持たない）')
+
+    await setDialogFiles([zip], null)
+    await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
+    await page.waitForTimeout(300)
+    await page.locator('.menu-drop-item', { hasText: 'まとめたプロジェクトを開く' }).first().click()
+    await page.waitForTimeout(600)
+    const cont = page.locator('.modal-btn', { hasText: 'このまま続ける' })
+    if (await cont.count()) {
+      await cont.click()
+      await page.waitForTimeout(300)
+    }
+    for (let i = 0; i < 60 && !existsSync(seFile); i++) await page.waitForTimeout(500)
+
+    assert(existsSync(seFile), '開いても、置き場の素材が戻っていない')
+    assert(readFileSync(seFile, 'utf-8') === 'E2E_SE_中身', '戻ったが中身が違う')
+    assert(existsSync(storeFile), '開いても、お気に入り等の控えが戻っていない')
+    assert(
+      JSON.parse(readFileSync(storeFile, 'utf-8'))['giftcut.e2e移行'] === 'ここに在った',
+      '控えは戻ったが、中身が違う'
+    )
+    await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 15000 })
+    touchedRef.dirty = true
+    await resetProject()
   })
 
   await check('取り消せない操作の実行ボタンが赤い', async () => {

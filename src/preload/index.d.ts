@@ -19,6 +19,9 @@ export type {
 // （理由は shared/updateState.ts の頭）
 export type { UpdateState } from '../shared/updateState'
 
+// 持ち出しの受け取り結果。**正典は shared/userAssets**（同じ理由で写さない）
+import type { InstalledSettings } from '../shared/userAssets'
+
 export interface GiftcutApi {
   importSrt: () => Promise<{ path: string; content: string; error?: string } | null>
   openVideo: () => Promise<{ path: string } | null>
@@ -132,6 +135,8 @@ export interface GiftcutApi {
     ok: boolean
     path?: string
     files?: number
+    /** 一緒に入れた「アプリ側の持ち物」の数 */
+    settings?: number
     missing?: string[]
     size?: number
     canceled?: boolean
@@ -143,6 +148,8 @@ export interface GiftcutApi {
     dir?: string
     data?: unknown
     videoExists?: boolean
+    /** 入っていた設定を、この機械へ入れた結果（無ければ null） */
+    settings?: InstalledSettings | null
     canceled?: boolean
     error?: string
   }>
