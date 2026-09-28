@@ -85,6 +85,37 @@ describe('ダッキング: 音量の折れ線', () => {
     expect(gainAt(env, 3.1)).toBeLessThan(0.5)
   })
 
+  it('前の声の戻りが次の声の内側に落ちても、次の声の間は下がったまま', () => {
+    // 隙間 0.3秒 < release 0.5秒。前の声の戻り点（3.5秒）が次の声（3.3〜5秒）の内側に落ちる。
+    // 旧実装は「戻り点のあと release 以内に次の下げ点があるか」しか見ておらず、
+    // 次の下げ点（3.3秒）はもう過ぎているので戻り点を残し、声の最中に BGM が跳ねていた。
+    const env = duckEnvelope(
+      [
+        { start: 1, end: 3 },
+        { start: 3.3, end: 5 }
+      ],
+      opts
+    )
+    const low = dbToGain(-12)
+    for (let t = 3.3; t <= 5; t += 0.05) {
+      expect(gainAt(env, t), `t=${t.toFixed(2)} で跳ねている`).toBeCloseTo(low, 3)
+    }
+    // 隙間でも戻さない
+    expect(gainAt(env, 3.15)).toBeCloseTo(low, 3)
+  })
+
+  it('attack と release を足した長さより空いていれば、間で戻す', () => {
+    // 隙間 1秒 > attack 0.2 + release 0.5
+    const env = duckEnvelope(
+      [
+        { start: 1, end: 2 },
+        { start: 3, end: 4 }
+      ],
+      opts
+    )
+    expect(gainAt(env, 2.6)).toBeCloseTo(1, 3)
+  })
+
   it('下げ幅0dBなら、何も変わらない', () => {
     const env = duckEnvelope([{ start: 2, end: 3 }], { ...opts, amountDb: 0 })
     expect(gainAt(env, 2.5)).toBeCloseTo(1, 5)

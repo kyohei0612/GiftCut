@@ -57,6 +57,12 @@ export function voiceRegions(
  *
  * 声の**手前**で下げ始めて（attack）、声が終わってから戻す（release）。
  * 声と同時に下げると、頭の一音が大きいまま残る。
+ *
+ * **間が attack+release より短い声は、先に1つの区間へまとめる。**
+ * 以前は点を並べてから「戻り点のあと release 以内に次の下げ点があれば戻さない」で
+ * 間引いていたが、前の声の戻り点が**次の声の内側**に落ちると、次の下げ点はもう
+ * 過ぎているので戻り点が残り、**声の最中に BGM が跳ねていた**（2026-09-28）。
+ * 区間を先にまとめれば、上げと下げの坂が重ならないので点が交差しない。
  */
 export function duckEnvelope(
   regions: readonly { start: number; end: number }[],
@@ -65,28 +71,18 @@ export function duckEnvelope(
   const low = dbToGain(opts.amountDb)
   const at = Math.max(0.01, opts.attack)
   const rel = Math.max(0.01, opts.release)
-  const pts: GainPoint[] = []
-  for (const r of regions) {
-    pts.push({ t: Math.max(0, r.start - at), g: 1 })
-    pts.push({ t: r.start, g: low })
-    pts.push({ t: r.end, g: low })
-    pts.push({ t: r.end + rel, g: 1 })
+  const merged: { start: number; end: number }[] = []
+  for (const r of [...regions].sort((a, b) => a.start - b.start)) {
+    const last = merged[merged.length - 1]
+    if (last && r.start - last.end < at + rel) last.end = Math.max(last.end, r.end)
+    else merged.push({ start: r.start, end: r.end })
   }
-  // 声が近いと折れ線が交差する。時間順に並べ、同じ時間なら小さい方（下げた方）を残す
-  pts.sort((a, b) => a.t - b.t || a.g - b.g)
   const out: GainPoint[] = []
-  for (const p of pts) {
-    const last = out[out.length - 1]
-    if (last && Math.abs(last.t - p.t) < 1e-6) {
-      last.g = Math.min(last.g, p.g)
-      continue
-    }
-    // 下がっている途中で戻し始めない（間が詰まった声で音量が波打つのを防ぐ）
-    if (last && last.g < 1 && p.g === 1) {
-      const next = pts.find((q) => q.t > p.t && q.g < 1)
-      if (next && next.t - p.t < rel) continue
-    }
-    out.push({ ...p })
+  for (const r of merged) {
+    const down = Math.max(0, r.start - at)
+    // 頭から声なら下げ始めの点は要らない（同じ時刻に 1 と low が並ぶ）
+    if (down < r.start) out.push({ t: down, g: 1 })
+    out.push({ t: r.start, g: low }, { t: r.end, g: low }, { t: r.end + rel, g: 1 })
   }
   return out
 }
