@@ -138,7 +138,7 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
   // 再生ヘッドを基準に詰める・割る（state/usePlayheadRipple）。
   // **心臓（collapseContent）と `razorSegment` は貸すだけ**
   const ripple = usePlayheadRipple({
-    cleanupOrphanTrans, idCounter, mainLocked, segLayoutRef, setTime, stopPlayback,
+    cleanupOrphanTrans, cueTrack, idCounter, mainLocked, segLayoutRef, setTime, stopPlayback,
     telopLocked, videoRef, allContentEdges, collapseContent, razorSegment: seg.razorSegment
   })
 

@@ -17,6 +17,7 @@ export default async function (C) {
     page,
     resetProject,
     section,
+    touchedRef,
   } = C
   section('3. 素材のドラッグと「置けません」マーク')
   await resetProject()
@@ -391,6 +392,60 @@ export default async function (C) {
       (await v1.count()) === n0,
       `後片付けできていない（${n0}本に戻らず ${await v1.count()}本。次の章が空から始まる）`
     )
+  })
+
+  await check('**本編が無くても、映像レイヤーで Q / W / F が効く**', async () => {
+    // 2026-10-04・本人の手元の形（本編0本・V2 に1本）を**そのまま作って**押す。
+    // 上の項目で「これから置く物」は本編へ入るようにしたが、もう V2 に置いてある物と、
+    // 本編を消して V2 だけ残した物には効かないままだった（state/usePlayheadRipple の
+    // rippleLayer・useKeyboard の rippleDel）
+    await resetProject()
+    const v1 = page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)')
+    const layer = page.locator('.vclip').first()
+    // 本編がある間に V2 へ落とす＝映像レイヤーになる
+    await dndFromBin('test_video', '[data-tid="V2"]', { x: 300, y: 10 })
+    await page.waitForTimeout(900)
+    assert((await page.locator('.vclip').count()) === 1, '映像レイヤーが置けていない（この確認が成り立たない）')
+    // 本編だけ消す（D）。**映像レイヤーは残す**
+    for (let i = 0; i < 12 && (await v1.count()) > 0; i++) {
+      await v1.first().click()
+      await page.keyboard.press('d')
+      await page.waitForTimeout(300)
+    }
+    assert((await v1.count()) === 0, '本編が消えない（この確認が成り立たない）')
+    assert((await page.locator('.vclip').count()) === 1, '本編を消したら映像レイヤーまで消えた')
+
+    const ruler = await page.locator('.ruler').boundingBox()
+    /** 映像レイヤーの真ん中へ再生ヘッドを置く（seekTo は本編の幅を物差しにするので使えない） */
+    const seekMid = async () => {
+      const b = await layer.boundingBox()
+      await page.mouse.click(b.x + b.width / 2, ruler.y + ruler.height / 2)
+      await page.waitForTimeout(300)
+      return b
+    }
+
+    const b0 = await seekMid()
+    await page.keyboard.press('q')
+    await page.waitForTimeout(500)
+    const b1 = await layer.boundingBox()
+    assert(b1 && b1.width < b0.width * 0.7, `Q で詰まらない（幅 ${b0.width} → ${b1?.width}）`)
+    assert(Math.abs(b1.x - b0.x) <= 3, `Q で頭の位置が動いた（${b0.x} → ${b1.x}）`)
+
+    await seekMid()
+    await page.keyboard.press('w')
+    await page.waitForTimeout(500)
+    const b2 = await layer.boundingBox()
+    assert(b2 && b2.width < b1.width * 0.7, `W で詰まらない（幅 ${b1.width} → ${b2?.width}）`)
+    assert(Math.abs(b2.x - b1.x) <= 3, `W で頭の位置が動いた（${b1.x} → ${b2.x}）`)
+
+    await layer.click()
+    await page.keyboard.press('f')
+    await page.waitForTimeout(500)
+    assert((await page.locator('.vclip').count()) === 0, 'F で映像レイヤーが消えない')
+
+    // 後片付け。手数が多いので取り消しではなく開き直す（尻のリセットは dirty が要る）
+    touchedRef.dirty = true
+    await resetProject()
   })
 
   // =========================================================================

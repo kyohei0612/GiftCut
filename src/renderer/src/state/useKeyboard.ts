@@ -91,6 +91,8 @@ export interface UseKeyboardDeps {
   deleteSelectedTelopTrans: () => void
   deleteTrack: (id: string) => void
   deleteSelected: () => void
+  /** 選んだ物を消して、同じ段の後ろを詰める（本編の切片以外） */
+  rippleDeleteSelected: () => void
   deleteSelectedSE: () => void
   deleteSelectedImg: () => void
   deleteSelectedVClip: () => void
@@ -138,7 +140,7 @@ function useKeyboardDeps(): UseKeyboardDeps {
   const { copySelected, pasteClipboard } = useCopyPasteCtx()
   const { copyAttributes, pasteAttributes } = useAttrCopyCtx()
   const {
-    cutSelected, deleteSelected, deleteSelectedSE, deleteVideoSegmentsLeavingGap,
+    cutSelected, deleteSelected, rippleDeleteSelected, deleteSelectedSE, deleteVideoSegmentsLeavingGap,
     closeSelectedGaps, closeGapAtPlayhead, rippleDeleteVideoSegments,
     rippleToPrevCut, rippleToNextCut, duplicateSelected, duplicateSelectedSegments,
     cutAtPlayhead
@@ -170,7 +172,7 @@ function useKeyboardDeps(): UseKeyboardDeps {
     togglePlay, shuttleForward, shuttleReverse, stopPlayback, seekTo, contentEndRef,
     copyAttributes, pasteAttributes, copySelected, cutSelected, pasteClipboard, undo, redo,
     removeMedia, deleteMarker, deleteSelectedTrans, deleteSelectedTelopTrans, deleteTrack,
-    deleteSelected, deleteSelectedSE, deleteSelectedImg, deleteSelectedVClip,
+    deleteSelected, rippleDeleteSelected, deleteSelectedSE, deleteSelectedImg, deleteSelectedVClip,
     deleteVideoSegmentsLeavingGap,
     closeSelectedGaps, closeGapAtPlayhead, rippleDeleteVideoSegments,
     rippleToPrevCut, rippleToNextCut,
@@ -298,10 +300,18 @@ export function useKeyboard(): void {
         // 空きを選んでいるなら、まずそれを詰める（途中に別のクリップがあれば手前で止まる）
         if (deps.closeSelectedGaps()) return
         if (deps.closeGapAtPlayhead()) return
-        // Delete/Shift+Delete: テロップ削除＋動画切片はリップル削除(後続を詰める・テロップ/SEも同期シフト)＋SE/画像削除。
-        // 詰めは動画切片のみが駆動（テロップを独立リップルすると映像とズレるため）。
+        // **本編の切片を選んでいないなら、選んだ物を消して同じ段の後ろを詰める**
+        //（2026-10-04）。前は消すだけで空きが残り、映像レイヤー・効果音・画像では
+        // F が D と同じになっていた——「F が効かない」の片割れ。右クリックの
+        // 「削除して詰める」と同じ物（state/useSelectionEdit の rippleDeleteSelected）
+        if (!anySegSelected()) {
+          deps.rippleDeleteSelected()
+          return
+        }
+        // 本編の切片を選んでいるときは、詰めは切片が駆動する
+        //（テロップを独立して詰めると映像とズレるため。テロップ・SE・画像は消すだけ）
         if (selectedIds.length) deps.deleteSelected()
-        if (anySegSelected()) deps.rippleDeleteVideoSegments()
+        deps.rippleDeleteVideoSegments()
         if (selectedSeIds.length) deps.deleteSelectedSE()
         if (selectedImgIds.length) deps.deleteSelectedImg()
         if (selectedVClipIds.length) deps.deleteSelectedVClip()

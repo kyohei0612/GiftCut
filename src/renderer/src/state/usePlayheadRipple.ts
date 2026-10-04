@@ -29,10 +29,17 @@
 // ## 中身
 //
 // - `usePlayheadRipple` … 下の3つをまとめて返す唯一の入口
+// - `layerAt` … その時刻に掛かっている映像レイヤー（本編が無い時刻の Q/E の相手）
+// - `edgesOn` … 同じ段の端（映像レイヤーで詰めるとき、どこで止めるか）
+// - `rippleLayer` … 映像レイヤー1本の区間を捨て、同じ段の後ろを詰める
+// - `rippleLayerToPrevCut` … Q の映像レイヤー版
+// - `rippleLayerToNextCut` … E（既定は W）の映像レイヤー版
 // - `rippleToPrevCut` … 前のカットまで詰める（途中に端があればそこで止まる）
 // - `rippleToNextCut` … 次のカットまで詰める
 // - `cutAtPlayhead` … 再生ヘッドで、載っている物も含めて切る
-import { qFrame, rippleEnd, rippleStart, segSpeed } from '../../../shared/timeline'
+import {
+  qFrame, rippleEnd, rippleShifted, rippleStart, segSpeed, vcLen
+} from '../../../shared/timeline'
 import { shouldCut, spansCut } from '../../../shared/cutScope'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, SEClip, SegLayout, VClip, VSeg } from '../lib/projectTypes'
@@ -44,6 +51,8 @@ import { usePlaybackCtx } from './playbackContext'
 export interface UsePlayheadRippleDeps {
   /** つなぎ目の演出のうち、どこにも掛からなくなった物を捨てる */
   cleanupOrphanTrans: (list: VSeg[], removedIds: Set<number>) => VSeg[]
+  /** テロップが載っている段（映像レイヤーで詰めるとき、同じ段のテロップも寄せる） */
+  cueTrack: (c: Cue) => string
   idCounter: React.MutableRefObject<number>
   /** 本編（V1）に鍵が掛かっているか */
   mainLocked: () => boolean
@@ -68,7 +77,7 @@ export interface UsePlayheadRippleDeps {
 
 export function usePlayheadRipple(deps: UsePlayheadRippleDeps) {
   const {
-    cleanupOrphanTrans, idCounter, mainLocked, segLayoutRef, setTime, stopPlayback,
+    cleanupOrphanTrans, cueTrack, idCounter, mainLocked, segLayoutRef, setTime, stopPlayback,
     telopLocked, videoRef, allContentEdges, collapseContent, razorSegment
   } = deps
   const {
@@ -86,12 +95,98 @@ export function usePlayheadRipple(deps: UsePlayheadRippleDeps) {
   // 「本編の切片を触っている」と気づけなくなる）
   const seg = { razorSegment }
 
+  // ---- 映像レイヤー（V2 以降）で詰める ----
+  //
+  // **本編が無い時刻では、映像レイヤーを相手にする**（2026-10-04・本人「Q/E が効かない」）。
+  // Premiere の Q/W はどの段でも効く。本編0本・V2 に1本の状態で、Q/E が
+  // 黙って何もしなかった。
+  //
+  // 詰めるのは**その段だけ**——右クリックの「削除して詰める」と同じ規則
+  // （shared/timeline の rippleShifted）。本編に何も無い時刻なので、
+  // 段を跨いで詰めても揃える相手がいない。
+
+  /** その時刻に掛かっている映像レイヤー。選んでいる物が先、無ければ一番上の段 */
+  function layerAt(inside: (c: VClip) => boolean): VClip | undefined {
+    const hit = vClips.filter((c) => !trackStates[c.track]?.locked && inside(c))
+    const num = (c: VClip): number => Number(c.track.slice(1)) || 0
+    return (
+      hit.find((c) => selectedVClipIds.includes(c.id)) ??
+      hit.sort((a, b) => num(b) - num(a))[0]
+    )
+  }
+
+  /** 同じ段に載っている物の端（どこで止めるかに使う。他の段の端では止めない） */
+  function edgesOn(track: string): number[] {
+    const out: number[] = []
+    for (const c of vClips) if (c.track === track) out.push(c.tStart, c.tStart + vcLen(c))
+    for (const c of imgClips) if (c.track === track) out.push(c.tStart, c.tStart + c.duration)
+    for (const c of cues) if (cueTrack(c) === track) out.push(c.start, c.end)
+    return out
+  }
+
+  /**
+   * 映像レイヤー1本の [rmStart, rmEnd] を捨て、同じ段の後ろを詰める。
+   * 途中を捨てるときは2つに割る（割り方は cutAtPlayhead の映像レイヤーと同じ）。
+   */
+  function rippleLayer(c: VClip, rmStart: number, rmEnd: number): void {
+    const end = c.tStart + vcLen(c)
+    const keepLeft = rmStart > c.tStart + 1e-6
+    const keepRight = rmEnd < end - 1e-6
+    const pieces: VClip[] = []
+    if (keepLeft) pieces.push({ ...structuredClone(c), srcEnd: c.srcStart + (rmStart - c.tStart) })
+    if (keepRight)
+      pieces.push({
+        ...structuredClone(c),
+        id: keepLeft ? vClipIdCounter.current++ : c.id,
+        tStart: rmEnd,
+        srcStart: c.srcStart + (rmEnd - c.tStart)
+      })
+    const holes = [{ track: c.track, start: rmStart, end: rmEnd }]
+    const at = (track: string, t: number): number => rippleShifted(holes, track, t)
+    setVClips((prev) =>
+      prev.flatMap((x) => (x.id === c.id ? pieces : [x])).map((x) => {
+        const ns = at(x.track, x.tStart)
+        return ns === x.tStart ? x : { ...x, tStart: ns }
+      })
+    )
+    setImgClips((prev) =>
+      prev.map((x) => {
+        const ns = at(x.track, x.tStart)
+        return ns === x.tStart ? x : { ...x, tStart: ns }
+      })
+    )
+    setCues((prev) =>
+      prev.map((x) => {
+        const ns = at(cueTrack(x), x.start)
+        return ns === x.start ? x : { ...x, start: ns, end: ns + (x.end - x.start) }
+      })
+    )
+    setTime(rmStart) // 再生ヘッドは編集点に留める（本編の Q/E と同じ）
+    clearAllSelections()
+  }
+
+  function rippleLayerToPrevCut(t: number): void {
+    const c = layerAt((x) => t > x.tStart + 0.01 && t <= x.tStart + vcLen(x) + 1e-6)
+    if (!c) return
+    const floorT = rippleStart(c.tStart, t, edgesOn(c.track))
+    if (t - floorT < 0.02) return
+    rippleLayer(c, floorT, t)
+  }
+
+  function rippleLayerToNextCut(t: number): void {
+    const c = layerAt((x) => t >= x.tStart - 1e-6 && t < x.tStart + vcLen(x) - 0.01)
+    if (!c) return
+    const ceilT = rippleEnd(t, c.tStart + vcLen(c), edgesOn(c.track))
+    if (ceilT - t < 0.02) return
+    rippleLayer(c, t, ceilT)
+  }
+
   function rippleToPrevCut(): void {
-    if (mainLocked()) return
     stopPlayback()
     const t = currentTimeRef.current
     const L = segLayoutRef.current.find((l) => t > l.tStart + 0.01 && t <= l.tEnd + 1e-6)
-    if (!L) return
+    if (!L) return rippleLayerToPrevCut(t)
+    if (mainLocked()) return
     // カット点まで一気に詰めず、途中に編集点（テロップ等の端）があればそこで止める。
     // 例: カット点0・テロップ[2,5]・再生ヘッド8 なら、[0,8] ではなく [5,8] を削る。
     const floorT = rippleStart(L.tStart, t, allContentEdges())
@@ -137,11 +232,11 @@ export function usePlayheadRipple(deps: UsePlayheadRippleDeps) {
   // 再生ヘッドから「1つ後のカット点」までを詰めて削除。
   // 対象切片の尻を再生ヘッドまで後退＝[再生ヘッド, 切片終わり]を除去し、後続を詰める。
   function rippleToNextCut(): void {
-    if (mainLocked()) return
     stopPlayback()
     const t = currentTimeRef.current
     const L = segLayoutRef.current.find((l) => t >= l.tStart - 1e-6 && t < l.tEnd - 0.01)
-    if (!L) return
+    if (!L) return rippleLayerToNextCut(t)
+    if (mainLocked()) return
     // カット点まで一気に詰めず、途中に編集点（テロップ等の端）があればそこで止める。
     const ceilT = rippleEnd(t, L.tEnd, allContentEdges())
     const removeLen = Math.min(ceilT - t, L.len)
