@@ -297,6 +297,12 @@ export function useMediaPlace(deps: UseMediaPlaceDeps) {
    * （V{n}/A{n} は reserveTrackPairForVideo が作る）。
    */
   function videoDropLane(e: { target: EventTarget | null }, yRel?: number): string {
+    // **本編（V1）が空なら、どの段へ落としても本編に入れる**（2026-10-04）。
+    // V2 へ置くと映像レイヤーになり、前後のカットまで詰める（Q/E）・詰めて消す（F）
+    // など本編を相手にする操作が**全部黙って何もしない**。実際に、本編0本・
+    // V2 に1本の状態で「ホットキーが使えない」と言われた。土台が無いのに
+    // 重ねる段を選ぶ理由は無い。重ねるのは、本編が1本でもできてから
+    if (segRef.current.length === 0) return 'V1'
     const tid = trackFromEvent(e, 'video')
     if (tid) return tid
     if (yRel !== undefined) {

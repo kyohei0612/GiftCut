@@ -358,5 +358,40 @@ export default async function (C) {
     )
   })
 
+  await check('**本編が空なら、V2 へ落とした動画も本編（V1）に入る**', async () => {
+    // 2026-10-04・本人「ホットキーが使えない。F やカット周りが何もできない」。
+    // 自動保存を見たら**本編0本・V2 に映像レイヤーが1本**だった。Q/E/F は本編を
+    // 相手にするので、その状態では全部黙って何もしない（規則は state/useMediaPlace の
+    // videoDropLane）。**その状態そのもの**——空にして V2 へ落とす——を作って見る
+    await resetProject()
+    const v1 = page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)')
+    const n0 = await v1.count()
+    assert(n0 > 0, '開いた直後に帯が無い（この確認が成り立たない）')
+    await page.locator('.track-scroll').first().click({ position: { x: 30, y: 30 } })
+    await page.keyboard.press('Control+a')
+    await page.waitForTimeout(200)
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(600)
+    assert((await v1.count()) === 0, '全部消しても帯が残っている（空から始められない）')
+    assert(await page.locator('[data-tid="V2"]').count(), 'V2 の段が無い（落とす先が無い）')
+
+    await dndFromBin('test_video', '[data-tid="V2"]', { x: 300, y: 10 })
+    await page.waitForTimeout(900)
+    const layers = await page.locator('.vclip').count()
+    const main = await v1.count()
+    assert(layers === 0, `本編が空なのに、映像レイヤー（${layers}本）として置かれた`)
+    assert(main > 0, '落としたのに本編に入っていない')
+
+    // 後片付けは上の項目と同じく、取り消しを2回（消す・置く）
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(600)
+    assert(
+      (await v1.count()) === n0,
+      `後片付けできていない（${n0}本に戻らず ${await v1.count()}本。次の章が空から始まる）`
+    )
+  })
+
   // =========================================================================
 }
