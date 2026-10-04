@@ -11,6 +11,11 @@
 //
 // ※ この2件は**必ず一緒に動かすこと**。後の1件は、前の1件が取り込んだ見本に寄りかかる
 //   （だから { orderDependent: true } が付いている）。
+//
+// ※ **1件目は頭で `resetProject()` を呼ばない。** まっさらな状態で始まるのは、
+//   直前の e2e/checks/09d-保存と書き出し.mjs の末尾が後始末をするから
+//   （2026-08-04 に入れた。それまでは打った印と掴んで動かした位置が流れてきていた）。
+//   09d を並べ替える・末尾の後始末を外すなら、ここで戻す側へ移すこと。
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'

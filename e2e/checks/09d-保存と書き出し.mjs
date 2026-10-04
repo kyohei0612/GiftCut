@@ -8,30 +8,44 @@
 //
 // ## ここは順番への寄りかかりが濃い。並べ替える前に必ず読むこと
 //
-// 印の付いている3つ（`{ orderDependent: true }`。理由は各項目の下）:
-//   - 数値欄にカーソルを残したままでも、Ctrl+S で保存できる
+// 印の付いている2つ（`{ orderDependent: true }`。理由は各項目の下）:
 //   - 書き出した動画でも、クリップが本当に寄っている
 //   - 動きを付けた画像が、書き出しでも置いた場所から動かない
 // **手前の項目を消す・順番を入れ替えると、絞った確認は緑のまま通しでだけ落ちる。**
 //
-// ここから下は 2026-08-04 に**印が無いまま見つけた**寄りかかり。
-// どちらも中身は直していない（直すと判定そのものを見直すことになるため）。
-//
-// ### 先頭の「クリップの動きも、保存して開き直せば残っている」が `dirty` を立てない
+// ## 印の無い後始末漏れ2件を直した（2026-08-04）
 //
 // `resetProject()` は **`touchedRef.dirty` が false なら中身を戻さずに帰る**
-// （e2e/run.mjs）。この項目は頭と尻で `resetProject()` を呼んでいるのに
-// `touchedRef.dirty = true` を立てないので、**どちらの呼び出しも空振りしている。**
-// 結果、Ctrl+S で動きを書き込んだ `fx.gcproj` を**開いたまま**次へ渡す。
-// 次の「数値欄にカーソルを残したままでも…」に印が付いているのは、まさにこれが理由。
-// **`dirty` を立てるなら、次の項目の判定ごと見直すこと**（勝手に立てると、
-// 手前が残した中身を当てにしている側が黙って別の物を見る）。
+// （e2e/run.mjs）。ここに、それを立て忘れた項目が2つあった。
 //
-// ### 末尾の「印を打った物をプレビューで動かすと…」も後始末をしない
+// **空振りするのは「尻の `resetProject()`」だけ。頭は空振りしない。**
+// `check()` は本体を呼ぶ**直前に `touchedRef.dirty = true` を立てる**
+// （e2e/lib/runReport.mjs）。だから項目の頭で呼んだ `resetProject()` は必ず戻す。
+// 立て忘れが効くのは、その頭のリセットが `dirty` を false に落としたあと——
+// **自分の編集を数えないまま尻のリセットへ着く**ところ。
+// 「頭も尻も空振り」と読むと、直す場所を1つ余計に触ることになる。
 //
-// `touchedRef.dirty = true` を立てず、終わりに `resetProject()` もしない。
-// 打った印と掴んで動かした位置は、そのまま e2e/checks/09b-Premiere取り込み.mjs の
-// 1件目へ流れる（あちらは頭で戻さない）。**この塊を 09b より後ろへ動かさないこと。**
+// ### 1件目: 先頭の「クリップの動きも、保存して開き直せば残っている」
+//
+// Ctrl+S で動きを書き込んだ `fx.gcproj` を**開いたまま**次へ渡していた。
+// → 尻のリセットの前に `dirty` を立てた。
+//
+// **次の「数値欄にカーソルを残したままでも…」の判定はここで作り直した。**
+// あの項目は `.mo-watch` を**無条件で押す**ので、手前が残した印（2つ）の上では
+// 「動きをやめますか」の確認窓が開く側に倒れる——`fill()` は覆いを判定しないので
+// 窓が開いたまま値だけ入り、`some((s) => s.motion)` は**手前が残した印**で通る。
+// 見たいのは「欄にカーソルを残したまま Ctrl+S が届くか」なので、
+// **まっさらから始めて、保存前に「ファイルに動きが無い」ことまで見る**形へ変えた。
+// 自分で足場を作るようになったので `{ orderDependent: true }` は外してある
+// （＝絞った確認でも回るようになった。今までは1度も回っていない）。
+//
+// ### 2件目: 末尾の「印を打った物をプレビューで動かすと…」
+//
+// 打った印と掴んで動かした位置が、そのまま
+// e2e/checks/09b-Premiere取り込み.mjs の1件目へ流れていた（あちらは頭で戻さない）。
+// → 終わりに `dirty` を立てて `resetProject()` するようにした。
+// **それでも、この塊を 09b より後ろへ動かさないこと**（09b の1件目は
+// 頭で戻さないまま。戻すのはこちらの後始末に頼っている）。
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -102,7 +116,11 @@ export default async function (C) {
     }
     const marks = await v1Clips().nth(0).locator('.kf-mark').count()
     assert(marks >= 2, `開き直したら帯の印が消えた（${marks}個）`)
-    // 保存したファイルを開いた状態で終わると、以降の項目が別の中身を見る
+    // 保存したファイルを開いた状態で終わると、以降の項目が別の中身を見る。
+    // **`dirty` を立てないと、この `resetProject()` は何もせずに帰る**
+    // （頭のリセットが false に落としたまま、ここまでの編集を誰も数えていない）。
+    // 立て忘れていた間は、動き入りの `fx.gcproj` を開いたまま次へ渡していた。
+    touchedRef.dirty = true
     await resetProject()
   })
 
@@ -113,6 +131,23 @@ export default async function (C) {
     //
     // どのキーを受けるかの判断そのものは src/shared/keymap.test.ts で見ている。
     // ここで見るのは**アプリに繋がっているか**（画面側に別の関門が残っていないか）。
+    //
+    // ※ **まっさらから始める。** `.mo-watch` は入り切りの切り替えなので、
+    //    手前が残した印の上で押すと意味が逆になる（付ける → **やめる**）。
+    //    しかも印が2つ以上あると「動きをやめますか」の確認窓が開く
+    //    （src/renderer/src/state/useMotion.ts の toggleKeys）。ここは誰もその窓に
+    //    答えないので、**手前の印は消えないまま残る**。
+    //    その状態で保存すると、下の判定は「この項目が打った物」ではなく
+    //    **手前が残した印**を見て通る＝何も確かめていないのに緑になる。
+    await resetProject()
+    // **保存の前に「ファイルに動きが無い」ことまで見る。**
+    // ここを見ないと、あとの判定は「もともと入っていた動き」でも成立してしまう
+    // （リセット直後の控えは fixture のまま＝ segments に motion は無い）。
+    const before = JSON.parse(readFileSync(fx.gcproj, 'utf-8'))
+    assert(
+      !(before.segments ?? []).some((s) => s.motion),
+      '保存する前からファイルに動きが入っている＝この確認は「保存で書かれた」と言えない'
+    )
     await v1Clips().nth(0).click()
     await page.waitForTimeout(300)
     await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
@@ -121,6 +156,10 @@ export default async function (C) {
     await seekTo(1)
     await row.locator('.mo-watch').click()
     await page.waitForTimeout(300)
+    assert(
+      (await row.locator('.mo-watch.on').count()) === 1,
+      '⏱ を押しても動きが付いた状態にならない（押した意味が逆になっている）'
+    )
     await seekTo(3)
     const val = row.locator('.mo-val')
     await val.fill('150')
@@ -134,16 +173,23 @@ export default async function (C) {
     await page.keyboard.press('Control+s')
     await page.waitForTimeout(1800)
     const data = JSON.parse(readFileSync(fx.gcproj, 'utf-8'))
+    // **「motion があるか」だけでは足りない。** 印を捨てた跡の空っぽの入れ物でも
+    // 通ってしまう。打った印そのものと、**欄に打ち込んだ 150% が入っているか**を見る
+    //（欄の値が届いていなければ、Ctrl+S は通っても「保存したつもり」のまま）。
+    const sc = (data.segments ?? []).find((s) => s.motion?.sc)?.motion?.sc
     assert(
-      (data.segments ?? []).some((s) => s.motion),
-      '欄にカーソルを残したまま保存しても、中身が書かれていない'
+      Array.isArray(sc) && sc.length >= 2,
+      `欄にカーソルを残したまま保存しても、打った印が書かれていない: ${JSON.stringify(
+        (data.segments ?? []).map((s) => s.motion)
+      )}`
+    )
+    assert(
+      sc.some((k) => Math.abs(k.v - 1.5) < 0.01),
+      `打ち込んだ 150% が保存されていない: ${JSON.stringify(sc)}`
     )
     touchedRef.dirty = true
     await resetProject()
-  },
-  // **手前の項目が残した状態（開いてあるプロジェクトと打った値）に寄りかかっている。**
-  // 自分では resetProject を呼ばないので、絞って回すと保存する中身が無い。
-  { orderDependent: true })
+  })
 
   await check('書き出した動画でも、クリップが本当に寄っている', async () => {
     // 縦長では**元動画（横長）と直接比べられない**（上下に黒帯が入るため）。
@@ -356,5 +402,13 @@ export default async function (C) {
       xHead != null && xNow != null && Math.abs(xHead - xNow) > 20,
       `頭へ戻っても位置が変わらない（${xHead} / ${xNow}）＝印が効いていない`
     )
+    // **打った印と、掴んで動かした位置を持ち越さない。**
+    // ここは 09d の最後で、次は e2e/checks/09b-Premiere取り込み.mjs の1件目。
+    // あちらは頭で戻さないまま同じテロップに見本帳の動きを当てて
+    // 「右から入ってくる」を測るので、こちらの印が残っていると別の物を測る。
+    // `dirty` を立てないと、この `resetProject()` は何もせずに帰る（頭のリセットが
+    // false に落としたまま、ここまでの編集を誰も数えていない）。
+    touchedRef.dirty = true
+    await resetProject()
   })
 }

@@ -417,8 +417,8 @@ export default async function (C) {
   await copyAndShareChecks(C)
 
   // 続く6項目「保存と書き出しに乗るか」は e2e/checks/09d-保存と書き出し.mjs へ。
-  // **あちらは順番への寄りかかりが濃い**（印付き3件＋印の無い寄りかかり2件）。
-  // 並べ替える前に、あのファイルの頭を読むこと。
+  // **あちらは順番への寄りかかりが濃い**（印付き2件。印の無い寄りかかり2件は
+  // 2026-08-04 に後始末を入れて消した）。並べ替える前に、あのファイルの頭を読むこと。
   await saveAndExportChecks(C)
 
   // Premiere のプリセット取り込み（2件）は e2e/checks/09b-Premiere取り込み.mjs へ出した。

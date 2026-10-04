@@ -188,7 +188,11 @@ export async function makeFixture() {
       return undefined
     }
   }
-  const realVideo = pick(/\.(mp4|mov|mkv)$/i, 4e9)
+  // **選ばれる物を指名できるようにする**（`GIFTCUT_E2E_VIDEO=<パス>`）。
+  // 「いちばん小さい動画」は Downloads に何かを置いた日に入れ替わる。2026-10-04、
+  // 当日書き出した 14秒・音が丸ごと無音の動画が選ばれ、下の無音の数えで止まった。
+  // 置いた物を動かさずに確認を回すための逃げ道（既定の選び方は変えない）
+  const realVideo = process.env.GIFTCUT_E2E_VIDEO || pick(/\.(mp4|mov|mkv)$/i, 4e9)
   const realImage = pick(/\.(png|jpe?g)$/i, 5e6)
 
   // 切り出しは重いので、一度作ったら使い回す（毎回1から作り直さない）。
