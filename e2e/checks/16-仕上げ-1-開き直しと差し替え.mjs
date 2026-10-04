@@ -117,6 +117,7 @@ export default async function (C) {
     rmSync(gone, { force: true }) // ファイルを消してから、一覧経由で開き直す
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
     await page.waitForTimeout(300)
+    await page.locator('.menu-drop-sub', { hasText: '最近使ったプロジェクト' }).first().click()
     const entry = page.locator('.menu-drop-recent', { hasText: 'gone.gcproj' })
     assert(await entry.count(), '一覧に出ていない')
     await entry.first().click()
@@ -125,6 +126,12 @@ export default async function (C) {
     assert(toast.some((t) => t.includes('開けません')), `エラーが出ていない: ${toast.join(' / ')}`)
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
     await page.waitForTimeout(300)
+    // **奥の段を開いてから数える。** 開かずに数えると、在っても 0 になる
+    // ＝消えていなくても緑（CLAUDE.md 7番）。一覧が空なら段そのものが出ないので、
+    // そのときは開かずに 0 で正しい
+    const recentSub = page.locator('.menu-drop-sub', { hasText: '最近使ったプロジェクト' })
+    if (await recentSub.count()) await recentSub.first().click()
+    await page.waitForTimeout(150)
     assert(
       (await page.locator('.menu-drop-recent', { hasText: 'gone.gcproj' }).count()) === 0,
       '見つからなかった項目が一覧に残っている'

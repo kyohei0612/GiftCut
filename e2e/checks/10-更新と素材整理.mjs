@@ -171,7 +171,9 @@ export default async function (C) {
     await setDialogFiles(null, packZip)
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
     await page.waitForTimeout(250)
-    await page.locator('.menu-drop-item', { hasText: '素材ごとまとめて書き出す' }).first().click()
+    await page.locator('.menu-drop-sub', { hasText: '別のPCへ渡す' }).first().click()
+    // 名前は「素材と設定ごと…」に変わっている（aa03ee4）。**変わりにくい所だけで探す**
+    await page.locator('.menu-drop-item', { hasText: 'まとめて書き出す' }).first().click()
     // 「ファイルができた」ではまだ書き途中。終わりのお知らせを待つ
     // （ここを存在確認だけで済ませると、書きかけの ZIP を読んで落ちる）
     await page.locator('.toast', { hasText: 'まとめました' }).first().waitFor({ timeout: 120000 })
@@ -206,6 +208,7 @@ export default async function (C) {
     await setDialogFiles([packZip], null)
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
     await page.waitForTimeout(250)
+    await page.locator('.menu-drop-sub', { hasText: '別のPCへ渡す' }).first().click()
     await page.locator('.menu-drop-item', { hasText: 'まとめたプロジェクトを開く' }).first().click()
     // **2分も待たない。** 開けないときは開けないので、待っても結果は変わらず、
     // 絞って回したときに「作る側」を飛ばしていると、ただ2分固まって見える

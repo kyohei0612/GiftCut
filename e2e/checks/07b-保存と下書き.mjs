@@ -132,6 +132,9 @@ export default async function (C) {
     const fileMenu = page.locator('.menu-item', { hasText: 'ファイル' }).first()
     await fileMenu.click()
     await page.waitForTimeout(300)
+    // 1段奥に入っている（2026-10-04。components/MenuBar の頭）
+    await page.locator('.menu-drop-sub', { hasText: '最近使ったプロジェクト' }).first().click()
+    await page.waitForTimeout(150)
     const items = await page.locator('.menu-drop-recent').allTextContents()
     assert(
       items.some((t) => t.includes('fixture.gcproj')),
@@ -154,6 +157,13 @@ export default async function (C) {
     // 行が出ていることと、配線（preload → main）が通っていることを別々に見る。
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
     await page.waitForTimeout(300)
+    // **開いた一覧が窓の半分に収まる。** 26行・880px で 1080p の窓を覆っていた
+    // （2026-10-04・本人「死ぬほど出てくる」）。行を足すなら奥の段（sub）へ
+    const menuH = await page.locator('.menu-dropdown').first().evaluate((el) => el.getBoundingClientRect().height)
+    const winH = await page.evaluate(() => innerHeight)
+    assert(menuH > 0 && menuH < winH * 0.5, `ファイルメニューが長すぎる（${menuH}px / 窓 ${winH}px）`)
+    await page.locator('.menu-drop-sub', { hasText: '置き場のフォルダを開く' }).first().click()
+    await page.waitForTimeout(150)
     const rows = await page.locator('.menu-drop-item').allTextContents()
     for (const label of [
       '効果音（SE）のフォルダを開く',

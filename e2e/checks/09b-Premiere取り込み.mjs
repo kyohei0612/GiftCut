@@ -120,6 +120,7 @@ export default async function (C) {
     await setDialogFiles([prfpset], null)
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
     await page.waitForTimeout(300)
+    await page.locator('.menu-drop-sub', { hasText: '素材・動きを取り込む' }).first().click()
     await page.locator('.menu-drop-item', { hasText: 'Premiere の動きを取り込む' }).first().click()
     await page.waitForTimeout(1500)
     // **取り込んだ物だけを数える。** 標準の動きが20個並んでいるので、

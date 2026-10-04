@@ -128,6 +128,7 @@ export default async function (C) {
     // 画面から消せること
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
     await page.waitForTimeout(300)
+    await page.locator('.menu-drop-sub', { hasText: 'テンプレート' }).first().click()
     await page.locator('.menu-drop-item', { hasText: 'テンプレートを開く' }).first().click()
     await page.waitForTimeout(800)
     const row = page.locator('.tpl-picker-row', { hasText: 'E2E_消せるテンプレ' }).first()
@@ -302,6 +303,7 @@ export default async function (C) {
     await setDialogFiles(null, zip)
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
     await page.waitForTimeout(300)
+    await page.locator('.menu-drop-sub', { hasText: '別のPCへ渡す' }).first().click()
     await page.locator('.menu-drop-item', { hasText: 'まとめて書き出す' }).first().click()
     // **`existsSync` で待たない。** ZIP は作られた瞬間に真になり、
     // 書き終わる前に読んで「壊れた ZIP」と出る（CLAUDE.md の「測れたか」）。
@@ -335,6 +337,7 @@ export default async function (C) {
     await setDialogFiles([zip], null)
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
     await page.waitForTimeout(300)
+    await page.locator('.menu-drop-sub', { hasText: '別のPCへ渡す' }).first().click()
     await page.locator('.menu-drop-item', { hasText: 'まとめたプロジェクトを開く' }).first().click()
     await page.waitForTimeout(600)
     const cont = page.locator('.modal-btn', { hasText: 'このまま続ける' })

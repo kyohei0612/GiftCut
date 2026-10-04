@@ -222,7 +222,7 @@ describe('最近使ったプロジェクト', () => {
       (el.textContent ?? '').includes('ファイル')
     )
     await click(fileMenu!)
-    expect(findByText('最近使ったプロジェクト', '.menu-drop-label')).toBeNull()
+    expect(findByText('最近使ったプロジェクト', '.menu-drop-sub')).toBeNull()
   })
 
   it('記録があればファイルメニューに並び、選ぶとそのファイルが直接開かれる', async () => {
@@ -238,7 +238,10 @@ describe('最近使ったプロジェクト', () => {
       (el.textContent ?? '').includes('ファイル')
     )
     await click(fileMenu!)
-    expect(findByText('最近使ったプロジェクト', '.menu-drop-label')).not.toBeNull()
+    // 1段奥に入っている（2026-10-04。並べると「保存」が下へ押し出される）
+    const sub = findByText('最近使ったプロジェクト', '.menu-drop-sub')
+    expect(sub, '「最近使ったプロジェクト ▸」が無い').not.toBeNull()
+    await click(sub!)
     const item = findByText('朝の切り抜き.gcproj', '.menu-drop-recent')
     expect(item, '最近使ったプロジェクトが一覧に出ていない').not.toBeNull()
     // ファイル名だけを出す（長いパスでメニューが横に伸びない）

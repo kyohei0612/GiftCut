@@ -166,21 +166,25 @@ export function AppHeader(): JSX.Element {
           void openProjectFn()
         }
       },
-      // 最近使ったプロジェクト。保存先を覚えていなくてもここから開ける
-      recentProjects.length > 0 && { kind: 'label', label: '最近使ったプロジェクト' },
-      ...recentProjects.map(
-        (r) =>
-          ({
-            kind: 'recent',
-            label: r.name,
-            title: r.path,
-            onClick: () => {
-              setFileMenuOpen(false)
-              void openProjectFn(r.path)
-            }
-          }) as const
-      ),
-      recentProjects.length > 0 && { kind: 'sep' },
+      // 最近使ったプロジェクト。保存先を覚えていなくてもここから開ける。
+      // **1段奥へ入れる**（並べると件数ぶん、毎回使う「保存」が下へ押し出される）
+      recentProjects.length > 0 && {
+        kind: 'sub',
+        label: '最近使ったプロジェクト',
+        rows: recentProjects.map(
+          (r) =>
+            ({
+              kind: 'recent',
+              label: r.name,
+              title: r.path,
+              onClick: () => {
+                setFileMenuOpen(false)
+                void openProjectFn(r.path)
+              }
+            }) as const
+        )
+      },
+      { kind: 'sep' },
       {
         kind: 'item',
         label: `${projectPath ? 'プロジェクトを保存' : 'プロジェクトを保存…'}　(${formatCombo(shortcuts.saveProject)})`,
@@ -196,49 +200,6 @@ export function AppHeader(): JSX.Element {
         onClick: () => {
           setFileMenuOpen(false)
           void saveProjectFn(true)
-        }
-      },
-      { kind: 'sep' },
-      // 別PCへ渡す用。プロジェクトだけ渡しても素材が無ければ開けない
-      {
-        kind: 'item',
-        label: '素材と設定ごとまとめて書き出す…（ZIP）',
-        title:
-          '使っている素材に加えて、自分で足した効果音・テロップ素材・動きのプリセット・' +
-          'テンプレート・お気に入りも全部入れた ZIP を作ります。' +
-          '別のPCの GiftCut で開けば、渡す前と同じ状態から続けられます',
-        onClick: () => {
-          setFileMenuOpen(false)
-          void packProjectFn()
-        }
-      },
-      {
-        kind: 'item',
-        label: 'まとめたプロジェクトを開く…（ZIP）',
-        title:
-          'まとめた ZIP を展開して開きます（素材はドキュメント/GiftCut/受け取ったプロジェクト に置きます）。' +
-          '入っていれば効果音・テロップ素材・お気に入りもこの機械へ入れます' +
-          '（この機械に既にある物は上書きしません）',
-        onClick: () => {
-          setFileMenuOpen(false)
-          void openPackFn()
-        }
-      },
-      { kind: 'sep' },
-      {
-        kind: 'item',
-        label: 'テンプレートとして保存…',
-        onClick: () => {
-          setFileMenuOpen(false)
-          saveAsTemplateFn()
-        }
-      },
-      {
-        kind: 'item',
-        label: 'テンプレートを開く…',
-        onClick: () => {
-          setFileMenuOpen(false)
-          void openTemplateFn()
         }
       },
       { kind: 'sep' },
@@ -268,81 +229,146 @@ export function AppHeader(): JSX.Element {
           void exportSrtFn()
         }
       },
-      // 動きの取り込みは**一度きり**の作業なので、見本帳の中には置かない。
-      // 常に見える所に置くと、細いパネルでは一覧の場所を食うだけになる
-      // （実際に、幅を詰めると演出が1つも見えなくなっていた）。
-      {
-        kind: 'item',
-        label: 'Premiere の動きを取り込む…',
-        title: '.prfpset を読んで、中の動きを「トランジション → 動き」に並べます',
-        onClick: () => {
-          setFileMenuOpen(false)
-          importMotionPresets()
-        }
-      },
       { kind: 'sep' },
-      // 更新で消えない置き場。**更新はアプリ本体を丸ごと入れ替える**が、
-      // ここ（%APPDATA%\GiftCut\）の下は触られない。自分で足した素材の
-      // 置き場所であり、退避も引っ越しもここを開ければできる。
-      // **ZIP を選ぶだけで済ませる。**
-      // 「開いて・展開して・貼る」は手順が3つあり、どれか1つ間違えると
-      // 素材が出てこない。しかも間違いに気づけない（何も起きないだけ）。
-      { kind: 'label', label: '素材を入れる' },
+      // ここから下は**たまにしか使わない**ので、1段奥へ入れる（components/MenuBar の頭）。
+      // 並べたままだと 26行・880px になり、1080p の窓を上から下まで覆っていた
       {
-        kind: 'item',
-        label: '素材パック（ZIP）を取り込む…（展開しなくて OK）',
-        title:
-          'SE・テロップ素材・動き・テンプレートが入った ZIP を選ぶだけで、' +
-          '展開して置き場へ入れ、そのまま使えるようにします（更新しても消えません）',
-        onClick: () => {
-          setFileMenuOpen(false)
-          void window.giftcut
-            .importAssetZip()
-            .then((r) => {
-              if (r?.canceled) return
-              if (!r?.ok) {
-                showToast(`取り込めませんでした。\n${r?.error ?? ''}`)
-                return
-              }
-              const n = Object.entries(r.added ?? {})
-                .map(([k, v]) => `${k} ${v}件`)
-                .join(' / ')
-              // **その場で全部読み直す。** 「入れました」と言われたのに
-              // 一覧が変わらないと、入ったのかどうか分からない。
-              // 種類を1つでも読み飛ばすと、そこだけ再起動するまで出てこない。
-              //（テンプレートは開くときに読むので、ここでは要らない）
-              refreshSE()
-              refreshPresets()
-              refreshMotionPresets()
-              showToast(`素材を取り込みました（${n}）。そのまま使えます。`)
-            })
-            .catch((e) => showToast(`取り込めませんでした。\n${String(e)}`))
-        }
-      },
-      { kind: 'sep' },
-      { kind: 'label', label: '置き場を開く（更新しても消えません）' },
-      ...(
-        [
-          ['se', '効果音（SE）', '自分で足した効果音の置き場'],
-          ['telop', 'テロップ素材', '自分で足したテロップ素材の置き場'],
-          ['motion', '動きのプリセット', '取り込んだ動き（.prfpset から写した物）の置き場'],
-          ['template', 'テンプレート', 'テンプレートとして保存した物の置き場'],
-          ['data', '設定・保存データ', '設定・自動保存の下書き・プロキシの置き場']
-        ] as const
-      ).map(
-        ([key, label, title]) =>
-          ({
+        kind: 'sub',
+        label: 'テンプレート',
+        rows: [
+          {
             kind: 'item',
-            label: `${label}のフォルダを開く`,
-            title,
+            label: 'テンプレートとして保存…',
             onClick: () => {
               setFileMenuOpen(false)
-              void window.giftcut.openFolder(key).then((r) => {
-                if (!r?.ok) showToast(`フォルダを開けませんでした。\n${r?.error ?? ''}`)
-              })
+              saveAsTemplateFn()
             }
-          }) as const
-      ),
+          },
+          {
+            kind: 'item',
+            label: 'テンプレートを開く…',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void openTemplateFn()
+            }
+          }
+        ]
+      },
+      // 別PCへ渡す用。プロジェクトだけ渡しても素材が無ければ開けない
+      {
+        kind: 'sub',
+        label: '別のPCへ渡す（ZIP）',
+        rows: [
+          {
+            kind: 'item',
+            label: '素材と設定ごとまとめて書き出す…（ZIP）',
+            title:
+              '使っている素材に加えて、自分で足した効果音・テロップ素材・動きのプリセット・' +
+              'テンプレート・お気に入りも全部入れた ZIP を作ります。' +
+              '別のPCの GiftCut で開けば、渡す前と同じ状態から続けられます',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void packProjectFn()
+            }
+          },
+          {
+            kind: 'item',
+            label: 'まとめたプロジェクトを開く…（ZIP）',
+            title:
+              'まとめた ZIP を展開して開きます（素材はドキュメント/GiftCut/受け取ったプロジェクト に置きます）。' +
+              '入っていれば効果音・テロップ素材・お気に入りもこの機械へ入れます' +
+              '（この機械に既にある物は上書きしません）',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void openPackFn()
+            }
+          }
+        ]
+      },
+      {
+        kind: 'sub',
+        label: '素材・動きを取り込む',
+        rows: [
+          // 更新で消えない置き場。**更新はアプリ本体を丸ごと入れ替える**が、
+          // ここ（%APPDATA%\GiftCut\）の下は触られない。自分で足した素材の
+          // 置き場所であり、退避も引っ越しもここを開ければできる。
+          // **ZIP を選ぶだけで済ませる。**
+          // 「開いて・展開して・貼る」は手順が3つあり、どれか1つ間違えると
+          // 素材が出てこない。しかも間違いに気づけない（何も起きないだけ）。
+          {
+            kind: 'item',
+            label: '素材パック（ZIP）を取り込む…（展開しなくて OK）',
+            title:
+              'SE・テロップ素材・動き・テンプレートが入った ZIP を選ぶだけで、' +
+              '展開して置き場へ入れ、そのまま使えるようにします（更新しても消えません）',
+            onClick: () => {
+              setFileMenuOpen(false)
+              void window.giftcut
+                .importAssetZip()
+                .then((r) => {
+                  if (r?.canceled) return
+                  if (!r?.ok) {
+                    showToast(`取り込めませんでした。\n${r?.error ?? ''}`)
+                    return
+                  }
+                  const n = Object.entries(r.added ?? {})
+                    .map(([k, v]) => `${k} ${v}件`)
+                    .join(' / ')
+                  // **その場で全部読み直す。** 「入れました」と言われたのに
+                  // 一覧が変わらないと、入ったのかどうか分からない。
+                  // 種類を1つでも読み飛ばすと、そこだけ再起動するまで出てこない。
+                  //（テンプレートは開くときに読むので、ここでは要らない）
+                  refreshSE()
+                  refreshPresets()
+                  refreshMotionPresets()
+                  showToast(`素材を取り込みました（${n}）。そのまま使えます。`)
+                })
+                .catch((e) => showToast(`取り込めませんでした。\n${String(e)}`))
+            }
+          },
+          // 動きの取り込みは**一度きり**の作業なので、見本帳の中には置かない。
+          // 常に見える所に置くと、細いパネルでは一覧の場所を食うだけになる
+          // （実際に、幅を詰めると演出が1つも見えなくなっていた）。
+          {
+            kind: 'item',
+            label: 'Premiere の動きを取り込む…',
+            title: '.prfpset を読んで、中の動きを「トランジション → 動き」に並べます',
+            onClick: () => {
+              setFileMenuOpen(false)
+              importMotionPresets()
+            }
+          }
+        ]
+      },
+      {
+        kind: 'sub',
+        label: '置き場のフォルダを開く',
+        rows: [
+          { kind: 'label', label: '更新しても消えません' },
+          ...(
+            [
+              ['se', '効果音（SE）', '自分で足した効果音の置き場'],
+              ['telop', 'テロップ素材', '自分で足したテロップ素材の置き場'],
+              ['motion', '動きのプリセット', '取り込んだ動き（.prfpset から写した物）の置き場'],
+              ['template', 'テンプレート', 'テンプレートとして保存した物の置き場'],
+              ['data', '設定・保存データ', '設定・自動保存の下書き・プロキシの置き場']
+            ] as const
+          ).map(
+            ([key, label, title]) =>
+              ({
+                kind: 'item',
+                label: `${label}のフォルダを開く`,
+                title,
+                onClick: () => {
+                  setFileMenuOpen(false)
+                  void window.giftcut.openFolder(key).then((r) => {
+                    if (!r?.ok) showToast(`フォルダを開けませんでした。\n${r?.error ?? ''}`)
+                  })
+                }
+              }) as const
+          )
+        ]
+      },
       { kind: 'sep' },
       {
         kind: 'item',

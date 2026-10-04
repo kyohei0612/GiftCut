@@ -45,7 +45,8 @@
   background: transparent;
   border: none;
   color: var(--text);
-  padding: 8px 10px;
+  /* 縦 6px（13px の字で 1行 約29px）。8px だと 12行で窓の半分を超えた */
+  padding: 6px 10px;
   border-radius: 5px;
   font-size: 13px;
   cursor: pointer;
@@ -76,3 +77,27 @@
   white-space: nowrap;
 }
 
+/* 1段奥の束（「テンプレート ▸」など）。右へ開く。
+   たまにしか使わない物をここへ入れて、最初に開く一覧を短く保つ */
+.menu-sub-wrap {
+  position: relative;
+}
+.menu-drop-sub {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.menu-drop-sub::after {
+  content: '▸';
+  margin-left: 16px;
+  opacity: 0.6;
+}
+.menu-drop-sub-on {
+  background: #ffffff14;
+}
+.menu-subdrop {
+  top: -6px;
+  left: 100%;
+  margin-top: 0;
+  margin-left: 2px;
+}

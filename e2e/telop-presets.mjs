@@ -192,6 +192,7 @@ if (await sizeInput.count()) {
 // 演出を取り込む
 await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
 await page.waitForTimeout(300)
+await page.locator('.menu-drop-sub', { hasText: '素材・動きを取り込む' }).first().click()
 await page.locator('.menu-drop-item', { hasText: 'Premiere の動きを取り込む' }).first().click()
 await page.waitForTimeout(2500)
 
