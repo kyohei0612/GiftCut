@@ -58,11 +58,20 @@ export function zoomPanChain(
   bg: string
 ): string {
   const s = Math.max(0.05, z.scale)
-  const zw = Math.round(width * s)
-  const zh = Math.round(height * s)
+  // **大きさも置き場所も偶数に揃える。** ffmpeg の pad は yuv420p（本編の段）では
+  // 幅・高さを偶数へ**切り捨ててから**入力と比べる。奇数のまま渡すと
+  // `pad=2122:1091` が 1090 として扱われ、入力の 1091 より小さい＝
+  // 「Padded dimensions cannot be smaller than input dimensions」で、
+  // 書き出しが1コマも出ずに落ちる（2026-10-08、本編クリップに 1.01倍＋横ずらしで
+  // 実際に起きた）。重ねる段は rgba で切り捨てが無いので通る＝**画面では正常に見える**。
+  // 総当たり（0.50〜2.00倍×横ずらし）では pad が出る 1,070 通りのうち 576 が奇数だった。
+  // 偶数に寄せる誤差は最大1画素で、置き場所まで偶数にすると pad の x/y の切り捨ても消える。
+  const even = (n: number): number => 2 * Math.round(n / 2)
+  const zw = even(width * s)
+  const zh = even(height * s)
   // 出力の左上を原点にした、絵の置き場所（マイナスもあり得る）
-  const ox = Math.round((width - zw) / 2 + z.x * width)
-  const oy = Math.round((height - zh) / 2 + z.y * height)
+  const ox = even((width - zw) / 2 + z.x * width)
+  const oy = even((height - zh) / 2 + z.y * height)
   // 台紙は「絵も、切り出す窓も、どちらも収まる」大きさにする。
   // 置き場所がマイナスのぶんだけ、切り出す側を右下へずらす。
   const cx = Math.max(0, -ox)

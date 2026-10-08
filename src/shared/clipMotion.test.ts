@@ -391,6 +391,33 @@ describe('拡大＋移動の焼き方', () => {
     expect(zoomPanChain(W, H, { scale: 1, x: 0.25, y: 0 }, 'black@0')).toContain('pad=')
   })
 
+  // ffmpeg の pad は yuv420p（本編の段）では幅・高さを偶数へ切り捨ててから入力と比べる。
+  // 奇数が1つでも混ざると「Padded dimensions cannot be smaller than input dimensions」で
+  // 書き出しが1コマも出ずに落ちる（2026-10-08、1.01倍＋横ずらしで実際に起きた）。
+  // 重ねる段（rgba）では通るので、画面でも重ねる段の試験でも気づけない。ここで数える。
+  it('scale / pad / crop の数字は全部偶数（本編の yuv420p で pad が落ちない）', () => {
+    // 実際に落ちた値
+    const bad = zoomPanChain(W, H, { scale: 1.01, x: 0.1, y: 0 }, 'black')
+    expect(bad).not.toMatch(/pad=\d*[13579]:/)
+    expect(bad).not.toMatch(/pad=\d+:\d*[13579]:/)
+    // 0.50〜2.00倍 × 横ずらし ±0.3 の総当たり（直す前は 1,070 通り中 576 が奇数だった）
+    let padded = 0
+    for (let s = 50; s <= 200; s++) {
+      for (let xi = -6; xi <= 6; xi++) {
+        const chain = zoomPanChain(W, H, { scale: s / 100, x: xi * 0.05, y: xi * 0.03 }, 'black')
+        // setsar=1 の 1 は数えない。見るのは scale / pad / crop の幅・高さ・位置だけ
+        const nums = [...chain.matchAll(/(?:scale|pad|crop)=([\d:]+)/g)].flatMap((m) =>
+          m[1].split(':').map(Number)
+        )
+        expect(nums.length, chain).toBeGreaterThan(0)
+        for (const n of nums) expect(n % 2, chain).toBe(0)
+        if (chain.includes('pad=')) padded++
+      }
+    }
+    // 総当たりが空回りしていない（pad が出る組み合わせを実際に踏んでいる）
+    expect(padded).toBeGreaterThan(500)
+  })
+
   // 動き側。台紙は「動かすのに足りるぶんだけ」広げる。
   it('動きも、位置の印だけで（拡大せずに）動く', () => {
     const m: ClipMotion = {
