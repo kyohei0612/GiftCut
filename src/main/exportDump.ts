@@ -19,6 +19,7 @@
 // - `put` … userData へ書く（失敗しても握りつぶす）
 // - `dumpExportFilter` … フィルタグラフと入力の一覧
 // - `dumpExportArgs` … ffmpeg の引数そのものと、同じファイルを開いた回数
+// - `dumpEncoderPick` … 起動時の試し焼きで、どの符号化器が何で落ちたか
 import { app } from 'electron'
 import { join } from 'path'
 import { writeFileSync } from 'fs'
@@ -42,6 +43,30 @@ const put = (name: string, body: string): void => {
       // 控えが残せなくても書き出し自体は続ける
     }
   }
+}
+
+/**
+ * 起動時の試し焼きの控え。**どの符号化器が、何で落ちたか**。
+ *
+ * サブPCで「GPU はあるのに最初から OpenH264」になっていたが、試し焼きが
+ * 何で落ちたかはどこにも残っていなかった（2026-10-09）。画面には選んだ結果しか
+ * 出ないので、落ちた理由はここでしか読めない。
+ */
+export function dumpEncoderPick(
+  tries: { v: string; label: string; ok: boolean; ms: number; why: string }[],
+  chosen: string
+): void {
+  put(
+    'last-encoder-pick.txt',
+    `# 選んだ: ${chosen}\n` +
+      tries
+        .map(
+          (t) =>
+            `${t.ok ? '○' : '✗'} ${t.v}（${t.label}） ${t.ms}ms` +
+            (t.ok ? '' : `\n    ${t.why.trim().split('\n').slice(-3).join('\n    ')}`)
+        )
+        .join('\n')
+  )
 }
 
 /** フィルタグラフの控え。`;` で改行して読める形にする */

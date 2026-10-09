@@ -102,8 +102,23 @@ export default async function (C, W) {
     )
 
     // 寄せ直すと戻る（掴めなくなったままにしない）。
-    // **幅が戻るまで寄せる**——同じ回数では戻らない（引くときに下限へ張り付くため）
-    for (let i = 0; i < 6 && (await bandW()) <= 14; i++) await wheel(-1, 10)
+    // **幅が戻るまで寄せる**——同じ回数では戻らない（引くときに下限へ張り付くため）。
+    // **寄せたら頭へ戻してから測る。** 寄せる基準はマウスの位置なので、寄せた先が
+    // 帯の無い所（02:40 など）になることがあり、帯は「見えている所だけ作る」ので
+    // 1つも無い＝0px と出て「広がらない」の顔で落ちる（2026-10-09、素材を替えて出た）
+    const toStart = async () => {
+      await page.evaluate(() => {
+        const s = document.querySelector('.track-scroll')
+        if (s) s.scrollLeft = 0
+      })
+      await page.waitForTimeout(200)
+    }
+    for (let i = 0; i < 6; i++) {
+      await toStart()
+      if ((await bandW()) > 14) break
+      await wheel(-1, 10)
+    }
+    await toStart()
     const wBack = await bandW()
     assert(wBack > 14, `寄せ直しても帯が広がらない（${wBack}px）`)
     // **「増える」とは書けない。** 引いてもつまみが消えないことがある

@@ -6,7 +6,7 @@
 //   スタイル   … 名前を付けて保存した見た目（プリセット）
 //   テキスト   … フォント・大きさ・行間・字間
 //   ※ コラボアイコン（テロップの横に顔を出す）は**ここに無い**。全体の設定なので
-//     `components/IconSettings`（左パネルの上に常時）へ移した（2026-10-09）
+//     `components/IconSettings`（左パネルの下に常時）へ移した（2026-10-09）
 //   アピアランス … 塗り・縁・背景・影 → **`./StyleAppearance`（別ファイル）**
 //
 // 並び順は CSS の flex order（`sp-sec-{名前}`）が持っている。
@@ -220,7 +220,7 @@ export default function StylePanel({
       </div>
 
       {/* コラボアイコンの節はここに無い。全体の設定なので、テロップを選んでいなくても
-          出る `components/IconSettings` にある（左パネルの上に常時）。 */}
+          出る `components/IconSettings` にある（左パネルの下に常時）。 */}
 
       {/* ===== テキスト ===== */}
       <div className={secCls('text')}>

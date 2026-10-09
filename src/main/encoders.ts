@@ -20,6 +20,13 @@
 // 目安は今まで使っていた x264 crf30 と同じくらいの大きさ（60秒・360p で 7MB 前後）。
 type Enc = {
   v: string
+  /**
+   * GPU（ハードウェア）で焼く物か。**途中で落ちたら CPU でやり直す**対象。
+   * 起動時は通っても、書き出しと同時に走るとドライバの同時本数を超えて落ちることがある。
+   * 前は exportSpawn と mediaProxy が `['h264_nvenc','h264_qsv','h264_amf']` を
+   * それぞれ持っていた（同じ知識が2か所。1つ足すと片方だけ直す型）
+   */
+  gpu?: boolean
   /** 書き出し用。crf は利用者が選んだ画質（18=きれい / 23=標準 / 28=軽い） */
   args: (crf: number, size: { w: number; h: number; fps: number }) => string[]
   fast: (h: number) => string[]
@@ -54,6 +61,7 @@ function crfToBitrateK(crf: number, size: { w: number; h: number; fps: number })
 const ENCODERS: Enc[] = [
   {
     v: 'h264_nvenc',
+    gpu: true,
     label: 'GPU（NVIDIA）',
     // -cq は libx264 の -crf に相当。同じ数字だと軽めに出るので少しだけ寄せる
     //
@@ -90,6 +98,7 @@ const ENCODERS: Enc[] = [
   },
   {
     v: 'h264_qsv',
+    gpu: true,
     label: 'GPU（Intel）',
     args: (crf) => ['-c:v', 'h264_qsv', '-global_quality', String(crf)],
     fast: () => ['-c:v', 'h264_qsv', '-preset', 'veryfast', '-global_quality', '32'],
@@ -100,6 +109,7 @@ const ENCODERS: Enc[] = [
   },
   {
     v: 'h264_amf',
+    gpu: true,
     label: 'GPU（AMD）',
     args: (crf) => ['-c:v', 'h264_amf', '-rc', 'cqp', '-qp_i', String(crf), '-qp_p', String(crf)],
     fast: () => [
@@ -109,6 +119,23 @@ const ENCODERS: Enc[] = [
       '-c:v', 'h264_amf', '-quality', 'speed', '-rc', 'cqp', '-qp_i', '19', '-qp_p', '19',
       '-bf', '0' // 全コマキーフレームと両立させる（NVIDIA では必須だった）
     ]
+  },
+  {
+    // Windows 標準の道（Media Foundation）。NVIDIA / AMD / Intel のどれでも、
+    // ドライバが Windows に符号化器を登録していれば通る。上の3つが「自分の名指し」で
+    // 落ちる機械（サブPCで実際に起きた・2026-10-09）の2番手。
+    // 本機の実測（10秒・1080p60）: NVENC 1.6秒 / h264_mf 1.6秒 / OpenH264 2.3秒。
+    // `-hw_encoding true` は付けない——本機（NVIDIA あり）でも Invalid argument で開けなかった。
+    // 画質は OpenH264 と同じくビットレートで渡す（-cq / -crf は理解しない）
+    v: 'h264_mf',
+    gpu: true,
+    label: 'GPU（Windows 標準）',
+    args: (crf, size) => {
+      const k = crfToBitrateK(crf, size)
+      return ['-c:v', 'h264_mf', '-b:v', `${k}k`]
+    },
+    fast: (h) => ['-c:v', 'h264_mf', '-b:v', h >= 720 ? '2000k' : '800k'],
+    full: () => ['-c:v', 'h264_mf', '-b:v', '25000k', '-bf', '0']
   },
   {
     // 開発機など、x264 入り（GPL）の ffmpeg があるときはこちらが一番きれい。
@@ -149,5 +176,8 @@ const ENCODERS: Enc[] = [
   }
 ]
 
-export { ENCODERS, crfToBitrateK }
+/** GPU で焼く物の名前。「途中で落ちたら CPU でやり直す」の判定はこれを見る（表から引く） */
+const GPU_ENCODER_IDS: readonly string[] = ENCODERS.filter((e) => e.gpu).map((e) => e.v)
+
+export { ENCODERS, GPU_ENCODER_IDS, crfToBitrateK }
 export type { Enc }

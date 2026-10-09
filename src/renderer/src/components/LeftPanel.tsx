@@ -146,9 +146,6 @@ export function LeftPanel(): React.JSX.Element {
         <MotionPanel />
       ) : (
         <>
-        {/* アイコンの設定はプロジェクト全体の物なので、何を選んでいても上に出す
-            （テロップを選んだときだけ出る作りだった。編集者の指定・2026-10-09） */}
-        <IconSettings />
         {(() => {
         const se = selectedSeIds.length
           ? seClips.find((c) => c.id === selectedSeIds[0])
@@ -324,6 +321,11 @@ export function LeftPanel(): React.JSX.Element {
           />
         )
       })()}
+        {/* アイコンの設定はプロジェクト全体の物なので、何を選んでいても出す
+            （テロップを選んだときだけ出る作りだった。編集者の指定・2026-10-09）。
+            **下に置く。** 上に置くと、毎回触る文字欄やクリップの設定が押し下げられる
+            うえ、e2e が「左パネルの最初のつまみ」を音量だと決め打ちしていて掴み違えた */}
+        <IconSettings />
         </>
       )}
     </section>

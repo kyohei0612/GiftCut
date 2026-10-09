@@ -6,7 +6,7 @@
 // 配布物でだけプロキシが作れない状態になっていたことがある。
 
 import { describe, expect, it } from 'vitest'
-import { ENCODERS, crfToBitrateK } from './encoders'
+import { ENCODERS, GPU_ENCODER_IDS, crfToBitrateK } from './encoders'
 
 describe('焼く設定', () => {
   it('どの符号化器にも 書き出し用・プロキシ用・最高画質(軽い)用 がそろっている', () => {
@@ -50,6 +50,24 @@ describe('焼く設定', () => {
         if (f != null && u != null) expect(u, `${e.v} の ${key}`).toBeLessThan(f)
       }
     }
+  })
+
+  it('GPU の印が付いた物は、CPU（x264 / OpenH264）より前に並ぶ（前から順に試すので）', () => {
+    const firstCpu = ENCODERS.findIndex((e) => !e.gpu)
+    for (const [i, e] of ENCODERS.entries()) {
+      if (e.gpu) expect(i, `${e.v} が CPU より後ろ`).toBeLessThan(firstCpu)
+    }
+    // 「途中で落ちたら CPU でやり直す」の判定は表から引く。写しを戻さない
+    expect(GPU_ENCODER_IDS).toEqual(ENCODERS.filter((e) => e.gpu).map((e) => e.v))
+    expect(GPU_ENCODER_IDS).toContain('h264_nvenc')
+    expect(GPU_ENCODER_IDS).not.toContain('libopenh264')
+  })
+
+  it('Windows 標準の道（h264_mf）が NVENC / QSV / AMF の後・CPU の前にある', () => {
+    // 自分の名指し（nvenc 等）で落ちる機械の2番手。サブPCで実際に要った（2026-10-09）
+    const v = ENCODERS.map((e) => e.v)
+    expect(v.indexOf('h264_mf')).toBeGreaterThan(v.indexOf('h264_amf'))
+    expect(v.indexOf('h264_mf')).toBeLessThan(v.indexOf('libx264'))
   })
 
   it('最後の砦（OpenH264）は必ず一覧の最後にある', () => {

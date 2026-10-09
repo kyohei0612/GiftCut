@@ -30,7 +30,7 @@ import { join, normalize } from 'path'
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, utimesSync } from 'fs'
 import { createHash } from 'crypto'
 import { cpus, setPriority, constants as osConstants } from 'os'
-import { ENCODERS } from './encoders'
+import { ENCODERS, GPU_ENCODER_IDS } from './encoders'
 import { FFMPEG, FFPROBE, trackedSpawn, tryEncoder, videoEncoder } from './ffmpegRun'
 import { allowFile, isAllowed } from './allowList'
 
@@ -251,7 +251,7 @@ ipcMain.handle('video:proxy', async (e, videoPath: string, height?: number) => {
   let r = await runOnce(args)
   // GPU で焼いていて失敗したら CPU でやり直す（書き出しと同じ考え方）。
   // 起動時は通っても、書き出しと同時に走るとドライバの同時本数を超えて落ちることがある。
-  if (r.code !== 0 && ['h264_nvenc', 'h264_qsv', 'h264_amf'].includes(enc.v)) {
+  if (r.code !== 0 && GPU_ENCODER_IDS.includes(enc.v)) {
     const x264 = ENCODERS.find((en) => en.v === 'libx264')!
     const oh264 = ENCODERS.find((en) => en.v === 'libopenh264')!
     const cpu = (await tryEncoder(x264)) ? x264 : oh264

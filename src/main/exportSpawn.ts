@@ -32,7 +32,7 @@ import { tmpdir } from 'os'
 // **spawn は import しない。** 起動は必ず trackedSpawn 経由
 // （直に spawn すると、アプリを閉じた後も変換が走り続ける＝追跡から漏れる）
 import type { ChildProcess, ChildProcessWithoutNullStreams } from 'child_process'
-import { ENCODERS } from './encoders'
+import { ENCODERS, GPU_ENCODER_IDS } from './encoders'
 import { FFMPEG, liveTmpDirs, trackedSpawn, tryEncoder, useEncoder } from './ffmpegRun'
 
 // 書き出し中の ffmpeg プロセス（キャンセル用）。exportCanceled でユーザー中断とエラーを区別する。
@@ -222,7 +222,7 @@ export async function runExportFfmpeg(o: ExportSpawnOpts): Promise<ExportResult>
         resolve({ ok: true, outPath })
         return
       }
-      const usedGpu = args.some((a) => a === 'h264_nvenc' || a === 'h264_qsv' || a === 'h264_amf')
+      const usedGpu = args.some((a) => GPU_ENCODER_IDS.includes(a))
       if (usedGpu && !exportCanceled) {
         // CPU で焼き直す。**x264 があるとは限らない**（配布物は LGPL 版で、
         // x264 は入っていない）ので、実際に使える方を選ぶ。

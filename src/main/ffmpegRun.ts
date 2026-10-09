@@ -24,6 +24,7 @@ import { existsSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'child_process'
 import { ENCODERS, type Enc } from './encoders'
+import { dumpEncoderPick } from './exportDump'
 
 /** 走っている子プロセス。終了時にまとめて殺す */
 const liveProcs = new Set<ChildProcess>()
@@ -53,9 +54,15 @@ function ffBin(name: 'ffmpeg' | 'ffprobe'): string {
 export const FFMPEG = ffBin('ffmpeg')
 export const FFPROBE = ffBin('ffprobe')
 
-/** 実際に1枚焼いてみて、そのエンコーダが本当に使えるか確かめる */
-export function tryEncoder(enc: Enc): Promise<boolean> {
+/**
+ * 実際に1枚焼いてみて、そのエンコーダが本当に使えるか確かめる。**落ちた理由も返す。**
+ *
+ * 理由を捨てていたので、サブPCで「GPU はあるのに最初から OpenH264」になっても
+ * 何で落ちたかが分からなかった（2026-10-09）。ffmpeg の言い分（stderr）を持ち帰る。
+ */
+export function tryEncoderWhy(enc: Enc): Promise<{ ok: boolean; why: string; ms: number }> {
   return new Promise((res) => {
+    const t0 = Date.now()
     const p = spawn(FFMPEG, [
       '-v', 'error',
       '-f', 'lavfi',
@@ -65,14 +72,18 @@ export function tryEncoder(enc: Enc): Promise<boolean> {
       '-f', 'null',
       '-'
     ])
+    let why = ''
+    p.stderr.on('data', (d) => {
+      why += String(d)
+    })
     let done = false
-    const finish = (ok: boolean): void => {
+    const finish = (ok: boolean, note = ''): void => {
       if (done) return
       done = true
-      res(ok)
+      res({ ok, why: ok ? '' : why || note, ms: Date.now() - t0 })
     }
-    p.on('error', () => finish(false))
-    p.on('close', (code) => finish(code === 0))
+    p.on('error', (e) => finish(false, `起動できない: ${e.message}`))
+    p.on('close', (code) => finish(code === 0, `終了コード ${code}`))
     // 応答が無いドライバに引きずられない
     setTimeout(() => {
       try {
@@ -80,9 +91,14 @@ export function tryEncoder(enc: Enc): Promise<boolean> {
       } catch {
         /* noop */
       }
-      finish(false)
+      finish(false, '8秒待っても返ってこない')
     }, 8000)
   })
+}
+
+/** 使えるかだけ要る側（書き出し・プロキシのやり直し）向け */
+export async function tryEncoder(enc: Enc): Promise<boolean> {
+  return (await tryEncoderWhy(enc)).ok
 }
 
 // フィルタは長くなるのでファイルに書いて渡す（Windows のコマンドライン長 32767 を
@@ -138,15 +154,23 @@ export function videoEncoder(): Promise<Enc> {
       // 上から順に、実際に1枚焼けたものを使う。
       // 最後の1つ（OpenH264）は「これしか無い」ときの砦なので、
       // 試して駄目でもそれを返す（返せる物が無いと書き出し自体ができない）。
+      // **落ちた物の理由は控えに残す**（userData/last-encoder-pick.txt）。
+      // 画面には選んだ結果しか出ないので、「GPU があるのに CPU」の原因はここでしか読めない
+      const tries: { v: string; label: string; ok: boolean; ms: number; why: string }[] = []
+      let chosen: Enc | null = null
       for (const e of ENCODERS.slice(0, -1)) {
-        if (await tryEncoder(e)) {
-          console.log(`[書き出し] ${e.label} を使います（${e.v}）`)
-          return e
+        const r = await tryEncoderWhy(e)
+        tries.push({ v: e.v, label: e.label, ...r })
+        if (r.ok) {
+          chosen = e
+          break
         }
       }
       const last = ENCODERS[ENCODERS.length - 1]
-      console.log(`[書き出し] ${last.label} を使います（${last.v}）`)
-      return ENCODERS[ENCODERS.length - 1]
+      const pick = chosen ?? last
+      console.log(`[書き出し] ${pick.label} を使います（${pick.v}）`)
+      dumpEncoderPick(tries, `${pick.v}（${pick.label}）`)
+      return pick
     })()
   }
   return encoderPick
