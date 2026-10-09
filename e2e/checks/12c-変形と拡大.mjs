@@ -277,8 +277,10 @@ export default async function (C) {
       }
     }
     const moved = await page.locator('.screen-vclip').first().evaluate((el) => el.style.transform)
-    const reset = page.locator('button', { hasText: 'リセット' }).first()
-    assert(await reset.count(), '「リセット」のボタンが無い')
+    // **名前で指す。** 「リセット」を含む最初のボタンは、左パネルの上に常時出る
+    // アイコンの節（「サイズ・位置をリセット」・2026-10-09）になり、押しても変形は戻らない
+    const reset = page.locator('button', { hasText: '変形・調整をリセット' }).first()
+    assert(await reset.count(), '「変形・調整をリセット」のボタンが無い')
     await reset.click()
     await page.waitForTimeout(500)
     const after = await page.locator('.screen-vclip').first().evaluate((el) => el.style.transform)
