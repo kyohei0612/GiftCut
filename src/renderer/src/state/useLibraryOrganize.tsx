@@ -217,6 +217,12 @@ export function useLibraryOrganize(deps: UseLibraryOrganizeDeps) {
   const [iconOv, setIconOv] = useState<Record<string, string>>(() =>
     loadLS('giftcut.iconOverrides', {})
   )
+  // 動き（トランジションタブの「💫 動き」）の ★。編集者（本人の妻）の依頼（2026-10-09）。
+  // フォルダは要らないので ★ だけ。鍵は `標準:名前` のように群を前に付ける
+  //（標準・自分・取り込みで同じ名前が在り得るので、名前だけだと群をまたいで誤爆する）
+  const [motionFavs, setMotionFavs] = useState<string[]>(() =>
+    loadLS('giftcut.motionFavorites', [])
+  )
   /**
    * 効果音とアイコンの「お気に入り・フォルダ」は、**やっていることが同じ**。
    *
@@ -249,9 +255,12 @@ export function useLibraryOrganize(deps: UseLibraryOrganizeDeps) {
     reserved: ['fav', 'lib']
   }
   type Side = typeof seSide | typeof iconSide
+  /** ★ だけで足りる側（動き）。フォルダの無い物は `Side` の全部を持たなくてよい */
+  type FavSide = Pick<Side, 'favs'> & { keys: { fav: string } }
+  const motionSide: FavSide = { favs: setMotionFavs, keys: { fav: 'giftcut.motionFavorites' } }
 
   /** お気に入りの入切（入っていれば外す） */
-  const toggleFavOn = (s: Side, id: string): void =>
+  const toggleFavOn = (s: FavSide, id: string): void =>
     s.favs((prev) => {
       const n = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
       saveLS(s.keys.fav, n)
@@ -291,6 +300,7 @@ export function useLibraryOrganize(deps: UseLibraryOrganizeDeps) {
 
   const toggleSeFav = (p: string): void => toggleFavOn(seSide, p)
   const toggleIconFav = (id: string): void => toggleFavOn(iconSide, id)
+  const toggleMotionFav = (id: string): void => toggleFavOn(motionSide, id)
   const setSeFolderOf = (p: string, key: string | null): void => setFolderOn(seSide, p, key)
   const setIconFolderOf = (id: string, key: string | null): void => setFolderOn(iconSide, id, key)
   const addSeFolder = (): void => addFolderOn(seSide)
@@ -356,6 +366,7 @@ export function useLibraryOrganize(deps: UseLibraryOrganizeDeps) {
     setOpenAccSec, accSec, loadLS, saveLS,
     seFavs, seFolders, seOv,
     iconFavs, setIconFavs, iconFolders, iconOv, setIconOv,
+    motionFavs, toggleMotionFav,
     toggleSeFav, toggleIconFav, setSeFolderOf, setIconFolderOf,
     addSeFolder, deleteSeFolder, addIconFolder, deleteIconFolder,
     orgMenu, setOrgMenu, allCats, catOf, addCustomCat, deleteCustomCat

@@ -319,7 +319,8 @@
   display: block;
   color: #ffd257;
 }
-/* SE行の★お気に入り（右端。ホバー表示・ONは常時） */
+/* SE行・動きの行の★お気に入り（右端。ホバー表示・ONは常時）。
+   動き（.fx-item）も同じ見た目を使う＝4つ目の★CSSを作らない */
 .item-fav {
   margin-left: auto;
   flex: 0 0 auto;
@@ -332,7 +333,8 @@
   padding: 0 2px;
   visibility: hidden;
 }
-.se-item:hover .item-fav {
+.se-item:hover .item-fav,
+.fx-item:hover .item-fav {
   visibility: visible;
 }
 .item-fav.on {

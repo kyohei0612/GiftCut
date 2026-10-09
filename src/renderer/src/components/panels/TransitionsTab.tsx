@@ -136,7 +136,9 @@ export function TransitionsTab({
   myMotions,
   motionPresets,
   onApplyMotionPreset,
-  onDeleteMyMotion
+  onDeleteMyMotion,
+  motionFavs,
+  onToggleMotionFav
 }: {
   bodyRef: React.Ref<HTMLDivElement>
   accSec: (
@@ -187,6 +189,9 @@ export function TransitionsTab({
   motionPresets: MotionPresetFile[]
   onApplyMotionPreset: (p: MotionPresetFile) => void
   onDeleteMyMotion: (name: string) => void
+  /** ★ を付けた動き（`群:名前`）。入切は心臓（useLibraryOrganize）が持つ */
+  motionFavs: string[]
+  onToggleMotionFav: (id: string) => void
 }): JSX.Element {
   const list = (
     kinds: TransKind[],
@@ -263,6 +268,8 @@ export function TransitionsTab({
         motionPresets={motionPresets}
         onApplyMotionPreset={onApplyMotionPreset}
         onDeleteMyMotion={onDeleteMyMotion}
+        motionFavs={motionFavs}
+        onToggleMotionFav={onToggleMotionFav}
       />
       {accSec('transition', 'effect', '✨ エフェクト（テロップ強調）', null, (
         <>

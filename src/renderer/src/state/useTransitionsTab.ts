@@ -35,7 +35,7 @@ export function useTransitionsTab() {
   // 置き場（★・フォルダ・畳み）は**配線を通さず、直に見に行く**
   //（2026-08-04。往復していた34個を state/libraryContext へ寄せた）
   const {
-    accSec, myMotions, motionPresets, deleteMyMotion
+    accSec, myMotions, motionPresets, deleteMyMotion, motionFavs, toggleMotionFav
   } = useLibraryCtx()
   const { cues, segments } = useDoc()
   const { selectedTrans, setSelectedTrans, selectedTelopTrans, setSelectedTelopTrans } = useSel()
@@ -134,6 +134,8 @@ export function useTransitionsTab() {
     myMotions,
     motionPresets,
     onApplyMotionPreset: applyMotionPreset,
-    onDeleteMyMotion: deleteMyMotion
+    onDeleteMyMotion: deleteMyMotion,
+    motionFavs,
+    onToggleMotionFav: toggleMotionFav
   }
 }

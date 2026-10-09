@@ -28,7 +28,9 @@ export function MotionPresetList({
   myMotions,
   motionPresets,
   onApplyMotionPreset,
-  onDeleteMyMotion
+  onDeleteMyMotion,
+  motionFavs,
+  onToggleMotionFav
 }: {
   accSec: (
     tab: string,
@@ -53,6 +55,9 @@ export function MotionPresetList({
   motionPresets: MotionPresetFile[]
   onApplyMotionPreset: (p: MotionPresetFile) => void
   onDeleteMyMotion: (name: string) => void
+  /** ★ を付けた動き（`群:名前`）。入切は心臓（useLibraryOrganize）が持つ */
+  motionFavs: string[]
+  onToggleMotionFav: (id: string) => void
 }): JSX.Element {
   // 実物で72個並ぶ。名前で絞れないと目で探すことになる
   const [q, setQ] = useState('')
@@ -69,6 +74,94 @@ export function MotionPresetList({
   const shownBuiltin = builtinMotions.filter(hit)
   const shownMine = myMotions.filter(hit)
   const shownImported = motionPresets.filter((p) => (showAll || usable(p)) && hit(p))
+
+  // ★ の鍵は `群:名前`。標準・自分・取り込みで同じ名前が在り得るので、名前だけだと
+  // 群をまたいで誤爆する（取り込みの「縦揺れ」に ★ を付けたら標準にも付く、が起きる）
+  const favId = (group: string, p: MotionPresetFile): string => `${group}:${p.name}`
+  const isFav = (group: string, p: MotionPresetFile): boolean =>
+    motionFavs.includes(favId(group, p))
+  /**
+   * 動き1つのボタン。**3つの群で同じ物を3回書いていたので1つにした**
+   * （★ を足すとき3回足す羽目になる＝片方だけ直す型の温床）。
+   * **クラス名は1つも変えない**（e2e が `.mo-preset` を数える）。
+   * ★ は <span>。ボタンの中にボタンは置けないので `.mo-del` と同じ作り。
+   * 見た目は効果音の ★（`.item-fav`）をそのまま使う（4つ目の ★ CSS を作らない）。
+   */
+  const item = (
+    group: string,
+    p: MotionPresetFile,
+    o: { ico: string; title: string; extraClass?: string; after?: JSX.Element }
+  ): JSX.Element => (
+    <button
+      key={favId(group, p)}
+      className={`fx-item mo-preset ${o.extraClass ?? ''}`}
+      title={o.title}
+      onClick={() => onApplyMotionPreset(p)}
+    >
+      <span className="fx-ico">{o.ico}</span>
+      <span className="fx-name">{p.name}</span>
+      <span
+        role="button"
+        className={`item-fav ${isFav(group, p) ? 'on' : ''}`}
+        title="お気に入り"
+        onClick={(e) => {
+          e.stopPropagation()
+          onToggleMotionFav(favId(group, p))
+        }}
+      >
+        {isFav(group, p) ? '★' : '☆'}
+      </span>
+      {o.after}
+    </button>
+  )
+  const builtinItem = (p: MotionPresetFile): JSX.Element =>
+    item('標準', p, { ico: '💫', title: 'この動きを付ける' })
+  const mineItem = (p: MotionPresetFile): JSX.Element =>
+    item('自分', p, {
+      ico: '⭐',
+      title: 'この動きを付ける',
+      after: (
+        <span
+          className="mo-del"
+          title="この動きを消す"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDeleteMyMotion(p.name)
+          }}
+        >
+          ✕
+        </span>
+      )
+    })
+  const importedItem = (p: MotionPresetFile): JSX.Element => {
+    // 3通り: そのまま使える / 一部だけ / 動きが1つも取れなかった
+    const none = Object.keys(p.motion).length === 0
+    const part = !none && !!p.partial?.length
+    const lack = p.partial?.length ? `（こちらに無い物: ${p.partial.join(' / ')}）` : ''
+    // 2枚重ねの上側。単体だと最後に文字が消える（壊れているのではない）
+    const pair = !none && p.endsHidden
+    return item('取り込み', p, {
+      ico: none ? '✕' : pair ? '🔼' : part ? '△' : '💫',
+      title: none
+        ? `動きを持ってこられませんでした${lack}`
+        : pair
+          ? '2枚重ねの上側用です。単体で当てると、終わりで文字が消えます' +
+            '（同じ名前の「_下」と重ねて使う物）' + lack
+          : part
+            ? `一部だけ再現できます${lack}`
+            : 'この動きを付ける',
+      /* 取り込んだ物だと分かる印を付けておく（標準と同じ見た目だが、
+         数えるときに区別が要る＝自動チェックが「取り込みが効いたか」を
+         見られなくなる） */
+      extraClass: `mo-preset-imported ${none ? 'mo-preset-none' : part ? 'mo-preset-part' : ''}`
+    })
+  }
+  // ★ の群。しぼり込み（q・showAll）はそのまま効かせる
+  const favRows: JSX.Element[] = [
+    ...shownBuiltin.filter((p) => isFav('標準', p)).map(builtinItem),
+    ...shownMine.filter((p) => isFav('自分', p)).map(mineItem),
+    ...shownImported.filter((p) => isFav('取り込み', p)).map(importedItem)
+  ]
   // 写し取った動き。**強調と同じで「選んでいるテロップにクリックで付く」**。
   // 名前が 05.飛び出し のような演出名なので、置き場もここが合っている
   // （左のモーションタブは、付けたあと数値を詰める所）。
@@ -103,21 +196,19 @@ export function MotionPresetList({
         )}
       </div>
 
+      {/* ★ を付けた物を先頭に。効果音と同じ形（一覧の順は変えず、節として上に出す）。
+          無いときは見出しごと出さない（空の見出しは「壊れている」に見える）。
+          e2e は `.mo-preset` を数えるが、素の状態では ★ が無いので数は変わらない */}
+      {favRows.length > 0 && (
+        <>
+          <div className="mo-group">★ お気に入り</div>
+          <div className="fx-list mo-preset-list">{favRows}</div>
+        </>
+      )}
+
       {/* 最初から入っている物。**ここだけは必ず出る**（空の一覧を見せない） */}
       <div className="mo-group">標準</div>
-      <div className="fx-list mo-preset-list">
-        {shownBuiltin.map((p) => (
-          <button
-            key={p.name}
-            className="fx-item mo-preset"
-            title="この動きを付ける"
-            onClick={() => onApplyMotionPreset(p)}
-          >
-            <span className="fx-ico">💫</span>
-            <span className="fx-name">{p.name}</span>
-          </button>
-        ))}
-      </div>
+      <div className="fx-list mo-preset-list">{shownBuiltin.map(builtinItem)}</div>
 
       {/* 自分で作って保存した物。**作り方の入口をここに書いておく**
           （保存する場所と使う場所が離れていると、あることに気づけない） */}
@@ -130,29 +221,7 @@ export function MotionPresetList({
       {shownMine.length === 0 ? (
         <div className="tpl-hint">まだありません。</div>
       ) : (
-        <div className="fx-list mo-preset-list">
-          {shownMine.map((p) => (
-            <button
-              key={p.name}
-              className="fx-item mo-preset"
-              title="この動きを付ける"
-              onClick={() => onApplyMotionPreset(p)}
-            >
-              <span className="fx-ico">⭐</span>
-              <span className="fx-name">{p.name}</span>
-              <span
-                className="mo-del"
-                title="この動きを消す"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onDeleteMyMotion(p.name)
-                }}
-              >
-                ✕
-              </span>
-            </button>
-          ))}
-        </div>
+        <div className="fx-list mo-preset-list">{shownMine.map(mineItem)}</div>
       )}
 
       {/* 取り込んだ物。**入っているときだけ出す。**
@@ -171,41 +240,7 @@ export function MotionPresetList({
             {showAll && <span>△ 一部だけ</span>}
             {showAll && <span>✕ 動きなし</span>}
           </div>
-          <div className="fx-list mo-preset-list">
-            {shownImported.map((p) => {
-              // 3通り: そのまま使える / 一部だけ / 動きが1つも取れなかった
-              const none = Object.keys(p.motion).length === 0
-              const part = !none && !!p.partial?.length
-              const lack = p.partial?.length
-                ? `（こちらに無い物: ${p.partial.join(' / ')}）`
-                : ''
-              // 2枚重ねの上側。単体だと最後に文字が消える（壊れているのではない）
-              const pair = !none && p.endsHidden
-              return (
-                <button
-                  key={p.name}
-                  /* 取り込んだ物だと分かる印を付けておく（標準と同じ見た目だが、
-                     数えるときに区別が要る＝自動チェックが「取り込みが効いたか」を
-                     見られなくなる） */
-                  className={`fx-item mo-preset mo-preset-imported ${none ? 'mo-preset-none' : part ? 'mo-preset-part' : ''}`}
-                  title={
-                    none
-                      ? `動きを持ってこられませんでした${lack}`
-                      : pair
-                        ? '2枚重ねの上側用です。単体で当てると、終わりで文字が消えます' +
-                          '（同じ名前の「_下」と重ねて使う物）' + lack
-                        : part
-                          ? `一部だけ再現できます${lack}`
-                          : 'この動きを付ける'
-                  }
-                  onClick={() => onApplyMotionPreset(p)}
-                >
-                  <span className="fx-ico">{none ? '✕' : pair ? '🔼' : part ? '△' : '💫'}</span>
-                  <span className="fx-name">{p.name}</span>
-                </button>
-              )
-            })}
-          </div>
+          <div className="fx-list mo-preset-list">{shownImported.map(importedItem)}</div>
         </>
       )}
     </>
