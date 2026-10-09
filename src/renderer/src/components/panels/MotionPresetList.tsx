@@ -40,7 +40,7 @@ export function MotionPresetList({
   /**
    * 動きの一覧。3つに分けて並べる。
    *
-   *   builtinMotions … 最初から入っている20種。**配布物に入る**（こちらで打った値）
+   *   builtinMotions … 最初から入っている標準の動き。**配布物に入る**（こちらで打った値）
    *   myMotions      … 自分で作って名前を付けて保存した物
    *   motionPresets  … Premiere の .prfpset から取り込んだ物。**配布物には入らない**
    *

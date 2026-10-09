@@ -20,8 +20,8 @@ const durOf = (m: Record<string, unknown>): number => {
 }
 
 describe('最初から入っている動き', () => {
-  it('20種そろっている', () => {
-    expect(BUILTIN_MOTIONS.length).toBe(20)
+  it('23種そろっている（20 ＋ 叫ぶ系の縦3種・2026-10-09）', () => {
+    expect(BUILTIN_MOTIONS.length).toBe(23)
   })
 
   it('名前が重ならない（一覧で見分けが付かなくなる）', () => {
