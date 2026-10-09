@@ -1,4 +1,5 @@
 import { useId, useMemo } from 'react'
+import { DEFAULT_TELOP_POS } from '../lib/telopPlace'
 import {
   anchorFlex,
   anchorTranslate,
@@ -92,7 +93,7 @@ export default function TelopText({
   // 自動調整用: テロップのフォントサイズに比例した隙間/縁取り（1080基準px→cqh）
   const autoGap = cqh(style.fontSize * 0.25)
   const autoBorder = cqh(style.fontSize * 0.07)
-  const p = pos ?? { x: 0.5, y: 0.85 }
+  const p = pos ?? DEFAULT_TELOP_POS
   const box = style.box
   const handleCursors = ['nwse-resize', 'nesw-resize', 'nesw-resize', 'nwse-resize']
   // 自動調整ONは左側固定

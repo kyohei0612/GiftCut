@@ -1,5 +1,6 @@
 import { defaultTelopStyle, type Motion, type TelopStyle, type TextRun } from './telopStyle'
 import { DEFAULT_LABEL } from './labels'
+import { DEFAULT_TELOP_POS } from './telopPlace'
 
 export interface Cue {
   id: number
@@ -46,7 +47,7 @@ export function parseSrt(raw: string): Cue[] {
       text,
       style: defaultTelopStyle(),
       label: DEFAULT_LABEL,
-      pos: { x: 0.5, y: 0.85 }
+      pos: { ...DEFAULT_TELOP_POS }
     })
   }
   return cues

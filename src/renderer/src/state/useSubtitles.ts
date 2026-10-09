@@ -18,6 +18,7 @@ import { DB_LADDER, enoughSilences } from '../../../shared/silenceLadder'
 import { ensureMinShow, mergeShreds, splitAtPauses } from '../../../shared/splitTelop'
 import { parseSrt, type Cue } from '../lib/srt'
 import { DEFAULT_LABEL } from '../lib/labels'
+import { DEFAULT_TELOP_POS, placeNewTelops } from '../lib/telopPlace'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useMediaCtx } from './mediaContext'
@@ -106,7 +107,7 @@ export function useSubtitles(deps: UseSubtitlesDeps) {
     )
     const base = subReplace ? [] : cues
     let id = Math.max(0, ...cues.map((c) => c.id)) + 1
-    const made: Cue[] = aligned.map((a) => ({
+    const raw: Cue[] = aligned.map((a) => ({
       id: id++,
       start: a.start,
       end: a.end,
@@ -115,9 +116,11 @@ export function useSubtitles(deps: UseSubtitlesDeps) {
       // 見た目は「次に足すテロップ」の既定に合わせる。
       // 字幕だけ別の見た目になると、あとで揃え直す手間が増える
       label: DEFAULT_LABEL,
-      pos: { x: 0.5, y: 0.85 },
+      pos: { ...DEFAULT_TELOP_POS },
       style: { ...newTelopStyle }
     }))
+    // 残す既存テロップと同じ時刻に出る札は、その真上に積む（画面で被らないように）
+    const made = placeNewTelops(base, raw)
     setCues([...base, ...made].sort((a, b) => a.start - b.start))
     setSubtitleState({ phase: 'idle' })
     setSubtitleOpen(false)
@@ -141,6 +144,10 @@ export function useSubtitles(deps: UseSubtitlesDeps) {
           return st
         })()
       }))
+    } else {
+      // SRT の中で時刻が重なる札（二人が同時に喋る）は、後の札を先の札の真上に積む。
+      // 既存のテロップは全部置き換えるので、相手はこの群の中だけ
+      parsed = placeNewTelops([], parsed)
     }
     // 既存テロップを全置換するので、消える前に確認する（動画差し替えには確認が
     // あるのに、こちらは無確認でスタイル済みテロップが全部消え、Undoも効かなかった）

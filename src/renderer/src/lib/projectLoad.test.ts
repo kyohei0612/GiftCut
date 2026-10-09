@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { loadCues, loadSegs, loadSeClips, loadMarkers, loadImgClips, loadVClips } from './projectLoad'
+import { DEFAULT_TELOP_POS } from './telopPlace'
 
 /** トラックはぜんぶ在る、という前提の受け皿 */
 const asIs = (id: string): string => id
@@ -43,7 +44,8 @@ describe('テロップを読み直す', () => {
   })
 
   it('位置が無ければ既定（下寄せ中央）にする', () => {
-    expect(loadCues([{ start: 0, end: 1, text: 'あ' }])[0].pos).toEqual({ x: 0.5, y: 0.85 })
+    // 数字をここに写さない。既定は lib/telopPlace だけが持つ
+    expect(loadCues([{ start: 0, end: 1, text: 'あ' }])[0].pos).toEqual(DEFAULT_TELOP_POS)
   })
 
   it('配列でなければ空にする（壊れたファイルで落ちない）', () => {

@@ -18,6 +18,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { defaultTelopStyle, sanitizeMotion } from './telopStyle'
+import { DEFAULT_TELOP_POS } from './telopPlace'
 import { loadSegTrans } from './transitions'
 import { isNeutralZoom, isNeutralCrop, isNeutralAdjust } from './clipLook'
 import { sanitizeClipMotion } from '../../../shared/clipMotion'
@@ -81,7 +82,7 @@ export function loadCues(raw: any): Cue[] {
         pos:
           c.pos && typeof c.pos.x === 'number' && typeof c.pos.y === 'number'
             ? { x: c.pos.x, y: c.pos.y }
-            : { x: 0.5, y: 0.85 },
+            : { ...DEFAULT_TELOP_POS },
         // V1以外の映像トラックIDはそのまま維持（V4等へ退避したテロップが戻らなくなるのを防ぐ）
         track:
           typeof c.track === 'string' && /^V\d+$/.test(c.track) && c.track !== 'V1'

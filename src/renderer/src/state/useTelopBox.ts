@@ -37,8 +37,8 @@ export interface UseTelopBoxDeps {
   setIconAnchorPos: (p: { x: number; y: number }) => void
 }
 
-/** テロップの置き場所の既定（画面の下寄り・中央） */
-export const DEFAULT_TELOP_POS = { x: 0.5, y: 0.85 }
+// テロップの置き場所の既定は `lib/telopPlace` が持つ（前はここにも数字があり、7か所に写っていた）
+import { DEFAULT_TELOP_POS } from '../lib/telopPlace'
 
 export interface TelopBox {
   onTelopPointerDown: (cue: Cue, e: React.PointerEvent) => void

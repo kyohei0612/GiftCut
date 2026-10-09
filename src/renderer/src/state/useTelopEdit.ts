@@ -15,6 +15,7 @@ import { adjustRuns } from '../lib/textRuns'
 import type { Cue } from '../lib/srt'
 import { newTrackState } from '../lib/trackState'
 import { DEFAULT_LABEL } from '../lib/labels'
+import { DEFAULT_TELOP_POS, placeNewTelops } from '../lib/telopPlace'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
@@ -111,7 +112,7 @@ export function useTelopEdit(deps: UseTelopEditDeps) {
       style.align = 'left'
       delete style.box
     }
-    const cue: Cue = {
+    const made: Cue = {
       id,
       start: t,
       end: t + 2,
@@ -121,9 +122,15 @@ export function useTelopEdit(deps: UseTelopEditDeps) {
       text: '',
       style,
       label: DEFAULT_LABEL,
-      pos: iconAuto && iconAnchorPos ? { ...iconAnchorPos } : { x: 0.5, y: 0.85 },
+      pos: { ...DEFAULT_TELOP_POS },
       track
     }
+    // 同じ時刻に既にテロップが出ていれば、その真上に積む（段が違っても画面では
+    // 同じ所に重なって読めない——編集者の指定）。アイコン軸が有効なときは軸が勝つ
+    const cue: Cue =
+      iconAuto && iconAnchorPos
+        ? { ...made, pos: { ...iconAnchorPos } }
+        : placeNewTelops(cues, [made])[0]
     setCues((prev) => [...prev, cue].sort((a, b) => a.start - b.start))
     clearAllSelections()
     setSelectedIds([id])

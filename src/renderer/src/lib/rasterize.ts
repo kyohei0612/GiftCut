@@ -18,6 +18,7 @@ import {
   type AnimState
 } from './telopStyle'
 import { autoIconHeight } from './telopLayout'
+import { DEFAULT_TELOP_POS } from './telopPlace'
 import { hexToRgba } from './telopFill'
 import type { Cue } from './srt'
 
@@ -68,7 +69,7 @@ function innerHtml(
   const autoGap = fs * 0.25
   const autoBorder = fs * 0.07
 
-  const p = cue.pos ?? { x: 0.5, y: 0.85 }
+  const p = cue.pos ?? DEFAULT_TELOP_POS
   // アニメ層（opacity/transform/フィルタ/切り抜き）。無ければ素通し。
   // **切り抜きはフレームの何％で入ってくる**ので、文字の箱がフレームのどこを
   // 占めるかを渡して直してもらう（プレビューと同じ textRectInFrame を通す。
