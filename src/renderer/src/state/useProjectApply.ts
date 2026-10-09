@@ -82,7 +82,7 @@ export function useProjectApply(deps: UseProjectApplyDeps) {
   const { setRatio, setExportOpts, setMasterVolume, setLoudnormLUFS } = useExportCtx()
   const { setVideoPath, setVideoSrc, setVideoName, setVideoDuration, setSources, sourceIdCounter, curSourceIdRef, setActiveSrcId, setMediaItems, mediaIdCounter, setWaveform, setThumbnailSrc, setProxyPct } = useMediaCtx()
   // **入れる側しか要らない。** ここは流し込む所なので、いまの値は読まない
-  const { setIconSide, setIconOffset, setIconScale, setIconAuto, setIconAnchorPos } = useIconsCtx()
+  const { setIconSide, setIconOffset, setIconScale, setIconAuto, setIconEnabled, setIconAnchorPos } = useIconsCtx()
   const { setFps } = usePlaybackCtx()
   const {
     setProjectPath, setSrtPath, setMissingMedia,
@@ -254,6 +254,12 @@ export function useProjectApply(deps: UseProjectApplyDeps) {
     else setIconOffset({ x: 0, y: 0 })
     setIconScale(typeof d.iconScale === 'number' && d.iconScale > 0 ? d.iconScale : 1)
     setIconAuto(d.iconAuto === true)
+    // 割り当てで付くアイコンを出すか。**無い古いファイルはテロップが在れば「入」**
+    //（このスイッチが無かった頃はいつも出ていたので、開いたら顔が消える、を起こさない）。
+    // まっさら（テロップ0）は「切」＝新しいプロジェクトの既定
+    setIconEnabled(
+      typeof d.iconEnabled === 'boolean' ? d.iconEnabled : loadedCues.length > 0
+    )
     setIconAnchorPos(
       d.iconAnchorPos &&
         typeof d.iconAnchorPos.x === 'number' &&

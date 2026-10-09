@@ -41,6 +41,16 @@ export interface Icons {
    */
   iconAuto: boolean
   setIconAuto: React.Dispatch<React.SetStateAction<boolean>>
+  /**
+   * 色・段の割り当てで付くアイコンを**出すか**（プロジェクト全体。既定は切）。
+   *
+   * 割り当ては利用者の設定として残る（localStorage → ユーザー設定.json）ので、
+   * 一度でも割り当てると新しいプロジェクトでテロップを足した瞬間から顔が付いていた
+   * （「何も設定していないのにアイコンが付く」・編集者の指摘、2026-10-09）。
+   * テロップに直に落とした1枚（iconImage）はこれに関係なく出る。
+   */
+  iconEnabled: boolean
+  setIconEnabled: React.Dispatch<React.SetStateAction<boolean>>
   /** 揃えるときの軸（左端・縦中央の1点） */
   iconAnchorPos: { x: number; y: number } | null
   setIconAnchorPos: React.Dispatch<React.SetStateAction<{ x: number; y: number } | null>>
@@ -62,6 +72,7 @@ export function useIcons(): Icons {
   const [iconOffset, setIconOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [iconScale, setIconScale] = useState<number>(1)
   const [iconAuto, setIconAuto] = useState<boolean>(false)
+  const [iconEnabled, setIconEnabled] = useState<boolean>(false)
   const [iconAnchorPos, setIconAnchorPos] = useState<{ x: number; y: number } | null>(null)
   const [iconSettingsOpen, setIconSettingsOpen] = useState(false)
 
@@ -74,12 +85,17 @@ export function useIcons(): Icons {
     setIconScale,
     iconAuto,
     setIconAuto,
+    iconEnabled,
+    setIconEnabled,
     iconAnchorPos,
     setIconAnchorPos,
     iconSettingsOpen,
     setIconSettingsOpen,
-    iconForCue: (c, assign, laneAssign, trackOf) =>
+    iconForCue: (c, assign, laneAssign, trackOf) => {
       // **その1枚だけ消してある**ときは、割り当てがあっても出さない
-      c.personIcon === false ? undefined : (c.iconImage ?? assign[c.label] ?? laneAssign[trackOf(c)])
+      if (c.personIcon === false) return undefined
+      // 直に落とした1枚は全体のスイッチに関係なく出る。割り当てで付く物はスイッチが入のときだけ
+      return c.iconImage ?? (iconEnabled ? (assign[c.label] ?? laneAssign[trackOf(c)]) : undefined)
+    }
   }
 }

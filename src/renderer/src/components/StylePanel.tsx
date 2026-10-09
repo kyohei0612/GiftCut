@@ -4,8 +4,9 @@
 //
 //   整列と変形 … フレームのどこへ置くか・固定ボックスの中でどう寄せるか
 //   スタイル   … 名前を付けて保存した見た目（プリセット）
-//   コラボアイコン … **GiftCut 固有**。テロップの横に顔を出す
 //   テキスト   … フォント・大きさ・行間・字間
+//   ※ コラボアイコン（テロップの横に顔を出す）は**ここに無い**。全体の設定なので
+//     `components/IconSettings`（左パネルの上に常時）へ移した（2026-10-09）
 //   アピアランス … 塗り・縁・背景・影 → **`./StyleAppearance`（別ファイル）**
 //
 // 並び順は CSS の flex order（`sp-sec-{名前}`）が持っている。
@@ -50,19 +51,9 @@ interface Props {
   presets: StylePreset[]
   onSavePreset: (name: string) => void
   onApplyPreset: (style: TelopStyle) => void
-  label: string
-  iconOn: boolean // コラボアイコン表示ON
-  onToggleIcon: (on: boolean) => void
-  currentIconImage?: string // 現在の実効アイコン画像（プレビュー用）
-  onOpenIconSettings: () => void
-  iconScale: number // アイコンサイズ倍率
-  onIconScaleChange: (v: number) => void
-  iconAuto: boolean // 自動調整（テロップ高さに追従・左固定）
-  onIconAutoChange: (v: boolean) => void
-  iconSide: 'left' | 'right' | 'top' | 'bottom'
-  onIconSideChange: (s: 'left' | 'right' | 'top' | 'bottom') => void
-  iconOffset: { x: number; y: number }
-  onIconOffsetChange: (o: { x: number; y: number }) => void
+  // ※ コラボアイコンの設定（出す側・大きさ・自動調整・割当）はここに無い。
+  //   プロジェクト全体の設定なので、テロップを選んでいなくても出る
+  //   `components/IconSettings` へ移した（2026-10-09・編集者の指定）
   onAlign: (hx: 'l' | 'c' | 'r', vy: 't' | 'm' | 'b') => void // フレーム内の配置
   onBoxAnchor: (hx: 'l' | 'c' | 'r', vy: 't' | 'm' | 'b') => void // 固定ボックス内の寄せ
   onClearBox: () => void // 固定ボックス解除
@@ -74,19 +65,6 @@ export default function StylePanel({
   presets,
   onSavePreset,
   onApplyPreset,
-  label,
-  iconOn,
-  onToggleIcon,
-  currentIconImage,
-  onOpenIconSettings,
-  iconScale,
-  onIconScaleChange,
-  iconAuto,
-  onIconAutoChange,
-  iconSide,
-  onIconSideChange,
-  iconOffset,
-  onIconOffsetChange,
   onAlign,
   onBoxAnchor,
   onClearBox
@@ -95,7 +73,7 @@ export default function StylePanel({
   // ※ 塗りのピッカーを開いているかは ./StyleAppearance の中の持ち物になった
   //   （開けるのも閉じるのもあの節だけ。外が知る必要が無い）
   /**
-   * 節の開け閉め（見出しを押すと畳める）。既定はスタイル／アイコンを閉じておく。
+   * 節の開け閉め（見出しを押すと畳める）。既定はスタイルを閉じておく。
    *
    * **覚えておく。** 前は組み立て直すたびに既定へ戻っていたので、
    * 選ぶ物を変えるたびに開き直す羽目になっていた（＝触った所も畳まれる）。
@@ -110,7 +88,7 @@ export default function StylePanel({
     } catch {
       /* 読めなければ既定で始める */
     }
-    return { style: true, icon: true }
+    return { style: true }
   })
   const toggle = (k: string): void =>
     setClosed((p) => {
@@ -122,7 +100,7 @@ export default function StylePanel({
       }
       return next
     })
-  // sp-sec-{k}: CSS flex order で表示順を制御（整列→スタイル→テキスト→アピアランス→アイコン）
+  // sp-sec-{k}: CSS flex order で表示順を制御（整列→スタイル→テキスト→アピアランス）
   const secCls = (k: string): string => `sp-section sp-sec-${k} ${closed[k] ? 'sec-closed' : ''}`
   const set = (patch: Partial<TelopStyle>): void => onChange({ ...style, ...patch })
   // フォントサイズ変更は縁・影・ベベル・箱もすべて同率でスケール＝相似形を保つ。
@@ -241,116 +219,8 @@ export default function StylePanel({
         </div>
       </div>
 
-      {/* ===== コラボアイコン（GiftCut固有。CSS orderで最下段に表示）===== */}
-      <div className={secCls('icon')}>
-        <div className="sp-head sp-head-btn" onClick={() => toggle('icon')}>
-          {closed.icon ? '▶' : '▼'} コラボアイコン（テロップ前に表示）
-        </div>
-        <div className="sp-row">
-          <input
-            type="checkbox"
-            checked={iconOn}
-            onChange={(e) => onToggleIcon(e.target.checked)}
-          />
-          <span className="sp-label">この色のテロップに表示（単体はD&amp;Dで）</span>
-          {iconOn && currentIconImage ? (
-            <img
-              src={currentIconImage}
-              alt=""
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: '50%',
-                objectFit: 'cover',
-                border: `2px solid ${label}`
-              }}
-            />
-          ) : iconOn ? (
-            <span className="sp-label" style={{ opacity: 0.7 }}>
-              この色に画像未割当
-            </span>
-          ) : null}
-        </div>
-        <div className="sp-row">
-          <input
-            type="checkbox"
-            checked={iconAuto}
-            onChange={(e) => onIconAutoChange(e.target.checked)}
-          />
-          <span className="sp-label">自動調整（テロップの行/大きさに合わせる・左固定）</span>
-        </div>
-        <div className="sp-row">
-          <span className="sp-label">位置</span>
-          <div className="seg" style={iconAuto ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
-            {(
-              [
-                ['left', '左'],
-                ['right', '右'],
-                ['top', '上'],
-                ['bottom', '下']
-              ] as const
-            ).map(([s, lb]) => (
-              <button
-                key={s}
-                className={`seg-btn ${(iconAuto ? 'left' : iconSide) === s ? 'seg-on' : ''}`}
-                onClick={() => onIconSideChange(s)}
-              >
-                {lb}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="sp-row">
-          <span className="sp-label">サイズ</span>
-          <input
-            type="range"
-            min={20}
-            max={300}
-            step={5}
-            value={Math.round(iconScale * 100)}
-            onChange={(e) => onIconScaleChange(Number(e.target.value) / 100)}
-          />
-          <span className="sp-val">{Math.round(iconScale * 100)}%</span>
-        </div>
-        <div className="sp-row">
-          <span className="sp-label">X調整</span>
-          <input
-            type="range"
-            min={-200}
-            max={200}
-            step={2}
-            value={iconOffset.x}
-            onChange={(e) => onIconOffsetChange({ ...iconOffset, x: Number(e.target.value) })}
-          />
-          <span className="sp-val">{Math.round(iconOffset.x)}</span>
-        </div>
-        <div className="sp-row">
-          <span className="sp-label">Y調整</span>
-          <input
-            type="range"
-            min={-200}
-            max={200}
-            step={2}
-            value={iconOffset.y}
-            onChange={(e) => onIconOffsetChange({ ...iconOffset, y: Number(e.target.value) })}
-          />
-          <span className="sp-val">{Math.round(iconOffset.y)}</span>
-        </div>
-        <div className="sp-row">
-          <button
-            className="btn small"
-            onClick={() => {
-              onIconScaleChange(1)
-              onIconOffsetChange({ x: 0, y: 0 })
-            }}
-          >
-            サイズ・位置をリセット
-          </button>
-        </div>
-        <button className="btn small" onClick={onOpenIconSettings}>
-          アイコン設定（色ごとに画像を割当）…
-        </button>
-      </div>
+      {/* コラボアイコンの節はここに無い。全体の設定なので、テロップを選んでいなくても
+          出る `components/IconSettings` にある（左パネルの上に常時）。 */}
 
       {/* ===== テキスト ===== */}
       <div className={secCls('text')}>

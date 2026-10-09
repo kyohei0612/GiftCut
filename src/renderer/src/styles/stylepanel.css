@@ -10,12 +10,12 @@
   padding: 10px 0;
   border-bottom: 1px solid var(--line);
 }
-/* 表示順: 整列と変形 → スタイル → テキスト → アピアランス → コラボアイコン */
+/* 表示順: 整列と変形 → スタイル → テキスト → アピアランス
+   （コラボアイコンは全体の設定なので別の節 components/IconSettings。左パネルの上に常時出る） */
 .sp-sec-align { order: 1; }
 .sp-sec-style { order: 2; }
 .sp-sec-text { order: 3; }
 .sp-sec-app { order: 4; }
-.sp-sec-icon { order: 5; }
 .sp-head {
   font-size: 12px;
   color: #cfcfd6;

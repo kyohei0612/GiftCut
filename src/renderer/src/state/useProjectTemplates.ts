@@ -86,7 +86,7 @@ export function useProjectTemplates(deps: UseProjectTemplatesDeps) {
   const { mediaItems, setMediaItems, mediaIdCounter } = useMediaCtx()
   const {
     iconSide, setIconSide, iconOffset, setIconOffset, iconScale, setIconScale,
-    iconAuto, setIconAuto, iconAnchorPos, setIconAnchorPos
+    iconAuto, setIconAuto, iconEnabled, setIconEnabled, iconAnchorPos, setIconAnchorPos
   } = useIconsCtx()
   const {
     setProjectPath, favorites, setFavorites, catOverrides, setCatOverrides,
@@ -111,6 +111,7 @@ export function useProjectTemplates(deps: UseProjectTemplatesDeps) {
         iconOffset,
         iconScale,
         iconAuto,
+        iconEnabled,
         iconAnchorPos,
         // テンプレは「開始状態を揃える」ものなので、テロップの自作テンプレと
         // アイコン割当・既定スタイルも含める（含めないと★が存在しないテンプレを指す）
@@ -159,6 +160,7 @@ export function useProjectTemplates(deps: UseProjectTemplatesDeps) {
     if (d.iconOffset && typeof d.iconOffset.x === 'number') setIconOffset(d.iconOffset)
     if (typeof d.iconScale === 'number') setIconScale(d.iconScale)
     if (typeof d.iconAuto === 'boolean') setIconAuto(d.iconAuto)
+    if (typeof d.iconEnabled === 'boolean') setIconEnabled(d.iconEnabled)
     if (d.iconAnchorPos && typeof d.iconAnchorPos.x === 'number' && typeof d.iconAnchorPos.y === 'number')
       setIconAnchorPos({ x: d.iconAnchorPos.x, y: d.iconAnchorPos.y })
     // 動画ズーム（リフレーム）は切片ごと（loadedSegs で復元済み）。旧グローバル videoZoom は無視。

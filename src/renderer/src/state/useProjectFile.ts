@@ -90,7 +90,7 @@ export function useProjectFile(deps: UseProjectFileDeps) {
   const { showToast } = useToastCtx()
   const { ratio, exportOpts, masterVolume, loudnormLUFS } = useExportCtx()
   const { videoPath, sources, mediaItems } = useMediaCtx()
-  const { iconSide, iconOffset, iconScale, iconAuto, iconAnchorPos } = useIconsCtx()
+  const { iconSide, iconOffset, iconScale, iconAuto, iconEnabled, iconAnchorPos } = useIconsCtx()
   const {
     projectPath, setProjectPath, setRecentProjects,
     // ※ テロップの整理（★/分類/自作フォルダ/自作テロップ）は ./useProjectTemplates へ。
@@ -142,6 +142,8 @@ export function useProjectFile(deps: UseProjectFileDeps) {
         iconOffset,
         iconScale,
         iconAuto,
+        // 割り当てで付くアイコンを出すか（全体）。無い古いファイルは読む側が決める
+        iconEnabled,
         iconAnchorPos,
         // ラベル色/レーンごとのアイコン割当。プロジェクトに入れないと、別PCで開いたとき
         // 「個別にD&Dしたアイコンだけ残り、色で割り当てたアイコンが無警告で全部消える」。

@@ -25,7 +25,7 @@ import { useLayout } from '../state/layoutContext'
 import { useLeftPanel } from '../state/leftPanelContext'
 import { useSel } from '../state/selectionContext'
 import { useDoc } from '../state/contentContext'
-import { useIconsCtx } from '../state/iconsContext'
+import { IconSettings } from './IconSettings'
 import { useEdit } from '../state/useEdit'
 import type { Cue } from '../lib/srt'
 import type { ReframeTarget } from '../lib/projectTypes'
@@ -98,19 +98,19 @@ export interface LeftPanelProps {
 export function LeftPanel(): React.JSX.Element {
   // **受け取らず、心臓から自分で見に行く**（state/leftPanelContext.tsx）。
   // 右パネル・プレビュー・タイムラインと同じ流儀に揃えてある。
+  // ※ changeIconAuto / setPersonIconForSelected / iconForCue はここでは受け取らない。
+  //   使うのはアイコンの節（components/IconSettings）だけで、あちらが自分で見に行く
   const {
     alignTelop,
     applyTemplate,
-    changeIconAuto,
     pairedAudioOf,
     panelStyleFor,
     savePreset,
     setBoxAnchor,
-    setPersonIconForSelected,
     setSelectedSegSpeed,
     updateSelectedStyle,
     updateSelectedText,
-    userTemplates,    iconForCue
+    userTemplates
   } = useLeftPanel()
 
   // **区画は props で受け取らず、心臓から自分で見に行く**（state/layoutContext.tsx）。
@@ -119,7 +119,6 @@ export function LeftPanel(): React.JSX.Element {
   const { leftW, leftTab, setLeftTab } = useLayout()
   const { selectedIds, selectedSeIds, selectedImgIds, selectedVClipIds, selectedVideoIds, selectedAudioIds } = useSel()
   const { segments, seClips, imgClips, vClips } = useDoc()
-  const { iconSide, setIconSide, iconOffset, setIconOffset, iconScale, setIconScale, iconAuto, setIconSettingsOpen } = useIconsCtx()
   const { updateSelectedImg, updateSelectedSE, updateSelectedVClip, setSelectedAdjust, setSelectedCrop, setImgZoom, setVClipZoom, rotateSelectedSeg, flipSelectedSeg, toggleMuteSelectedSegments, setSelectedAudio, clearBox, selected } = useEdit()
 
   return (
@@ -146,7 +145,11 @@ export function LeftPanel(): React.JSX.Element {
       {leftTab === 'motion' ? (
         <MotionPanel />
       ) : (
-        (() => {
+        <>
+        {/* アイコンの設定はプロジェクト全体の物なので、何を選んでいても上に出す
+            （テロップを選んだときだけ出る作りだった。編集者の指定・2026-10-09） */}
+        <IconSettings />
+        {(() => {
         const se = selectedSeIds.length
           ? seClips.find((c) => c.id === selectedSeIds[0])
           : undefined
@@ -180,19 +183,6 @@ export function LeftPanel(): React.JSX.Element {
                         presets={userTemplates}
                         onSavePreset={savePreset}
                         onApplyPreset={applyTemplate}
-                        label={selected.label}
-                        iconOn={iconForCue(selected) !== undefined}
-                        onToggleIcon={setPersonIconForSelected}
-                        currentIconImage={iconForCue(selected)}
-                        onOpenIconSettings={() => setIconSettingsOpen(true)}
-                        iconScale={iconScale}
-                        onIconScaleChange={setIconScale}
-                        iconAuto={iconAuto}
-                        onIconAutoChange={changeIconAuto}
-                        iconSide={iconSide}
-                        onIconSideChange={setIconSide}
-                        iconOffset={iconOffset}
-                        onIconOffsetChange={setIconOffset}
                         onAlign={alignTelop}
                         onBoxAnchor={setBoxAnchor}
                         onClearBox={clearBox}
@@ -333,7 +323,8 @@ export function LeftPanel(): React.JSX.Element {
             }
           />
         )
-      })()
+      })()}
+        </>
       )}
     </section>
   )

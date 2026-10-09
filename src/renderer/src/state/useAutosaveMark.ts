@@ -59,7 +59,7 @@ export function useAutosaveMark(deps: UseAutosaveMarkDeps) {
   const { tracks, trackStates } = useTracksCtx()
   const { videoPath, sources, mediaItems } = useMediaCtx()
   const { ratio, exportOpts, loudnormLUFS, masterVolume } = useExportCtx()
-  const { iconSide, iconOffset, iconScale, iconAuto, iconAnchorPos } = useIconsCtx()
+  const { iconSide, iconOffset, iconScale, iconAuto, iconEnabled, iconAnchorPos } = useIconsCtx()
   const {
     projectPath, srtPath, missingMedia, newTelopStyle, transDur, iconAssign, laneIconAssign,
     iconRing, iconTemplate
@@ -151,6 +151,7 @@ export function useAutosaveMark(deps: UseAutosaveMarkDeps) {
     iconOffset,
     iconScale,
     iconAuto,
+    iconEnabled,
     iconAnchorPos,
     iconAssign,
     laneIconAssign,
