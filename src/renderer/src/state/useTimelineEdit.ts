@@ -118,7 +118,7 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
   // 土台をいちばん先に。**名前をそのまま取り出す**ので、呼んでいる所は書き換えなくてよい
   // **呼ぶのは囲いの中の1回だけ**（state/contentShiftContext。理由もそちら）
   const { allContentEdges, mapContentTimes, collapseContent } = useContentShiftCtx()
-  const gap = useGapClose({ mainLocked, vcLen, shiftAfter, seekTo })
+  const gap = useGapClose({ mainLocked, vcLen, collapseContent, seekTo })
   // 本編の切片まわり。**心臓（mapContentTimes）は貸すだけ**
   const seg = useSegmentEdit({
     mainLocked, makeGapSeg, segOps, segLayoutRef,

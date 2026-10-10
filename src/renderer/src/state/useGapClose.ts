@@ -12,6 +12,12 @@
 // **「編集点」ではなく区間で見る**のが要点——編集点だけだと、空きの先頭に
 // ちょうど重なっているクリップを飛び越えて、その中身を突き抜けて詰めてしまう。
 //
+// **どこまで詰めてよいかの判断は `shared/gapClose`**（2026-10-10）。前のクリップから
+// 続いて空きに掛かっている字幕（カットをまたぐ物）は邪魔にしない——前はそれも
+// 「先頭に重なっている」で止めていて、字幕186枚の編集では**ほとんどの空きが
+// 何をしても消せなかった**。捨てた区間に掛かっていた尻は `collapseContent` が
+// 空きの頭で止める（消さない）。
+//
 // ## なぜ state/useTimelineEdit から出したか（2026-08-04）
 //
 // あちらは959行あり、冒頭が「**切り口を探したが見つからなかった**」と書いていた。
@@ -22,6 +28,7 @@
 // 受け取る2つ（`layoutSegs` / `segTLen`）も `shared/timeline` の import なので、
 // **こちらで書けば済む＝局所の物は1つも要らない。**
 import { layoutSegs, segTLen } from '../../../shared/timeline'
+import { TINY_GAP, planGapClose } from '../../../shared/gapClose'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useToastCtx } from './toastContext'
@@ -33,13 +40,18 @@ export interface UseGapCloseDeps {
   mainLocked: () => boolean
   /** 重ねた動画の長さ。**正典は shared/timeline の vcLen** */
   vcLen: (c: VClip) => number
-  /** 境目より後ろを、種類を跨いでまとめてずらす */
-  shiftAfter: (boundaryT: number, delta: number) => void
+  /**
+   * 区間 [rmStart, rmEnd] を捨てて後ろを詰める（shared/ripple の collapseAt）。
+   * 後ろの物は寄せ、区間に掛かっていた物の尻は区間の頭で止める。
+   * 前は `shiftAfter`（境目より後ろをずらすだけ）だったので、掛かっていた字幕の
+   * 尻を止められず、「先頭に重なっていたら止める」で逃げるしかなかった
+   */
+  collapseContent: (rmStart: number, rmEnd: number, removeLen: number) => void
   seekTo: (t: number) => void
 }
 
 export function useGapClose(deps: UseGapCloseDeps) {
-  const { mainLocked, vcLen, shiftAfter, seekTo } = deps
+  const { mainLocked, vcLen, collapseContent, seekTo } = deps
   const { setSegments, segsRef, cuesRef, seClipsRef, imgClipsRef, vClipsRef } = useDoc()
   const {
     selectedIds, selectedVideoIds, selectedAudioIds, selectedSeIds,
@@ -101,19 +113,19 @@ export function useGapClose(deps: UseGapCloseDeps) {
       ...imgClipsRef.current.map((c) => ({ start: c.tStart, end: c.tStart + c.duration })),
       ...vClipsRef.current.map((c) => ({ start: c.tStart, end: c.tStart + vcLen(c) }))
     ]
-    if (spans.some((s) => s.start <= L.tStart + 1e-6 && s.end > L.tStart + 1e-6)) {
-      showToast('この空きの先頭には別のクリップが重なっています。')
-      return true
-    }
-    const nextStart = spans
-      .map((s) => s.start)
-      .filter((t) => t > L.tStart + 1e-6 && t < L.tEnd - 1e-6)
-    const to = nextStart.length ? Math.min(...nextStart) : L.tEnd
-    const len = to - L.tStart
-    if (len <= 1e-3) {
+    const plan = planGapClose({ start: L.tStart, end: L.tEnd }, spans)
+    if (plan.blocked === 'start') {
       showToast('この空きの先頭には別のクリップが来ています。')
       return true
     }
+    // 極小の空き（1コマ未満）は、何も載っていなければ黙って消す。
+    // 前は「残り幅が1ms以下＝別のクリップが来ている」に引っかかって永久に消せなかった
+    const tiny = plan.whole && plan.len <= TINY_GAP
+    if (plan.len <= 1e-3 && !tiny) {
+      showToast('この空きの先頭には別のクリップが来ています。')
+      return true
+    }
+    const { to, len } = plan
     // 空きを縮める（丸ごと無くなるなら切片ごと外す）
     const next = segs.flatMap((s) =>
       s.id !== L.seg.id
@@ -123,9 +135,11 @@ export function useGapClose(deps: UseGapCloseDeps) {
           : []
     )
     setSegments(next)
-    shiftAfter(to, -len) // 詰めた分だけ、後ろのテロップ/SE/画像/マーカーも前へ
+    // 捨てた区間 [頭, to] のぶん、後ろのテロップ/SE/画像/目印/映像レイヤーを前へ。
+    // 区間に掛かっていた字幕の尻は区間の頭で止まる（消えない）
+    collapseContent(L.tStart, to, len)
     seekTo(L.tStart)
-    if (to < L.tEnd - 1e-3) showToast('次のクリップの手前まで詰めました。')
+    if (!plan.whole) showToast('次のクリップの手前まで詰めました。')
     return true
   }
 
