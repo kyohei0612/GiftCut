@@ -18,6 +18,8 @@
 
 // 動きの見本を残すのは置き場の側。**配線を通さず直に見に行く**（2026-08-04）
 import { useLibraryCtx } from '../state/libraryContext'
+import { useCopyPasteCtx } from '../state/copyPasteContext'
+import { useClipboardCtx } from '../state/clipboardContext'
 import type { JSX } from 'react'
 import { MotionTab, type MotionRow } from './panels/MotionTab'
 import type { MotionKeyName } from '../../../shared/telopMotion'
@@ -40,6 +42,10 @@ export function MotionPanel(): JSX.Element {
   const { saveMyMotion } = useLibraryCtx()
   const { selectedIds } = useSel()
   const { showToast } = useToastCtx()
+  // コピー／貼り付けのボタン（MotionTab の説明）。Ctrl+C / Ctrl+V と同じ道を通す
+  const { copySelected, pasteClipboard } = useCopyPasteCtx()
+  const { lastCopyRef } = useClipboardCtx()
+  const pasteReady = lastCopyRef.current === 'motion'
   const {
     patchCuePos, patchCueScale, patchMotion, patchClipMotion, clearTelopMotions,
     setSegZoom, setImgZoom, setVClipZoom, resetTelopChannel, nudgeOthers, selected
@@ -68,6 +74,12 @@ export function MotionPanel(): JSX.Element {
                 toKey: (v: number) => number
                 /** ⏱ を付けた瞬間に置く値 */
                 initial: number
+                /**
+                 * 「何もしていない」値（印の単位）。省くと initial と同じ。
+                 * 反転・ブラインドは ⏱ を押した瞬間に 1（効いた状態）を置くので、
+                 * initial と既定が違う
+                 */
+                neutral?: number
               }
             ): MotionRow => ({
               key,
@@ -78,6 +90,10 @@ export function MotionPanel(): JSX.Element {
               min: opt.min,
               max: opt.max,
               keys: m?.[key],
+              // 動きのコピー用（MotionRow の説明を参照）。位置は配置、拡大は見た目
+              placement: key === 'tx' || key === 'ty',
+              atNeutral:
+                !hasKeys(m?.[key]) && opt.toKey(opt.value) === (opt.neutral ?? opt.initial),
               // **どの行も触れる。**
               // 「元の値」を持っているのは位置と拡大だけで、横だけ拡大・歪曲・
               // 明るさなどは ⏱ を押すまで触れなかった。値を見ながら決めたいのに、
@@ -246,7 +262,8 @@ export function MotionPanel(): JSX.Element {
                     min: 0,
                     max: 100,
                     toKey: (v) => v / 100,
-                    initial: 1
+                    initial: 1,
+                    neutral: 0
                   }),
                   row('blind', 'ブラインド', {
                     value: Math.round(valueAt(m?.blind, clipT, 0) * 100),
@@ -255,7 +272,8 @@ export function MotionPanel(): JSX.Element {
                     min: 0,
                     max: 100,
                     toKey: (v) => v / 100,
-                    initial: 1
+                    initial: 1,
+                    neutral: 0
                   }),
                   // 切り抜きは各辺を「何％削るか」。タイプライターは右を刻んで動かすだけ
                   row('cl', '切抜 左', {
@@ -306,6 +324,9 @@ export function MotionPanel(): JSX.Element {
                 onRows={(r) => (motionRowsRef.current = r)}
                 clipLen={selected.end - selected.start}
                 targetKey={`telop:${selected.id}`}
+                onCopyRows={copySelected}
+                onPasteRows={pasteClipboard}
+                pasteReady={pasteReady}
               />
             )
           })()
@@ -358,6 +379,11 @@ export function MotionPanel(): JSX.Element {
               keys: m?.[key],
               // 拡大も位置も、印が無くても固定値として変えられる（今までどおり）
               editableWithoutKeys: true,
+              // 動きのコピー用。既定（拡大1・位置0）のままの行は「値だけ」では写さない。
+              // 映像の位置は配置ではなくリフレームの一部なので、置いた値は写す
+              atNeutral:
+                !hasKeys(m?.[key]) &&
+                opt.toKey(opt.value) === ({ sc: 1, x: 0, y: 0 } as Record<string, number>)[key],
               onValue: (v) => {
                 const shown = clamp(v, opt.min, opt.max)
                 const val = opt.toKey(shown)
@@ -447,6 +473,9 @@ export function MotionPanel(): JSX.Element {
                 onRows={(r) => (motionRowsRef.current = r)}
                 clipLen={tgt.len}
                 targetKey={`${tgt.kind}:${tgt.id}`}
+                onCopyRows={copySelected}
+                onPasteRows={pasteClipboard}
+                pasteReady={pasteReady}
               />
             )
           })()

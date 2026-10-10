@@ -38,6 +38,18 @@ export interface MotionRow {
   keys?: Keys
   /** ⏱ が消えている状態でも値を変えられるか（位置と拡大は元の値を変えられる） */
   editableWithoutKeys: boolean
+  /**
+   * 「配置」の行か（テロップの位置 X/Y）。**動きのコピーで「値だけ」は写さない。**
+   * 写すと貼った先のテロップが写した元の場所へ飛ぶ（「画面がずれた」・2026-10-10）。
+   * 打った印（キー）は今までどおり写す。配置は画面の整列ボタンの担当
+   */
+  placement?: boolean
+  /**
+   * 印が無く、値も既定のままか。**動きのコピーで「値だけ」は写さない。**
+   * 写すと貼った先に「既定の値の印」が1つ置かれるだけで見た目は何も変わらず、
+   * ⏱ だけ点く（「何も変わらない」の正体の片割れ・2026-10-10）
+   */
+  atNeutral?: boolean
   onValue: (v: number) => void
   onToggleKeys: () => void
   onPutKey: () => void
@@ -59,7 +71,10 @@ export function MotionTab({
   onSelectRows,
   onRows,
   clipLen,
-  targetKey
+  targetKey,
+  onCopyRows,
+  onPasteRows,
+  pasteReady
 }: {
   /** 何に対する設定か（選んでいるテロップの文字など） */
   title: string
@@ -100,6 +115,18 @@ export function MotionTab({
    * 触っているのに前の選択が生きていて、コピーが思わぬ相手から取られる。
    */
   targetKey?: string
+  /**
+   * 選んだ項目をコピー／コピーした動きをここへ貼り付け（ボタン）。
+   *
+   * Ctrl+C / Ctrl+V だけだと**数値欄に入力の焦点が残っていると文字のコピーに
+   * 取られる**うえ、「行の名前を押して選ぶ」が要ることに気づけない
+   * （編集者「組の見出しを押して別のクリップで貼っても何も変わらない」・2026-10-10）。
+   * 押す物を置いて、焦点に左右されない道を作る
+   */
+  onCopyRows?: () => void
+  onPasteRows?: () => void
+  /** コピーした動きが手元にあるか（あるときだけ貼り付けボタンを出す） */
+  pasteReady?: boolean
 }): JSX.Element {
   // **畳むのではなく、選ぶ。**
   // プレミアと同じで、見出しを押すとその組がまとめて選ばれる。選んだ状態で
@@ -330,6 +357,28 @@ export function MotionTab({
       {sel.length > 0 && (
         <div className="tpl-hint mo-pick-hint">
           {sel.length}項目を選択中 — コピーして、別のクリップを選んで貼り付けると移せます
+          {onCopyRows && (
+            <button
+              className="mo-mini mo-copy-rows"
+              title="選んだ項目をコピー（Ctrl+C と同じ）"
+              onClick={onCopyRows}
+            >
+              コピー
+            </button>
+          )}
+        </div>
+      )}
+      {/* コピーした動きを**ここ**へ。別のクリップを選んだあと、この1行だけが残る */}
+      {pasteReady && onPasteRows && (
+        <div className="tpl-hint mo-pick-hint">
+          コピーした動きがあります
+          <button
+            className="mo-mini mo-paste-rows"
+            title="コピーした動きを、いま選んでいる物へ貼り付け（Ctrl+V と同じ）"
+            onClick={onPasteRows}
+          >
+            ここへ貼り付け
+          </button>
         </div>
       )}
 

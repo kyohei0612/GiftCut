@@ -165,6 +165,52 @@ export default async function (C) {
     await resetProject()
   })
 
+  // **編集者の手順そのもの**（2026-10-10「組の見出しを押して選び、別のクリップで貼っても
+  // 何も変わらない。画面がずれた」）。Ctrl+C を押していない／数値欄に焦点が残っていた、
+  // のどちらでも通るよう、ボタンの道を足した。配置（位置）は値だけでは写さない
+  await check('組の見出しで選び、ボタンでコピー → 別のテロップでボタンで貼れる（位置は飛ばない）', async () => {
+    await resetProject()
+    await page.locator('.panel-tabs .tab', { hasText: 'モーション' }).first().click()
+    const telops = page.locator('.telop-clip')
+    assert((await telops.count()) >= 2, 'テロップが2つ以上ない（この項目は2つ要ります）')
+    // 1つ目: 回転に動きを打つ（配置ではない項目）
+    await telops.nth(0).click()
+    await page.waitForTimeout(300)
+    const row = () => page.locator('.mo-row').filter({ hasText: '回転' }).first()
+    assert(await row().count(), 'テロップのモーションに「回転」が無い')
+    await seekTo(1.2)
+    await row().locator('.mo-watch').click()
+    await page.waitForTimeout(300)
+    await seekTo(2.6)
+    await row().locator('.mo-val').fill('45')
+    await row().locator('.mo-val').press('Enter')
+    await page.waitForTimeout(400)
+    assert((await telops.nth(0).locator('.kf-mark').count()) >= 2, '1つ目に印が入らない')
+    // 組の見出しを押して、簡単な設定をまとめて選ぶ → コピーのボタン
+    await page.locator('.mo-sec', { hasText: '簡単な設定' }).first().click()
+    await page.waitForTimeout(200)
+    assert(await page.locator('.mo-copy-rows').count(), 'コピーのボタンが出ていない')
+    await page.locator('.mo-copy-rows').click()
+    await page.waitForTimeout(400)
+    // 2つ目を選ぶと「ここへ貼り付け」が出る → 押す
+    await telops.nth(1).click()
+    await page.waitForTimeout(300)
+    assert(await page.locator('.mo-paste-rows').count(), '貼り付けのボタンが出ていない')
+    await page.locator('.mo-paste-rows').click()
+    await page.waitForTimeout(600)
+    assert((await telops.count()) === 2, 'テロップが増えた（クリップの貼り付けに流れている）')
+    assert((await telops.nth(1).locator('.kf-mark').count()) >= 2, '2つ目に回転の印が入らない')
+    // **配置（位置）と既定のままの行は「値だけ」で写っていない。** 写っていると
+    // お知らせに「（うちN項目は値だけ）」が付き、貼った先が元の場所へ飛ぶ
+    const toast = await page.locator('.toast').allTextContents()
+    assert(
+      toast.some((t) => t.includes('貼り付けました') && !t.includes('値だけ')),
+      `位置や既定のままの行まで値だけで写している: ${toast.join(' / ')}`
+    )
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
   await check('見本帳で付けた動きを、組ごと選んで複数のテロップへ配れる', async () => {
     // 実際の使い方はこちら: 見本帳から選んで付ける → 組の見出しでまとめて選ぶ →
     // 配りたいテロップを複数選んで貼る。手で1項目ずつ打つ流れしか見ていなかった。

@@ -104,7 +104,13 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
     for (const k of keys) {
       if (data[k] !== undefined) continue // 印がある方が強い
       const row = motionRowsRef.current.find((r: MotionRow) => r.key === k)
-      if (row) values[k] = row.value
+      if (!row) continue
+      // **配置（位置 X/Y）と、既定のままの行は「値だけ」では写さない**（2026-10-10）。
+      // 配置を写すと貼った先が写した元の場所へ飛ぶ（「画面がずれた」）。既定のままの
+      // 行を写すと、貼った先に既定の値の印が1つ置かれて ⏱ が点くだけで見た目は
+      // 何も変わらない（「何も変わらない」）。組の見出しで全部選ぶと両方が混ざる
+      if (row.placement || row.atNeutral) continue
+      values[k] = row.value
     }
     const n = Object.keys(data).length + Object.keys(values).length
     if (!n) {
