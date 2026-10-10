@@ -367,7 +367,18 @@ export async function makeFixture() {
   const realSrt = pick(/\.srt$/i, 2e6)
   if (realSrt) {
     try {
-      writeFileSync(srt, readFileSync(realSrt, 'utf-8'), 'utf-8')
+      const body = readFileSync(realSrt, 'utf-8')
+      // **動画（20秒）に収まる物だけ使う。** 2026-10-11、Downloads に 24分の字幕が置かれ、
+      // SRT を読む確認でタイムラインが 24分ぶんに伸びた。引いた表示は帯を1本ずつ作らない
+      //（TrackSummary）ので、次の「状態を戻す」が `.video-clip` を15秒待って**章ごと死んだ**
+      //（solo で 14章が 10 → 3 件になり、原因を当てるのに絵を残す所から要った）。
+      // 動画と同じで、素材は運まかせにしない
+      const ends = [...body.matchAll(/--> (\d+):(\d+):(\d+)[,.]/g)].map(
+        (m) => Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3])
+      )
+      const last = ends.length ? Math.max(...ends) : Infinity
+      if (last <= 20) writeFileSync(srt, body, 'utf-8')
+      else console.log(`字幕 ${realSrt.split(/[\\/]/).pop()} は使えない → 作り物（${Math.round(last / 60)}分あり、20秒の動画に収まらない）`)
     } catch {
       /* 読めなければ作り物にする */
     }

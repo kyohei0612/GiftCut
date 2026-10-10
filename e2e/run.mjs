@@ -413,6 +413,14 @@ try {
 } catch (e) {
   console.error('\n\x1b[31m実行そのものに失敗しました:\x1b[0m', e?.message ?? e)
   results.push({ name: '（実行）', ok: false, err: String(e?.message ?? e) })
+  // **落ちた瞬間の画面を残す。** 確認の外（resetProject など）で落ちると NG-*.png が
+  // 無く、「15秒待っても V1 が出ない」の一言から何が開いていたかを当てる羽目になる
+  //（2026-10-11、14章がここで止まり、窓が何かを見るのに回し直しが要った）
+  try {
+    if (page) await page.screenshot({ path: join(ROOT, 'e2e', 'shots', 'FATAL.png') })
+  } catch {
+    /* 画面が無ければ残せない */
+  }
 } finally {
   // まとめは ./lib/runSummary。**アプリを落とす前に出し切る**
   //（窓を閉じてからだと、落ちた時の画面も件数も出せずに終わる）
