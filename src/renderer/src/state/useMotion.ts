@@ -314,6 +314,19 @@ export function useMotion(deps: UseMotionDeps) {
       showToast('先にテロップを選択してください。')
       return
     }
+    applyMotionPresetTo(ids, p)
+  }
+
+  /**
+   * 見本を**その**テロップへ付ける（相手を自分で決めている呼び手用。
+   * タイムラインの帯へ落としたときは、落とした先が相手＝選んでいる物ではない）。
+   * 上の applyMotionPreset もここを通る（付け方と知らせを2か所に持たない）
+   */
+  function applyMotionPresetTo(ids: number[], p: MotionPresetFile): void {
+    if (!hasMotion(p.motion)) {
+      showToast(`「${p.name}」はまだ付けられません`)
+      return
+    }
     ids.forEach((id) => setMotion(id, p.motion))
     // 演出は頭から見せる（付けた直後に途中の絵が出ると、効いたか分からない）
     const head = cues.find((c) => c.id === ids[0])
@@ -333,6 +346,6 @@ export function useMotion(deps: UseMotionDeps) {
 
   return {
     setMotion, removeKeyAtTime, resetClipChannel, clearClipMotions, toggleKeys, nudgeClips,
-    applyMotionPreset, motionSelRef, motionRowsRef
+    applyMotionPreset, applyMotionPresetTo, motionSelRef, motionRowsRef
   }
 }

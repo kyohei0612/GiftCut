@@ -211,6 +211,42 @@ export default async function (C) {
     await resetProject()
   })
 
+  // **掴んで落とす道**（2026-10-11）。見本帳・アイコン・強調は 08-03 から帯へ落とせたが、
+  // 動きだけクリック専用だった。落とした先に付く（選んでいる物ではない）ことまで見る
+  await check('動きの見本を、タイムラインのテロップ帯へ落として付けられる', async () => {
+    await resetProject()
+    const telops = page.locator('.telop-clip')
+    assert((await telops.count()) >= 2, 'テロップが2つ以上ない（この項目は2つ要ります）')
+    // 1つ目を選んでおく（落とした先＝2つ目に付き、選んでいる1つ目には付かないこと）
+    await telops.nth(0).click()
+    await page.waitForTimeout(200)
+    await page.locator('.panel-tabs .tab', { hasText: 'トランジション' }).first().click()
+    await page.waitForTimeout(300)
+    if (!(await page.locator('.tpl-acc.open', { hasText: '💫 動き' }).count())) {
+      await page.locator('.tpl-acc', { hasText: '💫 動き' }).first().click()
+      await page.waitForTimeout(400)
+    }
+    const ok = await page.evaluate(() => {
+      const card = document.querySelector('.mo-preset')
+      const target = document.querySelectorAll('.telop-clip')[1]
+      if (!card || !target) return false
+      const b = target.getBoundingClientRect()
+      const dt = new DataTransfer()
+      card.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }))
+      const at = { clientX: b.x + b.width / 2, clientY: b.y + b.height / 2 }
+      target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, ...at }))
+      target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, ...at }))
+      card.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }))
+      return true
+    })
+    assert(ok, '動きの見本かテロップ帯が無い')
+    await page.waitForTimeout(500)
+    assert((await telops.nth(1).locator('.kf-mark').count()) >= 1, '落とした先のテロップに印が入らない')
+    assert((await telops.nth(0).locator('.kf-mark').count()) === 0, '落としていない（選んでいただけの）テロップにまで付いた')
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
   await check('見本帳で付けた動きを、組ごと選んで複数のテロップへ配れる', async () => {
     // 実際の使い方はこちら: 見本帳から選んで付ける → 組の見出しでまとめて選ぶ →
     // 配りたいテロップを複数選んで貼る。手で1項目ずつ打つ流れしか見ていなかった。

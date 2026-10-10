@@ -138,7 +138,9 @@ export function TransitionsTab({
   onApplyMotionPreset,
   onDeleteMyMotion,
   motionFavs,
-  onToggleMotionFav
+  onToggleMotionFav,
+  onDragStartMotion,
+  onDragEndMotion
 }: {
   bodyRef: React.Ref<HTMLDivElement>
   accSec: (
@@ -173,17 +175,7 @@ export function TransitionsTab({
   /** 強調を掴んだ／離した（落とし先はタイムラインの帯とプレビューの文字） */
   onDragStartEmphasis: (kind: 'shake' | 'pulse', e: React.DragEvent) => void
   onDragEndEmphasis: () => void
-  /**
-   * 動きの一覧。3つに分けて並べる。
-   *
-   *   builtinMotions … 最初から入っている標準の動き。**配布物に入る**（こちらで打った値）
-   *   myMotions      … 自分で作って名前を付けて保存した物
-   *   motionPresets  … Premiere の .prfpset から取り込んだ物。**配布物には入らない**
-   *
-   * **付く相手はテロップだけ。** 中身はテロップの動き（横だけ拡大・3D回転・切り抜き…）で、
-   * 映像クリップは拡大と位置しか焼けないため、当てても効かないか書き出せない値になる。
-   * 押したときの相手選びは呼ぶ側（App の applyMotionPreset）が持っている。
-   */
+  /** 動きの一覧（3つの群）。説明は持ち主の `MotionPresetList` にある。ここはそのまま渡すだけ */
   builtinMotions: MotionPresetFile[]
   myMotions: MotionPresetFile[]
   motionPresets: MotionPresetFile[]
@@ -192,6 +184,9 @@ export function TransitionsTab({
   /** ★ を付けた動き（`群:名前`）。入切は心臓（useLibraryOrganize）が持つ */
   motionFavs: string[]
   onToggleMotionFav: (id: string) => void
+  /** 動きの見本を掴んだ／離した（落とし先はタイムラインのテロップ帯） */
+  onDragStartMotion: (p: MotionPresetFile, e: React.DragEvent) => void
+  onDragEndMotion: () => void
 }): JSX.Element {
   const list = (
     kinds: TransKind[],
@@ -270,6 +265,8 @@ export function TransitionsTab({
         onDeleteMyMotion={onDeleteMyMotion}
         motionFavs={motionFavs}
         onToggleMotionFav={onToggleMotionFav}
+        onDragStartMotion={onDragStartMotion}
+        onDragEndMotion={onDragEndMotion}
       />
       {accSec('transition', 'effect', '✨ エフェクト（テロップ強調）', null, (
         <>

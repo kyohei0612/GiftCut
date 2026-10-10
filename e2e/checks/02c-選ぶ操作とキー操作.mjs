@@ -82,8 +82,12 @@ export default async function (C) {
   await check('音量つまみを触った直後の矢印キーで、再生位置が動く（つまみが動かない）', async () => {
     await v1Clips().nth(0).click()
     await page.waitForTimeout(200)
-    const slider = page.locator('.sp-row input[type="range"]').first()
-    assert(await slider.count(), '右パネルにつまみが出ていない')
+    // **名前で指す。** 「左パネルの最初のつまみ」は節を1つ足しただけで別物になる
+    //（2026-10-09、アイコンの節のサイズつまみを掴んで赤になった）。
+    // 本編の切片の設定に音量の行は無い（音は A1 側）ので、色調整の「明るさ」で見る。
+    // 見たいのは「つまみを触った直後の矢印キーが再生位置へ行く」で、つまみは何でもよい
+    const slider = page.locator('.sp-row').filter({ hasText: '明るさ' }).locator('input[type="range"]').first()
+    assert(await slider.count(), '左パネルに明るさのつまみが出ていない')
     // 再生位置は「再生ヘッドの左端の座標」で見る（表示形式に依存しない）
     const headX = async () =>
       page.locator('.playhead').first().evaluate((el) => el.getBoundingClientRect().x)

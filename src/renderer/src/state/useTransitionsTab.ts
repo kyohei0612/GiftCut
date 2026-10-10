@@ -19,6 +19,7 @@ import { EMPTY_DRAG_IMG, setDragChip } from '../lib/dragChip'
 import { TRANS_TYPES, type TransType } from '../lib/transitions'
 import type { AnimIn } from '../lib/telopStyle'
 import { BUILTIN_MOTIONS } from '../../../shared/builtinMotions'
+import type { MotionPresetFile } from '../../../shared/telopMotion'
 import { useRightPanel } from './rightPanelContext'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
@@ -31,7 +32,7 @@ export function useTransitionsTab() {
     setSelectedTransType, updateSelectedTransDur, deleteSelectedTrans, setTelopTransType,
     updateTelopTransDur, deleteSelectedTelopTrans
   } = useRightPanel()
-  const { setTransDrop, setTelopDrop, draggingEmphasisRef } = useBandDragCtx()
+  const { setTransDrop, setTelopDrop, draggingEmphasisRef, draggingMotionRef } = useBandDragCtx()
   // 置き場（★・フォルダ・畳み）は**配線を通さず、直に見に行く**
   //（2026-08-04。往復していた34個を state/libraryContext へ寄せた）
   const {
@@ -129,6 +130,15 @@ export function useTransitionsTab() {
     },
     onDragEndEmphasis: (): void => {
       draggingEmphasisRef.current = null
+    },
+    // 動きの見本を掴んだ／離した（落とし先はタイムラインのテロップ帯。
+    // 強調と同じで、クリックは据え置き・落とした先に付ける）
+    onDragStartMotion: (p: MotionPresetFile, e: React.DragEvent): void => {
+      draggingMotionRef.current = p
+      setDragChip(e, '💫', p.name)
+    },
+    onDragEndMotion: (): void => {
+      draggingMotionRef.current = null
     },
     builtinMotions: BUILTIN_MOTIONS,
     myMotions,

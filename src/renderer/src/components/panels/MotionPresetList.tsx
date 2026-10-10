@@ -30,7 +30,9 @@ export function MotionPresetList({
   onApplyMotionPreset,
   onDeleteMyMotion,
   motionFavs,
-  onToggleMotionFav
+  onToggleMotionFav,
+  onDragStartMotion,
+  onDragEndMotion
 }: {
   accSec: (
     tab: string,
@@ -58,6 +60,13 @@ export function MotionPresetList({
   /** ★ を付けた動き（`群:名前`）。入切は心臓（useLibraryOrganize）が持つ */
   motionFavs: string[]
   onToggleMotionFav: (id: string) => void
+  /**
+   * 掴んでタイムラインのテロップ帯へ落とす（2026-10-11）。クリックは据え置き。
+   * 見本帳・アイコン・強調は 08-03 から掴めたが、動きだけ札を増やす場所が無くて
+   * クリック専用だった（配線が上限ぎりぎり）。囲いになったので足せた
+   */
+  onDragStartMotion: (p: MotionPresetFile, e: React.DragEvent) => void
+  onDragEndMotion: () => void
 }): JSX.Element {
   // 実物で72個並ぶ。名前で絞れないと目で探すことになる
   const [q, setQ] = useState('')
@@ -95,8 +104,12 @@ export function MotionPresetList({
     <button
       key={favId(group, p)}
       className={`fx-item mo-preset ${o.extraClass ?? ''}`}
-      title={o.title}
+      title={o.title + '（掴んでテロップの帯へ落としても付く）'}
       onClick={() => onApplyMotionPreset(p)}
+      // 動きが1つも取れていない物は掴ませない（落としても何も起きないのは罠）
+      draggable={Object.keys(p.motion).length > 0}
+      onDragStart={(e) => onDragStartMotion(p, e)}
+      onDragEnd={onDragEndMotion}
     >
       <span className="fx-ico">{o.ico}</span>
       <span className="fx-name">{p.name}</span>

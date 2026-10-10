@@ -177,62 +177,109 @@ export async function makeFixture() {
   // しか出ない問題を見逃す。ただし元ファイルは数百MB〜数GBあるので、
   // 冒頭を切り出して軽くしてから使う。無ければ作り物にする（他の環境でも動くように）。
   const DL = 'C:/Users/kyohei/Downloads'
-  const pick = (re, maxBytes) => {
+  /** Downloads にある候補を小さい順に全部（動画はこれを上から順に試す） */
+  const pickAll = (re, maxBytes) => {
     try {
       return readdirSync(DL)
         .filter((f) => re.test(f))
         .map((f) => ({ f: join(DL, f), size: statSync(join(DL, f)).size }))
         .filter((x) => x.size > 0 && x.size < maxBytes)
-        .sort((a, b) => a.size - b.size)[0]?.f
+        .sort((a, b) => a.size - b.size)
+        .map((x) => x.f)
     } catch {
-      return undefined
+      return []
     }
   }
-  // **選ばれる物を指名できるようにする**（`GIFTCUT_E2E_VIDEO=<パス>`）。
-  // 「いちばん小さい動画」は Downloads に何かを置いた日に入れ替わる。2026-10-04、
-  // 当日書き出した 14秒・音が丸ごと無音の動画が選ばれ、下の無音の数えで止まった。
-  // 置いた物を動かさずに確認を回すための逃げ道（既定の選び方は変えない）
-  const realVideo = process.env.GIFTCUT_E2E_VIDEO || pick(/\.(mp4|mov|mkv)$/i, 4e9)
+  const pick = (re, maxBytes) => pickAll(re, maxBytes)[0]
+  // **候補は小さい順に全部。** 「いちばん小さい動画」1本に決めると、Downloads に
+  // 何かを置いた日に入れ替わる。2026-10-04、当日書き出した 14秒・音が丸ごと無音の
+  // 動画が選ばれ、下の無音の数えで**全章が0秒で死んだ**。10-09 にも同じ物が選ばれ、
+  // その日は `GIFTCUT_E2E_VIDEO` で手で指名して逃げた。手で逃げるのは最初の1回だけで
+  // よく、2回目からは**素材の方が次の候補へ進む**べき（運を毎回人が直さない）。
+  // 指名（`GIFTCUT_E2E_VIDEO=<パス>`）があればそれだけを候補にする（置いた物を動かさずに回す道）
+  const candidates = process.env.GIFTCUT_E2E_VIDEO
+    ? [process.env.GIFTCUT_E2E_VIDEO]
+    : pickAll(/\.(mp4|mov|mkv)$/i, 4e9)
   const realImage = pick(/\.(png|jpe?g)$/i, 5e6)
 
   // 切り出しは重いので、一度作ったら使い回す（毎回1から作り直さない）。
   // 元ファイルが変わったら作り直せるよう、名前とサイズをキャッシュ名に入れる。
   const cacheDir = join(ROOT, 'e2e', '.cache')
   mkdirSync(cacheDir, { recursive: true })
-  const cached = realVideo
-    ? join(cacheDir, `src-${realVideo.split(/[\\/]/).pop().replace(/[^\w.]/g, '_')}-${statSync(realVideo).size}.mp4`)
-    : null
+  const cacheOf = (src) =>
+    join(cacheDir, `src-${src.split(/[\\/]/).pop().replace(/[^\w.]/g, '_')}-${statSync(src).size}.mp4`)
 
-  // 素の20秒（まだ黙らせていない）。仕上げは下の「無音を仕込む」でやる
+  // 素の20秒（まだ黙らせていない）。仕上げは「無音を仕込む」でやる
   const raw = join(dir, 'test_video_raw.mp4')
-  let r = { code: 1 }
-  if (realVideo && cached && existsSync(cached)) {
-    console.log(`実素材（作成済みを再利用）: ${realVideo.split(/[\\/]/).pop()}`)
-    copyFileSync(cached, raw)
-    r = { code: 0 }
-  } else if (realVideo) {
-    console.log(`実素材を使用: ${realVideo.split(/[\\/]/).pop()}（冒頭20秒を切り出し。次回からは再利用）`)
-    r = await sh('ffmpeg', [
-      '-y', '-t', '20', '-i', realVideo,
-      '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
-      '-vf', 'scale=640:-2', '-c:a', 'aac', '-ac', '2', '-ar', '48000', raw
-    ])
-    if (r.code === 0 && cached) {
-      try {
-        copyFileSync(raw, cached)
-      } catch {
-        /* 保存できなくても動作には影響しない */
+  // 絵も音も本物のまま、決まった3か所だけを黙らせる。20秒より短い素材でも
+  // 収まるよう 11秒までに置く。-c:v copy なので絵は焼き直さない（速い）
+  const GAPS = [[2.5, 3.0], [6.0, 6.6], [10.0, 10.4]]
+
+  /**
+   * 候補1本から確認用の動画を作る。**成立しなければ理由を返す**（例外にしない。
+   * 呼ぶ側が次の候補へ進むため）。null の候補は作り物（カラーバー＋サイン波）
+   */
+  async function prepare(src) {
+    let r = { code: 1 }
+    if (src) {
+      const cached = cacheOf(src)
+      if (existsSync(cached)) {
+        copyFileSync(cached, raw)
+        r = { code: 0 }
+      } else {
+        r = await sh('ffmpeg', [
+          '-y', '-t', '20', '-i', src,
+          '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
+          '-vf', 'scale=640:-2', '-c:a', 'aac', '-ac', '2', '-ar', '48000', raw
+        ])
+        if (r.code === 0) {
+          try {
+            copyFileSync(raw, cached)
+          } catch {
+            /* 保存できなくても動作には影響しない */
+          }
+        }
       }
+      if (r.code !== 0) return `切り出せない: ${r.err.slice(-200)}`
+    } else {
+      r = await sh('ffmpeg', [
+        '-y', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=30:duration=20',
+        '-f', 'lavfi', '-i', 'sine=frequency=440:duration=20',
+        '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', raw
+      ])
+      if (r.code !== 0) return `作り物を作れない（ffmpeg が要る）: ${r.err.slice(-200)}`
     }
-  }
-  if (!realVideo || r.code !== 0) {
+    // ---- 無音を仕込む（**素材まかせにしない**。理由は下の長い説明）----
     r = await sh('ffmpeg', [
-      '-y', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=30:duration=20',
-      '-f', 'lavfi', '-i', 'sine=frequency=440:duration=20',
-      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', raw
+      '-y', '-i', raw, '-c:v', 'copy',
+      '-af', GAPS.map(([a, b]) => `volume=enable='between(t,${a},${b})':volume=0`).join(','),
+      '-c:a', 'aac', '-ac', '2', '-ar', '48000', video
     ])
+    if (r.code !== 0) return `無音を仕込めない: ${r.err.slice(-200)}`
+    // **成立しなければ次へ。** ここで数えずに進むと、素材が短すぎた日に
+    // また「アプリが壊れた」に見える形で出てくる（下の3件がまさにそれ）
+    const det = await sh('ffmpeg', ['-hide_banner', '-i', video, '-af', 'silencedetect=n=-25dB:d=0.2', '-f', 'null', '-'])
+    const gaps = (det.err.match(/silence_start/g) || []).length
+    if (gaps < GAPS.length)
+      return `無音が ${gaps} か所しか数えられない（${GAPS.length} か所要る）。短すぎるか、音が入っていない`
+    return null
   }
-  if (r.code !== 0) throw new Error('テスト用の動画を作れませんでした（ffmpeg が必要）: ' + r.err.slice(-300))
+
+  let realVideo = null
+  const tried = []
+  for (const src of [...candidates, null]) {
+    const name = src ? src.split(/[\\/]/).pop() : '作り物（カラーバー＋サイン波）'
+    const why = await prepare(src)
+    if (!why) {
+      realVideo = src
+      console.log(`実素材を使用: ${name}` + (tried.length ? `（先に ${tried.length} 本を見送った）` : ''))
+      break
+    }
+    tried.push(`${name}: ${why}`)
+    console.log(`素材 ${name} は使えない → 次の候補へ（${why}）`)
+  }
+  if (realVideo === null && tried.length && tried[tried.length - 1].startsWith('作り物'))
+    throw new Error('確認用の動画を1本も作れませんでした:\n  ' + tried.join('\n  '))
 
   // ---- 無音を仕込む（**素材まかせにしない**）----
   //
@@ -252,26 +299,9 @@ export async function makeFixture() {
   // 作り物のフォールバック（途切れない 440Hz のサイン波）にも無音は無いので、
   // **この検査は最初から Downloads の中身の運で通っていた。**
   //
-  // 絵も音も本物のまま、決まった3か所だけを黙らせる。20秒より短い素材でも
-  // 収まるよう 11秒までに置く。-c:v copy なので絵は焼き直さない（速い）。
-  const GAPS = [[2.5, 3.0], [6.0, 6.6], [10.0, 10.4]]
-  r = await sh('ffmpeg', [
-    '-y', '-i', raw, '-c:v', 'copy',
-    '-af', GAPS.map(([a, b]) => `volume=enable='between(t,${a},${b})':volume=0`).join(','),
-    '-c:a', 'aac', '-ac', '2', '-ar', '48000', video
-  ])
-  if (r.code !== 0) throw new Error('確認用の素材に無音を仕込めませんでした: ' + r.err.slice(-300))
-  // **成立しなければ落ちる。** ここで数えずに進むと、素材が短すぎた日に
-  // また「アプリが壊れた」に見える形で出てくる（上の3件がまさにそれ）。
-  const det = await sh('ffmpeg', ['-hide_banner', '-i', video, '-af', 'silencedetect=n=-25dB:d=0.2', '-f', 'null', '-'])
-  const gaps = (det.err.match(/silence_start/g) || []).length
-  if (gaps < GAPS.length)
-    throw new Error(
-      `確認用の素材に無音が ${gaps} か所しかありません（${GAPS.length} か所要る）。` +
-        '素材が短すぎるか、音が入っていない可能性があります: ' + (realVideo ?? '作り物')
-    )
+  // （仕込みと数えは上の `prepare` の中。候補ごとにやり直すため）
 
-  r = realImage
+  let r = realImage
     ? await sh('ffmpeg', ['-y', '-i', realImage, '-vf', 'scale=320:-2', '-frames:v', '1', image])
     : { code: 1 }
   if (r.code !== 0) {

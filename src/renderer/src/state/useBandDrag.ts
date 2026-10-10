@@ -15,6 +15,7 @@
 import { useRef, useState } from 'react'
 import type { TelopStyle, AnimIn } from '../lib/telopStyle'
 import type { TransType } from '../lib/transitions'
+import type { MotionPresetFile } from '../../../shared/telopMotion'
 
 /** つなぎ目の演出を置く見込み（V1のどのクリップの行に、どう描くか） */
 export interface TransDrop {
@@ -59,6 +60,15 @@ export function useBandDrag() {
    */
   const draggingEmphasisRef = useRef<'shake' | 'pulse' | null>(null)
 
+  /**
+   * 動きの見本（トランジションタブの「💫 動き」）をテロップへ運んでいる最中。
+   *
+   * 見本帳・アイコン・強調は 08-03 から掴めたが、動きだけがクリック専用だった
+   * （札を1本増やすと配線（useAppWiring）が上限を超えていたため）。囲いになった
+   * いまは配線を通らないので足せる（2026-10-11）。強調と同じで**落とした先に付ける**
+   */
+  const draggingMotionRef = useRef<MotionPresetFile | null>(null)
+
   return {
     draggingIconRef,
     draggingTransRef,
@@ -68,6 +78,7 @@ export function useBandDrag() {
     telopDrop,
     setTelopDrop,
     draggingTemplateRef,
-    draggingEmphasisRef
+    draggingEmphasisRef,
+    draggingMotionRef
   }
 }

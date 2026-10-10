@@ -34,6 +34,7 @@ import { useTimelineOps } from '../../state/timelineOpsContext'
 import { useSel } from '../../state/selectionContext'
 import { usePlaybackCtx } from '../../state/playbackContext'
 import { usePreviewCtx } from '../../state/previewContext'
+import { useMotionCtx } from '../../state/motionContext'
 // 引いたときは帯を1本ずつ作らず1枚の絵にする（理由と測った数字は ./TrackSummary）
 import { SUMMARY_ZOOM, TrackSummary } from './TrackSummary'
 
@@ -96,7 +97,9 @@ export function TelopBands({
   patchCueAnim: (cueId: number, patch: Partial<TelopAnim>) => void
 }): JSX.Element {
   const { cues } = useDoc()
-  const { setTelopDrop, draggingTemplateRef, draggingIconRef, draggingEmphasisRef } = useBandDragCtx()
+  const { setTelopDrop, draggingTemplateRef, draggingIconRef, draggingEmphasisRef, draggingMotionRef } = useBandDragCtx()
+  // 動きの見本を帯へ落としたとき、**落とした先**に付ける（選んでいる物ではない）
+  const { applyMotionPresetTo } = useMotionCtx()
   const { isSelected, setSelectedIds, setEditingId, selectedTelopTrans } = useSel()
   // 見本帳・アイコンを帯へ落とすための物。**受け取らず自分で見に行く**
   //（プレビューの文字側と同じ物を使う＝落とし方が2通りにならない）
@@ -155,7 +158,8 @@ export function TelopBands({
             if (
               draggingTemplateRef.current ||
               draggingIconRef.current ||
-              draggingEmphasisRef.current
+              draggingEmphasisRef.current ||
+              draggingMotionRef.current
             ) {
               e.preventDefault()
               e.dataTransfer.dropEffect = 'copy'
@@ -182,7 +186,8 @@ export function TelopBands({
             const tpl = draggingTemplateRef.current
             const iconColor = draggingIconRef.current
             const em = draggingEmphasisRef.current
-            if (tpl || iconColor || em) {
+            const mo = draggingMotionRef.current
+            if (tpl || iconColor || em || mo) {
               e.preventDefault()
               e.stopPropagation()
               if (tpl) applyTemplateToCue(cue.id, tpl)
@@ -191,6 +196,8 @@ export function TelopBands({
               // 「選んでいる物に付け外し」だが、落としたのに消えるのは意味が通らない。
               // 当てる先は既にある patchCueAnim（新しい道は作らない）
               else if (em) patchCueAnim(cue.id, { emphasis: em })
+              // 動きの見本も同じ。付け方と知らせは applyMotionPreset と同じ物を通す
+              else if (mo) applyMotionPresetTo([cue.id], mo)
               return
             }
             if (!draggingTelopAnimRef.current) return
