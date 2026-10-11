@@ -37,19 +37,46 @@ import { registerPackHandlers } from './projectPackIpc'
 import { registerTemplateHandlers } from './projectTemplates'
 import { registerSrtHandlers } from './srtExport'
 
-/** 未保存の変更があるか（画面から project:dirty で知らされる）。×ボタンの確認に使う */
-let projectDirty = false
-/** 未保存の変更があるか。**×ボタンの確認と自動更新が見ている** */
-export function isProjectDirty(): boolean {
-  return projectDirty
+// ---- 窓ごとの物（2026-10-12・窓を複数にした）----
+//
+// 窓（webContents.id）に 1, 2, 3… の番号を振る。番号は**下書きの置き場**と
+// 「未保存」の札を窓ごとに分けるのに使う。閉じた窓の番号は次の窓が使い回す
+// （2 を閉じて次に開いた窓は 2。下書きの名前が増え続けない）。
+// 1番は今までどおり `giftcut-autosave.json`（1窓のときは何も変わらない）
+const slots = new Map<number, number>()
+export function registerWindowSlot(webContentsId: number): number {
+  const used = new Set(slots.values())
+  let n = 1
+  while (used.has(n)) n++
+  slots.set(webContentsId, n)
+  return n
+}
+export function releaseWindowSlot(webContentsId: number): void {
+  slots.delete(webContentsId)
+  dirtyByWindow.delete(webContentsId)
+}
+const slotOf = (e: { sender: { id: number } }): number => slots.get(e.sender.id) ?? 1
+
+/** 未保存の変更があるか（画面から project:dirty で知らされる）。窓ごと */
+const dirtyByWindow = new Map<number, boolean>()
+/**
+ * 未保存の変更があるか。**×ボタンの確認と自動更新が見ている。**
+ * 窓を指定すればその窓、指定しなければ**どれか1つでも**（自動更新は全窓を止める）
+ */
+export function isProjectDirty(webContentsId?: number): boolean {
+  if (webContentsId !== undefined) return dirtyByWindow.get(webContentsId) ?? false
+  for (const v of dirtyByWindow.values()) if (v) return true
+  return false
 }
 
 // ---- 自動保存 / クラッシュ復帰 ----
-const autosavePath = (): string => join(app.getPath('userData'), 'giftcut-autosave.json')
+const autosavePath = (slot = 1): string =>
+  join(app.getPath('userData'), slot > 1 ? `giftcut-autosave-${slot}.json` : 'giftcut-autosave.json')
 // 1つ前の下書き。落ちる直前の状態そのものが壊れていたり、
 // 「落ちる原因になった操作」ごと復元してしまうと逃げ場が無くなるので、
 // 1世代だけ前も残して選べるようにする。
-const autosavePrevPath = (): string => join(app.getPath('userData'), 'giftcut-autosave.prev.json')
+const autosavePrevPath = (slot = 1): string =>
+  join(app.getPath('userData'), slot > 1 ? `giftcut-autosave-${slot}.prev.json` : 'giftcut-autosave.prev.json')
 
 const checkReportPath = (): string => join(app.getPath('userData'), 'giftcut-check.json')
 /**
@@ -122,18 +149,19 @@ export function registerProjectFileHandlers(): void {
     }
   )
 
-  ipcMain.handle('project:autosave', async (_e, json: string) => {
+  ipcMain.handle('project:autosave', async (e, json: string) => {
     try {
       // 非同期＋アトミック書き込み（メインスレッドを止めず、途中で落ちても壊れない）。
       // 壊れると autosaveCheck が JSON.parse に失敗し、復帰プロンプトが無言で出なくなる。
-      const dst = autosavePath()
+      const slot = slotOf(e)
+      const dst = autosavePath(slot)
       const tmpFile = dst + '.tmp'
       await writeFileAsync(tmpFile, json, 'utf-8')
       // 今の下書きを1つ前へ送ってから、新しいものを置く。
       // コピーではなく改名なので、途中で落ちてもどちらかは必ず読める。
       if (existsSync(dst)) {
         try {
-          renameSync(dst, autosavePrevPath())
+          renameSync(dst, autosavePrevPath(slot))
         } catch {
           /* 送れなくても新しい方の保存は続ける */
         }
@@ -146,7 +174,7 @@ export function registerProjectFileHandlers(): void {
     }
   })
   // 起動時: 自動保存の有無・内容・動画の生存を返す（復元プロンプト用）
-  ipcMain.handle('project:autosaveCheck', async () => {
+  ipcMain.handle('project:autosaveCheck', async (e) => {
     const read = (
       p: string
     ): { data: unknown; videoExists: boolean; mtime: number } | null => {
@@ -159,8 +187,8 @@ export function registerProjectFileHandlers(): void {
         return null
       }
     }
-    const cur = read(autosavePath())
-    const prev = read(autosavePrevPath())
+    const cur = read(autosavePath(slotOf(e)))
+    const prev = read(autosavePrevPath(slotOf(e)))
     // 最新が壊れていても、1つ前が読めるなら復帰の道を残す
     if (!cur) {
       if (!prev) return { exists: false }
@@ -169,13 +197,13 @@ export function registerProjectFileHandlers(): void {
     return { exists: true, ...cur, prev: prev ?? undefined }
   })
   // renderer から未保存状態を受け取る（×ボタンで閉じるときの確認に使う）
-  ipcMain.on('project:dirty', (_e, v: boolean) => {
-    projectDirty = !!v
+  ipcMain.on('project:dirty', (e, v: boolean) => {
+    dirtyByWindow.set(e.sender.id, !!v)
   })
-  ipcMain.handle('project:autosaveClear', async () => {
+  ipcMain.handle('project:autosaveClear', async (e) => {
     try {
-      rmSync(autosavePath(), { force: true })
-      rmSync(autosavePrevPath(), { force: true })
+      rmSync(autosavePath(slotOf(e)), { force: true })
+      rmSync(autosavePrevPath(slotOf(e)), { force: true })
     } catch {
       /* 無視 */
     }

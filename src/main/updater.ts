@@ -38,8 +38,11 @@ export type { UpdateState } from '../shared/updateState'
 import type { UpdateState } from '../shared/updateState'
 
 export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
+  // 窓は複数ある（2026-10-12）。知らせは**全部の窓**へ。`win` は最初の窓で、
+  // 「起こした窓」の意味しか無い（閉じられても見張りは続く）
+  void win
   const send = (s: UpdateState): void => {
-    if (!win.isDestroyed()) win.webContents.send('update:state', s)
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('update:state', s)
   }
 
   // 帯を閉じるだけ（こちらから再起動を仕掛けていないので、止める物が無い）。
@@ -75,9 +78,15 @@ export function setupAutoUpdate(win: BrowserWindow, deps: UpdateDeps): void {
           console.warn('[update] 保存の返事が来ないので、待たずに再起動します')
           done()
         }, 4000)
-        flushed = done
-        if (!win.isDestroyed()) win.webContents.send('update:flush')
-        else done()
+        // **窓の数だけ返事を待つ**（窓ごとに下書きがある）。1つの返事で落とすと、
+        // 残りの窓の編集が下書きに乗らないまま消える
+        const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed())
+        let left = wins.length
+        flushed = () => {
+          if (--left <= 0) done()
+        }
+        if (!wins.length) done() // 窓が無ければ書く物も無い
+        for (const w of wins) w.webContents.send('update:flush')
       })
     }
     // **JS だけの差し替えが置けているなら、インストーラは要らない。**

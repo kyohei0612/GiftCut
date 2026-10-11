@@ -24,7 +24,7 @@ import { killAllChildren } from './ffmpegRun'
 import { isExporting, registerExportHandlers } from './exportRun'
 // gcfile:// で画面へ配ってよいファイルの名簿。**新しく渡す道を作ったら必ず通す**
 import { isAllowed, setAllowHook } from './allowList'
-import { flushPendingOpenPath, openPathFromArgv, registerOpenPathHandlers } from './openPath'
+import { pathFromArgv, registerOpenPathHandlers, setWindowStartupPath, windowForPath } from './openPath'
 import { stopWatching, watchMedia } from './fileWatch'
 
 // 名簿に入った素材は、外から書き換えられたら画面へ知らせる（main/fileWatch）。
@@ -38,7 +38,9 @@ import { registerDialogHandlers } from './dialogs'
 import { registerMediaProbeHandlers } from './mediaProbe'
 import { registerMediaProxyHandlers } from './mediaProxy'
 import { registerMediaAudioHandlers } from './mediaAudio'
-import { isProjectDirty, registerProjectFileHandlers } from './projectFiles'
+import {
+  isProjectDirty, registerProjectFileHandlers, registerWindowSlot, releaseWindowSlot
+} from './projectFiles'
 import { clearMark, installCrashHooks, recentCrashes, record, startSession } from './crashLog'
 
 // 自動実行（e2e・監査・計測）で動かしているかどうか。
@@ -102,7 +104,15 @@ function readWindowState(): WindowState | null {
 }
 
 // ダブルクリック（関連付け）で開かれたプロジェクトを画面へ渡す道は ./openPath
-function createWindow(): void {
+/**
+ * 窓を1つ作る。`openPath` を渡すと、その窓はそのプロジェクトから始まる。
+ *
+ * **窓は何個でも作れる**（2026-10-12・本人の指定「2つ目のプロジェクトは別ウィンドウで」）。
+ * 窓ごとに違う物: 下書き（自動保存）の置き場・「未保存」の札・閉じる確認・開くパス。
+ * 1つしか無い物: 自動更新の見張り（最初の窓で1回だけ起こし、知らせは全窓へ）
+ */
+let updaterStarted = false
+function createWindow(openPath?: string): void {
   const displays = screen.getAllDisplays().map((d) => d.workArea)
   const { bounds, maximized } = nextBounds(
     readWindowState(),
@@ -124,6 +134,9 @@ function createWindow(): void {
     }
   })
   if (maximized) mainWindow.maximize()
+  // この窓の番号（下書きの置き場と「未保存」の札を窓ごとに分ける）
+  registerWindowSlot(mainWindow.webContents.id)
+  if (openPath) setWindowStartupPath(mainWindow, openPath)
 
   // 形が変わるたびに覚え直す。動かしている間ずっと書くと遅いので、手が止まってから書く。
   // 最大化中の getBounds() は画面いっぱいの値なので、記録するのは
@@ -163,15 +176,19 @@ function createWindow(): void {
     // 「起動はするが真っ白」を確認済みにしてしまう。
     markVerified()
     cleanOtherBundles()
-
-    flushPendingOpenPath(mainWindow)
   })
 
   // 更新を見に行く。当てていいかは「今なにをしているか」で決める
   // （書き出し中・未保存のときに勝手に再起動しない）。
-  setupAutoUpdate(mainWindow, {
-    busy: () => ({ dirty: isProjectDirty(), exporting: isExporting() })
-  })
+  // **起こすのは最初の窓で1回だけ**（窓ごとに起こすと見張りが二重になる）。
+  // 知らせ（update:state / update:flush）は updater が全窓へ送る。
+  // 「未保存」はどれか1つの窓でもあれば当てない
+  if (!updaterStarted) {
+    updaterStarted = true
+    setupAutoUpdate(mainWindow, {
+      busy: () => ({ dirty: isProjectDirty(), exporting: isExporting() })
+    })
+  }
 
   // 未保存の変更があるまま閉じようとしたら確認する（無警告で編集内容を失わないため）。
   //
@@ -179,16 +196,20 @@ function createWindow(): void {
   // 見た目も文言の作法もアプリと揃わず、「Windows のダイアログが出てきた」という
   // 見え方になるため。ここは「閉じるのを止めて、レンダラに聞きに行く」だけ。
   // レンダラが app:close-confirmed を返したら allowClose を立てて閉じ直す。
+  // **窓ごと。** 「未保存」も確認もこの窓の分だけ（他の窓の了承で閉じない）
   let allowClose = false
+  const myId = mainWindow.webContents.id
   mainWindow.on('close', (e) => {
-    if (allowClose || !isProjectDirty() || AUTO) return
+    if (allowClose || !isProjectDirty(myId) || AUTO) return
     e.preventDefault()
     mainWindow.webContents.send('app:close-request')
   })
-  ipcMain.on('app:close-confirmed', () => {
+  const onCloseConfirmed = (e: Electron.IpcMainEvent): void => {
+    if (e.sender.id !== myId) return
     allowClose = true
     mainWindow.close()
-  })
+  }
+  ipcMain.on('app:close-confirmed', onCloseConfirmed)
 
   // パネルを別ウィンドウ（別モニター）へ出すための穴。
   //
@@ -255,6 +276,8 @@ function createWindow(): void {
       if (!w.isDestroyed()) w.destroy()
     }
     panes.clear()
+    ipcMain.removeListener('app:close-confirmed', onCloseConfirmed)
+    releaseWindowSlot(myId)
   })
 
   // dev: electron-vite が渡す URL / prod: ビルド済み HTML
@@ -284,12 +307,17 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_e, argv) => {
-    openPathFromArgv(argv)
-    const win = BrowserWindow.getAllWindows()[0]
+    // **2つ目のプロジェクトは別の窓で開く**（2026-10-12・本人の指定）。
+    // 前は動いている窓へ送り、今の作業を保存して閉じてから入れ替えていた。
+    // 同じプロジェクトをもう一度ダブルクリックしたら、その窓を前へ出すだけ
+    const p = pathFromArgv(argv)
+    const win = (p && windowForPath(p)) || (p ? null : BrowserWindow.getAllWindows()[0])
     if (win) {
       if (win.isMinimized()) win.restore()
       win.focus()
+      return
     }
+    if (p) createWindow(p)
   })
 }
 
@@ -448,11 +476,10 @@ app.whenReady().then(() => {
   registerMediaAudioHandlers() // 波形・喋っていない所（./mediaAudio）
   registerProjectFileHandlers() // 保存・下書き・持ち出し・雛形（./projectFiles）
 
-  createWindow()
-  // 引数で渡されたプロジェクト（関連付けからのダブルクリック）は置いておき、
+  // 引数で渡されたプロジェクト（関連付けからのダブルクリック）は窓に置いておき、
   // 画面が取りに来る（./openPath の頭。送ると届く前に流れていた）
   registerOpenPathHandlers()
-  openPathFromArgv(process.argv, true)
+  createWindow(pathFromArgv(process.argv) ?? undefined)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
