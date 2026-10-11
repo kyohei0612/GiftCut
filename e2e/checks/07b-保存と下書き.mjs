@@ -67,10 +67,14 @@ export default async function (C) {
     rmSync(blocker, { recursive: true, force: true })
     mkdirSync(blocker, { recursive: true })
     await dragBy(v1Clips().nth(0), (await clipW()) * 0.2)
+    // **「前回は落ちた」の札（.status-crash）は数えない。** 確認用の userData には
+    // 落ちた印を置いてある（復元を聞くのが落ちたときだけになったため・e2eFixture）ので、
+    // その札は最初から出ている。ここで見たいのは下書きが書けない警告だけ
+    const warn = () => page.locator('.status-ng:not(.status-crash)').count()
     let shown = false
     for (let i = 0; i < 20; i++) {
       await page.waitForTimeout(500)
-      if ((await page.locator('.status-ng').count()) > 0) {
+      if ((await warn()) > 0) {
         shown = true
         break
       }
@@ -82,7 +86,7 @@ export default async function (C) {
     let cleared = false
     for (let i = 0; i < 20; i++) {
       await page.waitForTimeout(500)
-      if ((await page.locator('.status-ng').count()) === 0) {
+      if ((await warn()) === 0) {
         cleared = true
         break
       }

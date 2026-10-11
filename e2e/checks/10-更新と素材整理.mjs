@@ -118,17 +118,25 @@ export default async function (C) {
     // 使用中の判定が「元動画として登録されているか」を見ていたため。
     await resetProject()
     touchedRef.dirty = true
-    // まず、使用中のものは守られている（ここが緩むと、映っている素材が消える）
+    // **使用中でも確認なしで消える**（本人の指定・2026-10-11。前は「使用中です」で止めていた）。
+    // 消し方はプレミアと同じで、本編の切片は同じ長さの空きになり、後ろは動かない
     const used = page.locator('.media-card', { hasText: 'test_video.mp4' }).first()
+    const nSeg = await v1Clips().count()
     await used.hover()
     await used.locator('.media-del').click()
-    await page.waitForTimeout(500)
+    await page.waitForTimeout(600)
     const toast = (await page.locator('.toast').allTextContents()).join(' ')
-    assert(toast.includes('使用中'), `使用中の素材が警告なしで消えた: ${toast}`)
+    assert(toast.includes('タイムラインからも'), `消したことを知らせていない: ${toast}`)
     assert(
-      (await page.locator('.media-card', { hasText: 'test_video.mp4' }).count()) > 0,
-      '使っている動画がビンから消えた'
+      (await page.locator('.media-card', { hasText: 'test_video.mp4' }).count()) === 0,
+      '使っている動画がビンから消えない'
     )
+    // 最後の1本（この確認の素材は動画1本）なので、本編はまっさらに戻る。
+    // 他の元動画が残っていれば同じ長さの空きになる（useMediaDrop.removeMedia）
+    assert(nSeg > 0 && (await v1Clips().count()) === 0, `本編の切片が残っている（${await v1Clips().count()}）`)
+    // ここから先は元の確認（画像を帯から消してからビンで消す）。状態を戻してから
+    await resetProject()
+    touchedRef.dirty = true
     // 画像のクリップをタイムラインから全部消す
     let guard = 0
     while ((await page.locator('.img-clip').count()) > 0 && guard++ < 8) {

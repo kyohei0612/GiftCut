@@ -162,6 +162,9 @@ export function useTelopDrag(deps: UseTelopDragDeps) {
     let moved = false
     let addedLane = false
     let lastEv: PointerEvent | null = null
+    // 離した瞬間に「最後にどこへ置いたか」を自分で持つ（下の onUp の説明）
+    let lastDelta = 0
+    let lastShift = 0
     const es = startEdgeScroll(scrollRef.current, (dv) => {
       sx -= dv
       if (lastEv) onMove(lastEv)
@@ -214,6 +217,8 @@ export function useTelopDrag(deps: UseTelopDragDeps) {
         })
         trackShift = ti - grabbedIdx
       }
+      lastDelta = delta
+      lastShift = trackShift
       shiftPartners(partners, delta) // 組の相手（効果音・画像・映像レイヤー）も一緒に
       setCues((prev) =>
         prev.map((c) => {
@@ -237,7 +242,22 @@ export function useTelopDrag(deps: UseTelopDragDeps) {
       if (!moved && alreadySel) setSelectedIds([cue.id])
       // 落としたら、同じ段で重なった分は**置いた側が勝つ**（プレミアの上書き）。
       // 動画クリップは元からそうなっているのに、テロップだけ重なったまま残っていた。
-      if (moved) overwriteOverlappedCues(dragIds)
+      //
+      // **最後の置き場所は自分で当てはめてから渡す。** `cuesRef` は描き直しの後の
+      // effect で更新されるので、離した瞬間はまだ**1つ前の pointermove の位置**のことが
+      // ある（pointermove の setState は優先度が低く、pointerup より後に描かれる）。
+      // 古い位置で削ると境目がずれ、端が重なったまま残って下の帯の端が掴めない
+      //（本人の報告「重ねて動かすと触ったテロップが上に重なる」・2026-10-11）
+      if (moved) {
+        const order = telopOrder()
+        overwriteOverlappedCues(dragIds, (c) => {
+          const st = startMap.get(c.id)
+          if (!st) return c
+          const idx = Math.max(0, order.indexOf(st.tr))
+          const ntr = order[clamp(idx + lastShift, 0, order.length - 1)]
+          return { ...c, start: st.s + lastDelta, end: st.e + lastDelta, track: ntr }
+        })
+      }
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -264,10 +284,16 @@ export function useTelopDrag(deps: UseTelopDragDeps) {
    * 一番怖い「最終的にどう並ぶか」だけがアプリを起動しないと見られなかった。**
    * 組み立てごと向こうへ移し、ここは採番を預けて呼ぶだけにした（2026-08-03）。
    */
-  function overwriteOverlappedCues(winnerIds: number[]): void {
+  /**
+   * @param fresh 離した瞬間の**本当の**位置を当てはめる（任意）。`cuesRef` は描き直し後の
+   *              effect で更新されるので、pointerup の時点では1つ前の位置のことがある。
+   *              呼ぶ側は最後の置き場所を自分で知っているので、それを当ててから削る
+   */
+  function overwriteOverlappedCues(winnerIds: number[], fresh?: (c: Cue) => Cue): void {
     // 呼び方（採番を updater の外でやる・structuredClone で写す）は
     // state/cueOverwrite に1つだけ。**貼り付けも同じ所を通る**
-    const next = overwriteOverlapped(cuesRef.current, winnerIds, cueTrack, idCounter)
+    const base = fresh ? cuesRef.current.map(fresh) : cuesRef.current
+    const next = overwriteOverlapped(base, winnerIds, cueTrack, idCounter)
     if (next) setCues(next)
   }
 
@@ -333,7 +359,9 @@ export function useTelopDrag(deps: UseTelopDragDeps) {
       // ※ **この呼び出しを外すと本当に赤くなることを確かめてある**（2026-08-03）。
       //   e2e「テロップの端を伸ばして重ねても、伸ばした側が勝つ」が
       //   `伸ばしても2つ目が短くなっていない（188 → 188px）` で落ちる。
-      if (now.start !== cue.start || now.end !== cue.end) overwriteOverlappedCues([cue.id])
+      // 端も同じで、離した瞬間の端は `now` が本当の値（cuesRef は1つ前のことがある）
+      if (now.start !== cue.start || now.end !== cue.end)
+        overwriteOverlappedCues([cue.id], (c) => (c.id === cue.id ? { ...c, start: now.start, end: now.end } : c))
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)

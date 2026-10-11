@@ -8,6 +8,7 @@
 // run.mjs 側に置いたままで、まとめて受け取る。
 
 import { join } from 'node:path'
+import { copyFileSync } from 'node:fs'
 
 export default async function (C) {
   const {
@@ -26,6 +27,8 @@ export default async function (C) {
     seekTo,
     setDialogFiles,
     v1Clips,
+    touchedRef,
+    fx,
   } = C
 
   // クリップ1つぶんの幅（5秒）。章をまたいで持ち回さず、その場で測る
@@ -291,17 +294,23 @@ export default async function (C) {
     )
   })
 
-  await check('タイムラインで使っている素材は、置き場から消せず理由が出る', async () => {
+  // **使用中でも確認なしで消える**（本人の指定・2026-10-11。前は「使用中です」で止めていた）。
+  // 重ねた物（画像・効果音・映像レイヤー）は帯ごと消え、本編の切片は空きになる
+  await check('タイムラインで使っている素材も、置き場から消せる（載っていた帯ごと消える）', async () => {
     await resetProject()
+    touchedRef.dirty = true
     const card = await binCardReady('test_image')
     await card.click()
     await page.waitForTimeout(300)
     const bin0 = await page.locator('.media-card').count()
+    const img0 = await page.locator('.img-clip').count()
+    assert(img0 > 0, '画像がタイムラインに載っていない（この項目は載っている前提）')
     await page.keyboard.press('Delete')
-    await page.waitForTimeout(500)
-    assert((await page.locator('.media-card').count()) === bin0, '使用中なのに消えた')
+    await page.waitForTimeout(600)
+    assert((await page.locator('.media-card').count()) === bin0 - 1, '置き場から消えない')
+    assert((await page.locator('.img-clip').count()) === 0, '帯が残っている')
     const toast = await page.locator('.toast').allTextContents()
-    assert(toast.some((t) => t.includes('使用中')), `理由が出ていない: ${toast.join(' / ')}`)
+    assert(toast.some((t) => t.includes('タイムラインからも')), `消したことを知らせていない: ${toast.join(' / ')}`)
   })
 
   await check('使っていない素材は、置き場から Delete で消える', async () => {
@@ -545,6 +554,28 @@ export default async function (C) {
     await page.waitForTimeout(800)
     const n1 = await page.locator('.clip-nested').count()
     assert(n1 === n0, `開き直したら組が消えた（${n0} → ${n1}）`)
+  })
+
+  // **素材は写しを取らず参照している。** 置き場の画像を別の絵で上書きしたら、
+  // 入れ替えなくても画面が変わる（本人の指定・2026-10-11）。main/fileWatch が
+  // 1秒ごとに見張り、落ち着いてから知らせる → 画面は URL の版（?v=）を上げて取り直す
+  await check('置き場の画像を別の絵で上書きすると、入れ替えなくてもプレビューが変わる', async () => {
+    await resetProject()
+    touchedRef.dirty = true
+    await seekTo(2) // 画像は 1〜5秒に載っている
+    await page.waitForTimeout(400)
+    const img = page.locator('.screen-img').first()
+    assert(await img.count(), 'プレビューに画像が出ていない（1〜5秒に載っている前提）')
+    const before = await img.getAttribute('src')
+    assert(before && !before.includes('?v='), `上書きする前から版が付いている: ${before}`)
+    // 別の絵（spare_image.png）で上書き。見張りは 1秒ごと＋1秒落ち着き待ちなので、3秒待つ
+    copyFileSync(fx.spare, fx.image)
+    let after = before
+    for (let i = 0; i < 12 && after === before; i++) {
+      await page.waitForTimeout(500)
+      after = await img.getAttribute('src')
+    }
+    assert(after !== before && after?.includes('?v='), `上書きしても画面が取り直さない（${after}）`)
   })
 
   // =========================================================================

@@ -14,8 +14,8 @@
 
 import { zoomAt, type ClipMotion, type Zoom } from '../../../shared/clipMotion'
 import { adjustCss, cropInset } from '../lib/clipLook'
-import { toGcUrl } from '../lib/gcUrl'
 import { telopStateAt } from '../lib/telopStyle'
+import { useFileRevCtx } from './fileRevContext'
 import { renderCueToPng } from '../lib/rasterize'
 import type { Cue } from '../lib/srt'
 import type { VClip } from '../lib/projectTypes'
@@ -49,6 +49,8 @@ export function useScreenshot(deps: UseScreenshotDeps) {
   const { currentTimeRef } = usePlaybackCtx()
   const { ratio } = useExportCtx()
   const { iconAuto, iconOffset, iconScale, iconSide } = useIconsCtx()
+  // 画像は版つきの URL で読む（外から書き換えられた後も、古い絵を焼かない）
+  const { urlOf } = useFileRevCtx()
   const { showToast } = useToastCtx()
 
   /**
@@ -221,7 +223,7 @@ export function useScreenshot(deps: UseScreenshotDeps) {
           tracks.findIndex((tr) => tr.id === b.track) - tracks.findIndex((tr) => tr.id === a.track)
       )
     for (const c of imgShown) {
-      const el = await loadImage(toGcUrl(c.path))
+      const el = await loadImage(urlOf(c.path))
       if (!el) continue
       drawLayer(ctx, el, el.naturalWidth, el.naturalHeight, size.width, size.height, c, t0 - c.tStart)
     }

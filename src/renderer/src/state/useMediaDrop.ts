@@ -22,7 +22,8 @@
 // 掴んだ時点で調べ始めて、間に合わなければ「解析中」と書く。
 
 import { EMPTY_DRAG_IMG } from '../lib/dragChip'
-import { fadeGain } from '../../../shared/timeline'
+import { fadeGain, segTLen } from '../../../shared/timeline'
+import { useSegOpsCtx } from './segOpsContext'
 import type { SEClip, Track, VClip } from '../lib/projectTypes'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
 import type { Cue } from '../lib/srt'
@@ -97,7 +98,9 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
     dragSeDurRef, draggingMediaRef, mediaInUse, mediaMetaRef, mediaQueue, metaInFlightRef,
     staleSourceIds, vcLen, setMediaMeta
   } = deps
-  const { seClipsRef, imgClipsRef, setImgClips, segsRef, setVClips, vClipsRef } = useDoc()
+  const { seClipsRef, imgClipsRef, setImgClips, segsRef, setVClips, vClipsRef, setSeClips, setSegments } = useDoc()
+  // 素材を消すとき、本編の切片を同じ長さの空きに置き換えるのに要る
+  const { makeGapSeg } = useSegOpsCtx()
   const {
     selectedImgIds, setSelectedImgIds, selectedVClipIds, setSelectedVClipIds,
     setSelectedMediaIds
@@ -199,10 +202,6 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
   }
   function removeMedia(id: number): void {
     const m = mediaItems.find((x) => x.id === id)
-    // タイムラインで使っている素材は消せない（消すとビンから見えないのに再生され続けて混乱する）。
-    // 「使用中」の基準はクリップが残っているかどうか。元動画としての登録は、切片を
-    // 全部消したあとも主ソースとして残るので、それを見ていると
-    // 「タイムラインは空なのにビンから消せない」という手詰まりになる。
     if (m) {
       const refs = {
         sources: sourcesRef.current,
@@ -211,13 +210,34 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
         imgClips: imgClipsRef.current,
         vClips: vClipsRef.current
       }
+      // **タイムラインで使っていても、確認なしで消す**（本人の指定・2026-10-11）。
+      // 前は「使用中です。先にクリップを削除してください」で止めていた。
+      // 消し方はプレミアと同じ: **載っていた所は空きになり、後ろは動かさない**
+      //（詰めると、他の段の文字や効果音が映像とずれる）。本編は切片を同じ長さの
+      // 空き（gap）に置き換え、重ねた物（効果音・画像・映像レイヤー）は帯ごと消す
       if (mediaInUse(m.path, refs)) {
-        showToast('この素材はタイムラインで使用中です。先にクリップを削除してください。')
-        return
+        const same = (p: string): boolean => p === m.path
+        const srcIds = new Set(sourcesRef.current.filter((s) => same(s.path)).map((s) => s.id))
+        const mainId = sourcesRef.current[0]?.id
+        // 他の元動画が残っていれば空きに置き換える（後ろの位置を守る）。
+        // これが最後の1本なら本編はまっさらに戻す（空きだけの本編には何も映らない）
+        const lastSource = sourcesRef.current.every((s) => srcIds.has(s.id))
+        setSegments((prev) =>
+          lastSource
+            ? []
+            : prev.map((s) => (!s.gap && srcIds.has(s.srcId ?? mainId ?? -1) ? makeGapSeg(segTLen(s)) : s))
+        )
+        setSeClips((prev) => prev.filter((c) => !same(c.path)))
+        setImgClips((prev) => prev.filter((c) => !same(c.path)))
+        setVClips((prev) => prev.filter((c) => !same(c.path)))
+        showToast('タイムラインからも外しました。載っていた所は空きになります。')
       }
-      // 誰も使っていない元動画の登録も一緒に片付ける。残すと、見えない <video> が
+      // 元動画の登録も一緒に片付ける。残すと、見えない <video> が
       // プロキシを読み続け、書き出しの入力にも無駄に載る。
-      const stale = staleSourceIds(m.path, refs)
+      // （切片は上で空きに替えたので、この素材を指す登録は全部不要）
+      const stale = Array.from(
+        new Set([...staleSourceIds(m.path, refs), ...sourcesRef.current.filter((s) => s.path === m.path).map((s) => s.id)])
+      )
       if (stale.length) setSources((prev) => prev.filter((s) => !stale.includes(s.id)))
       // 消した素材をプレビューが映したままにしない（ビンに無い動画が出続ける）
       if (videoPath === m.path) {

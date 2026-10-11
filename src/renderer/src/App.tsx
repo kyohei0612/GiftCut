@@ -31,6 +31,7 @@ import { ToasterProvider } from './state/toastContext'
 // 人に聞く物と、置き場（★・フォルダ）。**配線を通さず、使う側が直に見に行く**
 import { AskProvider } from './state/askContext'
 import { LibraryProvider } from './state/libraryContext'
+import { FileRevProvider } from './state/fileRevContext'
 // 引数ゼロの葉。**配線を通さず、使う側が直に見に行く**（npm run passthrough）
 import { AppChromeProvider } from './state/appChromeContext'
 import { BandDragProvider } from './state/bandDragContext'
@@ -277,6 +278,8 @@ export default function App(): React.JSX.Element {
       (c) => <PlaybackProvider>{c}</PlaybackProvider>,
       (c) => <ExportProvider>{c}</ExportProvider>,
       (c) => <MediaProvider>{c}</MediaProvider>,
+      // 参照している素材ファイルの版（外から書き換えられたら画面が取り直す）。誰にも依らない
+      (c) => <FileRevProvider>{c}</FileRevProvider>,
       (c) => <ProjectStateProvider value={projectState}>{c}</ProjectStateProvider>,
       (c) => <ClipboardProvider>{c}</ClipboardProvider>,
       (c) => <DragPreviewProvider value={dragPreview}>{c}</DragPreviewProvider>,

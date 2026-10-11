@@ -17,6 +17,9 @@ import type { UpdateState } from '../../../preload/index.d'
 import { useAppChromeCtx } from './appChromeContext'
 import { useExportCtx } from './exportContext'
 import { useMediaCtx } from './mediaContext'
+import { useFileRevCtx } from './fileRevContext'
+import { useProxyCtx } from './proxyContext'
+import { toGcUrl } from '../lib/gcUrl'
 import { useProjectFileCtx } from './projectFileContext'
 import { useSubtitlePrefsCtx } from './subtitlePrefsContext'
 
@@ -39,7 +42,10 @@ export interface UseMainEventsDeps {
 export function useMainEvents() {
   // **要る9個は心臓から自分で取る**（2026-08-04。配線はただの素通しだった）
   const { proxyForPathRef, setUpdateState, packBusyRef, setPackPct } = useAppChromeCtx()
-  const { setProxyPct } = useMediaCtx()
+  const { setProxyPct, setSources, setMediaItems, setThumbnailSrc, videoPath, setVideoSrc } =
+    useMediaCtx()
+  const { bump, revOf } = useFileRevCtx()
+  const { forgetProxy } = useProxyCtx()
   const { setExportPct } = useExportCtx()
   const { setSubtitleState } = useSubtitlePrefsCtx()
   const { openProjectFn, projectJson } = useProjectFileCtx()
@@ -52,6 +58,53 @@ export function useMainEvents() {
     return () => off?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // **参照している素材が外から書き換えられた**（main/fileWatch）。
+  // 本人の指定（2026-10-11）: 置き場の画像が別の物に上書きされたら、入れ替えなくても変わる。
+  // 版を1つ上げて URL を変える（画面は同じ URL を取り直さない）。動画は焼き直しも捨て、
+  // 長さ・fps・大きさ・波形・サムネを測り直す（中身が別の動画かもしれない）
+  useEffect(() => {
+    const off = window.giftcut?.onMediaChanged?.(({ path }) => {
+      const v = revOf(path) + 1
+      bump(path)
+      const url = `${toGcUrl(path)}?v=${v}`
+      const same = (p: string): boolean => p.replace(/\\/g, '/').toLowerCase() === path.replace(/\\/g, '/').toLowerCase()
+      // 画像: 素材ビンのサムネも同じ絵なので一緒に替える
+      setMediaItems((prev) =>
+        prev.map((m) => (same(m.path) && m.kind === 'image' ? { ...m, thumb: url } : m))
+      )
+      // 動画: 原本の URL を替え、焼き直しを捨てて作り直させる。付随データも測り直す
+      setSources((prev) => (prev.some((s) => same(s.path)) ? prev.map((s) => (same(s.path) ? { ...s, origUrl: url } : s)) : prev))
+      forgetProxy(path)
+      if (videoPath && same(videoPath)) setVideoSrc(url)
+      void window.giftcut.getFps(path).then((r) => {
+        if (!r?.ok) return
+        setSources((prev) =>
+          prev.map((s) =>
+            same(s.path)
+              ? { ...s, ...(r.fps && r.fps > 0 ? { fps: Math.round(r.fps * 1000) / 1000 } : {}), ...(r.w ? { w: r.w } : {}), ...(r.h ? { h: r.h } : {}) }
+              : s
+          )
+        )
+      })
+      void window.giftcut.getDuration(path).then((r) => {
+        if (r?.ok && r.duration && r.duration > 0)
+          setSources((prev) => prev.map((s) => (same(s.path) ? { ...s, duration: r.duration! } : s)))
+      })
+      void window.giftcut.generateWaveform(path).then((r) => {
+        if (r?.ok && r.min && r.max)
+          setSources((prev) => prev.map((s) => (same(s.path) ? { ...s, waveform: { min: r.min!, max: r.max!, dur: r.duration ?? 0 } } : s)))
+      })
+      void window.giftcut.generateThumbnail(path).then((r) => {
+        if (!r?.ok || !r.path) return
+        const t = `${toGcUrl(r.path)}?v=${v}`
+        setMediaItems((prev) => prev.map((m) => (same(m.path) && m.kind !== 'image' ? { ...m, thumb: t } : m)))
+        if (videoPath && same(videoPath)) setThumbnailSrc(t)
+      })
+    })
+    return () => off?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoPath])
 
   // 書き出しの進み具合
   useEffect(() => {
@@ -72,6 +125,11 @@ export function useMainEvents() {
   useEffect(() => {
     const off = window.giftcut?.onOpenProjectPath?.((p) => {
       void openProjectFn(p)
+    })
+    // 起動の引数で来た物は**自分で取りに行く**（main が送ると、この受け口が付く前に
+    // 流れていた＝「プロジェクトから起動しても普通に立ち上がるだけ」・2026-10-11）
+    void window.giftcut?.startupProjectPath?.().then((p) => {
+      if (p) void openProjectFn(p)
     })
     return () => off?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps

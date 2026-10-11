@@ -17,9 +17,20 @@ import { normalize } from 'path'
 
 const allowed = new Set<string>()
 
+/**
+ * 名簿に入った瞬間に呼ばれる相手（`main/fileWatch` の見張り）。
+ * ここから直接 import しないのは、この名簿が Electron を知らない純粋な物だから
+ * （試験から読める）。繋ぐのは index.ts
+ */
+let onAllow: ((p: string) => void) | null = null
+export function setAllowHook(fn: (p: string) => void): void {
+  onAllow = fn
+}
+
 /** この先を画面へ配ってよいことにする */
 export function allowFile(p: string): void {
   allowed.add(normalize(p))
+  onAllow?.(p)
 }
 
 /** 名簿にあるか（`gcfile://` の受け口と、各ハンドラの入口で見る） */

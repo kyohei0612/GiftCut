@@ -111,6 +111,16 @@ export function useAutosaveDraft(): void {
           showToast('新しい GiftCut になりました。続きから開いています。')
           return
         }
+        // **普通に起動したら聞かない。** 本人の指定（2026-10-11）: 「保存したのに破棄しますかと
+        // 出るのはおかしい」「毎回、前回の続きからしますかと聞かなくていい。GiftCut から
+        // 立ち上げたら新規でよい」。聞くのは**前回が正常に終わっていない**（落ちた・電源断）
+        // ときだけ＝下書きが本当に要る場面。印は main/crashLog（消す側に倒してある）。
+        // .gcproj から起動したときも聞かない（そのプロジェクトを開くのが答え）
+        const [crash, startup] = await Promise.all([
+          window.giftcut?.lastCrash?.(),
+          window.giftcut?.startupProjectPath?.()
+        ])
+        if (!crash?.crashed || startup) return
         const when = (ms?: number): string | undefined =>
           ms ? new Date(ms).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' }) : undefined
         setRestorePrompt({

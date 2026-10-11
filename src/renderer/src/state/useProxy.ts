@@ -109,5 +109,21 @@ export function useProxy(deps: UseProxyDeps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewRes, sources, vClips, proxyMap, proxyTick])
 
-  return { previewRes, setPreviewRes, previewResRef, lastPreviewResRef, proxyMap, previewUrl }
+  /**
+   * 原本が外から書き換えられたとき、その焼き直しを捨てて作り直させる。
+   * 鍵（main/mediaProxy）に mtime が入るので、次は新しい物ができて URL も変わる
+   * ＝ <video> が取り直す。失敗の控えも外す（前回失敗していても、別の中身なら通りうる）
+   */
+  const forgetProxy = (path: string): void => {
+    setProxyMap((m) => {
+      if (!(path in m)) return m
+      const n = { ...m }
+      delete n[path]
+      return n
+    })
+    for (const k of Array.from(proxyFailRef.current)) if (k.endsWith('|' + path)) proxyFailRef.current.delete(k)
+    setProxyTick((t) => t + 1)
+  }
+
+  return { previewRes, setPreviewRes, previewResRef, lastPreviewResRef, proxyMap, previewUrl, forgetProxy }
 }

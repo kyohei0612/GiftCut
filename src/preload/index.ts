@@ -189,6 +189,12 @@ const api = {
     ipcRenderer.on('video:proxy:progress', h)
     return () => ipcRenderer.removeListener('video:proxy:progress', h)
   },
+  // 参照している素材のファイルが外から書き換えられた（main/fileWatch が見張っている）
+  onMediaChanged: (cb: (data: { path: string; mtimeMs: number }) => void): (() => void) => {
+    const h = (_e: unknown, data: { path: string; mtimeMs: number }): void => cb(data)
+    ipcRenderer.on('media:changed', h)
+    return () => ipcRenderer.removeListener('media:changed', h)
+  },
   exportVideo: (
     payload: ExportPayload
   ): Promise<{ ok: boolean; outPath?: string; error?: string; canceled?: boolean }> =>
@@ -292,6 +298,13 @@ const api = {
     ipcRenderer.on('project:openPath', h)
     return () => ipcRenderer.removeListener('project:openPath', h)
   },
+  /**
+   * 起動の引数で来たプロジェクト（.gcproj をダブルクリック）。**画面側が自分で取りに行く。**
+   * 前は main が画面の読み込み完了を見て送っていたが、画面側の受け口（React の effect）は
+   * それより後に付くので**届く前に流れていた**＝「プロジェクトから起動しても普通に
+   * 立ち上がるだけ」（本人の報告・2026-10-11）。取りに行く形なら順番に寄らない
+   */
+  startupProjectPath: (): Promise<string | null> => ipcRenderer.invoke('project:startupPath'),
   // ---- 字幕（聞き取り）----
   /** 聞き取りの準備が手元にあるか。無ければ落とす大きさを返す */
   subtitleStatus: (): Promise<{

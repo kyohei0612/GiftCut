@@ -14,8 +14,9 @@
 // 動画は消すと読み直しになって再生が引っかかるため。音は鳴り続ける
 // （👁 は「映像だけ消す」で、消音とは別）。
 
-import { toGcUrl } from '../../lib/gcUrl'
 import type { JSX } from 'react'
+// 素材の URL は版つき（外から書き換えられたら取り直す）。toGcUrl を直に使わない
+import { useFileRevCtx } from '../../state/fileRevContext'
 import { adjustCss, cropInset } from '../../lib/clipLook'
 import TelopText from '../TelopText'
 import type { Cue } from '../../lib/srt'
@@ -46,6 +47,7 @@ export function VideoLayers({
 }): JSX.Element {
   const { trackStates } = useTracksCtx()
   const { currentTime } = usePlaybackCtx()
+  const { urlOf } = useFileRevCtx()
   return (
     <>
       {clips.map((c) => {
@@ -62,7 +64,7 @@ export function VideoLayers({
             // 撮る側（usePreviewManip）は心臓を通らずここから実物を取る
             data-vcid={c.id}
             // 本編映像と同じプレビュー解像度方針に従う（原本指定なら原本）
-            src={previewUrl(c.path, toGcUrl(c.path))}
+            src={previewUrl(c.path, urlOf(c.path))}
             preload="auto"
             playsInline
             style={{
@@ -100,6 +102,7 @@ export function ImageLayers({
   const { imgClips } = useDoc()
   const { tracks, trackStates } = useTracksCtx()
   const { currentTime } = usePlaybackCtx()
+  const { urlOf } = useFileRevCtx()
   return (
     <>
       {imgClips
@@ -119,7 +122,7 @@ export function ImageLayers({
           <img
             key={`simg-${c.id}`}
             className="screen-img"
-            src={toGcUrl(c.path)}
+            src={urlOf(c.path)}
             alt=""
             title={`${c.name}（ドラッグで移動・四隅で拡大）`}
             style={{

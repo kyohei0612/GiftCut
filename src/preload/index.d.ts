@@ -110,6 +110,8 @@ export interface GiftcutApi {
     height?: number
   ) => Promise<{ ok: boolean; path?: string; cached?: boolean; error?: string }>
   onProxyProgress: (cb: (data: { path: string; percent: number }) => void) => () => void
+  /** 参照している素材のファイルが外から書き換えられた */
+  onMediaChanged: (cb: (data: { path: string; mtimeMs: number }) => void) => () => void
   exportVideo: (
     payload: ExportPayload
   ) => Promise<{ ok: boolean; outPath?: string; error?: string; canceled?: boolean }>
@@ -162,6 +164,8 @@ export interface GiftcutApi {
   listTemplates: () => Promise<{ ok: boolean; items: { name: string; path: string }[]; error?: string }>
   /** 関連付け（ダブルクリック）で開かれたプロジェクトの通知 */
   onOpenProjectPath: (fn: (path: string) => void) => () => void
+  /** 起動の引数で来たプロジェクト（無ければ null）。画面側が起動時に取りに行く */
+  startupProjectPath: () => Promise<string | null>
   // ---- 字幕（聞き取り）----
   /** 聞き取りの準備が手元にあるか。無ければ落とす大きさ（MB） */
   subtitleStatus: () => Promise<{

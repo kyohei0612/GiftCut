@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, protocol, screen } from 'electron'
-import { join, normalize, resolve } from 'path'
+import { join, normalize } from 'path'
 import {
   readFileSync,
   writeFileSync,
@@ -23,7 +23,13 @@ import { registerSubtitleHandlers } from './subtitles'
 import { killAllChildren } from './ffmpegRun'
 import { isExporting, registerExportHandlers } from './exportRun'
 // gcfile:// で画面へ配ってよいファイルの名簿。**新しく渡す道を作ったら必ず通す**
-import { allowFile, isAllowed } from './allowList'
+import { isAllowed, setAllowHook } from './allowList'
+import { flushPendingOpenPath, openPathFromArgv, registerOpenPathHandlers } from './openPath'
+import { stopWatching, watchMedia } from './fileWatch'
+
+// 名簿に入った素材は、外から書き換えられたら画面へ知らせる（main/fileWatch）。
+// 名簿（allowList）は Electron を知らない純粋な物なので、繋ぐのはここ
+setAllowHook(watchMedia)
 import { registerAssetHandlers } from './assetLibrary'
 import { registerSeHandlers } from './seLibrary'
 import { registerMotionPresetHandlers } from './motionPresets'
@@ -95,33 +101,7 @@ function readWindowState(): WindowState | null {
   }
 }
 
-/**
- * ダブルクリックで開かれたプロジェクトを、画面へ渡す。
- *
- * **関連付けから開くと、パスは起動の引数で来る。**
- * 受け取る側が居ないと「メモ帳で開きますか？」のまま何も起きない。
- *
- * 画面はまだ出来ていないことがあるので、その時は覚えておいて、
- * 出来上がってから渡す（起動直後に落としたら、開いたのに何も出ない）。
- */
-let pendingOpenPath: string | null = null
-function sendOpenPath(p: string): void {
-  const win = BrowserWindow.getAllWindows()[0]
-  if (!win || win.webContents.isLoading()) {
-    pendingOpenPath = p
-    return
-  }
-  allowFile(p)
-  win.webContents.send('project:openPath', p)
-  if (win.isMinimized()) win.restore()
-  win.focus()
-}
-function openPathFromArgv(argv: string[]): void {
-  // 先頭は実行ファイル。開発中は「.」も混ざるので、拡張子で選ぶ
-  const p = argv.slice(1).find((a) => /\.gcproj$/i.test(a) && existsSync(a))
-  if (p) sendOpenPath(resolve(p))
-}
-
+// ダブルクリック（関連付け）で開かれたプロジェクトを画面へ渡す道は ./openPath
 function createWindow(): void {
   const displays = screen.getAllDisplays().map((d) => d.workArea)
   const { bounds, maximized } = nextBounds(
@@ -184,11 +164,7 @@ function createWindow(): void {
     markVerified()
     cleanOtherBundles()
 
-    if (!pendingOpenPath) return
-    const p = pendingOpenPath
-    pendingOpenPath = null
-    allowFile(p)
-    mainWindow.webContents.send('project:openPath', p)
+    flushPendingOpenPath(mainWindow)
   })
 
   // 更新を見に行く。当てていいかは「今なにをしているか」で決める
@@ -294,6 +270,7 @@ function createWindow(): void {
 // temp にテロップPNGが数百枚残ったままになる（実測で残存を確認）。
 app.on('before-quit', killAllChildren)
 app.on('will-quit', killAllChildren)
+app.on('will-quit', stopWatching) // 見張りを残すとプロセスが終われない
 // **正常に終わったので印を消す**（次の起動で「前回落ちた」と出さない）。
 // 落ちた側で書くのではなく、終わる側で消す形にしてある——落ちた瞬間に
 // 書けるとは限らないため（電源断・強制終了・メモリ枯渇）。理由は ./crashLog
@@ -472,8 +449,10 @@ app.whenReady().then(() => {
   registerProjectFileHandlers() // 保存・下書き・持ち出し・雛形（./projectFiles）
 
   createWindow()
-  // 引数で渡されたプロジェクトを開く（関連付けからのダブルクリック）
-  openPathFromArgv(process.argv)
+  // 引数で渡されたプロジェクト（関連付けからのダブルクリック）は置いておき、
+  // 画面が取りに来る（./openPath の頭。送ると届く前に流れていた）
+  registerOpenPathHandlers()
+  openPathFromArgv(process.argv, true)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
