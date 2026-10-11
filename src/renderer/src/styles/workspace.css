@@ -388,9 +388,34 @@
   padding: 10px 8px;
   min-height: 0;
   background: #0d0d0f;
-  /* 中の映像の枠が「この区画の幅」を見られるようにする（下の .screen の説明） */
+  /* 右の帯（.monitor-side）と映像の箱（.monitor-fit）を横に並べる */
+  gap: 8px;
+}
+/* 映像を収める箱。**`.screen` の 100cqw はこの箱の幅**（右の帯を引いた残り）。
+   区画そのものを容器にすると、帯のぶん映像がはみ出して送り棒が出る */
+.monitor-fit {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   container-type: size;
   /* 寄せたときに、はみ出した所を送って見られるようにする。
      等倍ではぴったり収まるので、送り棒は出ない */
+  overflow: auto;
+}
+/* 絵の右の帯。バー（戻す・完了）と進み具合を**縦に積む**。
+   幅は固定——選ぶたびに現れて絵の大きさが跳ねるのを避ける。
+   何も選んでいないときは空のまま（2026-10-12・本人「右側に縦で並べる」） */
+.monitor-side {
+  flex: 0 0 auto;
+  width: 120px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
   overflow: auto;
 }

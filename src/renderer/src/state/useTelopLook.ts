@@ -21,7 +21,9 @@
 // 残っていると、別のテロップで何も選んでいないのに一部だけに色が付く。
 
 import { useEffect, useRef, useState } from 'react'
-import { adjustRuns, runAtIndex, splitRunRemoving, styleWithRun } from '../lib/textRuns'
+import {
+  adjustRuns, changedRunKeys, runAtIndex, splitRunRemoving, stripRunKeys, styleWithRun
+} from '../lib/textRuns'
 import type { TelopStyle, TextRun } from '../lib/telopStyle'
 import type { Cue } from '../lib/srt'
 import { useDoc } from './contentContext'
@@ -168,7 +170,16 @@ export function useTelopLook(): TelopLook {
         return
       }
     }
-    setCues((prev) => prev.map((c) => (isSelected(c.id) ? { ...c, style } : c)))
+    // 全体に当てる。**変えた項目は run からも外す**——見本を文字範囲に当てた後は
+    // 全文字ぶんの run がフォント・色を持っていて、全体を変えても run が勝ち、
+    // 「フォントが変えられない」になっていた（`lib/textRuns` の changedRunKeys）
+    setCues((prev) =>
+      prev.map((c) =>
+        isSelected(c.id)
+          ? { ...c, style, runs: stripRunKeys(c.runs, changedRunKeys(c.style, style)) }
+          : c
+      )
+    )
   }
   // ---- 部分装飾（runs）: 編集エディタの選択範囲にスタイルを適用 ----
   // 適用時に textarea の live 選択を直接読む（状態のタイミング問題を回避）。

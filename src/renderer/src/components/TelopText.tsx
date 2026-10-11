@@ -1,5 +1,5 @@
 import { useId, useMemo } from 'react'
-import { DEFAULT_TELOP_POS } from '../lib/telopPlace'
+import { DEFAULT_TELOP_POS, telopXform } from '../lib/telopPlace'
 import {
   anchorFlex,
   anchorTranslate,
@@ -37,6 +37,7 @@ interface Props {
   iconOffsetY?: number
   pos?: { x: number; y: number }
   scale?: number // テロップ全体の拡縮倍率（Premiere式リサイズ）。既定1
+  rotate?: number // テロップ全体の回転（度）。既定0
   /**
    * フレームの幅（1080基準px。16:9=1920 / 9:16=607.5 / 1:1=1080）。
    * **切り抜きの換算に要る**（取り込んだ切り抜きはフレームの何％で入っているので、
@@ -51,6 +52,7 @@ interface Props {
   onPointerDown?: (e: React.PointerEvent) => void
   onDoubleClick?: (e: React.MouseEvent) => void
   onResizeStart?: (e: React.PointerEvent, corner: number) => void // 四隅ハンドル(0=TL,1=TR,2=BL,3=BR)
+  onRotateStart?: (e: React.PointerEvent) => void // 右下の ↻（回転）
   onDragOver?: (e: React.DragEvent) => void // テンプレのドロップ受け
   onDrop?: (e: React.DragEvent) => void
 }
@@ -71,11 +73,13 @@ export default function TelopText({
   iconOffsetY = 0,
   pos,
   scale = 1,
+  rotate = 0,
   frameW = 1920,
   animT,
   clipDur,
   motion,
   selected,
+  onRotateStart,
   playing,
   onPointerDown,
   onDoubleClick,
@@ -305,10 +309,25 @@ export default function TelopText({
           />
         ))
       : null
+  // 回転の ↻ は右下の四隅ハンドルのさらに外（2026-10-12・本人「右下に回転ボタン」）。
+  // 四隅と同じ要素の中に置くので、拡縮・回転に付いて回る（動画の枠と同じ作り）
+  const rotHandle =
+    selected && onRotateStart ? (
+      <div
+        className="telop-rot-handle"
+        title="ドラッグで回転（Shiftで15°刻み）。ダブルクリックで 0° に戻す"
+        onPointerDown={(e) => {
+          e.stopPropagation()
+          onRotateStart(e)
+        }}
+      >
+        ↻
+      </div>
+    ) : null
 
   const cls = `telop-box ${selected ? 'telop-box-sel' : ''} ${onPointerDown ? 'telop-interactive' : ''}`
-  // Premiere式リサイズの拡縮倍率（数値は固定・変形で拡縮）
-  const scl = scale !== 1 ? ` scale(${scale})` : ''
+  // Premiere式リサイズの拡縮倍率（数値は固定・変形で拡縮）と回転。PNG 化と同じ `telopXform`
+  const scl = telopXform(scale, rotate)
   const originX = style.anchor?.h === 'l' ? '0%' : style.anchor?.h === 'r' ? '100%' : '50%'
   const originY = style.anchor?.v === 't' ? '0%' : style.anchor?.v === 'b' ? '100%' : '50%'
 
@@ -337,6 +356,7 @@ export default function TelopText({
       >
         {body}
         {handles}
+      {rotHandle}
       </div>
     )
   }
@@ -360,6 +380,7 @@ export default function TelopText({
     >
       {body}
       {handles}
+      {rotHandle}
     </div>
   )
 }

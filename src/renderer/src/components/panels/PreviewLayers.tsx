@@ -159,6 +159,7 @@ export function TelopLayer({
   applyIconToCue,
   patchCueAnim,
   onResizeStart,
+  onRotateStart,
   onPointerDown,
   onEdit
 }: {
@@ -182,6 +183,7 @@ export function TelopLayer({
   applyIconToCue: (id: number, color: string) => void
   patchCueAnim: (id: number, patch: { emphasis: 'shake' | 'pulse' }) => void
   onResizeStart: (c: Cue, e: React.PointerEvent, corner: number) => void
+  onRotateStart: (c: Cue, e: React.PointerEvent) => void
   onPointerDown: (c: Cue, e: React.PointerEvent) => void
   /** ダブルクリックでその場の打ち替えへ */
   onEdit: (c: Cue) => void
@@ -217,6 +219,8 @@ export function TelopLayer({
             selected={isSelected(c.id)}
             playing={playing}
             onResizeStart={(e, corner) => onResizeStart(c, e, corner)}
+            onRotateStart={(e) => onRotateStart(c, e)}
+            rotate={c.rotate}
             onDragOver={(e) => {
               if (
                 draggingTemplateRef.current ||

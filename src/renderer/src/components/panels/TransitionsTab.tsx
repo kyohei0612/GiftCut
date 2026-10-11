@@ -88,17 +88,30 @@ function BandEditor({
       </div>
       <div className="sp-row">
         <span className="sp-label">長さ</span>
-        {/* 上限は `lib/transitions` の `TRANS_MAX_SEC` 1つから引く
-            （帯のドラッグも同じ物を見る。片方だけ動かすと表示が食い違う） */}
+        {/* スライダーが届くのは `TRANS_MAX_SEC` まで。**上限ではない**——右の数字の欄に
+            打てば幾らでも入る（2026-10-12・本人「上限決めなくていい」）。
+            いま入っている値がスライダーの範囲を超えていれば、そこまで届かせる */}
         <input
           type="range"
           min={0.05}
-          max={TRANS_MAX_SEC}
+          max={Math.max(TRANS_MAX_SEC, band.dur)}
           step={0.05}
           value={band.dur}
           onChange={(e) => band.onDur(Number(e.target.value), all)}
         />
-        <span className="sp-val">{band.dur.toFixed(2)}s</span>
+        <input
+          type="number"
+          className="sp-num wide"
+          min={0.05}
+          step={0.05}
+          value={band.dur}
+          title="秒。上限はありません（クリップの長さまで効きます）"
+          onChange={(e) => {
+            const v = Number(e.target.value)
+            if (Number.isFinite(v) && v >= 0.05) band.onDur(Math.round(v * 100) / 100, all)
+          }}
+        />
+        <span className="sp-val">s</span>
       </div>
       {/* **1つずつ選んで同じ数字を打ち直す作業をなくす。**
           揃える相手は「種類が同じ物」——画面で見分けられる単位がそれなので

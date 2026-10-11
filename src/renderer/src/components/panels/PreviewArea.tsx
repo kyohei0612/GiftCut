@@ -29,6 +29,7 @@ import { AudioMixer, PreviewScrub, TransportBar } from './PreviewBars'
 import { ImageLayers, TelopLayer, VideoLayers } from './PreviewLayers'
 import {
   ProgressBadges,
+  ReframeBar,
   ReframeBox,
   ScreenEmpty,
   TelopBar,
@@ -68,7 +69,7 @@ export function PreviewArea(): JSX.Element {
     zoomAnchor, toggleZoomAnchor, onZoomAnchorStart,
     resetSelectedTelops, telopResetCount,
     resetCount, selectPreviewOverlay, reframeTarget, onTelopPointerDown,
-    onTelopResizeStart, editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
+    onTelopResizeStart, onTelopRotateStart, editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
 
     applyTemplateToCue, applyIconToCue,
     togglePlay, skipSec, stepFrame, jumpMarker, addMarkerAtPlayhead, captureScreenshot,
@@ -150,8 +151,10 @@ export function PreviewArea(): JSX.Element {
           className="monitor-stage"
           style={{ display: monitorTab === 'program' ? 'flex' : 'none' }}
           onPointerDown={(e) => {
-            // 画面（フレーム）の外＝モニターの余白をクリックしたら選択解除・枠を閉じる
-            if (e.target === e.currentTarget) {
+            // 画面（フレーム）の外＝モニターの余白をクリックしたら選択解除・枠を閉じる。
+            // 余白は `.monitor-fit`（映像を収める箱）なので、そこも余白として扱う
+            const t = e.target as HTMLElement
+            if (t === e.currentTarget || t.classList.contains('monitor-fit')) {
               setVideoSelected(false)
               clearSegSel()
               setSelectedIds([])
@@ -159,6 +162,9 @@ export function PreviewArea(): JSX.Element {
             }
           }}
         >
+          {/* 映像を収める箱。右の帯（.monitor-side）のぶんを引いた幅で
+              `.screen` が「幅いっぱいに収まる高さ」を出す（100cqw はこの箱の幅） */}
+          <div className="monitor-fit">
           <div
             ref={screenRef}
             className="screen"
@@ -337,6 +343,7 @@ export function PreviewArea(): JSX.Element {
               applyTemplateToCue={applyTemplateToCue}
               applyIconToCue={applyIconToCue}
               onResizeStart={onTelopResizeStart}
+              onRotateStart={onTelopRotateStart}
               onPointerDown={onTelopPointerDown}
               onEdit={(c) => {
                 stopPlayback()
@@ -357,9 +364,42 @@ export function PreviewArea(): JSX.Element {
               selectedVClipIds.length === 1) &&
               reframeTarget && (
               <ReframeBox
-                target={reframeTarget}
                 onReframeStart={onVideoReframeStart}
                 onRotateStart={onVideoRotateStart}
+              />
+            )}
+            {/* 拡大の中心（◎）。帯のバーの「◎ 拡大の中心」で出し入れする。
+                枠（z-index 6）より上に置く——下に潜ると掴めない */}
+            {zoomAnchor && <ZoomAnchor anchor={zoomAnchor} onDragStart={onZoomAnchorStart} />}
+            {!videoSrc && !activeCues.length && (
+              <ScreenEmpty
+                title="動画をここにドラッグ"
+                sub="右の「＋ ファイル追加」からでも読み込めます"
+              />
+            )}
+            {editingId != null &&
+              activeCues.some((c: { id: number }) => c.id === editingId) && (
+                <TelopEditor
+                  cue={cues.find((c: any) => c.id === editingId)!}
+                  textRef={editorTextRef}
+                  onChangeText={updateCueText}
+                  onSelChange={setEditorSel}
+                  onClearRuns={clearRunsInSelection}
+                  onClose={() => setEditingId(null)}
+                />
+              )}
+          </div>
+          </div>
+          {/* 絵の右の帯。ボタンと進み具合はここ——絵の上に置くとテロップと取り合う
+              （components/panels/PreviewOverlays.tsx の頭） */}
+          <div className="monitor-side" onPointerDown={(e) => e.stopPropagation()}>
+            {(videoSelected ||
+              selectedVideoIds.length > 0 ||
+              selectedImgIds.length === 1 ||
+              selectedVClipIds.length === 1) &&
+              reframeTarget && (
+              <ReframeBar
+                target={reframeTarget}
                 onReset={resetVideoZoom}
                 resetCount={resetCount()}
                 anchorOn={!!zoomAnchor}
@@ -370,9 +410,6 @@ export function PreviewArea(): JSX.Element {
                 }}
               />
             )}
-            {/* 拡大の中心（◎）。枠のバーの「◎ 拡大の中心」で出し入れする。
-                枠（z-index 6）より上に置く——下に潜ると掴めない */}
-            {zoomAnchor && <ZoomAnchor anchor={zoomAnchor} onDragStart={onZoomAnchorStart} />}
             {/* テロップを選んでいるときのバー。枠と四隅はテロップ側が持っているので、
                 ここは戻す口だけを出す（動画側のバーと形を揃えてある） */}
             {selectedIds.length > 0 && !videoSelected && (
@@ -386,24 +423,7 @@ export function PreviewArea(): JSX.Element {
                 }}
               />
             )}
-            {!videoSrc && !activeCues.length && (
-              <ScreenEmpty
-                title="動画をここにドラッグ"
-                sub="右の「＋ ファイル追加」からでも読み込めます"
-              />
-            )}
             <ProgressBadges proxyPct={proxyPct} packPct={packPct} />
-            {editingId != null &&
-              activeCues.some((c: { id: number }) => c.id === editingId) && (
-                <TelopEditor
-                  cue={cues.find((c: any) => c.id === editingId)!}
-                  textRef={editorTextRef}
-                  onChangeText={updateCueText}
-                  onSelChange={setEditorSel}
-                  onClearRuns={clearRunsInSelection}
-                  onClose={() => setEditingId(null)}
-                />
-              )}
           </div>
         </div>
 

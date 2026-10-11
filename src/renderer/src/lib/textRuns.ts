@@ -41,6 +41,50 @@ export function styleWithRun(base: TelopStyle, r: TextRun | null): TelopStyle {
   return st
 }
 
+/** run が持てる、見た目の項目（start/end 以外）。全体の設定を覆い隠す物 */
+export const RUN_LOOK_KEYS = [
+  'color', 'gradient', 'fontFamily', 'sizeScale', 'bgColor', 'strokes', 'shadows', 'join'
+] as const
+export type RunLookKey = (typeof RUN_LOOK_KEYS)[number]
+
+/**
+ * 全体の見た目を prev → next に変えたとき、**run の側で覆い隠してしまう項目**。
+ *
+ * 見本を文字範囲に当てると、フォント・色・縁が全文字ぶん run に入る。
+ * その後で左のパネルからフォントを変えても、run が勝つので**何も変わらない**
+ * （2026-10-12・本人「型をはめた後に編集しても反映されない」）。
+ * 全体を変えたなら、その項目は run から外して全体の値を通す。
+ */
+export function changedRunKeys(prev: TelopStyle, next: TelopStyle): RunLookKey[] {
+  const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
+  const out: RunLookKey[] = []
+  if (!same(prev.fill?.gradient, next.fill?.gradient)) out.push('gradient', 'color')
+  else if (prev.fill?.color !== next.fill?.color) out.push('color', 'gradient')
+  if (prev.fontFamily !== next.fontFamily) out.push('fontFamily')
+  if (!same(prev.strokes, next.strokes)) out.push('strokes')
+  if (!same(prev.shadow, next.shadow) || !same(prev.shadows, next.shadows)) out.push('shadows')
+  if ((prev.join ?? 'miter') !== (next.join ?? 'miter')) out.push('join')
+  const bgOf = (s: TelopStyle): string | undefined =>
+    s.background?.enabled ? s.background.color : undefined
+  if (bgOf(prev) !== bgOf(next)) out.push('bgColor')
+  return out
+}
+
+/** runs から keys の項目を外す。何も残らない run は落とす（空の run を残さない） */
+export function stripRunKeys(
+  runs: TextRun[] | undefined,
+  keys: readonly RunLookKey[]
+): TextRun[] | undefined {
+  if (!runs || !runs.length || !keys.length) return runs
+  const out: TextRun[] = []
+  for (const r of runs) {
+    const n: TextRun = { ...r }
+    for (const k of keys) delete n[k]
+    if (RUN_LOOK_KEYS.some((k) => n[k] !== undefined)) out.push(n)
+  }
+  return out.length ? out : undefined
+}
+
 // run r から [s,e) を取り除く（分割）。重なりなしはそのまま。
 export const splitRunRemoving = (r: TextRun, s: number, e: number): TextRun[] => {
   if (r.end <= s || r.start >= e) return [r]

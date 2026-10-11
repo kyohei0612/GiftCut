@@ -15,6 +15,8 @@ export interface Cue {
   pos: { x: number; y: number } // フレーム内の中心位置（0-1）。既定は下中央
   track?: string // 配置トラック（V2/V3）。未指定は V2 扱い
   scale?: number // テロップ全体の拡縮倍率（Premiere式：リサイズはこれを変え、fontSize/縁/影の数値は固定）。既定1
+  /** テロップ全体の回転（度・時計回り）。中心はアンカー点（pos）。既定0。右下の ↻ で回す */
+  rotate?: number
   /** 自分で打った動き（キーフレーム）。プレミアの「モーション」に当たる */
   motion?: Motion
   /** 「組」の番号（`shared/group.ts`）。未指定＝どの組にも入っていない */

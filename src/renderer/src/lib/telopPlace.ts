@@ -22,6 +22,8 @@
 // - `telopVSpan`        … テロップが画面の縦のどこを占めるか（フレーム比）
 // - `stackAbove`        … 相手の箱を避けて上へ積んだときの、箱の中心 y（純粋）
 // - `placeNewTelops`    … 足すテロップ群に置き場所を付けて返す
+// - `telopXform`        … 拡縮と回転の CSS（プレビューと PNG 化が同じ物を使う）
+// - `normDeg`           … 角度を -180〜180 に畳む
 import { buildTelopSVG, textRectInFrame } from './telopStyle'
 import { overlaps } from '../../../shared/telopLane'
 import type { Cue } from './srt'
@@ -37,6 +39,29 @@ export const DEFAULT_TELOP_POS: { x: number; y: number } = {
 
 /** 積むときの隙間（フレーム比）。1080 基準で 8px */
 export const STACK_GAP = 8 / 1080
+
+/** 角度（度）を -180 < d ≦ 180 に畳む。回し続けても数字が膨らまない */
+export function normDeg(d: number): number {
+  let x = ((d + 180) % 360 + 360) % 360 - 180
+  if (x === -180) x = 180
+  return Math.round(x * 10) / 10
+}
+
+/**
+ * テロップ全体の拡縮と回転の CSS（`transform` の末尾に足す文字列）。
+ *
+ * **プレビュー（TelopText）と PNG 化（rasterize）が同じ物を使う。** 回転を
+ * 片方にだけ書くと「画面では傾いているのに書き出すと真っ直ぐ」になる。
+ * 置き場所の translate は呼ぶ側が先頭に付ける（箱の有無で違う）ので、ここは
+ * その**後ろ**に並べる分だけ。回転の中心は transform-origin（アンカー点）。
+ * 拡縮が先・回転が後——どちらも中心が同じ点なので順序で絵は変わらないが、
+ * 文字列を固定しておかないと試験で突き合わせられない。
+ */
+export function telopXform(scale?: number, rotate?: number): string {
+  const s = scale ?? 1
+  const r = rotate ?? 0
+  return (s !== 1 ? ` scale(${s})` : '') + (r !== 0 ? ` rotate(${r}deg)` : '')
+}
 
 /** 画面の縦の占め方（フレーム比。0 が上端、1 が下端） */
 export interface VSpan {

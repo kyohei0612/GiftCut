@@ -17,7 +17,7 @@
 // 残ったままだと、書き出しのときだけ知らない所に効く。
 
 import { clamp } from '../../../shared/timeline'
-import { TRANS_MAX_SEC, transIco } from '../lib/transitions'
+import { transIco } from '../lib/transitions'
 import type { SegTrans, TransType } from '../lib/transitions'
 import type { SegLayout, VSeg } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
@@ -147,8 +147,8 @@ export function useTransitions(deps: UseTransitionsDeps) {
     e.preventDefault()
     const startX = e.clientX
     const z = zoomRef.current
-    // 上限は選択パネルのスライダーと揃える（`lib/transitions` の `TRANS_MAX_SEC` 1つから引く）
-    const cap = Math.min(maxDur, TRANS_MAX_SEC)
+    // 上限は**クリップ自身の長さだけ**（秒数の上限はやめた。`lib/transitions` の TRANS_MAX_SEC の説明）
+    const cap = maxDur
     const onMove = (ev: PointerEvent): void => {
       apply(clamp(startDur + (sign * (ev.clientX - startX)) / z, 0.05, cap))
     }

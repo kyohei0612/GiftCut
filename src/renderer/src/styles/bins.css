@@ -48,9 +48,12 @@
 .media-card:hover {
   background: #ffffff0d;
 }
+/* 選んでいる物。**はっきり青で囲う**（2026-10-12・本人「複数選択してるか枠が薄すぎて分からない」）。
+   前は線が --line（薄い灰）で背景も白 8%——隣と見比べないと分からなかった */
 .media-card.media-sel {
-  background: #ffffff14;
-  border-color: var(--line);
+  background: #4ea1f033;
+  border-color: var(--accent-2);
+  box-shadow: inset 0 0 0 1px var(--accent-2);
 }
 .media-card.media-active {
   border-color: var(--accent-2);

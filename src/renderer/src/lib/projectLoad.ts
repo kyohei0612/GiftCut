@@ -76,6 +76,8 @@ export function loadCues(raw: any): Cue[] {
         // 装飾ありの道を通る＝直すときに話が合わなくなる）
         runs: keepRuns(c.runs),
         scale: typeof c.scale === 'number' && c.scale > 0 ? c.scale : undefined, // テロップ拡縮も同様に復元
+        // 回転（度）。0 は「無い」に畳む——保存のたびに rotate:0 が増えないように
+        rotate: typeof c.rotate === 'number' && Number.isFinite(c.rotate) && c.rotate !== 0 ? c.rotate : undefined,
         label: typeof c.label === 'string' ? c.label : DEFAULT_LABEL,
         iconImage: typeof c.iconImage === 'string' ? c.iconImage : undefined,
         personIcon: c.personIcon === false ? false : undefined,

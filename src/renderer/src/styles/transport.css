@@ -266,30 +266,19 @@ span.pq-select {
    絵の上に重ねると、いじっている当の映像がその帯で隠れる。
    一番見たい所（上の方＝人の顔やテロップが乗る所）を覆っていた。
    枠のすぐ下、映像の外側に置く。 */
+/* 枠のバー。**絵の右の帯（.monitor-side）に縦に積む**（2026-10-12）。
+   前は絵の中（テロップのバーは上寄り、動画のバーは枠の下）に浮かせていた。
+   上に置いたテロップとバーが重なって、戻したい当の文字が読めず、
+   バーも押せなかった。絵の上に置く理由が無い物は帯へ。 */
 .reframe-bar {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  white-space: nowrap;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   pointer-events: auto;
   background: rgba(0, 0, 0, 0.72);
-  padding: 3px 8px;
+  padding: 6px;
   border-radius: 6px;
-}
-/* テロップのバーは映像の**中の上寄り**に出す。
-   動画側のバーは枠の下（top: calc(100% + 6px)）だが、テロップには枠が無いので
-   その指定だとプレビューの外へ飛び出す。下に出すと既定のテロップ位置（y=0.85）と
-   重なって、戻したい当の文字が読めなくなる。 */
-.telop-bar {
-  top: 8px;
-  bottom: auto;
-  /* テロップの層（.telop-overlay は z-index 1）とリフレーム枠（6）より上に置く。
-     指定が無いと重なり順で下に潜り、**押せないボタン**になる（実際になった）。 */
-  z-index: 7;
 }
 .reframe-scale {
   font-size: 11px;

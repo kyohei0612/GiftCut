@@ -38,11 +38,13 @@ export interface UseTelopBoxDeps {
 }
 
 // テロップの置き場所の既定は `lib/telopPlace` が持つ（前はここにも数字があり、7か所に写っていた）
-import { DEFAULT_TELOP_POS } from '../lib/telopPlace'
+import { DEFAULT_TELOP_POS, normDeg } from '../lib/telopPlace'
 
 export interface TelopBox {
   onTelopPointerDown: (cue: Cue, e: React.PointerEvent) => void
   onTelopResizeStart: (cue: Cue, e: React.PointerEvent, corner: number) => void
+  /** 右下の ↻ を掴んで回す（Shift で 15° 刻み・ダブルクリックで 0°） */
+  onTelopRotateStart: (cue: Cue, e: React.PointerEvent) => void
   setBoxAnchor: (hx: 'l' | 'c' | 'r', vy: 't' | 'm' | 'b', retried?: boolean) => void
   applyIconAutoLeft: (retried?: boolean) => void
   /** 選んでいるテロップの位置・大きさ・打った動きを、まとめて元へ戻す */
@@ -183,6 +185,45 @@ export function useTelopBox(deps: UseTelopBoxDeps): TelopBox {
   }
 
   // プレビューの四隅ハンドル: 固定ボックスがあれば「箱リサイズ」、無ければ「文字サイズ拡縮」
+  /**
+   * 右下の ↻ を掴んで回す。角度は**アンカー点（pos）からポインタへの向き**の差。
+   * Shift で 15° 刻み。ダブルクリック（押してすぐ離してまた押す）で 0° に戻す
+   * ——動画の枠（usePreviewManip の回転）と同じ作法。
+   */
+  function onTelopRotateStart(cue: Cue, e: React.PointerEvent): void {
+    if (e.button !== 0) return
+    if (telopLocked(cue)) return
+    const el = screenRef.current
+    if (!el) return
+    setSelectedIds([cue.id])
+    if (e.detail >= 2) {
+      setCues((prev) => prev.map((c) => (c.id === cue.id ? { ...c, rotate: undefined } : c)))
+      return
+    }
+    const rect = el.getBoundingClientRect()
+    const p = cue.pos ?? DEFAULT_TELOP_POS
+    const cx = rect.left + p.x * rect.width
+    const cy = rect.top + p.y * rect.height
+    const a0 = (Math.atan2(e.clientY - cy, e.clientX - cx) * 180) / Math.PI
+    const startRot = cue.rotate ?? 0
+    const onMove = (ev: PointerEvent): void => {
+      const a = (Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180) / Math.PI
+      let r = normDeg(startRot + (a - a0))
+      if (ev.shiftKey) r = normDeg(Math.round(r / 15) * 15)
+      setCues((prev) =>
+        prev.map((c) => (c.id === cue.id ? { ...c, rotate: r === 0 ? undefined : r } : c))
+      )
+    }
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }
+
   function onTelopResizeStart(cue: Cue, e: React.PointerEvent, corner: number): void {
     if (e.button !== 0) return
     if (telopLocked(cue)) return
@@ -333,7 +374,7 @@ export function useTelopBox(deps: UseTelopBoxDeps): TelopBox {
     setCues((prev) =>
       prev.map((c) =>
         selectedIds.includes(c.id) && !telopLocked(c)
-          ? { ...c, pos: { ...DEFAULT_TELOP_POS }, scale: undefined, motion: undefined }
+          ? { ...c, pos: { ...DEFAULT_TELOP_POS }, scale: undefined, rotate: undefined, motion: undefined }
           : c
       )
     )
@@ -345,6 +386,7 @@ export function useTelopBox(deps: UseTelopBoxDeps): TelopBox {
   return {
     onTelopPointerDown,
     onTelopResizeStart,
+    onTelopRotateStart,
     setBoxAnchor,
     applyIconAutoLeft,
     resetSelectedTelops,

@@ -135,9 +135,14 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
           mk: markers.filter((m) => m.id === selectedMarkerId).map((m) => ({ id: m.id, t: m.t }))
         }
       : null
+    // **他の本編クリップも「一緒に動かす相手」に数える。** 前はテロップ・SE・画像・
+    // 映像レイヤー・マーカーだけ数えていたので、3つ選んで掴むと（他種が無ければ）
+    // 「仲間なし」扱い＝選択が掴んだ1つに潰れ、影も1本分しか出なかった
+    // （移動そのものは alsoIds で3つ動く）。2026-10-12・本人「たまに1個しか選択できてない」
     const hasGroup =
       !!groupBase &&
-      groupBase.cues.length +
+      segGroupIds.length +
+        groupBase.cues.length +
         groupBase.se.length +
         groupBase.img.length +
         groupBase.vc.length +
@@ -182,6 +187,16 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
     const src = srcOfSeg(L.seg)
     // 掴んでいる間は切片の並びが変わらないので、位置の計算は最初の1回だけにする
     const dragLayout = layoutSegs(segsRef.current)
+    // 選択ごと動かすときの影と上書きの印は、**選んだ切片ぜんぶの幅**で出す。
+    // 掴んだ1本の幅だけだと「全部動いている感じの影ではない」（2026-10-12・本人）。
+    // 複製(Alt)・割り込み(Ctrl)は掴んだ1本だけを差し込むので、そのときは1本分
+    const groupLays = dragLayout.filter((o) => o.seg.id === L.seg.id || segGroupIds.includes(o.seg.id))
+    const gStart = Math.min(...groupLays.map((o) => o.tStart))
+    const gEnd = Math.max(...groupLays.map((o) => o.tEnd))
+    const groupSpan = (mode: SegDropMode): { t0: number; len: number; ids: number[] } =>
+      mode === 'move' && segGroupIds.length
+        ? { t0: gStart, len: gEnd - gStart, ids: groupLays.map((o) => o.seg.id) }
+        : { t0, len, ids: [L.seg.id] }
     let moved = false
     // 修飾キーの決め事は shared/dragMode（Alt=複製 / Ctrl=割り込み）
     const modeOf = dragModeOf
@@ -247,10 +262,11 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
       }
       segMoveToRef.current = nt
       segDropModeRef.current = mode
+      const span = groupSpan(mode)
       setVideoGhost({
-        t: nt,
-        name: src?.name ?? videoName ?? '',
-        dur: len,
+        t: nt - (t0 - span.t0),
+        name: span.ids.length > 1 ? `${span.ids.length} 個のクリップ` : (src?.name ?? videoName ?? ''),
+        dur: span.len,
         insert: mode === 'insert',
         path: src?.path ?? videoPath ?? '',
         track: 'V1',
@@ -268,16 +284,17 @@ export function useSegmentDrag(deps: UseSegmentDragDeps) {
       // ★掴んでいる間、切片の並びは変わらない。毎回すべての切片の位置を
       //   計算し直すと、クリップが多いほど手が止まる（1000個で1操作75ms）。
       //   掴んだ時点で1回だけ計算して使い回す。
+      const spanT = nt - (t0 - span.t0)
       const next =
         mode === 'insert'
           ? []
           : dragLayout
               .filter(
                 (o) =>
-                  o.seg.id !== L.seg.id &&
+                  !span.ids.includes(o.seg.id) &&
                   !o.seg.gap &&
-                  o.tStart >= nt - 1e-6 &&
-                  o.tEnd <= nt + len + 1e-6
+                  o.tStart >= spanT - 1e-6 &&
+                  o.tEnd <= spanT + span.len + 1e-6
               )
               .map((o) => o.seg.id)
       // 中身が同じなら配列を作り直さない（同じでも描き直しが起きるため）

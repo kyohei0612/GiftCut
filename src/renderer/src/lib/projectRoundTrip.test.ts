@@ -52,6 +52,7 @@ describe('保存できる項目は、ぜんぶ読み直せる', () => {
       pos: { x: 0.3, y: 0.7 },
       track: 'V3',
       scale: 1.4,
+      rotate: -12.5,
       motion: { tx: [{ t: 0, v: 0 }, { t: 1, v: 50 }] },
       group: 2
     }

@@ -189,4 +189,43 @@ export default async function (C) {
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(400)
   })
+
+  await check('3つ選んで掴むと、選択は3つのまま・影も3つぶんの幅で動く', async () => {
+    // 掴んだ瞬間に「一緒に動かす相手」を他種（テロップ・SE…）だけ数えていて、
+    // **本編の切片を数えていなかった**。3つ選んで掴むと選択が1つに潰れ、
+    // 影も1本分しか出なかった（2026-10-12・本人「たまに1個しか選択できてない」）
+    await resetProject()
+    const clips = v1Clips()
+    assert((await clips.count()) >= 3, `本編のクリップが3つ無い（${await clips.count()}）`)
+    await clips.nth(0).click()
+    await clips.nth(1).click({ modifiers: ['Control'] })
+    await clips.nth(2).click({ modifiers: ['Control'] })
+    await page.waitForTimeout(300)
+    const selN = () => page.locator('[data-tid="V1"] .video-clip.clip-selected').count()
+    assert((await selN()) === 3, `Ctrl で3つ選べていない（${await selN()}）`)
+    const b0 = await clips.nth(0).boundingBox()
+    const b1 = await clips.nth(1).boundingBox()
+    const b2 = await clips.nth(2).boundingBox()
+    const W = await clipW()
+    // 真ん中を掴んで、隣を丸ごと踏まない量だけ右へ
+    await page.mouse.move(b1.x + b1.width / 2, b1.y + b1.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 6; i++)
+      await page.mouse.move(b1.x + b1.width / 2 + (W * 0.3 * i) / 6, b1.y + b1.height / 2)
+    await page.waitForTimeout(300)
+    assert((await selN()) === 3, `掴んだ瞬間に選択が減った（${await selN()}）`)
+    const ghost = page.locator('[data-tid="V1"] .se-ghost').first()
+    assert(await ghost.count(), '動かしている影が出ていない')
+    const gb = await ghost.boundingBox()
+    const span = b2.x + b2.width - b0.x
+    assert(
+      gb.width >= span * 0.9,
+      `影が3つぶんの幅ではない（影 ${Math.round(gb.width)}px / 3つぶん ${Math.round(span)}px）`
+    )
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    assert((await selN()) === 3, `動かした後に選択が減った（${await selN()}）`)
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(400)
+  })
 }

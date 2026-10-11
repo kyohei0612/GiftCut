@@ -144,6 +144,71 @@ export default async function (C) {
     )
   })
 
+  await check('テロップのバーは絵の外（右の帯）に出て、文字に被らない', async () => {
+    // 絵の中の上寄りに出していたバーが、上に置いたテロップと重なって
+    // 「戻す」の当の文字が読めず、バーも押せなかった（2026-10-12・本人）。
+    // **絵の上に無いこと**を、入れ子ではなく座標で見る（CSS で外へ押し出しただけでも緑にする）
+    await resetProject()
+    await seekTo(2)
+    const t0 = page.locator('.telop-box').first()
+    assert(await t0.count(), 'プレビューに文字が出ていない')
+    await t0.click()
+    await page.waitForTimeout(300)
+    const bar = page.locator('.telop-bar').first()
+    assert(await bar.count(), 'テロップのバーが出ていない')
+    const scr = await page.locator('.screen').first().boundingBox()
+    const bb = await bar.boundingBox()
+    assert(scr && bb, 'バーか絵の位置が測れない')
+    assert(bb.x >= scr.x + scr.width - 1, `バーが絵の上に乗っている（バー x=${Math.round(bb.x)} / 絵の右端 ${Math.round(scr.x + scr.width)}）`)
+    assert(
+      (await page.locator('.screen .telop-bar, .screen .proxy-badge, .screen .reframe-bar').count()) === 0,
+      '絵の中にまだバーか進み具合の札が残っている'
+    )
+  })
+
+  await check('テロップを右下の ↻ で回せて、「戻す」で 0° に戻る', async () => {
+    // 回転は**プレビューと PNG 化が同じ式**（lib/telopPlace の telopXform）を通るので、
+    // ここでは画面側の transform に rotate が入ることと、戻す口が効くことを見る
+    await resetProject()
+    await seekTo(2)
+    const t0 = page.locator('.telop-box').first()
+    assert(await t0.count(), 'プレビューに文字が出ていない')
+    await t0.click()
+    await page.waitForTimeout(300)
+    const knob = page.locator('.telop-rot-handle').first()
+    assert(await knob.count(), '選んだのに回転の ↻ が出ていない')
+    const tb = await t0.boundingBox()
+    const kb = await knob.boundingBox()
+    assert(tb && kb, '文字か ↻ の位置が測れない')
+    // 文字の中心のまわりを、↻ の位置から 60° ぶん弧を描いて動かす
+    const cx = tb.x + tb.width / 2
+    const cy = tb.y + tb.height / 2
+    const kx = kb.x + kb.width / 2
+    const ky = kb.y + kb.height / 2
+    const r = Math.hypot(kx - cx, ky - cy)
+    const a0 = Math.atan2(ky - cy, kx - cx)
+    await page.mouse.move(kx, ky)
+    await page.mouse.down()
+    for (let i = 1; i <= 8; i++) {
+      const a = a0 + ((Math.PI / 3) * i) / 8
+      await page.mouse.move(cx + r * Math.cos(a), cy + r * Math.sin(a))
+    }
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const rotOf = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('.telop-box.telop-box-sel')
+        const m = /rotate\((-?[\d.]+)deg\)/.exec(el?.style.transform ?? '')
+        return m ? Number(m[1]) : 0
+      })
+    const rot = await rotOf()
+    assert(Math.abs(rot) > 30, `回っていない（rotate ${rot}°。60° 近くのはず）`)
+    const btn = page.locator('button', { hasText: '位置と動きを戻す' }).first()
+    await btn.click()
+    await page.waitForTimeout(300)
+    assert((await rotOf()) === 0, `「戻す」を押しても回転が残っている（${await rotOf()}°）`)
+  })
+
   await check('文字を選んで切ると、下地の動画にはカット点が増えない', async () => {
     // 「何も選んでいない＝全部／選んでいる＝その物だけ」の後半。
     // ここが効いていないと、文字を切るたびに本編へ余計なカット点が増える。

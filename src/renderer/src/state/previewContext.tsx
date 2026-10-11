@@ -153,6 +153,7 @@ export interface PreviewCtxValue {
   /** テロップを掴む */
   onTelopPointerDown: W['onTelopPointerDown']
   onTelopResizeStart: W['onTelopResizeStart']
+  onTelopRotateStart: W['onTelopRotateStart']
   /** テロップの文字を打ち替える */
   editorTextRef: W['editorTextRef']
   updateCueText: W['updateCueText']
@@ -224,8 +225,9 @@ export function usePreviewCtxValue(deps: { resetCount: () => number }) {
     onVideoReframeStart, onVideoRotateStart, resetVideoZoom, zoomAnchor, toggleZoomAnchor,
     onZoomAnchorStart, selectPreviewOverlay
   } = usePreviewManipCtx()
-  const { resetSelectedTelops, telopResetCount, onTelopPointerDown, onTelopResizeStart } =
-    useTelopBoxCtx()
+  const {
+    resetSelectedTelops, telopResetCount, onTelopPointerDown, onTelopResizeStart, onTelopRotateStart
+  } = useTelopBoxCtx()
   const { editorTextRef, setEditorSel, clearRunsInSelection } = useTelopLookCtx()
   const { jumpMarker, addMarkerAtPlayhead } = useMarkersCtx()
   const { captureScreenshot } = useScreenshotCtx()
@@ -258,7 +260,7 @@ export function usePreviewCtxValue(deps: { resetCount: () => number }) {
     onVideoReframeStart, onVideoRotateStart, resetVideoZoom, resetCount: deps.resetCount,
     zoomAnchor, toggleZoomAnchor, onZoomAnchorStart,
     resetSelectedTelops, telopResetCount,
-    selectPreviewOverlay, reframeTarget, onTelopPointerDown, onTelopResizeStart,
+    selectPreviewOverlay, reframeTarget, onTelopPointerDown, onTelopResizeStart, onTelopRotateStart,
     editorTextRef, updateCueText, setEditorSel, clearRunsInSelection,
     applyTemplateToCue, applyIconToCue,
     togglePlay, skipSec, stepFrame, jumpMarker, addMarkerAtPlayhead, captureScreenshot,

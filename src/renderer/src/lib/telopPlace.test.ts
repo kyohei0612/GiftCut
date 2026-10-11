@@ -2,7 +2,9 @@
 // テロップの置き場所。既定の高さと、重なるときに上へ積む決まり。
 // 箱の大きさは buildTelopSVG で測る（canvas が要る）ので、ゴールデン試験と同じく jsdom。
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_TELOP_POS, STACK_GAP, placeNewTelops, stackAbove, telopVSpan } from './telopPlace'
+import {
+  DEFAULT_TELOP_POS, STACK_GAP, normDeg, placeNewTelops, stackAbove, telopVSpan, telopXform
+} from './telopPlace'
 import { defaultTelopStyle } from './telopStyle'
 import { DEFAULT_LABEL } from './labels'
 import type { Cue } from './srt'
@@ -69,5 +71,25 @@ describe('足すテロップに置き場所を付ける', () => {
   it('本文が空（追加した直後）でも1行ぶんの高さで測る', () => {
     const s = telopVSpan({ ...cue(1, 0, 1, ''), pos: DEFAULT_TELOP_POS })
     expect(s.bottom - s.top).toBeGreaterThan(0)
+  })
+})
+
+describe('拡縮と回転の CSS（プレビューと PNG 化が同じ物を使う）', () => {
+  it('どちらも既定なら空（transform に余計な物を足さない）', () => {
+    expect(telopXform(undefined, undefined)).toBe('')
+    expect(telopXform(1, 0)).toBe('')
+  })
+
+  it('拡縮が先・回転が後、の順で固定', () => {
+    expect(telopXform(1.5, -12.5)).toBe(' scale(1.5) rotate(-12.5deg)')
+    expect(telopXform(undefined, 90)).toBe(' rotate(90deg)')
+  })
+
+  it('角度は -180〜180 に畳む（回し続けても数字が膨らまない）', () => {
+    expect(normDeg(370)).toBe(10)
+    expect(normDeg(-190)).toBe(170)
+    expect(normDeg(180)).toBe(180)
+    expect(normDeg(-180)).toBe(180)
+    expect(normDeg(12.34)).toBe(12.3)
   })
 })

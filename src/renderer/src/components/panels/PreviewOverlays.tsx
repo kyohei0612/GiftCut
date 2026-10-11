@@ -1,14 +1,26 @@
-// プレビューの映像に重ねて出る物。
+// プレビューの映像に重ねて出る物と、その**横の帯**に出る物。
 //
+// 映像の中（`.screen`）に出る物——絵の上に無いと意味が無い物だけ:
 //   ReframeBox      … 拡大縮小・回転の枠（動画・画像・重ねた動画が相手）
 //   ZoomAnchor      … 拡大の中心（◎）。どこへ向かって寄るかを決める
 //   ScreenEmpty     … まだ何も無いときの案内
-//   ProgressBadges  … 裏で進んでいる仕事の進み具合
 //   TelopEditor     … テロップをその場で打ち替える欄
 //
-// どれも「映像の上に浮く」という一点だけが共通で、中身は互いに無関係。
-// 1つの大きな塊にせず、別々の部品にしてある（片方を触るときに
-// もう片方を読まなくて済む）。
+// 映像の右の帯（`.monitor-side`）に出る物——絵に被せる理由が無い物:
+//   ReframeBar      … 枠のバー（何を操作中か・倍率・拡大の中心・リセット・完了）
+//   TelopBar        … テロップのバー（位置と動きを戻す・完了）
+//   ProgressBadges  … 裏で進んでいる仕事の進み具合
+//
+// ## バーは絵の上に置かない（2026-10-12・本人）
+//
+// テロップのバーは映像の中の上寄りに出していた。上に置いたテロップと
+// 重なって「戻す」の当の文字が読めず、バー自体も押せなかった。
+// **文字とボタンが同じ場所を取り合う**ので、ボタンは絵の外へ出す。
+// 動画側のバーは枠の下＝絵の外だったが、同じ役目の物が2か所に散るより
+// 1本の帯に揃える。
+//
+// どれも中身は互いに無関係。1つの大きな塊にせず、別々の部品にしてある
+// （片方を触るときにもう片方を読まなくて済む）。
 
 import type { JSX } from 'react'
 import type { Cue } from '../../lib/srt'
@@ -23,30 +35,14 @@ export interface ReframeTargetInfo {
 
 /**
  * リフレーム枠。四隅を掴めば拡大縮小、外側の ↻ で回転、本体を掴めば移動。
- *
- * **何を操作中かを名前で出す。** 動画・画像・重ねた動画のどれが相手かを
- * 出しておかないと、別の物を拡大してしまう。
+ * ボタン類は `ReframeBar`（絵の外の帯）。
  */
 export function ReframeBox({
-  target,
   onReframeStart,
-  onRotateStart,
-  onReset,
-  resetCount,
-  anchorOn,
-  onToggleAnchor,
-  onDone
+  onRotateStart
 }: {
-  target: ReframeTargetInfo
   onReframeStart: (e: React.PointerEvent, corner: number) => void
   onRotateStart: (e: React.PointerEvent) => void
-  onReset: () => void
-  /** リセットが何個に効くか。1個のつもりで押して他まで戻るのを防ぐ */
-  resetCount: number
-  /** 拡大の中心（マーカー）を出しているか */
-  anchorOn: boolean
-  onToggleAnchor: () => void
-  onDone: () => void
 }): JSX.Element {
   return (
     <div className="reframe-box">
@@ -68,7 +64,35 @@ export function ReframeBox({
           ↻
         </div>
       ))}
-      <div className="reframe-bar" onPointerDown={(e) => e.stopPropagation()}>
+    </div>
+  )
+}
+
+/**
+ * リフレーム枠のバー（絵の右の帯に出る）。
+ *
+ * **何を操作中かを名前で出す。** 動画・画像・重ねた動画のどれが相手かを
+ * 出しておかないと、別の物を拡大してしまう。
+ */
+export function ReframeBar({
+  target,
+  onReset,
+  resetCount,
+  anchorOn,
+  onToggleAnchor,
+  onDone
+}: {
+  target: ReframeTargetInfo
+  onReset: () => void
+  /** リセットが何個に効くか。1個のつもりで押して他まで戻るのを防ぐ */
+  resetCount: number
+  /** 拡大の中心（マーカー）を出しているか */
+  anchorOn: boolean
+  onToggleAnchor: () => void
+  onDone: () => void
+}): JSX.Element {
+  return (
+    <div className="reframe-bar" onPointerDown={(e) => e.stopPropagation()}>
         {/* 何を操作中かを明示（動画 or 画像）＝誤って別の要素を拡大しないように */}
         <span className="reframe-target" title={target.name}>
           {target.kind === 'img' ? '🖼' : '🎬'} {target.name}
@@ -97,7 +121,6 @@ export function ReframeBox({
         <button className="reframe-btn" onClick={onDone} title="リフレームを終了">
           ✓ 完了
         </button>
-      </div>
     </div>
   )
 }

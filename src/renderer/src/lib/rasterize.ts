@@ -18,7 +18,7 @@ import {
   type AnimState
 } from './telopStyle'
 import { autoIconHeight } from './telopLayout'
-import { DEFAULT_TELOP_POS } from './telopPlace'
+import { DEFAULT_TELOP_POS, telopXform } from './telopPlace'
 import { hexToRgba } from './telopFill'
 import type { Cue } from './srt'
 
@@ -143,9 +143,9 @@ function innerHtml(
   }
 
   let placed: string
-  // Premiere式リサイズの拡縮倍率（数値固定・変形で拡縮）。プレビューと同一
-  const cueScale = cue.scale ?? 1
-  const scl = cueScale !== 1 ? ` scale(${cueScale})` : ''
+  // Premiere式リサイズの拡縮倍率（数値固定・変形で拡縮）と回転。**プレビューと同じ
+  // `telopXform`**（別々に書くと、画面では傾いているのに書き出すと真っ直ぐ、になる）
+  const scl = telopXform(cue.scale, cue.rotate)
   const originX = s.anchor?.h === 'l' ? '0%' : s.anchor?.h === 'r' ? '100%' : '50%'
   const originY = s.anchor?.v === 't' ? '0%' : s.anchor?.v === 'b' ? '100%' : '50%'
   if (s.box) {

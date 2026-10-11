@@ -4,7 +4,9 @@
 // しかも見た目は「なんとなく合っている」ので、気づくのはずっと後になる。
 
 import { describe, expect, it } from 'vitest'
-import { adjustRuns, runAtIndex, splitRunRemoving, styleWithRun } from './textRuns'
+import {
+  adjustRuns, changedRunKeys, runAtIndex, splitRunRemoving, stripRunKeys, styleWithRun
+} from './textRuns'
 import { defaultTelopStyle } from './telopStyle'
 import type { TextRun } from './telopStyle'
 
@@ -106,5 +108,37 @@ describe('文字を打ち替えたときに範囲をずらす', () => {
   it('中身が同じなら何も変えない', () => {
     const runs = [run(1, 4)]
     expect(adjustRuns(runs, 'あいうえお', 'あいうえお')?.[0]).toEqual(runs[0])
+  })
+})
+
+describe('全体を変えたら、その項目は文字範囲の指定から外す', () => {
+  // 見本を文字範囲に当てると全文字ぶんの run がフォント・色を持つ。
+  // その後で全体のフォントを変えても run が勝ち、「変えられない」になっていた
+  // （2026-10-12・本人「型をはめた後に編集しても反映されない」）
+  it('フォントを変えたら run のフォントが消え、色は残る', () => {
+    const prev = defaultTelopStyle()
+    const next = { ...prev, fontFamily: 'Noto Sans JP' }
+    const keys = changedRunKeys(prev, next)
+    expect(keys).toEqual(['fontFamily'])
+    const out = stripRunKeys([run(0, 5, { fontFamily: 'Impact', color: '#f00' })], keys)
+    expect(out?.[0].fontFamily).toBeUndefined()
+    expect(out?.[0].color).toBe('#f00')
+  })
+
+  it('**何も残らない run は落とす**（空の指定を残すと装飾ありの道を通る）', () => {
+    expect(stripRunKeys([run(0, 5, { fontFamily: 'Impact' })], ['fontFamily'])).toBeUndefined()
+  })
+
+  it('色を変えたらグラデも一緒に外す（単色とグラデは互いに排他）', () => {
+    const prev = defaultTelopStyle()
+    const next = { ...prev, fill: { ...prev.fill, color: '#123456' } }
+    expect(changedRunKeys(prev, next)).toEqual(['color', 'gradient'])
+  })
+
+  it('変えていなければ何も外さない（同じ物を返す）', () => {
+    const st = defaultTelopStyle()
+    const runs = [run(0, 2, { color: '#f00' })]
+    expect(changedRunKeys(st, { ...st })).toEqual([])
+    expect(stripRunKeys(runs, [])).toBe(runs)
   })
 })
