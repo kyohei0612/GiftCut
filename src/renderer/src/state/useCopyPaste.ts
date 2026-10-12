@@ -26,7 +26,7 @@ import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { useClipboardCtx } from './clipboardContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import type { ReframeTarget } from '../lib/projectTypes'
 
 export interface UseCopyPasteDeps {
@@ -63,7 +63,7 @@ export function useCopyPaste(deps: UseCopyPasteDeps) {
   const {
     clipboardRef, clipboardSeRef, clipboardImgRef, clipboardVcRef, lastCopyRef
   } = useClipboardCtx()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
 
   // ※ 「設定だけ」（属性のコピー・貼り付け）は state/useAttrCopy へ出した。
   //    3種類のうち、あれだけが完全な葉で、`lastCopyRef` にも触れていなかった。

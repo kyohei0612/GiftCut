@@ -15,7 +15,7 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import { useDoc } from './contentContext'
 import { useMediaCtx } from './mediaContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useLibraryCtx } from './libraryContext'
 import { useAppChromeCtx } from './appChromeContext'
 import { useProxy } from './useProxy'
@@ -27,7 +27,7 @@ const Ctx = createContext<ProxyValue | null>(null)
 
 export function ProxyProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const { loadLS, saveLS } = useLibraryCtx()
-  const { playRateRef } = usePlaybackCtx()
+  const { playRateRef } = usePlaybackStableCtx()
   const { sources, setProxyPct } = useMediaCtx()
   const { vClips } = useDoc()
   const { proxyForPathRef } = useAppChromeCtx()

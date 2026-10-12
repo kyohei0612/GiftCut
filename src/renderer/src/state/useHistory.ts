@@ -17,7 +17,7 @@
 import { useRef, useState } from 'react'
 import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useSel } from './selectionContext'
 import { useExportCtx } from './exportContext'
 import type { Cue } from '../lib/srt'
@@ -86,7 +86,7 @@ export function useHistory(deps: UseHistoryDeps): History {
     setCues, setSegments, setSeClips, setMarkers, setImgClips, setVClips
   } = useDoc()
   const { tracksRef, trackStatesRef, setTracks, setTrackStates } = useTracksCtx()
-  const { currentTimeRef, setCurrentTime } = usePlaybackCtx()
+  const { currentTimeRef, setCurrentTime } = usePlaybackStableCtx()
   const { setSelectedIds, setEditingId, clearSegSel } = useSel()
   const { setRatio } = useExportCtx()
   const undoStackRef = useRef<Snap[]>([])

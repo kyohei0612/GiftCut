@@ -45,7 +45,7 @@ import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 
 export interface UseSelectionEditDeps {
   copySelected: () => void
@@ -78,7 +78,7 @@ export function useSelectionEdit(deps: UseSelectionEditDeps) {
   } = useSel()
   const { trackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
-  const { durationRef } = usePlaybackCtx()
+  const { durationRef } = usePlaybackStableCtx()
   // **借りている物をそのまま渡す。** ここで名前を変えると、呼んでいる所が
   // 「本編の切片を触っている」と気づけなくなる
   const seg = { duplicateSelectedSegments }

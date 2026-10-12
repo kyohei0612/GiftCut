@@ -22,7 +22,7 @@ import type { Cue } from '../lib/srt'
 import type { VClip } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
 import { useMediaCtx } from './mediaContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useExportCtx } from './exportContext'
 import { useIconsCtx } from './iconsContext'
 import { useTracksCtx } from './tracksContext'
@@ -47,7 +47,7 @@ export function useScreenshot(deps: UseScreenshotDeps) {
   const { cues, imgClips, vClips } = useDoc()
   const { tracks, trackStates } = useTracksCtx()
   const { videoSrc } = useMediaCtx()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
   const { ratio } = useExportCtx()
   const { iconAuto, iconOffset, iconScale, iconSide } = useIconsCtx()
   // 画像は版つきの URL で読む（外から書き換えられた後も、古い絵を焼かない）

@@ -48,7 +48,7 @@ import { vcLen } from '../../../shared/timeline'
 const SNAP_PX = 18
 import type { SegLayout } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
 import { useDragPreviewCtx } from './dragPreviewContext'
 
@@ -94,7 +94,7 @@ export interface Snap {
 export function useSnap(deps: UseSnapDeps): Snap {
   const { snap, segLayoutRef } = deps
   const { cues, seClipsRef, imgClipsRef, vClipsRef, markersRef } = useDoc()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
   const { zoomRef } = useViewCtx()
   const { setSnapLineX } = useDragPreviewCtx()
 

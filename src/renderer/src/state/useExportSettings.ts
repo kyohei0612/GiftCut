@@ -14,7 +14,7 @@
 
 import { useEffect, useState } from 'react'
 import { FPS_FALLBACK } from '../../../shared/timeline'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import type { ExportOpts } from '../components/dialogs/ProjectDialogs'
 
 /**
@@ -106,7 +106,7 @@ export function useExportSettings(): ExportSettings {
   }, [exportDir])
 
   // 素材の fps。取れなければ既定へ落とす（**「素材と同じ」の実体はこれ**）
-  const { fps } = usePlaybackCtx()
+  const { fps } = usePlaybackStableCtx()
   const srcFpsForExport = (): number =>
     Number.isFinite(fps) && fps > 0 ? fps : FPS_FALLBACK
   /** 表示用。整数なら「60」、そうでなければ「29.97」 */

@@ -27,11 +27,11 @@
 import { useCallback, useRef } from 'react'
 import { applyTimelineVScroll, centeredScrollTop } from '../lib/timelineVScroll'
 import { useVisibleRange } from './useVisibleRange'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
 
 export function useTimelineBox() {
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
   const { zoomRef } = useViewCtx()
   /** プレビューの映像の箱（テロップをその場で書き換えるときの基準） */
   const screenRef = useRef<HTMLDivElement>(null)

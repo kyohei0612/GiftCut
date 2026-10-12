@@ -28,7 +28,7 @@ import type { MotionRow } from '../components/panels/MotionTab'
 import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
 import { useSel } from './selectionContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import type { Ask } from './useAsk'
 import type { Layout } from '../../../shared/timeline'
 import type { ReframeTarget, VSeg } from '../lib/projectTypes'
@@ -61,7 +61,7 @@ export function useMotion(deps: UseMotionDeps) {
   const { reframeTargetRef, askConfirm, showToast, segLayout, patchClipMotion, setSegZoom, setImgZoom, setVClipZoom, vcLen, seekTo } = deps
   const { cues, setCues,  setSegments, imgClips, setImgClips, vClips, setVClips } = useDoc()
   const { selectedIds, selectedVideoIds, selectedImgIds, selectedVClipIds, selectedTelopTrans } = useSel()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
   const { trackStates } = useTracksCtx()
 
   // 動きの表（左パネル）で「いま何を選んでいるか」。

@@ -32,7 +32,7 @@ import { TINY_GAP, planGapClose } from '../../../shared/gapClose'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useToastCtx } from './toastContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import type { VClip } from '../lib/projectTypes'
 
 export interface UseGapCloseDeps {
@@ -58,7 +58,7 @@ export function useGapClose(deps: UseGapCloseDeps) {
     selectedImgIds, selectedVClipIds, clearSegSel
   } = useSel()
   const { showToast } = useToastCtx()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
 
   /**
    * 再生ヘッドが空きの上なら、そこを詰める。

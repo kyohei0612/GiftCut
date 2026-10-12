@@ -94,7 +94,7 @@ import { useProjectStateCtx } from './projectStateContext'
 import { useProjectFileCtx } from './projectFileContext'
 import { useDragPreviewCtx } from './dragPreviewContext'
 import { useLaneHeightsCtx } from './laneHeightsContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useKeyboard } from './useKeyboard'
 import type { OpenClipMenu } from '../components/timeline/ClipBand'
 import { useTimelineOpsValue } from './timelineOpsContext'
@@ -145,7 +145,7 @@ export function useAppWiring() {
     fps
     // 追いかけの時計まわりも心臓が持っている。**App で別に宣言しないこと**
     //（同じ名前の入れ物が2つできて、「消す方」と「読む方」が食い違う）
-  } = usePlaybackCtx()
+  } = usePlaybackStableCtx()
   // 段（トラック）と鍵。**鍵はあらゆる編集の手前で見る**ので心臓に置く
   const { tracks } = useTracksCtx()
   // タイムラインの中身は state/useContent がまとめて持つ（配列と採番は一組）

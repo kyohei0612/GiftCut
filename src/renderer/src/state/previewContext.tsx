@@ -41,7 +41,7 @@ import { useMarkersCtx } from './markersContext'
 import { useMediaCtx } from './mediaContext'
 import { useMediaOpsCtx } from './mediaOpsContext'
 import { useNowShowingCtx } from './nowShowingContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { usePlaybackEngineCtx } from './playbackEngineContext'
 import { usePreviewFrameCtx } from './previewFrameContext'
 import { usePreviewManipCtx } from './previewManipContext'
@@ -232,7 +232,7 @@ export function usePreviewCtxValue(deps: { resetCount: () => number }) {
   const { jumpMarker, addMarkerAtPlayhead } = useMarkersCtx()
   const { captureScreenshot } = useScreenshotCtx()
   const { ratio, masterVolume, setMasterVolume } = useExportCtx()
-  const { fps, playRateUI } = usePlaybackCtx()
+  const { fps, playRateUI } = usePlaybackStableCtx()
   /** プレビューの枠の形（比率の設定そのまま） */
   const monitorAspect = ratio === '16:9' ? '16 / 9' : ratio === '9:16' ? '9 / 16' : '1 / 1'
   const transportInfo = (

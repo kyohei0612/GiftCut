@@ -35,7 +35,7 @@ import { useRef } from 'react'
 import { clamp, tToSource } from '../../../shared/timeline'
 import { moveThen } from '../lib/clipXform'
 import { perf } from '../lib/perfMonitor'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import type { UsePlaybackEngineDeps } from './usePlaybackEngine'
 
 // **deps の型は手で書かない。** 呼ぶ側の定義から引く（引数の数を間違えても
@@ -61,7 +61,7 @@ export function useSegClock(deps: UseSegClockDeps) {
     // 追いかけの時計まわりは心臓（usePlayback）が持っている
     clockStartWallRef, clockStartPosRef, seekCooldownRef, xfadeUntilRef,
     fixingDriftRef, preparedRef, currentSegRef
-  } = usePlaybackCtx()
+  } = usePlaybackStableCtx()
   // 追従の様子を記録に残すときの間引き（1秒に1回。毎コマ出すと記録が埋まる）
   const lastDriftLogRef = useRef(0)
   /** **実際に画面へ出た最後のコマ**（`requestVideoFrameCallback` が教えてくれる地の値） */

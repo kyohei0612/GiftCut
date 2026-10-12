@@ -46,7 +46,7 @@ import type { ImgClip, SEClip, SegLayout, VClip, VSeg } from '../lib/projectType
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 
 export interface UsePlayheadRippleDeps {
   /** つなぎ目の演出のうち、どこにも掛からなくなった物を捨てる */
@@ -90,7 +90,7 @@ export function usePlayheadRipple(deps: UsePlayheadRippleDeps) {
     clearAll: clearAllSelections
   } = useSel()
   const { trackStates } = useTracksCtx()
-  const { currentTimeRef, fpsRef } = usePlaybackCtx()
+  const { currentTimeRef, fpsRef } = usePlaybackStableCtx()
   // **借りている物をそのまま渡す**（名前を変えると、呼んでいる所が
   // 「本編の切片を触っている」と気づけなくなる）
   const seg = { razorSegment }

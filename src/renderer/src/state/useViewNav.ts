@@ -15,7 +15,7 @@ import { clamp } from '../../../shared/timeline'
 // Ctrl+ホイールの3か所が同じ所へ行き着くようにするため）
 import { fitZoom, minZoom, scrollForZoomAtPlayhead } from '../../../shared/zoomBar'
 import { ZOOM_MAX, ZOOM_MIN } from './useView'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
 
 export interface UseViewNavDeps {
@@ -54,7 +54,7 @@ export function useViewNav(deps: UseViewNavDeps): ViewNav {
   const { scrollRef, trackInnerRef, contentEndRef, durationRef, seekTo } = deps
   const { setZoom, zoomRef } = useViewCtx()
   // 拡大の軸に使う再生ヘッドの時刻。**state ではなく ref**（掴んでいる最中も読む）
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
 
 
   // 「連れてくる」（revealPlayhead）と「飛ばして見せる」（seekAndReveal）は

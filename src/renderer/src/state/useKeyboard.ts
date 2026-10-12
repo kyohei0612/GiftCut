@@ -31,7 +31,7 @@ import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 // 下は `useKeyboardDeps` が集める先。**配線を通さず自分で見に行く**（2026-08-04）
 import { useAppChromeCtx } from './appChromeContext'
 import { useAskCtx } from './askContext'
@@ -193,7 +193,7 @@ export function useKeyboard(): void {
   } = useSel()
   const { trackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
-  const { currentTimeRef, durationRef, fpsRef } = usePlaybackCtx()
+  const { currentTimeRef, durationRef, fpsRef } = usePlaybackStableCtx()
 
   // **中身は毎回作り直されるが、聞き耳は張り替えない。** ref に最新を入れる
   const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {})

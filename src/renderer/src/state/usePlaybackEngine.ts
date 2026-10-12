@@ -22,7 +22,7 @@
 
 import { clamp, qFrame, tToSource } from '../../../shared/timeline'
 import type { SegLayout, Source, VSeg } from '../lib/projectTypes'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 // 切片をまたぐ時計（A面/B面）。**一番むずかしい所をここだけに閉じてある**
 import { useSegClock } from './useSegClock'
 
@@ -69,7 +69,7 @@ export function usePlaybackEngine(deps: UsePlaybackEngineDeps) {
     setCurrentTime, setPlayRateUI, setPlaying,
     // 追いかけの時計まわりは心臓（usePlayback）が持っている
     clockStartWallRef, clockStartPosRef, lastTsRef, preparedRef, currentSegRef
-  } = usePlaybackCtx()
+  } = usePlaybackStableCtx()
 
 
   // 切片をまたぐ時計（A面/B面の入れ替え）は state/useSegClock。

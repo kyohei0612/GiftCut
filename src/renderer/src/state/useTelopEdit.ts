@@ -21,7 +21,7 @@ import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { useProjectStateCtx } from './projectStateContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useExportCtx } from './exportContext'
 import { useIconsCtx } from './iconsContext'
 import type { Track } from '../lib/projectTypes'
@@ -43,7 +43,7 @@ export function useTelopEdit(deps: UseTelopEditDeps) {
   const { tracks, setTracks, trackStates, setTrackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
   const { newTelopStyle } = useProjectStateCtx()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
   const { ratio } = useExportCtx()
   const { iconAuto, iconAnchorPos } = useIconsCtx()
 

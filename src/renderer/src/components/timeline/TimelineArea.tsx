@@ -61,7 +61,7 @@ import { useSel } from '../../state/selectionContext'
 import { useTracksCtx } from '../../state/tracksContext'
 import { useViewCtx } from '../../state/viewContext'
 import { ZOOM_MAX, ZOOM_MIN } from '../../state/useView'
-import { usePlaybackCtx } from '../../state/playbackContext'
+import { usePlaybackStableCtx } from '../../state/playbackContext'
 import { useMediaCtx } from '../../state/mediaContext'
 import { useLayout } from '../../state/layoutContext'
 import { useDragPreviewCtx } from '../../state/dragPreviewContext'
@@ -113,7 +113,7 @@ export function TimelineArea(): JSX.Element {
   // タイムライン全体（帯277個）が描き直される。時刻が要るのは再生ヘッドだけなので、
   // あちらが自分で見に行く（components/timeline/Ruler の Playhead）
   // `currentTimeRef` は拡大バーへ（**値ではなく ref**。再生中に毎コマ描き直さない）
-  const { fps, currentTimeRef } = usePlaybackCtx()
+  const { fps, currentTimeRef } = usePlaybackStableCtx()
   const { videoSrc, mediaItems } = useMediaCtx()
   const { timelineH } = useLayout()
   const { videoGhost, seGhost, imgGhost, marquee, snapLineX, overwriteIds } = useDragPreviewCtx()

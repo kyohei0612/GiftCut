@@ -32,7 +32,7 @@ import type { useEdit } from './useEdit'
 // 拡大の基準点。**このファイルの土台**（掴む側も選ぶ側も、これを通る）
 import { usePreviewAnchor } from './usePreviewAnchor'
 import { useDoc } from './contentContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
@@ -78,7 +78,7 @@ export function usePreviewManip(deps: UsePreviewManipDeps) {
   } = useSel()
   const { trackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
 
 
   /** 印を読む・打つときの時刻（クリップの先頭からの秒） */

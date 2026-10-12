@@ -43,7 +43,7 @@ import { useToastCtx } from './toastContext'
 import { useExportCtx } from './exportContext'
 import { useMediaCtx } from './mediaContext'
 import { useIconsCtx } from './iconsContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { loadCutoutSettings } from '../lib/cutout/types'
 
 export interface UseProjectApplyDeps {
@@ -84,7 +84,7 @@ export function useProjectApply(deps: UseProjectApplyDeps) {
   const { setVideoPath, setVideoSrc, setVideoName, setVideoDuration, setSources, sourceIdCounter, curSourceIdRef, setActiveSrcId, setMediaItems, mediaIdCounter, setWaveform, setThumbnailSrc, setProxyPct } = useMediaCtx()
   // **入れる側しか要らない。** ここは流し込む所なので、いまの値は読まない
   const { setIconSide, setIconOffset, setIconScale, setIconAuto, setIconEnabled, setIconAnchorPos } = useIconsCtx()
-  const { setFps } = usePlaybackCtx()
+  const { setFps } = usePlaybackStableCtx()
   const {
     setProjectPath, setSrtPath, setMissingMedia,
     setNewTelopStyle, setTransDur, setIconAssignState, setLaneIconAssign, setIconRing, setIconTemplate

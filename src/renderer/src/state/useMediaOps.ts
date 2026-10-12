@@ -15,7 +15,7 @@ import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useMediaCtx } from './mediaContext'
 import { useToastCtx } from './toastContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import type { Snap } from './useHistory'
 
 export interface UseMediaOpsDeps {
@@ -44,7 +44,7 @@ export function useMediaOps(deps: UseMediaOpsDeps) {
   const { clearSegSel } = useSel()
   const { setVideoPath, setVideoSrc, setVideoName, setWaveform, setThumbnailSrc, setSources, sourcesRef, sourceIdCounter, curSourceIdRef, setActiveSrcId, mediaItems, setMediaItems, mediaIdCounter } = useMediaCtx()
   const { showToast } = useToastCtx()
-  const { setFps } = usePlaybackCtx()
+  const { setFps } = usePlaybackStableCtx()
 
   // ※ srcOfSeg（切片の元動画を引く）は state/useMedia＝素材の心臓へ移した。
   //   引くだけの物なのに、ここに置くと再生の心臓がこのフックを待つ形になっていた。

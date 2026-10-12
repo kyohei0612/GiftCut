@@ -30,7 +30,7 @@ import { summarize } from '../../../shared/crashReport'
 import { perf } from '../lib/perfMonitor'
 import { useDoc } from './contentContext'
 import { useDragPreviewCtx } from './dragPreviewContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useToastCtx } from './toastContext'
 import type { Marquee } from './useDragPreview'
 import type { SegLayout } from '../lib/projectTypes'
@@ -65,7 +65,7 @@ export function useDiagnostics(): void {
     playRateRef, currentTimeRef, 
     // 裏から戻ったら測り直すための起点（心臓が持っている）
     clockStartPosRef, clockStartWallRef, lastTsRef
-  } = usePlaybackCtx()
+  } = usePlaybackStableCtx()
   const { showToast } = useToastCtx()
 
   // 計測に「いま何をしているか」を教える。数字だけ見ても、

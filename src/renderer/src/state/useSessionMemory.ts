@@ -32,7 +32,7 @@ import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useViewCtx } from './viewContext'
 import { clampZoom } from './useView'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useAppChromeCtx } from './appChromeContext'
 import { useHistoryCtx } from './historyContext'
 import { useLibraryCtx } from './libraryContext'
@@ -111,7 +111,7 @@ export function useSessionMemory(): void {
   const { cues, cuesRef, segsRef, seClipsRef } = useDoc()
   const { selectedIds, setSelectedIds, editingId, setEditingId } = useSel()
   const { zoom, setZoom } = useViewCtx()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
 
   // ===== セッション状態の保存/復元（再起動・リロードしても作業位置を維持）=====
   // 選択テロップ・タイムラインのスクロール/ズーム・再生ヘッド・開いてる右タブを覚える。

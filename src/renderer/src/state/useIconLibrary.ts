@@ -24,7 +24,7 @@ import { useIconsCtx } from './iconsContext'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useToastCtx } from './toastContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import type { Cue } from '../lib/srt'
 
 export interface UseIconLibraryDeps {
@@ -65,7 +65,7 @@ export function useIconLibrary(deps: UseIconLibraryDeps) {
   const { cues, setCues } = useDoc()
   const { selectedIds, isSelected } = useSel()
   const { showToast } = useToastCtx()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
   const { setIconAuto, setIconAnchorPos, setIconOffset, setIconScale } = useIconsCtx()
   /** 選んでいるうちの1つめ */
   const primaryId = selectedIds[0] ?? null

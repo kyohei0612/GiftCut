@@ -29,7 +29,7 @@ import { clamp } from '../../../shared/timeline'
 //（shared/zoomBar の冒頭が、まさにその型を警告している）
 import { minZoom } from '../../../shared/zoomBar'
 import { ZOOM_MAX, ZOOM_MIN } from './useView'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useTimelineBoxCtx } from './timelineBoxContext'
 import { useTimelineSpanCtx } from './timelineSpanContext'
 import { useViewCtx } from './viewContext'
@@ -44,7 +44,8 @@ export interface UseTimelineWheelDeps {
   /** 中身の終わり（秒）。**目一杯引いたら全体が見える**ようにするのに要る */
   contentEndRef: { current: number }
   playing: boolean
-  currentTime: number
+  /** 「いま」の時刻。毎コマの値は見ない（見ると囲いごと毎コマ作り直る） */
+  currentTimeRef: { current: number }
   zoom: number
 }
 
@@ -56,7 +57,8 @@ export function useTimelineWheel() {
   // ホイールで引ける下限も、バー・ナビと同じ `viewEnd` から
   //（入口ごとに行ける所が違うと「バーでは引けるのにホイールでは止まる」になる）
   const { viewEndRef: durationRef } = useTimelineSpanCtx()
-  const { playing, currentTime } = usePlaybackCtx()
+  // 毎コマの currentTime は見ない（見ると、この囲いごと毎コマ作り直る）。ref で足りる
+  const { playing, currentTimeRef } = usePlaybackStableCtx()
 
   useEffect(() => {
     const el = scrollRef.current
@@ -107,14 +109,25 @@ export function useTimelineWheel() {
 
   // 流している間は、再生ヘッドを画面の中に留める。
   // 端ぎりぎりで送ると次の瞬間また外れるので、少し手前（60px）へ送る。
+  //
+  // **毎コマは見ない**（2026-10-12）。前は `currentTime` に依存して毎コマ走り、
+  // `scrollLeft` / `clientWidth` を読むたびに**画面全体のレイアウトを強制**していた
+  //（再生中は毎コマ DOM が変わるので、読むたびに測り直しになる）。再生中の JS の
+  // **27%**がこの数行だった（CPU プロファイル・64ms/秒）。本人のサブPCでは
+  // 1コマ 100ms 超＝音のカクつき。見える所へ送るのは 1秒に5回で十分
   useEffect(() => {
     if (!playing) return
-    const el = scrollRef.current
-    if (!el) return
-    const x = currentTime * zoom
-    if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 40) {
-      el.scrollLeft = x - 60
+    const check = (): void => {
+      const el = scrollRef.current
+      if (!el) return
+      const x = currentTimeRef.current * zoom
+      if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 40) {
+        el.scrollLeft = x - 60
+      }
     }
+    check()
+    const id = setInterval(check, 200)
+    return () => clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, playing, zoom])
+  }, [playing, zoom])
 }

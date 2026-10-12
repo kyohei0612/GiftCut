@@ -32,7 +32,7 @@ import { clamp } from '../../../../shared/timeline'
 import { useDoc } from '../../state/contentContext'
 import { useTimelineOps } from '../../state/timelineOpsContext'
 import { useSel } from '../../state/selectionContext'
-import { usePlaybackCtx } from '../../state/playbackContext'
+import { usePlaybackStableCtx } from '../../state/playbackContext'
 import { usePreviewCtx } from '../../state/previewContext'
 import { useMotionCtx } from '../../state/motionContext'
 // 引いたときは帯を1本ずつ作らず1枚の絵にする（理由と測った数字は ./TrackSummary）
@@ -112,7 +112,7 @@ export function TelopBands({
   } = usePreviewCtx()
   // ◆を右クリックで消す（心臓は state/useMotion の removeKeyAtTime）
   const { removeKeyAtTime } = useTimelineOps()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
   const mine = cues.filter((cue) => cueTrack(cue) === trackId)
   // **引いているときは1枚の絵にする。** 理由と測った数字は ./TrackSummary。
   // 全体表示（60分）だとテロップ1200枚が全部画面に入るので、1本ずつ `div` を

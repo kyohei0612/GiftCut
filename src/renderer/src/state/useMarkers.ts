@@ -20,7 +20,7 @@ import { formatTime } from '../lib/srt'
 import type { Marker } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
 import { useDragPreviewCtx } from './dragPreviewContext'
 
@@ -47,7 +47,7 @@ export function useMarkers(deps: UseMarkersDeps): Markers {
     selectedMarkerId, setSelectedMarkerId, editingMarkerId, setEditingMarkerId,
     setSelectedIds, clearSegSel, setSelectedTrackId
   } = useSel()
-  const { currentTimeRef, fpsRef } = usePlaybackCtx()
+  const { currentTimeRef, fpsRef } = usePlaybackStableCtx()
   const { zoomRef } = useViewCtx()
   const { setDragTip } = useDragPreviewCtx()
 

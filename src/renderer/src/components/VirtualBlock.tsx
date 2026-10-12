@@ -61,6 +61,14 @@ export function VirtualBlock<T>({
   })
   const shown = items.slice(w.start, w.end)
 
+  // **描き直すたびに測らない。** `offsetTop` / `offsetHeight` を読むと、その場で
+  // 画面全体のレイアウトが走る（強制レイアウト）。前はこの effect に依存が無く、
+  // 再生中は親が毎コマ描き直るので**毎コマ、テロップ168本・切片51本の画面を測り直して
+  // いた**。速い PC で 64ms/秒、本人のサブPCでは 1コマ 100ms 超＝音のカクつきの正体
+  //（2026-10-12 の動きの記録。再生中の「塞いだ時間」が 150〜230ms/秒、落コマは 0）。
+  // 測るのは、形が変わりうるとき＝見える範囲・件数・列数が変わったときと、
+  // 周りの大きさが変わったとき（ResizeObserver。上の折りたたみが開いて offsetTop が動く）だけ
+  const [bump, setBump] = useState(0)
   useLayoutEffect(() => {
     const el = ref.current
     if (el && el.offsetTop !== top) setTop(el.offsetTop)
@@ -72,7 +80,17 @@ export function VirtualBlock<T>({
       const h = (inner.offsetHeight + gap) / rows
       if (h > 0 && Math.abs(h - rowH) > 1) setRowH(h)
     }
-  })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewport.width, viewport.height, viewport.scrollTop, items.length, columns, fixedRowHeight, bump])
+  useLayoutEffect(() => {
+    const el = ref.current
+    const parent = el?.parentElement
+    if (!parent || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setBump((b) => b + 1))
+    ro.observe(parent)
+    if (innerRef.current) ro.observe(innerRef.current)
+    return () => ro.disconnect()
+  }, [])
 
   useLayoutEffect(() => {
     onVisible?.(shown)

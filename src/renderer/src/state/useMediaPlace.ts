@@ -53,7 +53,7 @@ import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { useMediaCtx } from './mediaContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useViewCtx } from './viewContext'
 
 // **deps の型は手で書かない。** 呼ぶ側（./useMediaDrop）の定義から引く——
@@ -109,7 +109,7 @@ export function useMediaPlace(deps: UseMediaPlaceDeps) {
   const { tracks, setTracks, trackStates, setTrackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
   const { mediaItems } = useMediaCtx()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
   const { zoomRef } = useViewCtx()
 
   // ---- 画像クリップ（V2/V3等の映像トラックに置く静止画。プレミアの画像配置に相当）----

@@ -23,7 +23,7 @@ import type { Motion } from '../../../shared/telopMotion'
 import type { Cue } from '../lib/srt'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 
 export interface UseTelopBoxDeps {
   /** プレビューの映像面。位置はこの矩形を基準に測る */
@@ -62,7 +62,7 @@ export function useTelopBox(deps: UseTelopBoxDeps): TelopBox {
     selectedIds, setSelectedIds, setVideoSelected, setSelectedTrans,
     setSelectedTelopTrans, setEditingId, isSelected
   } = useSel()
-  const { currentTimeRef } = usePlaybackCtx()
+  const { currentTimeRef } = usePlaybackStableCtx()
 
   const primaryId = selectedIds[0] ?? null
   const selected = cues.find((c) => c.id === primaryId) ?? null

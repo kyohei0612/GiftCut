@@ -35,7 +35,7 @@ import type { SegLayout, VSeg } from '../lib/projectTypes'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 
 export interface UseSegmentEditDeps {
   /** 本編（V1）に鍵が掛かっているか */
@@ -65,7 +65,7 @@ export function useSegmentEdit(deps: UseSegmentEditDeps) {
     selectedTrans, setSelectedTrans, isVideoSel, clearSegSel
   } = useSel()
   const { trackStates } = useTracksCtx()
-  const { currentTimeRef, durationRef, fpsRef } = usePlaybackCtx()
+  const { currentTimeRef, durationRef, fpsRef } = usePlaybackStableCtx()
 
   // ---- 動画セグメント編集 ----
   // ソース時間 atSrc で切片を2つに分割

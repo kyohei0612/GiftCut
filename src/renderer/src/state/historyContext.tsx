@@ -22,7 +22,7 @@
 // - `HistoryProvider` … 囲い。中で ref を作って1回だけ呼ぶ
 // - `useHistoryCtx` … 見に行く。囲いの外で呼んだら、その場で落とす
 import { createContext, useContext, useMemo, useRef, type ReactNode } from 'react'
-import { usePlaybackCtx } from './playbackContext'
+import { usePlaybackStableCtx } from './playbackContext'
 import { useProxyCtx } from './proxyContext'
 import { useHistory } from './useHistory'
 import type { Ratio } from './useExportSettings'
@@ -35,7 +35,7 @@ export type HistoryValue = ReturnType<typeof useHistory> & {
 const Ctx = createContext<HistoryValue | null>(null)
 
 export function HistoryProvider({ children }: { children: ReactNode }): React.JSX.Element {
-  const { preparedRef } = usePlaybackCtx()
+  const { preparedRef } = usePlaybackStableCtx()
   const { previewResRef } = useProxyCtx()
   /** 再生中に最後に時刻を書いた瞬間（描き直しを間引くのに使う） */
   const lastPaintRef = useRef(0)
