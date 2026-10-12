@@ -154,12 +154,13 @@
    ※以前は左端に「丸」を並べた専用の列（.tl-resize-gutter / .tl-grip）を置いていたが
    廃止した。縦に送ると枠の外へ出て消え、掴んだ丸と実際の境目が離れることもあった。
    いまは段見出しの**境目そのもの**を掴む（プレミアと同じ）。
-   境目は見出しと一緒に動くので、見えている段の境目は必ず掴める。 */
+   境目は見出しと一緒に動くので、見えている段の境目は必ず掴める。
+   線は段の**上端**（2026-10-12）。「大きくしたい段の上の線を掴む」が本人の体感。 */
 .th-divider {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 0;
   /* 掴める幅。狭いと狙えず、広いと段を選ぶつもりの押下を奪う。
      段が一番細いとき(26px)でも、上の8割は「選ぶ」ために残る。 */
   height: 5px;
@@ -173,7 +174,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 0;
   height: 2px;
   background: transparent;
   transition: background 0.1s;

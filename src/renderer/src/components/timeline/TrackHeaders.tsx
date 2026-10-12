@@ -67,16 +67,9 @@ export function TrackHeaders({
    * **既定は「掴んだ段だけ」**（trackId を渡す）。波形を1本だけ大きく見たい、が
    * ほとんどで、まとめて太ると画面が足りなくなる。
    * Shift を押しながらなら trackId を渡さず、同じ種類をまとめて変える（従来の動き）。
-   *
-   * @param above その境目より上に、同じ種類の段がいくつあるか（1から数える）。
-   *              まとめて変えるとき、掴んだ線をカーソルに追従させるのに要る。
+   * 線は段の**上端**。上へ引くと太る（掴んだ線はカーソルに追従する。state/useLaneResize）
    */
-  onResizeStart?: (
-    kind: 'video' | 'audio',
-    above: number,
-    e: React.PointerEvent,
-    trackId?: string
-  ) => void
+  onResizeStart?: (kind: 'video' | 'audio', e: React.PointerEvent, trackId?: string) => void
   onSelect: (id: string) => void
   onRename: (id: string, current: string) => void
   onToggle: (id: string, key: 'locked' | 'hidden' | 'muted' | 'solo') => void
@@ -105,9 +98,6 @@ export function TrackHeaders({
         <div className="track-pad" style={{ height: padTop }} />
         {tracks.map((tr, i) => {
           const st = stateOf(tr.id)
-          // その段の下の境目より上に、同じ種類の段がいくつあるか（1から数える）。
-          // 掴んだ線をカーソルに追従させるのに要る。
-          const above = tracks.slice(0, i + 1).filter((t) => t.kind === tr.kind).length
           return (
             <div
               key={tr.id}
@@ -209,19 +199,20 @@ export function TrackHeaders({
                   </>
                 )}
               </span>
-              {/* 段の下の境目。**ここを掴んで高さを変える**（プレミアと同じ）。
+              {/* 段の**上の**境目。**ここを掴んで、この段の高さを変える**（上へ引くと太る。
+                  2026-10-12・本人「大きくしたい段の上枠を触って調整したい」。前は下の境目だった）。
                   以前は左端に丸の列を置いていたが、縦に送ると枠の外へ出て消え、
                   掴んだ丸と実際の境目が離れることもあった。
                   境目は見出しと一緒に動くので、**見えている段の境目は必ず掴める**。 */}
               {onResizeStart && (
                 <div
                   className="th-divider"
-                  title="上下にドラッグでこの段の高さを変える（Shiftで同じ種類をまとめて）"
+                  title="上へドラッグでこの段を太く、下へで細く（Shiftで同じ種類をまとめて）"
                   onPointerDown={(e) => {
                     e.stopPropagation() // 段を選ぶ動作にしない
                     // **既定は掴んだ段だけ。** まとめて変えたい時だけ Shift。
                     // 波形を1本だけ見たいことの方が多く、巻き添えで太ると画面が足りない
-                    onResizeStart(tr.kind, above, e, e.shiftKey ? undefined : tr.id)
+                    onResizeStart(tr.kind, e, e.shiftKey ? undefined : tr.id)
                   }}
                   onClick={(e) => e.stopPropagation()}
                 />

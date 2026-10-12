@@ -310,11 +310,12 @@ export default async function (C, W) {
     const before = await rowH()
     const divider = page.locator('.th-video .th-divider').first()
     assert(await divider.count(), '段見出しに境目が見つからない')
-    await dragBy(divider, 0, 60) // 下へ＝太くなる
+    // 線は段の**上端**。上へ引くと太る（2026-10-12・本人「大きくしたい段の上枠を触る」）
+    await dragBy(divider, 0, -60)
     await page.waitForTimeout(300)
     const after = await rowH()
-    assert(after > before + 4, `境目を下へ引いても太くならない（${before} → ${after}）`)
-    await dragBy(page.locator('.th-video .th-divider').first(), 0, -200) // 元の細さへ戻す
+    assert(after > before + 4, `境目を上へ引いても太くならない（${before} → ${after}）`)
+    await dragBy(page.locator('.th-video .th-divider').first(), 0, 200) // 元の細さへ戻す
     await page.waitForTimeout(300)
   },
   // **タイムラインの高さが、手前の項目の残した状態で決まる。**
@@ -333,7 +334,7 @@ export default async function (C, W) {
         Math.round(document.querySelector('.track-video')?.getBoundingClientRect().height ?? 0)
       )
     const base = await rowH()
-    await dragBy(page.locator('.th-video .th-divider').first(), 0, 80)
+    await dragBy(page.locator('.th-video .th-divider').first(), 0, -80) // 上へ＝太く
     await page.waitForTimeout(300)
     const fat = await rowH()
     assert(fat > base + 4, `準備が成立していない（太くできていない ${base} → ${fat}）`)

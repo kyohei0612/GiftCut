@@ -14,6 +14,7 @@ import { createContext, useContext, type ReactNode } from 'react'
 import { useTrackGeomCtx } from './trackGeomContext'
 import { useLaneHeightsCtx } from './laneHeightsContext'
 import { useLaneResize } from './useLaneResize'
+import { useTimelineBoxCtx } from './timelineBoxContext'
 
 /** **手で書かない。** 作っている側から引く（ズレようがない） */
 export type LaneResizeValue = ReturnType<typeof useLaneResize>
@@ -23,7 +24,9 @@ const Ctx = createContext<LaneResizeValue | null>(null)
 export function LaneResizeProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const { trackHOf } = useTrackGeomCtx()
   const { videoTrackHRef, audioTrackHRef, setVideoTrackH, setAudioTrackH, setLaneH } = useLaneHeightsCtx()
-  return <Ctx.Provider value={useLaneResize({ trackHOf, videoTrackHRef, audioTrackHRef, setVideoTrackH, setAudioTrackH, setLaneH })}>{children}</Ctx.Provider>
+  // 掴んだ線をカーソルに追従させるのに、縦に送る入れ物が要る（TimelineBox は先に積んである）
+  const { scrollRef } = useTimelineBoxCtx()
+  return <Ctx.Provider value={useLaneResize({ trackHOf, videoTrackHRef, audioTrackHRef, setVideoTrackH, setAudioTrackH, setLaneH, scrollRef })}>{children}</Ctx.Provider>
 }
 
 /** 段見出しの境目を掴んで高さを変えるを見に行く。囲いの外で呼んだら、その場で落とす */

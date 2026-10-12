@@ -13,8 +13,15 @@
 // なお `useLaneHeights` がこの6個のうち5個の持ち主だが、そちらへ合流はできない。
 // `trackHOf` の持ち主 `useTrackGeom` が `useLaneHeights` の後ろに居るので輪になる。
 // 両方の後ろに置く新しいファイルが正解。
+//
+// ## 掴むのは「その段の上端」。上へ引くと太る（2026-10-12・本人の指定）
+//
+// 前は段の**下端**を掴んで、下へ引くとその段が太った。本人の体感は逆で、
+// 「大きくしたい段の上の線を掴む」。段は上から順に積んであるので、上の線を
+// 上へ引いても線そのものは動かず、段は下へ伸びる——そのままだとカーソルが
+// 線から離れていく。だから**線がカーソルの下に来るまで縦に送る**
+// （`scrollRef`）。送る余地が無いときだけ、今までどおり下へ太る。
 
-import { TRACK_PAD_ROWS } from '../lib/appConst'
 import { clamp } from '../../../shared/timeline'
 import { TRACK_H_MAX, TRACK_H_MIN } from './useLaneHeights'
 
@@ -26,56 +33,65 @@ export interface UseLaneResizeDeps {
   setVideoTrackH: React.Dispatch<React.SetStateAction<number>>
   setAudioTrackH: React.Dispatch<React.SetStateAction<number>>
   setLaneH: React.Dispatch<React.SetStateAction<Record<string, number>>>
+  /** 縦に送る入れ物（.track-scroll）。掴んだ線をカーソルに追従させるのに送る */
+  scrollRef: React.RefObject<HTMLDivElement | null>
 }
 
 export function useLaneResize(deps: UseLaneResizeDeps) {
-  const { trackHOf, videoTrackHRef, audioTrackHRef, setVideoTrackH, setAudioTrackH, setLaneH } =
-    deps
+  const {
+    trackHOf, videoTrackHRef, audioTrackHRef, setVideoTrackH, setAudioTrackH, setLaneH, scrollRef
+  } = deps
 
   /**
-   * 映像の境目なら映像レーン全体、音声なら音声レーン全体がまとめて変わる。
-   *
-   * @param above 掴んだ境目より上に、同じ種類の段がいくつあるか（1から数える）
-   *
-   * 掴んだ線をカーソルに追従させるには、**その線より上にある段の数**で割る。
-   * 線の位置は「上にある段の高さの合計」で決まるので、1px 動かしたければ
-   * 1段あたり 1/n px 変える必要がある。
-   * 映像側は上の余白（TRACK_PAD_ROWS 段ぶん）も段の高さで伸び縮みするため、
-   * その分も数に入れる。ここを間違えると、掴んだ場所から線がじわじわ離れていく。
+   * 掴んだ線（段の上端）がカーソルの下に来るまで縦に送る。
+   * 段の高さは React が描き直してから決まるので、次のコマで測って送る。
+   * 送る余地が無ければブラウザが止める＝その分は段が下へ伸びるだけ。
    */
-  function startGroupResize(
-    kind: 'video' | 'audio',
-    above: number,
-    e: React.PointerEvent,
-    trackId?: string
-  ): void {
+  const follow = (divider: HTMLElement, clientY: number): void => {
+    requestAnimationFrame(() => {
+      const sc = scrollRef.current
+      if (!sc || !divider.isConnected) return
+      const diff = divider.getBoundingClientRect().top - clientY
+      if (Math.abs(diff) >= 1) sc.scrollTop += diff
+    })
+  }
+
+  /**
+   * 映像の境目なら映像レーン全体、音声なら音声レーン全体がまとめて変わる（Shift）。
+   * 既定は掴んだ段だけ。どちらも**上へ引くと太る**。
+   */
+  function startGroupResize(kind: 'video' | 'audio', e: React.PointerEvent, trackId?: string): void {
     e.preventDefault()
     e.stopPropagation()
     const startY = e.clientY
-    // **掴んだ段だけ動かす。**
-    // まとめて変える作りだと、波形を1本だけ見たいときにも他の段まで太り、
-    // 画面が足りなくなる。掴んだ線の下にある段はそのまま押し下がる。
-    if (trackId) {
-      const startOwn = trackHOf(trackId)
-      const prevCur = document.body.style.cursor
-      document.body.style.cursor = 'row-resize'
-      const mv = (ev: PointerEvent): void => {
-        const h = clamp(startOwn + (ev.clientY - startY), TRACK_H_MIN, TRACK_H_MAX)
-        setLaneH((p) => ({ ...p, [trackId]: h }))
-      }
+    const divider = e.currentTarget as HTMLElement
+    const prevCursor = document.body.style.cursor
+    document.body.style.cursor = 'row-resize'
+    const end = (onMove: (ev: PointerEvent) => void): (() => void) => {
       const up = (): void => {
-        document.body.style.cursor = prevCur
-        window.removeEventListener('pointermove', mv)
+        document.body.style.cursor = prevCursor
+        window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', up)
         window.removeEventListener('pointercancel', up)
       }
-      window.addEventListener('pointermove', mv)
+      window.addEventListener('pointermove', onMove)
       window.addEventListener('pointerup', up)
       window.addEventListener('pointercancel', up)
+      return up
+    }
+    // **掴んだ段だけ動かす。**
+    // まとめて変える作りだと、波形を1本だけ見たいときにも他の段まで太り、
+    // 画面が足りなくなる。
+    if (trackId) {
+      const startOwn = trackHOf(trackId)
+      end((ev) => {
+        const h = clamp(startOwn - (ev.clientY - startY), TRACK_H_MIN, TRACK_H_MAX)
+        setLaneH((p) => ({ ...p, [trackId]: h }))
+        follow(divider, ev.clientY)
+      })
       return
     }
     const startH = kind === 'video' ? videoTrackHRef.current : audioTrackHRef.current
-    const rows = Math.max(1, kind === 'video' ? above + TRACK_PAD_ROWS : above)
     const setter = kind === 'video' ? setVideoTrackH : setAudioTrackH
     // **まとめて変えるなら、個別の指定は捨てる**（2026-08-06）。
     //
@@ -101,22 +117,10 @@ export function useLaneResize(deps: UseLaneResizeDeps) {
       }
       return next
     })
-    // 掴んでいる間は、どこへ動かしても行を変える手のままにする
-    // （途中で別のカーソルに化けると「外れた」ように見える）
-    const prevCursor = document.body.style.cursor
-    document.body.style.cursor = 'row-resize'
-    const onMove = (ev: PointerEvent): void => {
-      setter(clamp(startH + (ev.clientY - startY) / rows, TRACK_H_MIN, TRACK_H_MAX))
-    }
-    const onUp = (): void => {
-      document.body.style.cursor = prevCursor
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
+    end((ev) => {
+      setter(clamp(startH - (ev.clientY - startY), TRACK_H_MIN, TRACK_H_MAX))
+      follow(divider, ev.clientY)
+    })
   }
 
   return { startGroupResize }
