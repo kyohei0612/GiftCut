@@ -26,10 +26,15 @@ export interface CutoutStroke {
   pts: [number, number][]
 }
 
+/** 自動で使う模型。anime＝VTuber の立ち絵向け（既定）／general＝写真向け */
+export type CutoutModelId = 'anime' | 'general'
+
 export interface CutoutSettings {
   /** 透過を使うか。既定は使わない（本人の指定） */
   enabled: boolean
   method: 'auto' | 'color'
+  /** 自動のときの模型。無い＝anime */
+  model?: CutoutModelId
   /** 色で抜くときの背景色と、どれだけ近い色まで抜くか（0..100） */
   key?: { r: number; g: number; b: number; tol: number }
   /** どこまで透過するか（0..100）。大きいほど「迷った所」も透過する */
@@ -46,6 +51,7 @@ export interface CutoutSettings {
 export const DEFAULT_CUTOUT: CutoutSettings = {
   enabled: false,
   method: 'auto',
+  model: 'anime',
   threshold: 50,
   feather: 1,
   shift: 0,
@@ -77,6 +83,7 @@ export function loadCutoutSettings(raw: any): CutoutSettings | undefined {
   return {
     enabled: !!raw.enabled,
     method: raw.method === 'color' ? 'color' : 'auto',
+    model: raw.model === 'general' ? 'general' : 'anime',
     key,
     threshold: num(raw.threshold, DEFAULT_CUTOUT.threshold),
     feather: num(raw.feather, DEFAULT_CUTOUT.feather),

@@ -15,6 +15,13 @@ import { join } from 'node:path'
 
 const SRC = join('node_modules', 'onnxruntime-web', 'dist')
 const DST = join('src', 'renderer', 'public', 'ort')
+// CPU（wasm）用の jsep 版だけ写す。
+//
+// WebGPU（`onnxruntime-web/webgpu`・asyncify 版 24MB）も試したが、**Electron 31 では
+// 動かない**（adapter.info に subgroupMinSize が無く、1.30 の初期化が落ちる）。
+// 動かない物を 24MB 運ぶ意味が無いので写さない。CPU でも 1024² を 7 秒（実測・
+// 2026-10-12）で、裏の作業員で動くので画面は固まらない。Electron を上げたら
+// ここに asyncify 版を足すだけで WebGPU が試される（lib/cutout/model の inferMatte）
 const FILES = ['ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm']
 
 mkdirSync(DST, { recursive: true })

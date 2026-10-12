@@ -15,6 +15,8 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src')
       }
     },
+    // 裏の作業員（lib/cutout/worker）は中で import() を使うので ES module の形で出す
+    worker: { format: 'es' },
     plugins: [react()]
   }
 })

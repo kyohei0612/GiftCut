@@ -187,13 +187,10 @@ export interface GiftcutApi {
   // ---- 画像の背景を透過する（切り抜き）----
   cutoutStatus: () => Promise<{
     ok: boolean
-    model: boolean
-    modelPath: string | null
-    label: string
-    sizeMB: number
-    ort: { mjs: string | null; wasm: string | null }
+    models: Record<string, { ready: boolean; path: string | null; label: string; sizeMB: number }>
+    ort: Record<string, { mjs: string | null; wasm: string | null }>
   }>
-  cutoutFetchModel: () => Promise<{ ok: boolean; path?: string; error?: string }>
+  cutoutFetchModel: (id: 'anime' | 'general') => Promise<{ ok: boolean; path?: string; error?: string }>
   cutoutCancel: () => Promise<{ ok: boolean }>
   onCutoutProgress: (fn: (s: { percent: number }) => void) => () => void
   cutoutSave: (

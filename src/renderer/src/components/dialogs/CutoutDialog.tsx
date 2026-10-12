@@ -54,8 +54,11 @@ export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () =
   const [boxSize, setBoxSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
   const [src, setSrc] = useState<RgbaImage | null>(null)
   const [matte, setMatte] = useState<Alpha | null>(null)
-  const [modelReady, setModelReady] = useState<boolean | null>(null)
-  const [modelSizeMB, setModelSizeMB] = useState(0)
+  /** 模型ごとの手元の有無と大きさ（null＝まだ聞いていない） */
+  const [models, setModels] = useState<Record<string, { ready: boolean; sizeMB: number }> | null>(null)
+  const modelId = settings.model ?? 'anime'
+  const modelReady: boolean | null = models ? !!models[modelId]?.ready : null
+  const modelSizeMB = models?.[modelId]?.sizeMB ?? 0
   const [tool, setTool] = useState<Tool>('none')
   const [brush, setBrush] = useState(24)
   const [smart, setSmart] = useState(true)
@@ -74,9 +77,7 @@ export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () =
       .then((s) => alive && setSrc(s))
       .catch((e) => alive && setErr(String(e)))
     void window.giftcut.cutoutStatus().then((st) => {
-      if (!alive) return
-      setModelReady(st.model)
-      setModelSizeMB(st.sizeMB)
+      if (alive) setModels(st.models)
     })
     return () => {
       alive = false
@@ -112,17 +113,22 @@ export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () =
   /** 自動で背景を当てる（模型。無ければ落とす） */
   const runAuto = async (): Promise<void> => {
     if (!src) return
-    const m = await computeMatte(item.path, src)
+    const m = await computeMatte(item.path, src, modelId)
     if (m) {
       setMatte(m)
-      setModelReady(true)
+      setModels((p) => ({ ...(p ?? {}), [modelId]: { ready: true, sizeMB: 0 } }))
     }
   }
-  // 自動の抜き方で、模型が手元にあれば開いた時点で当てる（落とすのは押してもらう）
+  // 自動の抜き方で、模型が手元にあれば開いた時点で当てる（落とすのは押してもらう）。
+  // 模型を替えたら当て直す
+  useEffect(() => {
+    setMatte(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelId])
   useEffect(() => {
     if (settings.enabled && settings.method === 'auto' && modelReady && src && !matte) void runAuto()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.enabled, settings.method, modelReady, src])
+  }, [settings.enabled, settings.method, modelReady, src, matte])
 
   // 絵を描く（設定が変わるたび。縮めた絵なので速い）
   useEffect(() => {
@@ -266,9 +272,23 @@ export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () =
                     <option value="color">色で抜く（背景が一色のとき）</option>
                   </select>
                 </div>
+                {settings.method === 'auto' && (
+                  <div className="sp-row" title="絵の種類に合った方を選ぶと綺麗に抜けます">
+                    <span className="sp-label">絵の種類</span>
+                    <select
+                      className="sp-num cutout-method"
+                      value={modelId}
+                      disabled={busy}
+                      onChange={(e) => set('model', e.target.value as 'anime' | 'general')}
+                    >
+                      <option value="anime">アニメ・VTuber（おすすめ）</option>
+                      <option value="general">写真・実写</option>
+                    </select>
+                  </div>
+                )}
                 {settings.method === 'auto' && modelReady === false && (
                   <div className="restore-warn">
-                    初回だけ、自動切り抜きの準備（約{modelSizeMB}MB）を落とします。一度入れれば次からは要りません。
+                    初回だけ、この種類の準備（約{modelSizeMB}MB）を落とします。一度入れれば次からは要りません。
                     <div>
                       <button className="btn" disabled={busy} onClick={() => void runAuto()}>
                         落として始める

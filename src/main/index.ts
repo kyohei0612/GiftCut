@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, protocol, screen } from 'electron'
-import { join, normalize } from 'path'
+import { join } from 'path'
 import {
   readFileSync,
   writeFileSync,
@@ -8,10 +8,8 @@ import {
   renameSync,
   statSync,
   existsSync,
-  readdirSync,
-  createReadStream
+  readdirSync
 } from 'fs'
-import { Readable } from 'stream'
 // 本体ウィンドウの大きさ・位置（初回の既定と、前回の形の引き継ぎ）
 import { nextBounds, MIN_SIZE, type WindowState } from '../shared/windowBounds'
 // 自動更新（GitHub の Releases を見に行く）
@@ -24,7 +22,8 @@ import { registerCutoutHandlers } from './cutout'
 import { killAllChildren } from './ffmpegRun'
 import { isExporting, registerExportHandlers } from './exportRun'
 // gcfile:// で画面へ配ってよいファイルの名簿。**新しく渡す道を作ったら必ず通す**
-import { isAllowed, setAllowHook } from './allowList'
+import { setAllowHook } from './allowList'
+import { registerGcfileProtocol } from './gcfile'
 import { pathFromArgv, registerOpenPathHandlers, setWindowStartupPath, windowForPath } from './openPath'
 import { stopWatching, watchMedia } from './fileWatch'
 
@@ -58,34 +57,6 @@ const AUTO = process.argv.includes('--gc-auto') || process.env.GC_AUTO === '1'
 
 
 
-
-function mimeFor(p: string): string {
-  switch (p.toLowerCase().split('.').pop()) {
-    case 'mp4':
-      return 'video/mp4'
-    case 'mov':
-      return 'video/quicktime'
-    case 'mkv':
-      return 'video/x-matroska'
-    case 'webm':
-      return 'video/webm'
-    case 'avi':
-      return 'video/x-msvideo'
-    case 'png':
-      return 'image/png'
-    case 'jpg':
-    case 'jpeg':
-      return 'image/jpeg'
-    // 切り抜きの土台（onnxruntime-web）。.mjs は import() で読むので JS の種類が要る
-    case 'mjs':
-    case 'js':
-      return 'text/javascript'
-    case 'wasm':
-      return 'application/wasm'
-    default:
-      return 'application/octet-stream'
-  }
-}
 
 
 
@@ -359,49 +330,8 @@ app.whenReady().then(() => {
   } catch {
     /* 無視 */
   }
-  // gcfile://media/<パス> → ローカルファイルを配信（allowlist にあるものだけ）
-  // 動画の途中シークに必須の HTTP Range (206 Partial Content) を自前で処理する
-  protocol.handle('gcfile', (request) => {
-    const url = new URL(request.url)
-    const filePath = normalize(decodeURIComponent(url.pathname).replace(/^\//, ''))
-    if (!isAllowed(filePath)) {
-      return new Response('forbidden', { status: 403 })
-    }
-    let size: number
-    try {
-      size = statSync(filePath).size
-    } catch {
-      return new Response('not found', { status: 404 })
-    }
-    const type = mimeFor(filePath)
-    const range = request.headers.get('Range')
-    if (range) {
-      const m = /bytes=(\d*)-(\d*)/.exec(range)
-      let start = m && m[1] !== '' ? parseInt(m[1], 10) : 0
-      let end = m && m[2] !== '' ? parseInt(m[2], 10) : size - 1
-      if (isNaN(start) || start < 0) start = 0
-      if (isNaN(end) || end >= size) end = size - 1
-      if (start > end) start = 0
-      const stream = createReadStream(filePath, { start, end })
-      return new Response(Readable.toWeb(stream) as unknown as ReadableStream, {
-        status: 206,
-        headers: {
-          'Content-Type': type,
-          'Content-Range': `bytes ${start}-${end}/${size}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': String(end - start + 1)
-        }
-      })
-    }
-    return new Response(Readable.toWeb(createReadStream(filePath)) as unknown as ReadableStream, {
-      status: 200,
-      headers: {
-        'Content-Type': type,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': String(size)
-      }
-    })
-  })
+  // gcfile://media/<パス> → ローカルファイルを配信（名簿にある物だけ。./gcfile）
+  registerGcfileProtocol()
 
   ipcMain.handle('perf:save', (_e, text: string, toDownloads?: boolean) => {
     try {

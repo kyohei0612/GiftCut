@@ -34,11 +34,11 @@ import { useToastCtx } from './toastContext'
 import { useFileRevCtx } from './fileRevContext'
 import { toGcUrl } from '../lib/gcUrl'
 import type { MediaItem } from '../components/panels/ProjectBinTab'
-import type { CutoutSettings } from '../lib/cutout/types'
+import type { CutoutModelId, CutoutSettings } from '../lib/cutout/types'
 import {
   alphaForSettings, encodePng, loadRgba, resizeAlpha, resizeRgba, type RgbaImage
 } from '../lib/cutout/render'
-import { MODEL_SIZE, loadSession, runMatte, type OrtFiles } from '../lib/cutout/model'
+import { MODEL_SIZE, inferMatte, type OrtFiles } from '../lib/cutout/model'
 import { composeAlpha, type Alpha } from '../lib/cutout/mask'
 
 export type CutoutModelState =
@@ -82,15 +82,15 @@ export function useCutout() {
     [mediaItems]
   )
 
-  async function ensureModel(): Promise<{ modelUrl: string; ort: OrtFiles } | null> {
+  async function ensureModel(id: CutoutModelId): Promise<{ modelUrl: string; ort: OrtFiles } | null> {
     const st = await window.giftcut.cutoutStatus()
-    let modelPath = st.modelPath
+    let modelPath = st.models[id]?.path ?? null
     if (!modelPath) {
       setModelState({ phase: 'download', percent: 0 })
       const off = window.giftcut.onCutoutProgress(({ percent }) =>
         setModelState({ phase: 'download', percent })
       )
-      const r = await window.giftcut.cutoutFetchModel()
+      const r = await window.giftcut.cutoutFetchModel(id)
       off()
       if (!r.ok || !r.path) {
         setModelState({ phase: 'error', message: r.error ?? '模型を落とせませんでした' })
@@ -98,25 +98,37 @@ export function useCutout() {
       }
       modelPath = r.path
     }
-    return {
-      modelUrl: toGcUrl(modelPath),
-      ort: { mjs: st.ort.mjs ? toGcUrl(st.ort.mjs) : undefined, wasm: st.ort.wasm ? toGcUrl(st.ort.wasm) : undefined }
-    }
+    const pair = (b: { mjs: string | null; wasm: string | null } | undefined) =>
+      b?.mjs && b.wasm ? { mjs: toGcUrl(b.mjs), wasm: toGcUrl(b.wasm) } : undefined
+    return { modelUrl: toGcUrl(modelPath), ort: { asyncify: pair(st.ort.asyncify), jsep: pair(st.ort.jsep) } }
   }
 
   /** 模型に背景を当ててもらう。模型が無ければ落としてから。失敗は null（窓が文言を出す） */
-  async function computeMatte(path: string, src: RgbaImage): Promise<Alpha | null> {
-    const key = `${path}@${revOf(path)}`
+  async function computeMatte(path: string, src: RgbaImage, id: CutoutModelId = 'anime'): Promise<Alpha | null> {
+    const key = `${id}:${path}@${revOf(path)}`
     const hit = matteCache.current.get(key)
     if (hit) return hit
-    const m = await ensureModel()
+    const m = await ensureModel(id)
     if (!m) return null
     try {
       setModelState({ phase: 'load' })
-      const session = await loadSession(m.modelUrl, m.ort)
-      setModelState({ phase: 'run' })
-      const matte1024 = await runMatte(session, resizeRgba(src, MODEL_SIZE, MODEL_SIZE))
-      const matte = resizeAlpha(matte1024, MODEL_SIZE, MODEL_SIZE, src.w, src.h)
+      // 確認用: localStorage の giftcut.cutout.ep に 'wasm' / 'webgpu' を入れると片方に固定
+      let prefer: 'webgpu' | 'wasm' | undefined
+      try {
+        const v = localStorage.getItem('giftcut.cutout.ep')
+        if (v === 'wasm' || v === 'webgpu') prefer = v
+      } catch {
+        /* 読めなければ自動 */
+      }
+      const r = await inferMatte(
+        m.modelUrl,
+        m.ort,
+        resizeRgba(src, MODEL_SIZE, MODEL_SIZE),
+        (p) => setModelState({ phase: p }),
+        prefer
+      )
+      console.log(`[cutout] ${id} ${r.ep} 読み込み ${Math.round(r.tLoad)}ms 当て ${Math.round(r.tRun)}ms`)
+      const matte = resizeAlpha(r.matte, MODEL_SIZE, MODEL_SIZE, src.w, src.h)
       matteCache.current.set(key, matte)
       setModelState({ phase: 'idle' })
       return matte
@@ -136,7 +148,8 @@ export function useCutout() {
     matte?: Alpha | null
   ): Promise<string | null> {
     const image = src ?? (await loadSource(path))
-    const m = settings.method === 'auto' ? (matte ?? (await computeMatte(path, image))) : null
+    const m =
+      settings.method === 'auto' ? (matte ?? (await computeMatte(path, image, settings.model ?? 'anime'))) : null
     const alpha = alphaForSettings(image, m, settings)
     const png = await encodePng(composeAlpha(image.rgba, alpha), image.w, image.h)
     const r = await window.giftcut.cutoutSave(keyFor(path), png)
