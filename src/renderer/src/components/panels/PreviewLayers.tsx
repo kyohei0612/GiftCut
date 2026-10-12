@@ -17,6 +17,7 @@
 import type { JSX } from 'react'
 // 素材の URL は版つき（外から書き換えられたら取り直す）。toGcUrl を直に使わない
 import { useFileRevCtx } from '../../state/fileRevContext'
+import { useCutoutCtx } from '../../state/cutoutContext'
 import { adjustCss, cropInset } from '../../lib/clipLook'
 import TelopText from '../TelopText'
 import type { Cue } from '../../lib/srt'
@@ -103,6 +104,8 @@ export function ImageLayers({
   const { tracks, trackStates } = useTracksCtx()
   const { currentTime } = usePlaybackCtx()
   const { urlOf } = useFileRevCtx()
+  // 背景を透過してあれば、その PNG を出す（書き出し・スクショも同じ物を見る）
+  const { displayPathOf } = useCutoutCtx()
   return (
     <>
       {imgClips
@@ -122,7 +125,7 @@ export function ImageLayers({
           <img
             key={`simg-${c.id}`}
             className="screen-img"
-            src={urlOf(c.path)}
+            src={urlOf(displayPathOf(c.path))}
             alt=""
             title={`${c.name}（ドラッグで移動・四隅で拡大）`}
             style={{

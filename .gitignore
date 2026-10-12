@@ -61,3 +61,6 @@ dist-home/
 # 2026-08-03 に heavy*.tmp.mjs を1回コミットしてしまったので足した
 *.tmp.mjs
 *.tmp.mts
+
+# onnxruntime-web の wasm（切り抜きの土台）。npm run build が node_modules から写す（scripts/copy-ort.mjs）
+src/renderer/public/ort/

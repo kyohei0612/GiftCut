@@ -59,6 +59,35 @@
   border-color: var(--accent-2);
   background: #4ea1f01a;
 }
+/* 画像の「✂ 透過」。使っていない間は触れたときだけ、使っていれば常に出す
+   （使っているかどうかが一覧で分からないと、書き出しで「なぜ抜けている」になる） */
+.media-cutout {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 2;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  border: 1px solid #ffffff44;
+  background: #000a;
+  color: #fff;
+  font-size: 10px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  line-height: 1;
+}
+.media-card:hover .media-cutout,
+.media-cutout.on {
+  display: flex;
+}
+.media-cutout.on {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+  color: #0b1220;
+  font-weight: 700;
+}
 .media-del {
   position: absolute;
   top: 4px;

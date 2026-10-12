@@ -32,6 +32,7 @@ import { ToasterProvider } from './state/toastContext'
 import { AskProvider } from './state/askContext'
 import { LibraryProvider } from './state/libraryContext'
 import { FileRevProvider } from './state/fileRevContext'
+import { CutoutProvider } from './state/cutoutContext'
 // 引数ゼロの葉。**配線を通さず、使う側が直に見に行く**（npm run passthrough）
 import { AppChromeProvider } from './state/appChromeContext'
 import { BandDragProvider } from './state/bandDragContext'
@@ -280,6 +281,8 @@ export default function App(): React.JSX.Element {
       (c) => <MediaProvider>{c}</MediaProvider>,
       // 参照している素材ファイルの版（外から書き換えられたら画面が取り直す）。誰にも依らない
       (c) => <FileRevProvider>{c}</FileRevProvider>,
+      // 画像の背景を透過する。素材ビン（Media）と版（FileRev）と知らせ（Toast）を見る
+      (c) => <CutoutProvider>{c}</CutoutProvider>,
       (c) => <ProjectStateProvider value={projectState}>{c}</ProjectStateProvider>,
       (c) => <ClipboardProvider>{c}</ClipboardProvider>,
       (c) => <DragPreviewProvider value={dragPreview}>{c}</DragPreviewProvider>,

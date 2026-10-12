@@ -6,8 +6,8 @@
   "main": "./boot.js",
   "bundleFormat": 1,
   "scripts": {
-    "dev": "electron-vite dev --watch",
-    "build": "electron-vite build",
+    "dev": "node scripts/copy-ort.mjs && electron-vite dev --watch",
+    "build": "node scripts/copy-ort.mjs && electron-vite build",
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
     "test": "vitest run",
@@ -61,6 +61,7 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
+    "onnxruntime-web": "^1.30.0",
     "yauzl": "^3.4.0",
     "yazl": "^3.3.1"
   }

@@ -17,7 +17,7 @@
 
 import { app, ipcMain } from 'electron'
 import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { tmpdir } from 'os'
 // **spawn は import しない。** 起動は必ず trackedSpawn 経由
 // （閉じたときに殺す相手の名簿へ載せるため）
@@ -83,7 +83,8 @@ export function downloadTo(
   onProgress: (percent: number) => void,
   signal: { canceled: boolean }
 ): Promise<{ ok: boolean; error?: string }> {
-  mkdirSync(dirOf(), { recursive: true })
+  // 置き場は dest から決める（字幕の模型だけでなく、切り抜きの模型もここを通る）
+  mkdirSync(dirname(dest), { recursive: true })
   const tmp = dest + '.part'
   return new Promise((resolve) => {
     const done = (r: { ok: boolean; error?: string }): void => {

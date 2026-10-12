@@ -136,7 +136,10 @@ export function useProjectFile(deps: UseProjectFileDeps) {
           path: m.path,
           name: m.name,
           kind: m.kind,
-          folder: m.folder
+          folder: m.folder,
+          // 背景の透過（設定と出来上がりの置き場）。無い物には付けない
+          ...(m.cutout ? { cutout: m.cutout } : {}),
+          ...(m.cutoutPath ? { cutoutPath: m.cutoutPath } : {})
         })),
         iconSide,
         iconOffset,

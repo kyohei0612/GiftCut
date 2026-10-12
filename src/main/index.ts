@@ -18,6 +18,7 @@ import { nextBounds, MIN_SIZE, type WindowState } from '../shared/windowBounds'
 import { setupAutoUpdate } from './updater'
 import { cleanOtherBundles, markVerified, runningVersion } from './bundleUpdate'
 import { registerSubtitleHandlers } from './subtitles'
+import { registerCutoutHandlers } from './cutout'
 // 閉じるときの後片付け。**このファイルはもう ffmpeg を直接は動かさない**
 // （長さ・コマ数は ./mediaProbe、聞き取りは ./subtitles、書き出しは ./exportRun）
 import { killAllChildren } from './ffmpegRun'
@@ -75,6 +76,12 @@ function mimeFor(p: string): string {
     case 'jpg':
     case 'jpeg':
       return 'image/jpeg'
+    // 切り抜きの土台（onnxruntime-web）。.mjs は import() で読むので JS の種類が要る
+    case 'mjs':
+    case 'js':
+      return 'text/javascript'
+    case 'wasm':
+      return 'application/wasm'
     default:
       return 'application/octet-stream'
   }
@@ -457,6 +464,7 @@ app.whenReady().then(() => {
 
   // 字幕を作る（聞き取り）の受け口は ./subtitles
   registerSubtitleHandlers()
+  registerCutoutHandlers() //   画像の背景を透過する（./cutout）
 
   // ※ ここにあった「素材パック（ZIP）をまとめて取り込む」の説明は、
   //    受け口が ./assetLibrary へ移ったあとの**空の看板**だった（下にあったのは

@@ -44,6 +44,7 @@ import { useExportCtx } from './exportContext'
 import { useMediaCtx } from './mediaContext'
 import { useIconsCtx } from './iconsContext'
 import { usePlaybackCtx } from './playbackContext'
+import { loadCutoutSettings } from '../lib/cutout/types'
 
 export interface UseProjectApplyDeps {
   stopPlayback: () => void
@@ -166,7 +167,10 @@ export function useProjectApply(deps: UseProjectApplyDeps) {
           path: m.path,
           name: String(m.name ?? m.path.split(/[\\/]/).pop() ?? m.path),
           kind: m.kind === 'audio' || m.kind === 'image' ? m.kind : ('video' as const),
-          folder: typeof m.folder === 'string' ? m.folder : undefined
+          folder: typeof m.folder === 'string' ? m.folder : undefined,
+          // 背景の透過。設定が本物、出来上がりは派生物（無ければ開いた後に作り直せる）
+          cutout: loadCutoutSettings(m.cutout),
+          cutoutPath: typeof m.cutoutPath === 'string' ? m.cutoutPath : undefined
         }))
       setMediaItems(items)
       // サムネは見えている物だけ作る（onVisible が呼ぶ）

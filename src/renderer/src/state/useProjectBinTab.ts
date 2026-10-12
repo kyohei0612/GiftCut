@@ -17,6 +17,7 @@ import { useSel } from './selectionContext'
 import { useMediaCtx } from './mediaContext'
 import { useToastCtx } from './toastContext'
 import { useDragPreviewCtx } from './dragPreviewContext'
+import { useCutoutCtx } from './cutoutContext'
 
 export function useProjectBinTab() {
   const {
@@ -34,6 +35,7 @@ export function useProjectBinTab() {
   const { videoPath, mediaItems } = useMediaCtx()
   const { showToast } = useToastCtx()
   const { setSeGhost, setVideoGhost, setImgGhost } = useDragPreviewCtx()
+  const { openCutout } = useCutoutCtx()
 
   return {
     bodyRef: rightBodyRef,
@@ -77,6 +79,8 @@ export function useProjectBinTab() {
       else showToast('タイムラインへドラッグして配置してください（Ctrl+ドロップで挿入）。')
     },
     onRemove: removeMedia,
+    /** 画像の「透過」。背景を抜く窓を開く（設定は画像ごと。state/useCutout） */
+    onCutout: (m: MediaItem): void => openCutout(m.id),
     /**
      * 右クリックの品書き。**音はここから SE へ送れるようにしてある**——
      * プロジェクトに入れても SE の一覧には出てこないので、

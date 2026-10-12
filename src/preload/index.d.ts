@@ -184,6 +184,23 @@ export interface GiftcutApi {
     error?: string
   }>
   cancelSubtitles: () => Promise<{ ok: boolean }>
+  // ---- 画像の背景を透過する（切り抜き）----
+  cutoutStatus: () => Promise<{
+    ok: boolean
+    model: boolean
+    modelPath: string | null
+    label: string
+    sizeMB: number
+    ort: { mjs: string | null; wasm: string | null }
+  }>
+  cutoutFetchModel: () => Promise<{ ok: boolean; path?: string; error?: string }>
+  cutoutCancel: () => Promise<{ ok: boolean }>
+  onCutoutProgress: (fn: (s: { percent: number }) => void) => () => void
+  cutoutSave: (
+    key: string,
+    bytes: Uint8Array
+  ) => Promise<{ ok: boolean; path?: string; mtimeMs?: number; error?: string }>
+  cutoutRemove: (p: string) => Promise<{ ok: boolean }>
   /** 進み具合（落とす → 音を取り出す → 聞き取る） */
   onSubtitleProgress: (fn: (s: unknown) => void) => () => void
   /** SE を置き場へ入れる（paths 省略でファイル選択。フォルダは畳んだ分類として入る） */

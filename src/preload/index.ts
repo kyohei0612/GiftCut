@@ -325,6 +325,32 @@ const api = {
     error?: string
   }> => ipcRenderer.invoke('subtitles:run', videoPath),
   cancelSubtitles: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('subtitles:cancel'),
+  // ---- 画像の背景を透過する（切り抜き）。計算は画面側、ここは模型と置き場 ----
+  /** 模型が手元にあるか・wasm と模型の在り処 */
+  cutoutStatus: (): Promise<{
+    ok: boolean
+    model: boolean
+    modelPath: string | null
+    label: string
+    sizeMB: number
+    ort: { mjs: string | null; wasm: string | null }
+  }> => ipcRenderer.invoke('cutout:status'),
+  /** 模型を落とす（初回だけ）。進み具合は onCutoutProgress */
+  cutoutFetchModel: (): Promise<{ ok: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('cutout:fetchModel'),
+  cutoutCancel: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('cutout:cancel'),
+  onCutoutProgress: (fn: (s: { percent: number }) => void): (() => void) => {
+    const h = (_e: unknown, s: { percent: number }): void => fn(s)
+    ipcRenderer.on('cutout:progress', h)
+    return () => ipcRenderer.removeListener('cutout:progress', h)
+  },
+  /** 出来上がりの PNG を置く。key は元画像ごとの名前（同じ物は上書き） */
+  cutoutSave: (
+    key: string,
+    bytes: Uint8Array
+  ): Promise<{ ok: boolean; path?: string; mtimeMs?: number; error?: string }> =>
+    ipcRenderer.invoke('cutout:save', key, bytes),
+  cutoutRemove: (p: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('cutout:remove', p),
   /** 進み具合（落とす → 音を取り出す → 聞き取る） */
   onSubtitleProgress: (fn: (s: unknown) => void): (() => void) => {
     const h = (_e: unknown, s: unknown): void => fn(s)

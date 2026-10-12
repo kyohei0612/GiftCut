@@ -28,6 +28,7 @@
 @import './styles/base.css';
 @import './styles/menubar.css';
 @import './styles/dialogs.css';
+@import './styles/cutout.css';
 @import './styles/modebar.css';
 @import './styles/workspace.css';
 @import './styles/monitor.css';

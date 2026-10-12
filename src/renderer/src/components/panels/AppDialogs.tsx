@@ -34,6 +34,9 @@ import {
 } from '../dialogs/ProjectDialogs'
 import { ShortcutSettings, IconAssignSettings } from '../dialogs/SettingsDialogs'
 import { SubtitleDialog } from '../dialogs/SubtitleDialog'
+import { CutoutDialog } from '../dialogs/CutoutDialog'
+import { useCutoutCtx } from '../../state/cutoutContext'
+import { useMediaCtx } from '../../state/mediaContext'
 import CropModal from '../CropModal'
 import { LABEL_COLORS } from '../../lib/labels'
 import { perf } from '../../lib/perfMonitor'
@@ -66,6 +69,9 @@ const {
     toasts, closeConfirm
     , iconAssign, laneIconAssign, iconLibrary
   } = useDialogs()
+  const { editingId: cutoutId, closeCutout } = useCutoutCtx()
+  const { mediaItems } = useMediaCtx()
+  const cutoutItem = cutoutId == null ? null : (mediaItems.find((m) => m.id === cutoutId) ?? null)
   const { perfStopped, perfOpen, setPerfStopped } = useAppChromeCtx()
   const { setCapturingId, resetShortcuts, setPrefsOpen } = useShortcutPrefsCtx()
   const { subtitleOpen, subModel, subtitleState, setSubMaxChars, setSubReplace } = useSubtitlePrefsCtx()
@@ -146,6 +152,8 @@ const {
       onClose={() => setSubtitleOpen(false)}
     />
   )}
+  {/* 画像の背景を透過する（素材ビンの「✂ 透過」から。state/useCutout） */}
+  {cutoutItem && <CutoutDialog item={cutoutItem} onClose={closeCutout} />}
 
   {templatePicker && (
     <TemplatePicker

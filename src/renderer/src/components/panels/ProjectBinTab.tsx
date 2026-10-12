@@ -8,6 +8,7 @@ import { useState } from 'react'
 import type { JSX, RefObject } from 'react'
 import { VirtualBlock } from '../VirtualBlock'
 import { useViewport } from '../useVirtual'
+import type { CutoutSettings } from '../../lib/cutout/types'
 
 export interface MediaItem {
   id: number
@@ -16,6 +17,10 @@ export interface MediaItem {
   kind: 'video' | 'audio' | 'image'
   folder?: string
   thumb?: string
+  /** 背景を透過する設定（画像だけ）。無い＝使わない */
+  cutout?: CutoutSettings
+  /** 透過した PNG の置き場（派生物。無ければ設定から作り直す） */
+  cutoutPath?: string
 }
 
 const KIND_LABEL = { video: '動画', audio: 'SE / 音声', image: '画像' } as const
@@ -117,6 +122,7 @@ export function ProjectBinTab({
   onSelectMany,
   onOpenVideo,
   onRemove,
+  onCutout,
   onDragStart,
   onContextMenu,
   onAddAtPlayhead,
@@ -155,6 +161,8 @@ export function ProjectBinTab({
   /** 動画のダブルクリック（読み込み or 案内） */
   onOpenVideo: (item: MediaItem) => void
   onRemove: (id: number) => void
+  /** 画像の「透過」ボタン。背景を抜く窓を開く */
+  onCutout: (item: MediaItem) => void
   onDragStart: (item: MediaItem, e: React.DragEvent) => void
   /** 右クリック（SEへ送る等）。渡さなければ何も出ない */
   onContextMenu?: (item: MediaItem, e: React.MouseEvent) => void
@@ -278,6 +286,19 @@ export function ProjectBinTab({
                     >
                       ✕
                     </button>
+                    {/* 画像だけ: 背景を透過する窓。使っている物は常に印を出す（押すと設定へ） */}
+                    {m.kind === 'image' && (
+                      <button
+                        className={`media-cutout ${m.cutout?.enabled ? 'on' : ''}`}
+                        title={m.cutout?.enabled ? '背景を透過しています（押して設定）' : '背景を透過する…'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onCutout(m)
+                        }}
+                      >
+                        ✂ 透過
+                      </button>
+                    )}
                     <div className="media-thumb">
                       {m.thumb ? (
                         <img src={m.thumb} alt="" />

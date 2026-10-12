@@ -17,6 +17,7 @@ export default async function (C) {
     page,
     resetProject,
     section,
+    seekTo,
     touchedRef,
   } = C
   section('3. 素材のドラッグと「置けません」マーク')
@@ -444,6 +445,42 @@ export default async function (C) {
     assert((await page.locator('.vclip').count()) === 0, 'F で映像レイヤーが消えない')
 
     // 後片付け。手数が多いので取り消しではなく開き直す（尻のリセットは dirty が要る）
+    touchedRef.dirty = true
+    await resetProject()
+  })
+
+  await check('画像の「透過」で背景を抜くと、プレビューの画像が透過済みの物に替わる', async () => {
+    // 模型（179MB）は落とさない。模型なしで動く「色で抜く」の道で、入口から出口まで通す
+    // （窓が開く → 色を拾う → 適用 → プレビューが userData の透過済み PNG を見る）
+    await resetProject()
+    await seekTo(2) // 画像は 1〜5 秒に置いてある
+    const card = page.locator('.media-card', { hasText: 'test_image' }).first()
+    await card.hover()
+    const btn = card.locator('.media-cutout')
+    assert(await btn.count(), '画像のカードに「透過」が無い')
+    await btn.click()
+    await page.waitForTimeout(500)
+    const box = page.locator('.cutout-box')
+    assert(await box.count(), '透過の窓が開かない')
+    await box.locator('input[type=checkbox]').first().check()
+    await page.waitForTimeout(200)
+    await box.locator('select').first().selectOption('color')
+    await box.locator('button', { hasText: '背景の色を拾う' }).click()
+    const cv = box.locator('.cutout-canvas')
+    const b = await cv.boundingBox()
+    assert(b, '窓に絵が出ていない')
+    await page.mouse.click(b.x + 3, b.y + 3)
+    await page.waitForTimeout(300)
+    assert(await box.locator('.cutout-swatch').count(), '背景の色を拾えていない')
+    await box.locator('button', { hasText: '適用' }).click()
+    await page.waitForTimeout(2000)
+    assert((await page.locator('.cutout-box').count()) === 0, '適用しても窓が閉じない')
+    const src = await page.locator('.screen-img').first().getAttribute('src')
+    assert(
+      src && src.includes('giftcut-cutouts'),
+      `プレビューの画像が透過済みの物に替わっていない（${src}）`
+    )
+    assert(await page.locator('.media-card .media-cutout.on').count(), 'カードに「透過」の印が出ない')
     touchedRef.dirty = true
     await resetProject()
   })

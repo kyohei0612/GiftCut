@@ -1,0 +1,70 @@
+/* 画像の背景を透過する窓（components/dialogs/CutoutDialog）。
+   箱は字幕の窓と同じ .restore-box を借り、中だけ左右に割る。 */
+.cutout-box {
+  width: min(1100px, 94vw);
+  max-width: none;
+}
+.cutout-body {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  min-height: 420px;
+}
+/* 絵の置き場。透明が分かるように市松を敷く（書き出しは黒地だが、ここは「抜けたか」を見る所） */
+.cutout-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #777;
+  background-image:
+    linear-gradient(45deg, #999 25%, transparent 25%),
+    linear-gradient(-45deg, #999 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #999 75%),
+    linear-gradient(-45deg, transparent 75%, #999 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  border-radius: 6px;
+  overflow: hidden;
+  max-height: 70vh;
+}
+.cutout-canvas {
+  display: block;
+  max-height: 70vh;
+  object-fit: contain;
+  touch-action: none;
+}
+.cutout-canvas.tool-keep,
+.cutout-canvas.tool-drop {
+  cursor: crosshair;
+}
+.cutout-canvas.tool-pick {
+  cursor: copy;
+}
+.cutout-side {
+  flex: 0 0 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow: auto;
+}
+.cutout-head {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted, #9aa3b2);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 2px;
+}
+.cutout-tools {
+  flex-wrap: wrap;
+}
+.cutout-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid #fff8;
+  margin-left: 6px;
+}

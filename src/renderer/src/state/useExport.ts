@@ -28,6 +28,7 @@ import { useExportCtx } from './exportContext'
 import { useMediaCtx } from './mediaContext'
 import { useIconsCtx } from './iconsContext'
 import { useToastCtx } from './toastContext'
+import { useCutoutCtx } from './cutoutContext'
 
 export interface UseExportDeps {
   /** 書き出す前に必ず止める（流したまま焼くと途中で音がずれる） */
@@ -56,6 +57,7 @@ export function useExport(deps: UseExportDeps) {
     stopPlayback, srcOfSeg, cueTrack, iconForCue, ringForCue, resolveExportFps, duckEnv, seEnd, v1Hidden
   } = deps
   const { cues, segments, seClips, imgClips, vClips } = useDoc()
+  const { displayPathOf } = useCutoutCtx()
   const { tracks, trackStates } = useTracksCtx()
   const {
     ratio, exportOpts, setExportOpts, masterVolume, loudnormLUFS, setShowExportDialog,
@@ -305,7 +307,8 @@ export function useExport(deps: UseExportDeps) {
         segments,
         seClips,
         vClips,
-        imgClips,
+        // 背景を透過してあれば、その PNG を焼く（プレビューと同じ絵）
+        imgClips: imgClips.map((c) => ({ ...c, path: displayPathOf(c.path) })),
         tracks,
         hidden: (id) => !!trackStates[id]?.hidden,
         v1Hidden,
