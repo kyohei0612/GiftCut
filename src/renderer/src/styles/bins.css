@@ -52,15 +52,15 @@
    前は線が --line（薄い灰）で背景も白 8%——隣と見比べないと分からなかった */
 .media-card.media-sel {
   background: #4ea1f033;
-  border-color: var(--accent-2);
-  box-shadow: inset 0 0 0 1px var(--accent-2);
+  border-color: #4ea1f0;
+  box-shadow: inset 0 0 0 1px #4ea1f0;
 }
 .media-card.media-active {
   border-color: var(--accent-2);
   background: #4ea1f01a;
 }
-/* 画像の「✂ 透過」。使っていない間は触れたときだけ、使っていれば常に出す
-   （使っているかどうかが一覧で分からないと、書き出しで「なぜ抜けている」になる） */
+/* 画像の「✂ 透過」。**常に出す**（触れたときだけだと初心者が見つけられない・2026-10-12）。
+   使っていれば青で塗る（一覧で分からないと、書き出しで「なぜ抜けている」になる） */
 .media-cutout {
   position: absolute;
   top: 4px;
@@ -74,18 +74,16 @@
   color: #fff;
   font-size: 10px;
   cursor: pointer;
-  display: none;
+  display: flex;
   align-items: center;
   line-height: 1;
 }
-.media-card:hover .media-cutout,
+/* --accent-2 は薄い灰青（#b9cbdd）で、黒地の札と見分けが付かなかった（スクショで確認）。
+   はっきりした青で塗る（選択枠と同じ色） */
 .media-cutout.on {
-  display: flex;
-}
-.media-cutout.on {
-  background: var(--accent-2);
-  border-color: var(--accent-2);
-  color: #0b1220;
+  background: #4ea1f0;
+  border-color: #4ea1f0;
+  color: #fff;
   font-weight: 700;
 }
 .media-del {

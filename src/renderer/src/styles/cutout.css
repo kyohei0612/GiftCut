@@ -1,8 +1,13 @@
 /* 画像の背景を透過する窓（components/dialogs/CutoutDialog）。
    箱は字幕の窓と同じ .restore-box を借り、中だけ左右に割る。 */
-.cutout-box {
+/* .restore-box は幅 420px 固定（library.css）。同じ強さだと @import の順で負けるので
+   2つ重ねて勝たせる（絵が 60px の帯になって見えなかった・2026-10-12 のスクショ） */
+.restore-box.cutout-box {
   width: min(1100px, 94vw);
   max-width: none;
+}
+.cutout-box .cutout-method {
+  width: 230px;
 }
 .cutout-body {
   display: flex;
@@ -27,12 +32,11 @@
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   border-radius: 6px;
   overflow: hidden;
-  max-height: 70vh;
+  height: 70vh;
 }
+/* 大きさは JS が枠に合わせて決める（CutoutDialog の fitScale。小さい画像は拡大して見せる） */
 .cutout-canvas {
   display: block;
-  max-height: 70vh;
-  object-fit: contain;
   touch-action: none;
 }
 .cutout-canvas.tool-keep,

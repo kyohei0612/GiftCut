@@ -40,14 +40,18 @@ export function scaledSettings(s: CutoutSettings, k: number): CutoutSettings {
   }
 }
 
+/** 枠に収める比率。小さい画像は**拡大して**見せる（ペンで塗るのに 320px では細かすぎる） */
 export const fitScale = (w: number, h: number, boxW: number, boxH: number): number =>
-  Math.min(1, boxW / w, boxH / h)
+  Math.max(0.01, Math.min(boxW / w, boxH / h))
 
 type Tool = 'none' | 'keep' | 'drop' | 'pick'
 
 export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () => void }): JSX.Element {
   const { loadSource, computeMatte, render, saveSettings, modelState } = useCutoutCtx()
-  const [settings, setSettings] = useState<CutoutSettings>(item.cutout ?? { ...DEFAULT_CUTOUT, enabled: false })
+  // 初めて開いたときは**使う**でスタート（「透過」を押した時点で使いたいと言っている。
+  // 既定が「使わない」なのは画像そのものの話で、外す口はこのチェックに残す）
+  const [settings, setSettings] = useState<CutoutSettings>(item.cutout ?? { ...DEFAULT_CUTOUT, enabled: true })
+  const [boxSize, setBoxSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
   const [src, setSrc] = useState<RgbaImage | null>(null)
   const [matte, setMatte] = useState<Alpha | null>(null)
   const [modelReady, setModelReady] = useState<boolean | null>(null)
@@ -79,6 +83,18 @@ export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () =
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id])
+
+  // 絵の置き場の大きさ（窓を広げたら追従）
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el) return
+    const read = (): void => setBoxSize({ w: el.clientWidth, h: el.clientHeight })
+    read()
+    const ro = new ResizeObserver(read)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  const shown = src && boxSize.w ? fitScale(src.w, src.h, boxSize.w - 8, boxSize.h - 8) : 1
 
   // 見せる絵（縮めた物）
   const preview = useMemo(() => {
@@ -216,7 +232,7 @@ export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () =
               <canvas
                 ref={canvasRef}
                 className={`cutout-canvas tool-${tool}`}
-                style={{ width: '100%', aspectRatio: `${src.w} / ${src.h}` }}
+                style={{ width: Math.round(src.w * shown), height: Math.round(src.h * shown) }}
                 onPointerDown={onDown}
                 onPointerMove={onMove}
                 onPointerUp={onUp}
@@ -241,13 +257,13 @@ export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () =
                 <div className="sp-row">
                   <span className="sp-label">抜き方</span>
                   <select
-                    className="sp-num wide"
+                    className="sp-num cutout-method"
                     value={settings.method}
                     disabled={busy}
                     onChange={(e) => set('method', e.target.value as 'auto' | 'color')}
                   >
-                    <option value="auto">自動（人物・物を残す）</option>
-                    <option value="color">色で抜く（背景の色を拾う）</option>
+                    <option value="auto">自動（おすすめ・人や物を残す）</option>
+                    <option value="color">色で抜く（背景が一色のとき）</option>
                   </select>
                 </div>
                 {settings.method === 'auto' && modelReady === false && (
@@ -275,14 +291,19 @@ export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () =
                       >
                         🎯 背景の色を拾う
                       </button>
-                      {settings.key && (
-                        <span
-                          className="cutout-swatch"
-                          style={{ background: `rgb(${settings.key.r},${settings.key.g},${settings.key.b})` }}
-                        />
+                      {settings.key ? (
+                        <>
+                          <span
+                            className="cutout-swatch"
+                            style={{ background: `rgb(${settings.key.r},${settings.key.g},${settings.key.b})` }}
+                          />
+                          <span className="tpl-hint">← 拾った色</span>
+                        </>
+                      ) : (
+                        <span className="tpl-hint">{tool === 'pick' ? '絵の上の背景をクリック' : ''}</span>
                       )}
                     </div>
-                    <div className="sp-row">
+                    <div className="sp-row" title="右へ動かすほど、拾った色から離れた色まで一緒に抜きます">
                       <span className="sp-label">近い色まで</span>
                       <input
                         type="range"
@@ -292,18 +313,19 @@ export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () =
                         disabled={!settings.key}
                         onChange={(e) => set('key', { ...(settings.key ?? { r: 0, g: 0, b: 0 }), tol: Number(e.target.value) })}
                       />
+                      <span className="sp-val">{settings.key?.tol ?? 30}</span>
                     </div>
                   </>
                 )}
-                <div className="sp-row">
-                  <span className="sp-label">どこまで透過</span>
+                <div className="sp-row" title="右へ動かすほど、迷った所（薄い影・縁）まで透過します">
+                  <span className="sp-label">抜く強さ</span>
                   <input type="range" min={0} max={100} value={settings.threshold} onChange={(e) => set('threshold', Number(e.target.value))} />
                   <span className="sp-val">{settings.threshold}</span>
                 </div>
-                <div className="cutout-head">ペンで直す</div>
+                <div className="cutout-head">ペンで直す（絵の上をなぞる）</div>
                 <div className="sp-row cutout-tools">
-                  <button className={`reframe-btn${tool === 'keep' ? ' on' : ''}`} onClick={() => setTool(tool === 'keep' ? 'none' : 'keep')}>🟢 残す</button>
-                  <button className={`reframe-btn${tool === 'drop' ? ' on' : ''}`} onClick={() => setTool(tool === 'drop' ? 'none' : 'drop')}>🔴 消す</button>
+                  <button className={`reframe-btn${tool === 'keep' ? ' on' : ''}`} title="消えてしまった所をなぞると戻ります" onClick={() => setTool(tool === 'keep' ? 'none' : 'keep')}>🟢 残す</button>
+                  <button className={`reframe-btn${tool === 'drop' ? ' on' : ''}`} title="残ってしまった所をなぞると消えます" onClick={() => setTool(tool === 'drop' ? 'none' : 'drop')}>🔴 消す</button>
                   <button className="reframe-btn" disabled={!settings.strokes.length} onClick={() => set('strokes', settings.strokes.slice(0, -1))}>↶ 1つ戻す</button>
                   <button className="reframe-btn" disabled={!settings.strokes.length} onClick={() => set('strokes', [])}>全部消す</button>
                 </div>
@@ -316,18 +338,18 @@ export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () =
                   <input type="checkbox" checked={smart} onChange={(e) => setSmart(e.target.checked)} />
                   かしこく塗る（似た色の範囲ごと。雑に引いても境界を読む）
                 </label>
-                <div className="cutout-head">境界</div>
-                <div className="sp-row">
+                <div className="cutout-head">境界（切り口の見え方）</div>
+                <div className="sp-row" title="切り口をやわらかくします。合成したとき馴染みます">
                   <span className="sp-label">ぼかし</span>
                   <input type="range" min={0} max={30} value={settings.feather} onChange={(e) => set('feather', Number(e.target.value))} />
                   <span className="sp-val">{settings.feather}px</span>
                 </div>
-                <div className="sp-row">
+                <div className="sp-row" title="左で縁の色の輪を削り、右で削れすぎた縁を戻します">
                   <span className="sp-label">縮める／広げる</span>
                   <input type="range" min={-20} max={20} value={settings.shift} onChange={(e) => set('shift', Number(e.target.value))} />
                   <span className="sp-val">{settings.shift}px</span>
                 </div>
-                <div className="sp-row">
+                <div className="sp-row" title="ギザギザと小さなゴミを消します">
                   <span className="sp-label">なめらか</span>
                   <input type="range" min={0} max={20} value={settings.smooth} onChange={(e) => set('smooth', Number(e.target.value))} />
                   <span className="sp-val">{settings.smooth}px</span>
@@ -345,7 +367,7 @@ export function CutoutDialog({ item, onClose }: { item: MediaItem; onClose: () =
                 やめる
               </button>
               <button className="btn btn-primary" disabled={busy || (settings.enabled && !src)} onClick={() => void apply()}>
-                適用
+                この設定で使う
               </button>
             </div>
           </div>

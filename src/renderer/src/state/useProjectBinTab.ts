@@ -93,6 +93,8 @@ export function useProjectBinTab() {
           label: '🔊 SE へ入れる（右の SE タブに並びます）',
           act: (): void => void importSeInto([m.path])
         })
+      if (m.kind === 'image')
+        opts.push({ label: '✂ 背景を透過する…', act: (): void => openCutout(m.id) })
       opts.push({ label: '▶ 再生ヘッドの位置へ置く', act: (): void => addMediaAtPlayhead(m) })
       opts.push({ label: '✕ プロジェクトから削除', act: (): void => removeMedia(m.id) })
       setOrgMenu({ x: e.clientX, y: e.clientY, options: opts })

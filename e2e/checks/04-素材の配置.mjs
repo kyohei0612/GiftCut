@@ -472,9 +472,9 @@ export default async function (C) {
     await page.mouse.click(b.x + 3, b.y + 3)
     await page.waitForTimeout(300)
     assert(await box.locator('.cutout-swatch').count(), '背景の色を拾えていない')
-    await box.locator('button', { hasText: '適用' }).click()
+    await box.locator('button', { hasText: 'この設定で使う' }).click()
     await page.waitForTimeout(2000)
-    assert((await page.locator('.cutout-box').count()) === 0, '適用しても窓が閉じない')
+    assert((await page.locator('.cutout-box').count()) === 0, '「この設定で使う」を押しても窓が閉じない')
     const src = await page.locator('.screen-img').first().getAttribute('src')
     assert(
       src && src.includes('giftcut-cutouts'),
