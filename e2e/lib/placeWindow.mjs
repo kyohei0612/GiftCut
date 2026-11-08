@@ -12,7 +12,10 @@ export async function placeOnOtherDisplay(app) {
       if (!win) return null
       const all = screen.getAllDisplays()
       if (all.length < 2) return null
-      const cur = screen.getDisplayMatching(win.getBounds())
+      // 「使っていない方」＝**いまマウスのカーソルが無い方**。前は「窓が最初に開いた側と
+      // 違う方」で決めていたので、本人が作業しているのが副モニターのときは
+      // そこへ出てしまった（2026-11-08・本人から「今表示してるモニターじゃない方に」）
+      const cur = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
       const other = all.find((d) => d.id !== cur.id)
       if (!other) return null
       const wa = other.workArea
@@ -24,6 +27,11 @@ export async function placeOnOtherDisplay(app) {
         width: Math.min(1600, wa.width - 40),
         height: Math.min(1000, wa.height - 40)
       })
+      // **寄せた先で他の窓の後ろに隠れると、Chromium は描画を毎秒1コマに絞る**（bench の
+      // 触る系8項目が全部「測れていない」になった・2026-11-08）。隠れないように最前面へ。
+      // 本人が作業しているのは反対側のモニターなので、そちらの邪魔にはならない
+      win.setAlwaysOnTop(true)
+      win.show()
       return other.id
     })
     if (id != null) console.log('\x1b[36m確認の窓は、もう1枚のディスプレイへ出します\x1b[0m')

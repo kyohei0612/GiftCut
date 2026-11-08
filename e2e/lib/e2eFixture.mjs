@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sh } from './shell.mjs'
+import { markPrevRunCrashed } from './crashMark.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 /** 画面を1枚撮るだけのとき（--shot）は、前回の残りを消さない */
@@ -359,12 +360,9 @@ export async function makeFixture() {
     iconScale: 1
   }
   writeFileSync(join(userData, 'giftcut-autosave.json'), JSON.stringify(project), 'utf-8')
-  // **「前回は落ちた」印も置く。** 2026-10-11 から、下書きの復元を聞くのは前回が正常に
-  // 終わらなかったときだけ（本人の指定: 普通に起動したら新規でよい、毎回聞くな）。
-  // 印が無いと「復元しますか」が出ず、1章の下ごしらえ（復元する → 全部戻る）が
-  // 走らない。印の場所は main/crashLog（userData/crash/running.json）
-  mkdirSync(join(userData, 'crash'), { recursive: true })
-  writeFileSync(join(userData, 'crash', 'running.json'), JSON.stringify({ at: new Date().toISOString(), e2e: true }), 'utf-8')
+  // **「前回は落ちた」印も置く。** 印が無いと「復元しますか」が出ず、1章の下ごしらえ
+  // （復元する → 全部戻る）が走らない。置き方は ./crashMark に1つ（bench の素材づくりと共通）
+  markPrevRunCrashed(userData, { e2e: true })
   // 同じ内容をプロジェクトファイルにも書いておく。各章の前にこれを開き直して、
   // どの確認も「同じ状態から始める」ようにする（前の章の操作を引きずらない）。
   // 字幕ファイル。本物があればそれを使う（実際の改行や記号が入っているので、

@@ -6,6 +6,7 @@
 // **素材が変わると数字も変わる**ので、前回と比べるときは同じ素材で測ること。
 import { sh } from './shell.mjs'
 import { fmt, mb } from './fmt.mjs'
+import { markPrevRunCrashed } from './crashMark.mjs'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, statSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -464,6 +465,8 @@ export function makeProject(video, totalSec, opts = {}) {
   // 自動保存から復元する経路で開く。ファイル選択ダイアログを触らずに済み、
   // しかも本番と同じ読み込み経路をそのまま通せる。
   writeFileSync(join(userData, 'giftcut-autosave.json'), json, 'utf-8')
+  // 「前回は落ちた」印が無いと復元の箱が出ず、bench は起動直後で止まる（./crashMark の説明）
+  markPrevRunCrashed(userData, { bench: true })
   const gcproj = join(dir, 'bench.gcproj')
   writeFileSync(gcproj, json, 'utf-8')
   return { dir, userData, gcproj, bytes: Buffer.byteLength(json) }
@@ -487,6 +490,8 @@ export function useRealProject(srcPath) {
   mkdirSync(userData, { recursive: true })
   const json = readFileSync(srcPath, 'utf-8')
   writeFileSync(join(userData, 'giftcut-autosave.json'), json, 'utf-8')
+  // 「前回は落ちた」印が無いと復元の箱が出ず、bench は起動直後で止まる（./crashMark の説明）
+  markPrevRunCrashed(userData, { bench: true })
   const gcproj = join(dir, 'bench.gcproj')
   writeFileSync(gcproj, json, 'utf-8')
   return { dir, userData, gcproj, bytes: Buffer.byteLength(json) }
