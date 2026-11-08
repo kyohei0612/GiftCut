@@ -25,6 +25,8 @@ import { useDoc } from '../../state/contentContext'
 import { useSel } from '../../state/selectionContext'
 import { useTracksCtx } from '../../state/tracksContext'
 import { usePlaybackCtx } from '../../state/playbackContext'
+import { neutralAnimT } from '../../lib/telopAnim'
+import { hasMotion } from '../../lib/telopStyle'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -216,7 +218,13 @@ export function TelopLayer({
             // 取り込んだ切り抜きは**フレームの何％**で入っているので、
             // フレームの幅（1080基準px）が要る。比率で変わる
             frameW={ratio === '16:9' ? 1920 : ratio === '9:16' ? 607.5 : 1080}
-            animT={currentTime - c.start}
+            // 出現と消失のあいだでは値を固定する（毎コマ渡すと SVG が毎コマ作り直される。
+            // 決まりは lib/telopAnim の neutralAnimT）。キーフレームの動きは毎コマ要るので生の値
+            animT={
+              hasMotion(c.motion)
+                ? currentTime - c.start
+                : neutralAnimT(c.style.anim, currentTime - c.start, c.end - c.start)
+            }
             clipDur={c.end - c.start}
             motion={c.motion}
             selected={isSelected(c.id)}

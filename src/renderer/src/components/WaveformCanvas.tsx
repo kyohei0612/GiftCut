@@ -133,6 +133,13 @@ export default function WaveformCanvas({
 
     // **座標系は BW（描く幅）で通す。** 帯の幅 W と混ぜると波形が横にずれる
     //（CSS 側が W へ引き伸ばすので、ここは最後まで BW のままでよい）
+    //
+    // **1列ずつ fillRect しない。** 列ごとの上端・下端を集めて**1本の多角形**で塗る。
+    // 列ごとに塗ると canvas 1枚で BW 回（最大で数百回）の塗りになり、bench（tv）の
+    // 再生3秒で fillRect 59万回・描画がレイアウトと JS を足した倍だった（2026-11-08）。
+    // 多角形は1回の塗りで、絵は同じ（列の上端から下端までの階段の和集合）
+    const tops = new Float32Array(BW)
+    const bots = new Float32Array(BW)
     for (let x = 0; x < BW; x++) {
       const ta = srcStart + (x / BW) * (srcEnd - srcStart)
       const tb = srcStart + ((x + 1) / BW) * (srcEnd - srcStart)
@@ -157,9 +164,22 @@ export default function WaveformCanvas({
         lo = min[j] * (1 - f) + min[j2] * f
       }
       const top = mid - hi * amp
-      const bot = mid - lo * amp
-        ctx.fillRect(x, top, 1, Math.max(1, bot - top))
-      }
+      tops[x] = top
+      bots[x] = Math.max(top + 1, mid - lo * amp) // 無音でも1px は見せる（前の fillRect と同じ）
+    }
+    // 上端を左→右へ階段で辿り、下端を右→左へ戻って閉じる
+    ctx.beginPath()
+    ctx.moveTo(0, tops[0])
+    for (let x = 0; x < BW; x++) {
+      ctx.lineTo(x, tops[x])
+      ctx.lineTo(x + 1, tops[x])
+    }
+    for (let x = BW - 1; x >= 0; x--) {
+      ctx.lineTo(x + 1, bots[x])
+      ctx.lineTo(x, bots[x])
+    }
+    ctx.closePath()
+    ctx.fill()
     })
   }, [min, max, srcStart, srcEnd, audioDuration, width, height, color])
 

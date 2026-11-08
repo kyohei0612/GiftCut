@@ -42,6 +42,25 @@ export function defaultAnim(): TelopAnim {
 export const hasAnim = (a?: TelopAnim): boolean =>
   !!a && (a.in !== 'none' || a.out !== 'none' || a.emphasis !== 'none')
 
+/**
+ * プレビューへ渡す animT を、**見た目が変わらない区間では固定する。**
+ *
+ * 出現と消失のあいだ（中立の区間）は computeTelopAnim の答えがいつも同じなのに、
+ * animT を毎コマ渡すと TelopText が毎コマ描き直り、テロップの SVG（text/defs/g）が
+ * 毎コマ作り直されていた（2026-11-08・`node e2e/layout-who.mjs` で Style changed 75回/秒）。
+ * 値を固定すれば React は同じ物を書かないので DOM に触らない。
+ *
+ * 常時動く強調（shake / pulse）が付いていれば毎コマ要るのでそのまま返す。
+ * キーフレームの動き（motion）は別の物なので、呼ぶ側が hasMotion で見て生の値を渡すこと。
+ */
+export function neutralAnimT(anim: TelopAnim | undefined, animT: number, clipDur: number): number {
+  if (!anim || anim.emphasis !== 'none') return animT
+  const inEnd = anim.in !== 'none' && anim.inDur > 0 ? anim.inDur : 0
+  const outStart = anim.out !== 'none' && anim.outDur > 0 ? clipDur - anim.outDur : clipDur
+  if (animT < inEnd || animT > outStart) return animT
+  return inEnd
+}
+
 // クリップ内ローカル時間 animT（秒）・クリップ長 clipDur から、その瞬間の見た目を返す。
 // tx/ty は1080基準px、sc=拡大率、rot=度、opacity=0..1。プレビューも書き出しも同じ計算を使う。
 export interface AnimState {

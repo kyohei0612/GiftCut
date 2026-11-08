@@ -7,6 +7,18 @@
 /** @param app Playwright の Electron アプリ */
 export async function placeOnOtherDisplay(app) {
   try {
+    // **GIFTCUT_E2E_OFFSCREEN=1 なら画面の外へ出す**（絶対に本人の画面に出ない）。
+    // 隠れた窓は Chromium が描画を毎秒1コマに絞るので、**時間を測る確認には使えない**
+    // （絵が出ているか・操作が効くかの確認には使える）。2026-11-08、本人から
+    // 「また前面に出る、邪魔」と2回言われたので、測らない確認は既定でこちらにする
+    if (process.env.GIFTCUT_E2E_OFFSCREEN) {
+      await app.evaluate(({ BrowserWindow }) => {
+        const win = BrowserWindow.getAllWindows()[0]
+        if (win) win.setPosition(-20000, -20000)
+      })
+      console.log('\x1b[36m確認の窓は画面の外に出します（時間は測れません）\x1b[0m')
+      return
+    }
     const id = await app.evaluate(({ screen, BrowserWindow }) => {
       const win = BrowserWindow.getAllWindows()[0]
       if (!win) return null
@@ -27,11 +39,10 @@ export async function placeOnOtherDisplay(app) {
         width: Math.min(1600, wa.width - 40),
         height: Math.min(1000, wa.height - 40)
       })
-      // **寄せた先で他の窓の後ろに隠れると、Chromium は描画を毎秒1コマに絞る**（bench の
-      // 触る系8項目が全部「測れていない」になった・2026-11-08）。隠れないように最前面へ。
-      // 本人が作業しているのは反対側のモニターなので、そちらの邪魔にはならない
-      win.setAlwaysOnTop(true)
-      win.show()
+      // ※ 寄せた先で他の窓の後ろに隠れると、Chromium は描画を毎秒1コマに絞る（bench の
+      //   触る系8項目が全部「測れていない」になった・2026-11-08）。最前面固定も試したが
+      //   本人の画面に出てしまい取り下げた。時間を測るときは、寄せた先が見えているかを
+      //   測る側が確かめること（e2e/play-probe.mjs は currentTime の更新回数で見ている）
       return other.id
     })
     if (id != null) console.log('\x1b[36m確認の窓は、もう1枚のディスプレイへ出します\x1b[0m')
