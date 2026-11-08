@@ -79,7 +79,6 @@ import type { MediaItem } from '../components/panels/ProjectBinTab'
 import { useViewNavCtx } from './viewNavContext'
 import { useTracksAdminCtx } from './tracksAdminContext'
 import { useMediaDropCtx } from './mediaDropContext'
-import { useVideoSync } from './useVideoSync'
 import { useSessionMemory, takeRestoredView } from './useSessionMemory'
 import { useHistoryCoalesce } from './useHistoryCoalesce'
 import { useAutosaveDraft } from './useAutosaveDraft'
@@ -274,8 +273,9 @@ export function useAppWiring() {
       void placeSE(m, t, audioLaneFor(tracks, seClips, t, sel.selectedTrackId))
     else placeImage(m, t, fallbackTrack('V3', 'video'))
   }
-  // 画面の <video> / <audio> を「いま」に追従させるのは state/useVideoSync
-  useVideoSync()
+  // 画面の <video> / <audio> を「いま」に追従させる係（state/useVideoSync）は**ここで呼ばない**。
+  // 毎コマ変わる currentTime を読むので、ここで呼ぶと画面全体が毎コマ描き直る。
+  // App が AppInner の隣に置く独立した葉（state/videoSyncRunner）で動かす
   // 見ている場所を動かす（寄る・引く・連れてくる）は state/useViewNav
   const { fitTimelineZoom } = useViewNavCtx()
   // ホイールの割り当てと、再生ヘッドの追いかけは state/useTimelineWheel

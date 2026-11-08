@@ -21,13 +21,12 @@ import { LABEL_COLORS } from '../../lib/labels'
 import { formatCombo } from '../../../../shared/shortcuts'
 import { useMenus } from '../../state/menusContext'
 import { useDoc } from '../../state/contentContext'
-import { useSel } from '../../state/selectionContext'
 import { useNest } from '../../state/useNest'
 
 export function ClipMenus(): JSX.Element {
   // **受け取らず、心臓から自分で見に行く**（区画と同じ流儀）
   const {
-    menu, setMenu, clipMenu, setClipMenu, clampMenu, setLabelFor, selectByLabel, setClipLabel,
+    menu, setMenu, clipMenu, setClipMenu, clampMenu, setLabelFor, labelCountFor, selectByLabel,
     deleteSelected, rippleDeleteSelected, deleteSelectedSE, deleteSelectedImg,
     deleteSelectedVClip, deleteVideoSegmentsLeavingGap, rippleDeleteVideoSegments,
     duplicateClipsFromMenu, splitVideoAtPlayhead, toggleBlankSelectedVideo, findSilences,
@@ -35,7 +34,6 @@ export function ClipMenus(): JSX.Element {
     attrSummary, shortcuts
   } = useMenus()
   const { cues, seClips, setSeClips } = useDoc()
-  const { isSelected, selectedIds } = useSel()
   // 「組」（ネスト）。**受け取らず自分で見に行く**——品書きに出すのは
   // 「いま組にできるか／解けるか」だけなので、心臓の配線を1本増やす価値が無い
   const { canNest, canUnnest, nest, unnest } = useNest()
@@ -74,16 +72,15 @@ export function ClipMenus(): JSX.Element {
           innerRef={clampMenu}
           entries={[
             {
+              // 何個に効くかは**全種類**で数える（テロップ以外も選んでいれば一緒に変わる）
               kind: 'title',
-              label: `ラベルカラー${
-                isSelected(menu.cueId) && selectedIds.length > 1 ? `（${selectedIds.length}個）` : ''
-              }`
+              label: `ラベルカラー${labelCountFor('telop', menu.cueId) > 1 ? `（${labelCountFor('telop', menu.cueId)}個）` : ''}`
             },
             {
               kind: 'swatches',
               colors: LABEL_COLORS,
               onPick: (color) => {
-                setLabelFor(menu.cueId, color)
+                setLabelFor('telop', menu.cueId, color)
                 setMenu(null)
               }
             },
@@ -148,18 +145,21 @@ export function ClipMenus(): JSX.Element {
           entries={[
             {
               kind: 'title',
-              label: `${clipMenu.kind === 'se' ? '🔊' : clipMenu.kind === 'img' ? '🖼' : '🎬'} ${clipMenu.name}`
+              label: `${clipMenu.kind === 'se' ? '🔊' : clipMenu.kind === 'img' ? '🖼' : '🎬'} ${clipMenu.name}${
+                labelCountFor(clipMenu.kind, clipMenu.id) > 1 ? `（${labelCountFor(clipMenu.kind, clipMenu.id)}個）` : ''
+              }`
             },
-            // ラベルカラー: どのクリップにも付けられる
+            // ラベルカラー: どのクリップにも付けられる。**テロップの品書きと同じ道**
+            // （選んでいる全部・全種類に効く。前は右クリックした1つだけだった）
             {
               kind: 'swatches',
               colors: LABEL_COLORS,
               onPick: (color) => {
-                setClipLabel(clipMenu.kind, clipMenu.id, color)
+                setLabelFor(clipMenu.kind, clipMenu.id, color)
                 setClipMenu(null)
               },
               onNone: () => {
-                setClipLabel(clipMenu.kind, clipMenu.id, undefined)
+                setLabelFor(clipMenu.kind, clipMenu.id, undefined)
                 setClipMenu(null)
               }
             },

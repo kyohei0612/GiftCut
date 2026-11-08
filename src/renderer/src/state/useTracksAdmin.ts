@@ -45,7 +45,7 @@ export interface UseTracksAdminDeps {
 export function useTracksAdmin(deps: UseTracksAdminDeps) {
   const { anyAudioSolo, cueTrack, trackNum, nVideoTracks, nAudioTracks } = deps
   const {
-    cues, setCues, cuesRef, setSegments, segsRef, seClips, setSeClips, seClipsRef,
+    cues, setCues, cuesRef, segsRef, seClips, setSeClips, seClipsRef,
     imgClips, setImgClips, imgClipsRef, vClips, setVClips, vClipsRef
   } = useDoc()
   const { setSelectedIds, setSelectedTrackId, clearSegSel } = useSel()
@@ -205,20 +205,9 @@ export function useTracksAdmin(deps: UseTracksAdminDeps) {
     return vTrack
   }
 
-  // ---- 動画セグメント（切片編集）----
-  // 動画と音声の選択は独立（クリックは片方、ドラッグは両方に掛かれば両方）
-  // どのクリップにもラベルカラーを付けられる（以前はテロップだけの機能だった）。
-  // 素材が増えると見分けが付かなくなるため、色で分類できるようにする。
-  function setClipLabel(kind: string, id: number, color?: string): void {
-    if (kind === 'seg')
-      setSegments((prev) => prev.map((c) => (c.id === id ? { ...c, label: color } : c)))
-    else if (kind === 'img')
-      setImgClips((prev) => prev.map((c) => (c.id === id ? { ...c, label: color } : c)))
-    else if (kind === 'se')
-      setSeClips((prev) => prev.map((c) => (c.id === id ? { ...c, label: color } : c)))
-    else if (kind === 'vclip')
-      setVClips((prev) => prev.map((c) => (c.id === id ? { ...c, label: color } : c)))
-  }
+  // ※ クリップの色（ラベルカラー）はここには無い。種類をまたいでまとめて付けるので
+  //   state/useLabelsPresets の setLabelFor に1本化した（2026-11-08。前はここに
+  //   「右クリックした1つだけ」の道があり、テロップ側と食い違っていた）
 
   // 映像トラックを1本追加（新しい番号を最上段へ）
   function addVideoTrack(): void {
@@ -311,7 +300,7 @@ export function useTracksAdmin(deps: UseTracksAdminDeps) {
 
   return {
     trackFromEvent, mainLocked, v1Hidden, fallbackTrack, audioTrackFromEvent, insertTrackOrdered,
-    reserveTrackPairForVideo, setClipLabel, addVideoTrack, addAudioTrack, trackHasContent,
+    reserveTrackPairForVideo, addVideoTrack, addAudioTrack, trackHasContent,
     telopLocked, trackHasContentInner, canDeleteTrack, deleteTrack, selectTrack,
     audioTrackGain, setTrackVolume
   }

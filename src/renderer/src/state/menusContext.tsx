@@ -29,7 +29,6 @@ import { useShortcutPrefsCtx } from './shortcutPrefsContext'
 import { useSilenceDuckCtx } from './silenceDuckContext'
 import { useTemplateShelfCtx } from './templateShelfContext'
 import { useTimelineEditCtx } from './timelineEditContext'
-import { useTracksAdminCtx } from './tracksAdminContext'
 
 // 型は手で書かず、詰めている実体から引く。**なぜ・どう腐らないかは state/wiredValue.ts**
 type W = Wired<'menus'>
@@ -59,10 +58,10 @@ export interface MenusValue {
   monitorTab: W['monitorTab']
   rightTab: W['rightTab']
   customCats: W['customCats']
-  /** ラベル色 */
+  /** ラベル色（どの種類にも。選んでいる全部に効く。判定は shared/labelTargets） */
   setLabelFor: W['setLabelFor']
+  labelCountFor: W['labelCountFor']
   selectByLabel: W['selectByLabel']
-  setClipLabel: W['setClipLabel']
   /** 編集の操作 */
   deleteSelected: W['deleteSelected']
   rippleDeleteSelected: W['rippleDeleteSelected']
@@ -100,8 +99,7 @@ export function useMenusValue() {
   const { tplMenu, setTplMenu } = useTemplateShelfCtx()
   const { setTabOrder, isPopped, unpopPane, monitorTab } = useLayout()
   const { customCats } = useProjectStateCtx()
-  const { setLabelFor, selectByLabel } = useLabelsPresetsCtx()
-  const { setClipLabel } = useTracksAdminCtx()
+  const { setLabelFor, labelCountFor, selectByLabel } = useLabelsPresetsCtx()
   const {
     deleteSelected, rippleDeleteSelected, deleteSelectedSE, deleteVideoSegmentsLeavingGap,
     rippleDeleteVideoSegments, duplicateClipsFromMenu, splitVideoAtPlayhead,
@@ -117,7 +115,7 @@ export function useMenusValue() {
     menu, setMenu, clipMenu, setClipMenu, tabMenu, setTabMenu, tabOverflow, setTabOverflow,
     tplMenu, setTplMenu, clampMenu, TAB_DEFS, orderedTabs,
     pickTab, setTabOrder, isPopped, popPane, unpopPane, monitorTab, rightTab, customCats,
-    setLabelFor, selectByLabel, setClipLabel, deleteSelected,
+    setLabelFor, labelCountFor, selectByLabel, deleteSelected,
     rippleDeleteSelected, deleteSelectedSE, deleteSelectedImg, deleteSelectedVClip,
     deleteVideoSegmentsLeavingGap, rippleDeleteVideoSegments, duplicateClipsFromMenu,
     splitVideoAtPlayhead, toggleBlankSelectedVideo, findSilences, silenceCut, setDuckOpen,

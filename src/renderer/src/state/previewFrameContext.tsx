@@ -27,6 +27,7 @@ import { useMediaCtx } from './mediaContext'
 import { useProxyCtx } from './proxyContext'
 import { useSegLayoutCtx } from './segLayoutContext'
 import { usePreviewFrame } from './usePreviewFrame'
+import { useStableByKey } from './useStableValue'
 
 /** **手で書かない。** 作っている側から引く（ズレようがない） */
 export type PreviewFrameValue = ReturnType<typeof usePreviewFrame>
@@ -38,7 +39,11 @@ export function PreviewFrameProvider({ children }: { children: ReactNode }): Rea
   const { srcOfSeg } = useMediaCtx()
   const { curSegZoom, curCropInset } = useCurrentLookCtx()
   const { previewUrl } = useProxyCtx()
-  const value = usePreviewFrame({ segLayout, srcOfSeg, curSegZoom, curCropInset, previewUrl })
+  const raw = usePreviewFrame({ segLayout, srcOfSeg, curSegZoom, curCropInset, previewUrl })
+  // **中身が同じなら、同じ物を配る**（理由は state/useStableValue）。
+  // 中身は全部ただのデータ（文字列・数・真偽・null）なので JSON で比べられる。
+  // 変わるのはつなぎ目の演出・重ね（xfade）の最中と、切片をまたぐ時だけ
+  const value = useStableByKey(raw, (v) => JSON.stringify(v))
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

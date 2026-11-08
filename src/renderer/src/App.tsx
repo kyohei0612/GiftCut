@@ -76,6 +76,7 @@ import { TelopEditProvider } from './state/telopEditContext'
 import { AttrCopyProvider } from './state/attrCopyContext'
 import { LaneResizeProvider } from './state/laneResizeContext'
 import { CurrentLookProvider } from './state/currentLookContext'
+import { VideoSyncRunner } from './state/videoSyncRunner'
 import { HistoryProvider } from './state/historyContext'
 // 履歴の控えを見るので、**History の内側**に置く（理由は mediaMetaContext.tsx）
 import { MediaMetaProvider } from './state/mediaMetaContext'
@@ -348,6 +349,10 @@ export default function App(): React.JSX.Element {
       (c) => <PreviewManipProvider>{c}</PreviewManipProvider>,
       (c) => <ProjectTemplatesProvider>{c}</ProjectTemplatesProvider>
     ],
-    <AppInner />
+    // 追従係（毎コマ描き直る）は AppInner の**隣**に置く。中で呼ぶと画面全体が毎コマ描き直る
+    <>
+      <VideoSyncRunner />
+      <AppInner />
+    </>
   )
 }

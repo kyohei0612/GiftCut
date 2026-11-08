@@ -29,7 +29,6 @@ import { useLibraryCtx } from './libraryContext'
 import { useProjectFileCtx } from './projectFileContext'
 import { useProjectStateCtx } from './projectStateContext'
 import { useProjectTemplatesCtx } from './projectTemplatesContext'
-import { useSeAudioCtx } from './seAudioContext'
 import { useShortcutPrefsCtx } from './shortcutPrefsContext'
 import { useSilenceDuckCtx } from './silenceDuckContext'
 import { useSubtitlePrefsCtx } from './subtitlePrefsContext'
@@ -79,7 +78,6 @@ export interface DialogsValue {
   setDuckOpts: W['setDuckOpts']
   duckEnv: W['duckEnv']
   setDuckOpen: W['setDuckOpen']
-  seRefCb: W['seRefCb']
   prefsOpen: W['prefsOpen']
   setIconForColor: W['setIconForColor']
   setIconForLane: W['setIconForLane']
@@ -116,7 +114,6 @@ export function useDialogsValue() {
   const { saveLS } = useLibraryCtx()
   const { runSubtitles } = useSubtitlesCtx()
   const { applySilenceCut, findSilences } = useTimelineEditCtx()
-  const { seRefCb } = useSeAudioCtx()
   const { setPerfOpen } = useAppChromeCtx()
   const { toasts } = useToastCtx()
   const { iconAssign, laneIconAssign } = useProjectStateCtx()
@@ -128,7 +125,7 @@ export function useDialogsValue() {
     applyProjectData, subMaxChars,
     saveLS, subReplace, runSubtitles, setSubtitleOpen, pickTemplate,
     silenceOpen, setSilenceCut, applySilenceCut, setSilenceOpen, duckOpen, duckOpts,
-    setDuckOpts, duckEnv, setDuckOpen, seRefCb, prefsOpen,
+    setDuckOpts, duckEnv, setDuckOpen, prefsOpen,
     setIconForColor, setIconForLane, setPerfOpen,
     toasts, closeConfirm, iconAssign, laneIconAssign, iconLibrary
   }

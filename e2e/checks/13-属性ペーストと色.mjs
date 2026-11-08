@@ -375,5 +375,36 @@ export default async function (C) {
     }
   })
 
+  // 2026-11-08 までは色を付ける道が2本あり（テロップ＝選んでいるテロップ全部／
+  // それ以外＝右クリックした1つだけ）、種類をまたいで選ぶと**右クリックした種類しか
+  // 変わらなかった**（本人の報告）。どちらから開いても、選んでいる全部に付くことを見る
+  await check('種類をまたいで選んで色を選ぶと、文字・本編・効果音・画像の全部に付く', async () => {
+    await resetProject()
+    const bgOf = (sel) => page.locator(sel).first().evaluate((e) => getComputedStyle(e).backgroundColor)
+    const kinds = [
+      ['文字', '.telop-clip'],
+      ['本編', '[data-tid="V1"] .video-clip:not(.se-ghost)'],
+      ['効果音', '.se-clip'],
+      ['画像', '.img-clip:not(.se-ghost)']
+    ]
+    // 効果音の品書きから（前は「1つだけ」の道だった側）、次にテロップの品書きから。
+    // 色見本は毎回別の物にして「前の色が残っていただけ」と区別する
+    let i = 0
+    for (const opener of ['.se-clip', '.telop-clip']) {
+      await page.keyboard.press('Control+a')
+      await page.waitForTimeout(300)
+      await page.locator(opener).first().click({ button: 'right' })
+      await page.waitForSelector('.ctx-menu')
+      const sw = page.locator('.ctx-swatch:not(.ctx-swatch-none)').nth(i++)
+      const want = await sw.evaluate((e) => getComputedStyle(e).backgroundColor)
+      await sw.click()
+      await page.waitForTimeout(400)
+      for (const [name, sel] of kinds) {
+        const got = await bgOf(sel)
+        assert(got === want, `${opener} から色を選んだのに ${name} に付いていない（${got} / 選んだ色 ${want}）`)
+      }
+    }
+  })
+
   // =========================================================================
 }

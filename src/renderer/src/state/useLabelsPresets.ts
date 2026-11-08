@@ -10,10 +10,12 @@
 //
 // 帯に出す名前と、右パネルで選ばせる並びが同じ物を指す。2か所に書くと
 // 「帯には出るのに選べない」種類ができる。
-import { LABEL_COLORS } from '../lib/labels'
+import { DEFAULT_LABEL, LABEL_COLORS } from '../lib/labels'
 // **保存は「その1件の操作」だけ**（画面の一覧を丸ごと書かない。理由は lib 側の説明）
 import { persistUserTemplateAdd } from '../lib/telopTemplates'
 import type { AnimIn } from '../lib/telopStyle'
+// 「どれに付けるか」の判定は shared/labelTargets に1つだけ（2本の道が食い違っていた）
+import { labelTargetCount, labelTargets, type LabelKind } from '../../../shared/labelTargets'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
 import { useProjectStateCtx } from './projectStateContext'
@@ -32,8 +34,11 @@ export const motionLabel = (t: AnimIn): string =>
   TELOP_MOTIONS.find((m) => m.type === t)?.label ?? String(t)
 
 export function useLabelsPresets() {
-  const { cues, setCues } = useDoc()
-  const { selectedIds, setSelectedIds, isSelected, clearSegSel } = useSel()
+  const { cues, setCues, setSegments, setSeClips, setImgClips, setVClips } = useDoc()
+  const {
+    selectedIds, setSelectedIds, clearSegSel,
+    selectedVideoIds, selectedAudioIds, selectedSeIds, selectedImgIds, selectedVClipIds
+  } = useSel()
   const { newTelopStyle, userTemplates, setUserTemplates } = useProjectStateCtx()
 
   /** 使われている色だけ、件数付きで並べる（使っていない色は出さない） */
@@ -42,13 +47,44 @@ export function useLabelsPresets() {
     count: cues.filter((c) => c.label === l.color).length
   })).filter((g) => g.count > 0)
 
+  /** いま選んでいる物を、色付けの判定（shared/labelTargets）が読む形に */
+  const labelSel = () => ({
+    telop: selectedIds,
+    // 本編は映像側と音声側で選択が別々。どちらで選んでいても同じ切片に付ける
+    seg: [...new Set([...selectedVideoIds, ...selectedAudioIds])],
+    se: selectedSeIds,
+    img: selectedImgIds,
+    vclip: selectedVClipIds
+  })
+
   /**
-   * 色を付ける。**選んでいる物があれば、そちら全部に効かせる。**
+   * 色を付ける。**どの種類にも付けられる**（本編・効果音・画像・映像レイヤー。
+   * 素材が増えると見分けが付かなくなるので、色で分類できるようにしてある）。
+   *
+   * **選んでいる物を右クリックしたなら、選んでいる全部・全種類に効かせる。**
    * 押した1つだけに効くと、まとめて色分けするのに1つずつ触ることになる。
+   * 2026-11-08 まではテロップとそれ以外で道が2本に分かれていて、種類をまたいで
+   * 選ぶと右クリックした種類しか変わらなかった。判定は shared/labelTargets に1つ。
+   *
+   * `color` が undefined なら「色なし」。テロップの色は必須なので既定色に戻す。
    */
-  function setLabelFor(cueId: number, color: string): void {
-    const targets = isSelected(cueId) ? selectedIds : [cueId]
-    setCues((prev) => prev.map((c) => (targets.includes(c.id) ? { ...c, label: color } : c)))
+  function setLabelFor(kind: LabelKind, id: number, color: string | undefined): void {
+    const t = labelTargets(labelSel(), kind, id)
+    const paint = <C extends { id: number; label?: string }>(ids: number[]) =>
+      (prev: C[]): C[] => (ids.length ? prev.map((c) => (ids.includes(c.id) ? { ...c, label: color } : c)) : prev)
+    if (t.telop.length)
+      setCues((prev) =>
+        prev.map((c) => (t.telop.includes(c.id) ? { ...c, label: color ?? DEFAULT_LABEL } : c))
+      )
+    setSegments(paint(t.seg))
+    setSeClips(paint(t.se))
+    setImgClips(paint(t.img))
+    setVClips(paint(t.vclip))
+  }
+
+  /** 色を付けたら何個に効くか（品書きの見出し「（N個）」用） */
+  function labelCountFor(kind: LabelKind, id: number): number {
+    return labelTargetCount(labelTargets(labelSel(), kind, id))
   }
 
   /** その色の物を全部選ぶ。切片の選択は解く（別の種類が混ざると操作が効かない） */
@@ -74,5 +110,5 @@ export function useLabelsPresets() {
     persistUserTemplateAdd(t)
   }
 
-  return { labelGroups, setLabelFor, selectByLabel, savePreset }
+  return { labelGroups, setLabelFor, labelCountFor, selectByLabel, savePreset }
 }

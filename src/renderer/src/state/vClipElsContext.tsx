@@ -15,6 +15,7 @@ import { useDoc } from './contentContext'
 import { usePlaybackCtx } from './playbackContext'
 import { useTracksCtx } from './tracksContext'
 import { useVClipEls } from './useVClipEls'
+import { sameItems, useStableValue } from './useStableValue'
 
 /** **手で書かない。** 作っている側から引く（ズレようがない） */
 export type VClipElsValue = ReturnType<typeof useVClipEls>
@@ -25,7 +26,11 @@ export function VClipElsProvider({ children }: { children: ReactNode }): React.J
   const { vClips } = useDoc()
   const { currentTime } = usePlaybackCtx()
   const { tracks } = useTracksCtx()
-  return <Ctx.Provider value={useVClipEls(vClips, currentTime, tracks)}>{children}</Ctx.Provider>
+  const raw = useVClipEls(vClips, currentTime, tracks)
+  // **窓に入っているクリップの顔ぶれが同じなら、同じ物を配る**（理由は state/useStableValue）。
+  // `vcElsRef` は同じ箱、`vcRefCb` は ID ごとに固定した関数を返すだけなので、前の物で足りる
+  const value = useStableValue(raw, (p, n) => sameItems(p.windowVClips, n.windowVClips))
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
 /** 重ねる動画の <video>を見に行く。囲いの外で呼んだら、その場で落とす */

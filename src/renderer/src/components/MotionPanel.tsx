@@ -24,6 +24,7 @@ import type { JSX } from 'react'
 import { MotionTab, type MotionRow } from './panels/MotionTab'
 import type { MotionKeyName } from '../../../shared/telopMotion'
 import { useLeftPanel } from '../state/leftPanelContext'
+import { usePlaybackCtx } from '../state/playbackContext'
 import { useSel } from '../state/selectionContext'
 import { useToastCtx } from '../state/toastContext'
 import { useEdit } from '../state/useEdit'
@@ -35,9 +36,13 @@ import { clamp } from '../../../shared/timeline'
 
 export function MotionPanel(): JSX.Element {
   const {
-    clearClipMotions, currentTime, motionSelRef, motionRowsRef, nudgeClips,
+    clearClipMotions, motionSelRef, motionRowsRef, nudgeClips,
     reframeTarget, resetClipChannel, resetCount, seekTo, toggleKeys
   } = useLeftPanel()
+  // 再生位置は**ここだけ**が毎コマ見に行く（数値欄は「いまの時刻の値」を出すので要る）。
+  // 左パネルの束（leftPanelContext）に入れると、左パネル全体が再生中に毎コマ描き直される。
+  // このパネルはモーションのタブを開いているときしか居ないので、巻き添えは最小になる
+  const { currentTime } = usePlaybackCtx()
   // 動きの見本を残すのは置き場の側（state/libraryContext）
   const { saveMyMotion } = useLibraryCtx()
   const { selectedIds } = useSel()

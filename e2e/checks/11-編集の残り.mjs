@@ -294,6 +294,28 @@ export default async function (C) {
     )
   })
 
+  // マグネットの確認は 2026-11-08 までひとつも無かった（「SE が吸い付かないかも」の報告で気づいた）。
+  // 吸い付きは、ずれても見た目では分からない（shared/snap の説明）ので、機械で見る。
+  // 初期状態: 本編 5秒×3（カットは 5秒と 10秒）、効果音は 2〜4秒。
+  // 効果音を 10秒のカットの **10px 右**へ落とす。吸い付く距離は 18px（state/useSnap）なので
+  // 効くなら左端がカットにぴったり揃い、効いていなければ 10px ずれたまま残る
+  await check('効果音をカットの近くへ落とすと、端がカットに吸い付く', async () => {
+    await resetProject()
+    await seekTo(0) // 再生ヘッドも寄せ先なので、カットから離しておく
+    const se = page.locator('.se-clip').first()
+    const se0 = await se.boundingBox()
+    const cut = (await v1Clips().nth(2).boundingBox()).x // 3つ目の切片の左端＝10秒のカット
+    const dx = cut + 10 - se0.x
+    assert(dx > 40, `動かす距離が短すぎて元の位置に吸い付く（${dx}px）`)
+    await dragBy(se, dx)
+    await page.waitForTimeout(400)
+    const se1 = await se.boundingBox()
+    assert(
+      Math.abs(se1.x - cut) < 1.5,
+      `効果音がカットに吸い付いていない（左端 ${se1.x.toFixed(1)} / カット ${cut.toFixed(1)}。10px 右へ落とした）`
+    )
+  })
+
   // **使用中でも確認なしで消える**（本人の指定・2026-10-11。前は「使用中です」で止めていた）。
   // 重ねた物（画像・効果音・映像レイヤー）は帯ごと消え、本編の切片は空きになる
   await check('タイムラインで使っている素材も、置き場から消せる（載っていた帯ごと消える）', async () => {

@@ -19,7 +19,6 @@
 import { useSubtitlePrefsCtx } from '../../state/subtitlePrefsContext'
 import { useShortcutPrefsCtx } from '../../state/shortcutPrefsContext'
 import { useAppChromeCtx } from '../../state/appChromeContext'
-import { toGcUrl } from '../../lib/gcUrl'
 import { lazy, Suspense, type JSX } from 'react'
 
 /** 計測の小窓。**配布した物でも開ける**が、要るまで読み込まない */
@@ -46,7 +45,7 @@ import { voiceRegions } from '../../../../shared/ducking'
 import { ACTION_LIST, formatCombo } from '../../../../shared/shortcuts'
 import { useDoc } from '../../state/contentContext'
 import { useTracksCtx } from '../../state/tracksContext'
-import { usePlaybackCtx } from '../../state/playbackContext'
+import { SeAudioElements } from './SeAudioElements'
 import { useToastCtx } from '../../state/toastContext'
 import { useProjectStateCtx } from '../../state/projectStateContext'
 import { useLibraryCtx } from '../../state/libraryContext'
@@ -64,7 +63,7 @@ const {
     applyProjectData, subMaxChars,
     saveLS, subReplace, runSubtitles, setSubtitleOpen, pickTemplate,
     silenceOpen, setSilenceCut, applySilenceCut, setSilenceOpen, duckOpen, duckOpts,
-    setDuckOpts, duckEnv, setDuckOpen, seRefCb, prefsOpen,
+    setDuckOpts, duckEnv, setDuckOpen, prefsOpen,
  setIconForColor, setIconForLane, setPerfOpen,
     toasts, closeConfirm
     , iconAssign, laneIconAssign, iconLibrary
@@ -75,13 +74,14 @@ const {
   const { perfStopped, perfOpen, setPerfStopped } = useAppChromeCtx()
   const { setCapturingId, resetShortcuts, setPrefsOpen } = useShortcutPrefsCtx()
   const { subtitleOpen, subModel, subtitleState, setSubMaxChars, setSubReplace } = useSubtitlePrefsCtx()
-  const { cues, segments, seClips } = useDoc()
+  const { cues, segments } = useDoc()
   const { tracks } = useTracksCtx()
   // 人物ごとの縁色・見た目（アイコン設定の中で決める。2026-08-16）
   const { iconRing, setIconRing, iconTemplate, setIconTemplate } = useProjectStateCtx()
   const { localTemplates } = useLibraryCtx()
   const { applyTemplateToLabel } = useTelopTemplateCtx()
-  const { currentTime } = usePlaybackCtx()
+  // **`currentTime` はここでは読まない**（読むと、この下の覆い・トースト・品書きが全部毎コマ描き直る）。
+  // 要るのは効果音の隠し audio だけなので ./SeAudioElements が自分で見に行く（2026-11-08）
   const { showToast } = useToastCtx()
   const {
     exportOpts, exportDir, setExportDir, exportName, setExportName, exportExt, setExportExt
@@ -210,17 +210,9 @@ const {
     />
   )}
 
-  {/* SE 再生用の隠し audio 要素。全クリップぶん常設すると Chromium のメディア要素上限に
-      触れて新しい要素が読み込めず無音になるため、再生ヘッド近傍だけをマウントする。
-      後ろ側（1秒）に余裕を持たせて、区間を出た瞬間に音がぶつ切りになるのを防ぐ。 */}
-  {seClips
-    .filter(
-      (clip) =>
-        currentTime >= clip.tStart - 3 && currentTime < clip.tStart + clip.duration + 1
-    )
-    .map((clip) => (
-      <audio key={clip.id} src={toGcUrl(clip.path)} preload="auto" ref={seRefCb(clip.id)} />
-    ))}
+  {/* SE 再生用の隠し audio 要素は ./SeAudioElements（再生位置を毎コマ見る唯一の部品。
+      ここで見ると覆い全部・トースト・品書きが毎コマ描き直る） */}
+  <SeAudioElements />
 
   {/* 設定のダイアログは components/dialogs/SettingsDialogs.tsx */}
   {prefsOpen && (

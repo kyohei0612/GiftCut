@@ -51,8 +51,6 @@ export interface LeftPanelProps {
   /** アイコンの位置を全テロップで揃えるかを切り替える */
   changeIconAuto: (on: boolean) => void
   clearClipMotions: () => void
-  /** いまの再生位置（秒） */
-  currentTime: number
   /** モーションで選んでいる項目（描き直しを待たずに読むので ref） */
   motionSelRef: React.MutableRefObject<string[]>
   /** いま出ているモーションの行（コピーが印の無い項目も写せるように） */

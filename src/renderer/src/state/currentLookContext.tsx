@@ -13,6 +13,7 @@
 // - `useCurrentLookCtx` … 見に行く。囲いの外で呼んだら、その場で落とす
 import { createContext, useContext, type ReactNode } from 'react'
 import { useDoc } from './contentContext'
+import { useStableByKey } from './useStableValue'
 import { useSel } from './selectionContext'
 import { useMediaCtx } from './mediaContext'
 import { usePlaybackCtx } from './playbackContext'
@@ -34,11 +35,20 @@ export function CurrentLookProvider({ children }: { children: ReactNode }): Reac
   const { activeSrcId, srcOfSeg, videoName } = useMediaCtx()
   const { selectedVideoIds, selectedImgIds, selectedVClipIds } = useSel()
   const { vcLen } = useTrackGeomCtx()
-  const value = useCurrentLook({
+  const raw = useCurrentLook({
     segLayout, segments, currentTime, previewSources, activeSrcId,
     selectedVideoIds, selectedImgIds, selectedVClipIds,
     imgClips, vClips, vcLen, srcOfSeg, videoName
   })
+  // **中身が同じなら、同じ物を配る**（理由は state/useStableValue）。
+  // この囲いは `currentTime` を読むので毎コマ作り直る。変わるのは切片をまたぐ・動きが付いている・
+  // 選び直した時だけ。`reframeTargetRef` は useRef の同じ箱なので、前の物を返しても中身は最新
+  const value = useStableByKey(raw, (v) =>
+    JSON.stringify([
+      v.effActiveSrcId, v.curBlank, v.curAdjustCss, v.curSegZoom, v.curSegCrop, v.curCropInset,
+      v.reframeTarget
+    ])
+  )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

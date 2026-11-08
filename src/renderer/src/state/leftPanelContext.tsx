@@ -18,7 +18,6 @@ import { useCurrentLookCtx } from './currentLookContext'
 import { useIconLibraryCtx } from './iconLibraryContext'
 import { useLabelsPresetsCtx } from './labelsPresetsContext'
 import { useMotionCtx } from './motionContext'
-import { usePlaybackCtx } from './playbackContext'
 import { usePlaybackEngineCtx } from './playbackEngineContext'
 import { useProjectStateCtx } from './projectStateContext'
 import { useTelopBoxCtx } from './telopBoxContext'
@@ -43,7 +42,10 @@ export function useLeftPanelValue(deps: { resetCount: () => number }) {
   const {
     clearClipMotions, motionSelRef, motionRowsRef, nudgeClips, resetClipChannel, toggleKeys
   } = useMotionCtx()
-  const { currentTime } = usePlaybackCtx()
+  // **`currentTime`（毎コマ変わる）はここに入れない。** 入れると、この束を見ている
+  // 左パネル全体（760行）が再生中に毎秒60回描き直される（2026-10-12 の記録の「次の一手」）。
+  // 毎コマ要るのはモーションのタブの数値欄だけなので、components/MotionPanel が自分で
+  // state/playbackContext を見に行く
   const { pairedAudioOf } = useTrackGeomCtx()
   const { panelStyleFor, updateSelectedStyle, updateSelectedText } = useTelopLookCtx()
   const { reframeTarget } = useCurrentLookCtx()
@@ -54,7 +56,7 @@ export function useLeftPanelValue(deps: { resetCount: () => number }) {
   const { userTemplates } = useProjectStateCtx()
   const { iconForCue } = useCueIcon()
   return {
-    alignTelop, applyTemplate, changeIconAuto, clearClipMotions, currentTime,
+    alignTelop, applyTemplate, changeIconAuto, clearClipMotions,
     motionSelRef, motionRowsRef, nudgeClips, pairedAudioOf, panelStyleFor, reframeTarget,
     resetClipChannel,
     resetCount: deps.resetCount, savePreset, seekTo, setBoxAnchor, setPersonIconForSelected,

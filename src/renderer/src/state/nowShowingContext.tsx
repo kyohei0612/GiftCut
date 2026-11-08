@@ -19,6 +19,7 @@ import { usePlaybackCtx } from './playbackContext'
 import { useTracksCtx } from './tracksContext'
 import { useTrackGeomCtx } from './trackGeomContext'
 import { useNowShowing } from './useNowShowing'
+import { sameItems, useStableValue } from './useStableValue'
 
 /** **手で書かない。** 作っている側から引く（ズレようがない） */
 export type NowShowingValue = ReturnType<typeof useNowShowing>
@@ -31,7 +32,13 @@ export function NowShowingProvider({ children }: { children: ReactNode }): React
   const { tracks } = useTracksCtx()
   const { cueTrack } = useTrackGeomCtx()
   const { sources, videoSrc, videoDuration } = useMediaCtx()
-  const value = useNowShowing({ cues, currentTime, tracks, cueTrack, sources, videoSrc, videoDuration, fps })
+  const raw = useNowShowing({ cues, currentTime, tracks, cueTrack, sources, videoSrc, videoDuration, fps })
+  // **出ているテロップの顔ぶれが同じなら、同じ物を配る**（理由は state/useStableValue）。
+  // `activeCues` は currentTime で毎コマ作り直るが、顔ぶれが変わるのはテロップの出入りの時だけ
+  const value = useStableValue(
+    raw,
+    (p, n) => sameItems(p.activeCues, n.activeCues) && p.previewSources === n.previewSources
+  )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
