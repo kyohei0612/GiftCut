@@ -34,17 +34,27 @@ export const motionLabel = (t: AnimIn): string =>
   TELOP_MOTIONS.find((m) => m.type === t)?.label ?? String(t)
 
 export function useLabelsPresets() {
-  const { cues, setCues, setSegments, setSeClips, setImgClips, setVClips } = useDoc()
   const {
-    selectedIds, setSelectedIds, clearSegSel,
+    cues, setCues, segments, setSegments, seClips, setSeClips, imgClips, setImgClips, vClips, setVClips
+  } = useDoc()
+  const {
+    selectedIds, setSelectedIds, clearSegSel, setSelectedVideoIds, setSelectedSeIds,
+    setSelectedImgIds, setSelectedVClipIds,
     selectedVideoIds, selectedAudioIds, selectedSeIds, selectedImgIds, selectedVClipIds
   } = useSel()
   const { newTelopStyle, userTemplates, setUserTemplates } = useProjectStateCtx()
 
-  /** 使われている色だけ、件数付きで並べる（使っていない色は出さない） */
+  /**
+   * 使われている色だけ、件数付きで並べる（使っていない色は出さない）。
+   * **件数は全種類で数える**——押すと全種類を選ぶ（selectByLabel）ので、テロップだけ
+   * 数えると「3」と出て7個選ばれる／本編だけに付けた色が一覧に出ない
+   */
   const labelGroups = LABEL_COLORS.map((l) => ({
     ...l,
-    count: cues.filter((c) => c.label === l.color).length
+    count: [cues, segments, seClips, imgClips, vClips].reduce(
+      (n, xs: readonly { label?: string }[]) => n + xs.filter((c) => c.label === l.color).length,
+      0
+    )
   })).filter((g) => g.count > 0)
 
   /** いま選んでいる物を、色付けの判定（shared/labelTargets）が読む形に */
@@ -87,10 +97,24 @@ export function useLabelsPresets() {
     return labelTargetCount(labelTargets(labelSel(), kind, id))
   }
 
-  /** その色の物を全部選ぶ。切片の選択は解く（別の種類が混ざると操作が効かない） */
+  /**
+   * その色の物を**全種類**選ぶ（テロップ・本編・効果音・画像・映像レイヤー）。
+   *
+   * 2026-11-11 まではテロップしか選ばず、本編は選び直しで解いていた。色は全種類に
+   * 付けられるのに（setLabelFor）、選ぶ側だけテロップ限定だったので、
+   * 「見せ場の本編を色で分ける → まとめて選ぶ → 先頭に並べる（useDigestToHead）」が
+   * 途中で止まっていた。種類をまたいだ選択は範囲選択・Ctrl+A でも普通に起きる。
+   */
   function selectByLabel(color: string): void {
+    const ids = <C extends { id: number; label?: string }>(xs: readonly C[]) =>
+      xs.filter((c) => c.label === color).map((c) => c.id)
     clearSegSel()
-    setSelectedIds(cues.filter((c) => c.label === color).map((c) => c.id))
+    setSelectedIds(ids(cues))
+    // 本編は映像側で選ぶ（右クリックで開く品書きと同じ。state/useAppWiring の openClipMenu）
+    setSelectedVideoIds(ids(segments))
+    setSelectedSeIds(ids(seClips))
+    setSelectedImgIds(ids(imgClips))
+    setSelectedVClipIds(ids(vClips))
   }
 
   /**

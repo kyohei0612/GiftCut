@@ -22,6 +22,7 @@ import { formatCombo } from '../../../../shared/shortcuts'
 import { useMenus } from '../../state/menusContext'
 import { useDoc } from '../../state/contentContext'
 import { useNest } from '../../state/useNest'
+import { useDigestToHead } from '../../state/useDigestToHead'
 
 export function ClipMenus(): JSX.Element {
   // **受け取らず、心臓から自分で見に行く**（区画と同じ流儀）
@@ -33,7 +34,18 @@ export function ClipMenus(): JSX.Element {
     silenceCut, setDuckOpen, copySelected, copyAttributes, pasteAttributes, copiedAttrs,
     attrSummary, shortcuts
   } = useMenus()
-  const { cues, seClips, setSeClips } = useDoc()
+  const { cues, segments, seClips, setSeClips, imgClips, vClips } = useDoc()
+  // 本編の写しを先頭に並べる（ダイジェスト）。組と同じく**自分で見に行く**
+  const { canCopyToHead, copyToHead } = useDigestToHead()
+  /** 右クリックした物に付いている色（テロップ以外の品書きの「同じ色をまとめて選択」用） */
+  const clipLabel = clipMenu
+    ? (
+        { seg: segments, se: seClips, img: imgClips, vclip: vClips } as Record<
+          string,
+          readonly { id: number; label?: string }[]
+        >
+      )[clipMenu.kind]?.find((c) => c.id === clipMenu.id)?.label
+    : undefined
   // 「組」（ネスト）。**受け取らず自分で見に行く**——品書きに出すのは
   // 「いま組にできるか／解けるか」だけなので、心臓の配線を1本増やす価値が無い
   const { canNest, canUnnest, nest, unnest } = useNest()
@@ -163,6 +175,16 @@ export function ClipMenus(): JSX.Element {
                 setClipMenu(null)
               }
             },
+            // テロップの品書きと同じ物。**全種類を選ぶ**（state/useLabelsPresets の selectByLabel）。
+            // 「本編を色で分ける → まとめて選ぶ → 先頭に並べる」の2手目
+            !!clipLabel && {
+              kind: 'item',
+              label: '同じ色をまとめて選択',
+              onClick: () => {
+                selectByLabel(clipLabel)
+                setClipMenu(null)
+              }
+            },
             // BGM を敷くなら必須の機能なので、音のクリップの右クリックに直接置く
             clipMenu.kind === 'se' && {
               kind: 'item',
@@ -197,6 +219,16 @@ export function ClipMenus(): JSX.Element {
               combo: formatCombo(shortcuts.duplicate),
               onClick: () => {
                 duplicateClipsFromMenu(clipMenu.kind)
+                setClipMenu(null)
+              }
+            },
+            // 選んだ本編の写しを 0秒に近い順に先頭へ詰めて並べる（冒頭のダイジェスト用）。
+            // 載っているテロップ・効果音・画像も一緒に写る。決まりは shared/digest の頭
+            clipMenu.kind === 'seg' && canCopyToHead && {
+              kind: 'item',
+              label: '⏮ コピーを先頭に並べる（ダイジェスト）',
+              onClick: () => {
+                copyToHead()
                 setClipMenu(null)
               }
             },

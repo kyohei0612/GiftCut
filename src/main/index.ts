@@ -72,6 +72,16 @@ protocol.registerSchemesAsPrivileged([
 // userData に置く（プロジェクトを別PCへ持って行っても、その人の画面の形が優先される）。
 const windowStatePath = (): string => join(app.getPath('userData'), 'giftcut-window.json')
 
+/**
+ * 確認（e2e）の窓を作る場所。**どの画面にも掛からない遠く**・タスクバーに出さない。
+ * 使うのは本体と別ウィンドウ（パネル）の2か所。理由は createWindow の e2eHidden。
+ *
+ * **大きさも決める（1600×1000）。** 前は別モニターへ寄せるとき e2e 側がこの大きさに
+ * 揃えていて、確認はそれを前提にしている（初期の大きさ＝高さ881 のままだと
+ * 「メニューが窓に対して長すぎる」で赤になった・2026-11-11）
+ */
+const E2E_OFFSCREEN = { x: -20000, y: -20000, width: 1600, height: 1000, skipTaskbar: true } as const
+
 function readWindowState(): WindowState | null {
   try {
     const o = JSON.parse(readFileSync(windowStatePath(), 'utf-8'))
@@ -97,8 +107,18 @@ function createWindow(openPath?: string): void {
     displays,
     screen.getPrimaryDisplay().workArea
   )
+  // **確認（e2e）のときは、窓を最初から画面の外に作る**（GIFTCUT_E2E_HIDDEN=1。付けるのは
+  // e2e/lib/placeWindow の launchEnv）。前は普通の位置に出してから外へ動かしていたので、
+  // 起動のたびに一瞬見えた（2026-11-11・本人「立ち上げなくて裏で起動して」）。
+  //
+  // **`show()` を呼ばない形は使えない**（2026-11-11 に測った）。出していない窓は
+  // backgroundThrottling を切っても描き直しが毎秒1回しか回らず、見た目を変えても絵が
+  // 古いまま＝画素の確認が3件赤になった。画面の外の窓は毎秒241回で普通に描かれる。
+  // だから「外に作って、前に出さず（showInactive）、タスクバーにも出さない」
+  const e2eHidden = !!process.env.GIFTCUT_E2E_HIDDEN
   const mainWindow = new BrowserWindow({
     ...bounds,
+    ...(e2eHidden ? E2E_OFFSCREEN : {}),
     minWidth: MIN_SIZE.width,
     minHeight: MIN_SIZE.height,
     show: false,
@@ -111,7 +131,8 @@ function createWindow(openPath?: string): void {
       contextIsolation: true
     }
   })
-  if (maximized) mainWindow.maximize()
+  // 最大化すると、外に作った窓が画面いっぱいへ戻ってくる
+  if (maximized && !e2eHidden) mainWindow.maximize()
   // この窓の番号（下書きの置き場と「未保存」の札を窓ごとに分ける）
   registerWindowSlot(mainWindow.webContents.id)
   if (openPath) setWindowStartupPath(mainWindow, openPath)
@@ -141,7 +162,7 @@ function createWindow(openPath?: string): void {
   mainWindow.on('maximize', rememberWindow)
   mainWindow.on('unmaximize', rememberWindow)
 
-  mainWindow.on('ready-to-show', () => mainWindow.show())
+  mainWindow.on('ready-to-show', () => (e2eHidden ? mainWindow.showInactive() : mainWindow.show()))
   // 起動の引数で渡されたプロジェクトは、画面が出来てから渡す
   mainWindow.webContents.on('did-finish-load', () => {
     // **画面が出たことをもって「この版は起動できた」とする。**
@@ -236,6 +257,9 @@ function createWindow(openPath?: string): void {
           console.warn('[pane] 保存されていた位置に画面が無いので、本体の画面へ寄せます')
         }
       }
+      // 確認のときは別ウィンドウも外に作る（本体と同じ。上の e2eHidden。位置の決め方より後に置く）
+      // 大きさは渡さない（パネルは自分の大きさで開く）
+      if (e2eHidden) Object.assign(opts, { x: E2E_OFFSCREEN.x, y: E2E_OFFSCREEN.y, skipTaskbar: true })
       return { action: 'allow', overrideBrowserWindowOptions: opts }
     }
     shell.openExternal(details.url)

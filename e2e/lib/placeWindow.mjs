@@ -4,13 +4,30 @@
 // 数分間そこを占領する。**横で眺めていられるのが利点**なので隠すのではなく、
 // 別の画面へ寄せる。画面が1枚しか無いときは何もしない（寄せる先が無い）。
 
+/**
+ * **窓を一度も出さずに起動する**ための、アプリへ渡す環境（2026-11-11）。
+ *
+ * 前の既定は「出してから別のモニターへ寄せる」、OFFSCREEN は「出してから画面の外へ」で、
+ * どちらも起動のたびに一瞬見えた（本人「立ち上げなくて裏で起動して」）。
+ * GIFTCUT_E2E_HIDDEN=1 を受けたアプリは、窓を**最初から画面の外に**作り、前に出さず
+ * タスクバーにも出さない（src/main/index.ts の e2eHidden）。`show()` を呼ばない形は
+ * 描き直しが毎秒1回になって絵の確認が3件赤になったので取らない（理由はあちら）。
+ *
+ * 眺めたいときは GIFTCUT_E2E_VISIBLE=1 で、今まで通り出して寄せる。
+ */
+export function launchEnv() {
+  return process.env.GIFTCUT_E2E_VISIBLE
+    ? { ...process.env }
+    : { ...process.env, GIFTCUT_E2E_HIDDEN: '1' }
+}
+
 /** @param app Playwright の Electron アプリ */
 export async function placeOnOtherDisplay(app) {
   try {
-    // **GIFTCUT_E2E_OFFSCREEN=1 なら画面の外へ出す**（絶対に本人の画面に出ない）。
-    // 隠れた窓は Chromium が描画を毎秒1コマに絞るので、**時間を測る確認には使えない**
-    // （絵が出ているか・操作が効くかの確認には使える）。2026-11-08、本人から
-    // 「また前面に出る、邪魔」と2回言われたので、測らない確認は既定でこちらにする
+    // **GIFTCUT_E2E_OFFSCREEN=1 なら画面の外へ出す**（出してから動かすので一瞬見える。
+    // 一度も見せない道は上の launchEnv）。2026-11-08 にここへ「画面の外は描画が毎秒1コマ」と
+    // 書いていたが、11-11 に測ったら**毎秒241回で絞られていなかった**（絞られるのは
+    // show() していない窓と、他の窓の後ろに隠れた窓）
     if (process.env.GIFTCUT_E2E_OFFSCREEN) {
       await app.evaluate(({ BrowserWindow }) => {
         const win = BrowserWindow.getAllWindows()[0]

@@ -63,7 +63,7 @@ import { printSummary } from './lib/runSummary.mjs'
 // 書き出し先の指定（置き場・名前・入れ物）は ./lib/exportTarget
 import { makeExportTools } from './lib/exportTarget.mjs'
 // 確認の窓をもう1枚のディスプレイへ寄せる
-import { placeOnOtherDisplay } from './lib/placeWindow.mjs'
+import { launchEnv, placeOnOtherDisplay } from './lib/placeWindow.mjs'
 // 測る道具（撮る・絵を比べる・音を測る・ZIP を覗く）
 import { makeRunMeasure } from './lib/runMeasure.mjs'
 // アプリを触る道具（再生位置・クリップの測り方・素材ビンから落とす）
@@ -128,20 +128,37 @@ try {
   console.log('テスト用の素材を作成中…')
   fx = await makeFixture()
 
+  // **既定は窓を一度も出さない**（./lib/placeWindow の launchEnv。眺めるなら GIFTCUT_E2E_VISIBLE=1）
+  const env = launchEnv()
   app = await electron.launch({
     executablePath: require('electron'),
     args: [ROOT, `--user-data-dir=${fx.userData}`, '--gc-auto'],
-    cwd: ROOT
+    cwd: ROOT,
+    env
   })
   page = await app.firstWindow()
-  // 窓の置き場所は ./lib/placeWindow（作業中の画面を占領しないため）
-  await placeOnOtherDisplay(app)
+  // 出すときだけ、置き場所を決める（作業中の画面を占領しないため）
+  if (!env.GIFTCUT_E2E_HIDDEN) await placeOnOtherDisplay(app)
+  else console.log('\x1b[36m確認の窓は出しません（GIFTCUT_E2E_VISIBLE=1 で出す）\x1b[0m')
   // 黙って止まり続けないよう、頭打ちを決めておく（e2e/dismiss.mjs）
   watchdog(90, () => app.close())
   // 札・落ちた時の控えには画面が要る。**起動より後にしか無い**ので、ここで渡す
   setPage(page)
   await page.waitForSelector('.app', { timeout: 20000 })
   page.setDefaultTimeout(8000)
+  // **出さないと言って画面に掛かっていたら落とす**（本人の画面に出ないのがこの設定の全て。
+  // アプリ側の作り＝src/main/index.ts の e2eHidden が外れても、目で気づく前にここで止まる）。
+  // 窓は「表示中」ではある（出していない窓は描き直しが毎秒1回になり、絵の確認が嘘になる）
+  if (env.GIFTCUT_E2E_HIDDEN) {
+    const onScreen = await app.evaluate(({ BrowserWindow, screen }) =>
+      BrowserWindow.getAllWindows().filter((w) => {
+        const b = w.getBounds()
+        return screen.getAllDisplays().some(({ bounds: d }) =>
+          b.x + b.width > d.x && b.x < d.x + d.width && b.y + b.height > d.y && b.y < d.y + d.height)
+      }).length
+    )
+    if (onScreen) throw new Error(`窓を出さない設定なのに、${onScreen}枚の窓が画面に掛かっている`)
+  }
 
   // OS のファイル選択・保存ダイアログは自動で操作できないので、
   // メインプロセス側で差し替えて「このファイルを選んだことにする」。

@@ -406,5 +406,54 @@ export default async function (C) {
     }
   })
 
+  // 本人の使い方（2026-11-11）: 見せ場の本編を色で分ける → 同じ色をまとめて選ぶ →
+  // 右クリックで「コピーを先頭に並べる」。素材は 5秒×3本で、1本目にだけ
+  // テロップ・効果音・画像が載っている（e2e/lib/e2eFixture）。
+  // **3本目から先に色を付ける**——選んだ順に並べていたら、写したテロップは 6秒に来る
+  await check('色で選んだ本編のコピーが、0秒に近い順に先頭へ並び、載っている物も一緒に写る', async () => {
+    await resetProject()
+    const clipMenuItem = async (n, text) => {
+      await v1Clips().nth(n).click({ button: 'right' })
+      await page.waitForSelector('.ctx-menu')
+      const item = page.locator('.ctx-menu').getByText(text, { exact: false })
+      assert(await item.count(), `本編の品書きに「${text}」が無い`)
+      await item.first().click()
+      await page.waitForTimeout(400)
+    }
+    // 選んでいない帯を右クリックすると、それだけが選び直される（色はその1本にだけ付く）
+    for (const n of [2, 0]) {
+      await v1Clips().nth(n).click({ button: 'right' })
+      await page.waitForSelector('.ctx-menu')
+      await page.locator('.ctx-swatch:not(.ctx-swatch-none)').nth(3).click()
+      await page.waitForTimeout(300)
+    }
+    await clipMenuItem(2, '同じ色をまとめて選択')
+    const sel = await v1Clips().evaluateAll((els) => els.map((e) => e.classList.contains('clip-selected')))
+    assert(
+      JSON.stringify(sel) === JSON.stringify([true, false, true]),
+      `同じ色をまとめて選択で、色を付けた本編2本だけが選ばれていない（${JSON.stringify(sel)}）`
+    )
+    const before = { se: await page.locator('.se-clip').count(), img: await page.locator('.img-clip:not(.se-ghost)').count() }
+    await clipMenuItem(2, 'コピーを先頭に並べる')
+    assert((await v1Clips().count()) === 5, `本編が 3 + 2 = 5本になっていない（${await v1Clips().count()}本）`)
+    const box0 = await v1Clips().first().boundingBox()
+    const pxPerSec = box0.width / 5
+    const telops = await page.locator('.telop-clip').evaluateAll((els) =>
+      els.map((e) => ({ x: e.getBoundingClientRect().left, text: e.getAttribute('title') }))
+    )
+    telops.sort((a, b) => a.x - b.x)
+    const at = (t) => +((t.x - box0.x) / pxPerSec).toFixed(1)
+    assert(telops.length === 3, `テロップが 2 + 写し1 = 3枚になっていない（${telops.length}枚）`)
+    assert(
+      telops[0].text === 'ひとつめ' && Math.abs(at(telops[0]) - 1) <= 0.2,
+      `写したテロップが先頭の1秒に無い（${telops[0].text} @ ${at(telops[0])}秒）——選んだ順に並べている？`
+    )
+    // 元の中身は、写した合計（10秒）だけ後ろへ送られている
+    const orig = telops.find((t) => t.text === 'ひとつめ' && t !== telops[0])
+    assert(orig && Math.abs(at(orig) - 11) <= 0.2,`元のテロップが 1 + 10 = 11秒へ送られていない（${orig && at(orig)}秒）`)
+    assert((await page.locator('.se-clip').count()) === before.se + 1, '効果音が一緒に写っていない')
+    assert((await page.locator('.img-clip:not(.se-ghost)').count()) === before.img + 1, '画像が一緒に写っていない')
+  })
+
   // =========================================================================
 }

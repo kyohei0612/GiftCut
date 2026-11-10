@@ -215,6 +215,13 @@ export async function makeFixture() {
   // 絵も音も本物のまま、決まった3か所だけを黙らせる。20秒より短い素材でも
   // 収まるよう 11秒までに置く。-c:v copy なので絵は焼き直さない（速い）
   const GAPS = [[2.5, 3.0], [6.0, 6.6], [10.0, 10.4]]
+  // 下のプロジェクトの本編（3つに切ったクリップ・それぞれ5秒）。素材に要る長さはここから引く
+  const SEGMENTS = [
+    { id: 1, srcId: 1, srcStart: 0, srcEnd: 5 },
+    { id: 2, srcId: 1, srcStart: 5, srcEnd: 10 },
+    { id: 3, srcId: 1, srcStart: 10, srcEnd: 15 }
+  ]
+  const SEG_END_SEC = Math.max(...SEGMENTS.map((s) => s.srcEnd))
 
   /**
    * 候補1本から確認用の動画を作る。**成立しなければ理由を返す**（例外にしない。
@@ -263,6 +270,13 @@ export async function makeFixture() {
     const gaps = (det.err.match(/silence_start/g) || []).length
     if (gaps < GAPS.length)
       return `無音が ${gaps} か所しか数えられない（${GAPS.length} か所要る）。短すぎるか、音が入っていない`
+    // **長さも数える**（2026-11-11）。下のプロジェクトは本編を 15秒ぶん（5秒×3）置くので、
+    // それより短い素材だと書き出した動画が素材の長さで切れる。7.9秒の素材が選ばれ、
+    // 「書き出した動画に、文字と画像が焼き込まれている」が 12秒のコマを抜けずに
+    //「コマを抜き出せなかった」で落ちた（アプリは無罪。無音3か所は 11秒までに収まるので通っていた）
+    const m = /Duration: (\d+):(\d+):([\d.]+)/.exec(det.err)
+    const sec = m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : 0
+    if (sec < SEG_END_SEC) return `長さが ${sec.toFixed(1)}秒しか無い（本編の切片が ${SEG_END_SEC}秒まで要る）`
     return null
   }
 
@@ -331,12 +345,8 @@ export async function makeFixture() {
       { id: 'A3', name: 'A3', kind: 'audio' }
     ],
     trackStates: {},
-    // 3つに切ったクリップ（それぞれ5秒）
-    segments: [
-      { id: 1, srcId: 1, srcStart: 0, srcEnd: 5 },
-      { id: 2, srcId: 1, srcStart: 5, srcEnd: 10 },
-      { id: 3, srcId: 1, srcStart: 10, srcEnd: 15 }
-    ],
+    // 3つに切ったクリップ（それぞれ5秒）。並びは上の SEGMENTS（素材の長さの見張りと共通）
+    segments: SEGMENTS,
     cues: [
       { id: 1, start: 1, end: 3, text: 'ひとつめ', track: 'V2' },
       { id: 2, start: 6, end: 8, text: 'ふたつめ', track: 'V2' }
