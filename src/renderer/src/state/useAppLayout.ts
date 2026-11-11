@@ -25,7 +25,8 @@
 // 押した場所にそのまま出していたので、画面の下や右の端で押すと項目がはみ出して
 // 選べなかった。出したあとに測って、はみ出していたら内側へ寄せる。
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useDismissOnOutside } from './useDismissOnOutside'
 import { readPaneGeometry } from '../components/PaneWindow'
 import type { PaneGeom } from '../components/PaneWindow'
 import { PANE_LABEL } from './usePanelLayout'
@@ -168,23 +169,12 @@ export function useAppLayout(deps: UseAppLayoutDeps) {
     group: string
     hidden: string[]
   } | null>(null)
-  useEffect(() => {
-    if (!tabMenu && !tabOverflow) return
-    const close = (): void => {
-      setTabMenu(null)
-      setTabOverflow(null)
-    }
-    // Escape でも閉じる。閉じられないと、裏のタブが押せなくなる
-    const onEsc = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close()
-    }
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', onEsc)
-    return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', onEsc)
-    }
-  }, [tabMenu, tabOverflow])
+  // 外を押す・右クリック・Escape で閉じる（閉じ方は useDismissOnOutside に1つ）。
+  // Escape で閉じられないと、裏のタブが押せなくなる
+  useDismissOnOutside(!!(tabMenu || tabOverflow), () => {
+    setTabMenu(null)
+    setTabOverflow(null)
+  })
 
   /** タブの一覧（≫）とその並び順メニューで使う、グループごとのタブ定義 */
   const TAB_DEFS: Record<string, { id: string; label: string }[]> = {

@@ -159,9 +159,20 @@ export function useHistory(deps: UseHistoryDeps): History {
     ratio: ratioRef.current
   })
 
+  /**
+   * 控えを1つ積む。**上限は置かない**（ファイルを閉じるまで、押し続ければどこまでも戻れる）。
+   *
+   * 2026-11-12 までは100手で古い方から捨てていた。本人「上書き保存までしか戻れない。
+   * 押し続けたら一生戻れるように、そのファイルを閉じない限り」。保存は履歴を消して
+   * いなかったので、戻れなかったのはこの上限（と、動画を開くと全部捨てていた
+   * state/useMediaOps の loadVideo）だった。
+   *
+   * 控えは**中身の写しではなく、その時点の配列への参照**（変わっていない物は前の控えと
+   * 同じ物を指す）ので、1手の重さは「配列の長さぶんの参照」で済む。重さの見張りは
+   * `e2e/bench-history.mjs`（50回編集して50回戻す・メモリ）
+   */
   function pushUndo(state: Snap): void {
     undoStackRef.current.push(state)
-    if (undoStackRef.current.length > 100) undoStackRef.current.shift()
   }
   // 保留中（デバウンス未確定）の変更を確定。分岐編集があれば redo を無効化する
   function commitPending(): void {

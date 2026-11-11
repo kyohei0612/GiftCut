@@ -23,6 +23,7 @@
 //
 // - `useLibraryOrganize` … 下の物を全部まとめて返す唯一の入口
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { useDismissOnOutside } from './useDismissOnOutside'
 import { nextOpenSecs } from '../../../shared/accordion'
 import {
   TELOP_CATS,
@@ -313,19 +314,8 @@ export function useLibraryOrganize(deps: UseLibraryOrganizeDeps) {
     y: number
     options: { label: string; checked?: boolean; act: () => void }[]
   } | null>(null)
-  useEffect(() => {
-    if (!orgMenu) return
-    const close = (): void => setOrgMenu(null)
-    const onEsc = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOrgMenu(null)
-    }
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', onEsc)
-    return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', onEsc)
-    }
-  }, [orgMenu])
+  // 外を押す・右クリック・Escape で閉じる（閉じ方は useDismissOnOutside に1つ）
+  useDismissOnOutside(!!orgMenu, () => setOrgMenu(null))
   // ユーザー作成フォルダ（カテゴリ）。既定の色カテゴリ + これ。
   const allCats = [...TELOP_CATS, ...customCats]
   // 実効カテゴリ＝手動移動(上書き)優先→スタイルの見た目の色で自動判定。

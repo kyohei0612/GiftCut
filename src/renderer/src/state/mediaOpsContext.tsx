@@ -29,7 +29,7 @@ const Ctx = createContext<MediaOpsValue | null>(null)
 
 export function MediaOpsProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const { proxyForPathRef, initializedForPathRef } = useAppChromeCtx()
-  const { setTime, baselineRef, redoStackRef, pendingTimerRef, undoStackRef, suppressHistoryRef } = useHistoryCtx()
+  const { setTime, baselineRef, redoStackRef, pendingTimerRef, undoStackRef, suppressHistoryRef, commitPending, pushUndo } = useHistoryCtx()
   const { setOpenAccSec } = useLibraryCtx()
   const { srcAddedAtRef } = useMediaCtx()
   const { stopPlayback } = usePlaybackEngineCtx()
@@ -47,7 +47,9 @@ export function MediaOpsProvider({ children }: { children: ReactNode }): React.J
     redoStackRef,
     pendingTimerRef,
     undoStackRef,
-    suppressHistoryRef
+    suppressHistoryRef,
+    commitPending,
+    pushUndo
   })
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

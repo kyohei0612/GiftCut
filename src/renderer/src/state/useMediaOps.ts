@@ -36,10 +36,14 @@ export interface UseMediaOpsDeps {
   pendingTimerRef: React.MutableRefObject<number | null>
   undoStackRef: React.MutableRefObject<Snap[]>
   suppressHistoryRef: React.MutableRefObject<boolean>
+  /** まだ確定していない変更を、その場で1つ積む（state/useHistory） */
+  commitPending: () => void
+  /** 控えを1つ積む（state/useHistory。上限の扱いはあちらに1つ） */
+  pushUndo: (s: Snap) => void
 }
 
 export function useMediaOps(deps: UseMediaOpsDeps) {
-  const { stopPlayback, setTime, kindOf, setOpenAccSec, videoElsRef, proxyForPathRef, srcAddedAtRef, initializedForPathRef, baselineRef, redoStackRef, pendingTimerRef, undoStackRef, suppressHistoryRef } = deps
+  const { stopPlayback, setTime, kindOf, setOpenAccSec, videoElsRef, proxyForPathRef, srcAddedAtRef, initializedForPathRef, baselineRef, redoStackRef, pendingTimerRef, undoStackRef, suppressHistoryRef, commitPending, pushUndo } = deps
   const { setSegments, segIdCounter, cuesRef, segsRef, seClipsRef } = useDoc()
   const { clearSegSel } = useSel()
   const { setVideoPath, setVideoSrc, setVideoName, setWaveform, setThumbnailSrc, setSources, sourcesRef, sourceIdCounter, curSourceIdRef, setActiveSrcId, mediaItems, setMediaItems, mediaIdCounter } = useMediaCtx()
@@ -92,19 +96,38 @@ export function useMediaOps(deps: UseMediaOpsDeps) {
   // placed=true: 切片は呼び出し側が置くので、読み込み時の自動配置（先頭に全長1本）はしない。
   async function loadVideo(path: string, opts?: { placed?: boolean }): Promise<void> {
     stopPlayback()
-    // 動画差し替え: 履歴を破棄し、segsRef も同期リセット（onLoadedMetadata の初期化レース対策）
-    if (pendingTimerRef.current) {
-      clearTimeout(pendingTimerRef.current)
-      pendingTimerRef.current = null
+    // **履歴を捨てるのは「前の動画がある＝差し替え」のときだけ**（2026-11-12・本人
+    // 「動画をダブルクリックしたら配置されて2度と元に戻れない」）。
+    //
+    // 差し替えは素材の一覧（sources）を新しい1本に入れ替えるので、前の動画で作った
+    // カットを履歴から戻すと、指す先の動画が無い切片になって壊れる。だから捨てる
+    //（ファイルメニューの差し替えは、カットがあれば「破棄します」と確認を取ってから来る）。
+    //
+    // まだ動画が1本も無いとき（素材ビンのダブルクリック・最初の1本を落とす・最初の
+    // 読み込み）は、戻した先に壊れる切片が無い。前は**ここでも全部捨てていた**ので、
+    // 動画を置く前に打ったテロップの手順ごと戻れなくなっていた。
+    // → 「置く前」を1手として積む。置いた後の自動配置は札（suppressHistory）で
+    //   基準だけ進むので、Ctrl+Z 1回で置く前へ、続けて押せばその前の手へ戻る
+    const replacing = sourcesRef.current.length > 0
+    if (replacing) {
+      if (pendingTimerRef.current) {
+        clearTimeout(pendingTimerRef.current)
+        pendingTimerRef.current = null
+      }
+      undoStackRef.current = []
+      redoStackRef.current = []
+      baselineRef.current = { cues: cuesRef.current, segments: [], seClips: seClipsRef.current }
+    } else {
+      commitPending()
+      pushUndo(baselineRef.current)
+      redoStackRef.current = []
     }
-    undoStackRef.current = []
-    redoStackRef.current = []
-    baselineRef.current = { cues: cuesRef.current, segments: [], seClips: seClipsRef.current }
     segsRef.current = []
     suppressHistoryRef.current = true
     setSegments([])
     clearSegSel()
-    segIdCounter.current = 1
+    // 番号を1へ戻すのも差し替えのときだけ。履歴を残すなら、戻した先の切片と番号が重なる
+    if (replacing) segIdCounter.current = 1
     setVideoSrc(toGcUrl(path))
     setVideoPath(path)
     setVideoName(path.split(/[\\/]/).pop() ?? null)

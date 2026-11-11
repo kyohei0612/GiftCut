@@ -7,6 +7,9 @@
 // 「仕上げ」に流れ込んでいた。道具（check・assert・素材づくり）は
 // run.mjs 側に置いたままで、まとめて受け取る。
 
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 export default async function (C) {
   const {
     clipW,
@@ -14,11 +17,13 @@ export default async function (C) {
     check,
     clipLayout,
     dragBy,
+    fx,
     near,
     page,
     resetProject,
     section,
     seekTo,
+    setDialogFiles,
     v1Clips,
   } = C
 
@@ -155,6 +160,44 @@ export default async function (C) {
     assert(after[0].x > base[0].x + 5, 'Ctrl+Shift+Z でやり直せない')
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(400)
+  })
+
+  // 本人（2026-11-12）「動画をダブルクリックしたら配置されて2度と元に戻れない」。
+  // 動画が1本も無いとき、素材ビンのダブルクリックは動画を開いて先頭に並べる。前は
+  // そこで**履歴を全部捨てていた**ので、置く前にも、その前の手にも戻れなかった
+  //（state/useMediaOps の loadVideo）。**置く前の手（テロップを消す）を自分で作ってから**確かめる
+  await check('動画の無いプロジェクトで素材をダブルクリックして置いても、Ctrl+Z で置く前とその前へ戻れる', async () => {
+    const proj = JSON.parse(readFileSync(fx.gcprojOrig, 'utf-8'))
+    Object.assign(proj, { videoPath: null, sources: [], segments: [] })
+    const p = join(fx.dir, 'no-video.gcproj')
+    writeFileSync(p, JSON.stringify(proj), 'utf-8')
+    await setDialogFiles([p], null)
+    await page.keyboard.press('Control+o')
+    await page.waitForTimeout(400)
+    const cont = page.locator('.modal-btn', { hasText: 'このまま続ける' })
+    if (await cont.count()) await cont.click()
+    await page.waitForTimeout(800)
+    const telops = () => page.locator('.telop-clip').count()
+    assert((await v1Clips().count()) === 0, `動画の無いプロジェクトが開けていない（本編 ${await v1Clips().count()}本）`)
+    const t0 = await telops()
+    assert(t0 >= 2, `テロップが開けていない（${t0}枚）`)
+    // 置く前の手: テロップを1枚消す（履歴は 450ms で1手にまとまる）
+    await page.locator('.telop-clip').first().click()
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(700)
+    assert((await telops()) === t0 - 1, 'テロップが消えていない（準備が成立していない）')
+    const card = page.locator('.media-card', { hasText: 'test_video' }).first()
+    assert(await card.count(), '素材ビンに動画のカードが無い')
+    await card.dblclick()
+    await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 15000 })
+    await page.waitForTimeout(700)
+    assert((await v1Clips().count()) === 1, 'ダブルクリックで動画が1本並んでいない（準備が成立していない）')
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(500)
+    assert((await v1Clips().count()) === 0, 'Ctrl+Z で「動画を置く前」に戻らない')
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(500)
+    assert((await telops()) === t0, `もう一度 Ctrl+Z で、置く前に消したテロップが戻らない（${await telops()}枚）`)
   })
 
   // =========================================================================

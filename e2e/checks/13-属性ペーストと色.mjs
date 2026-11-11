@@ -406,6 +406,40 @@ export default async function (C) {
     }
   })
 
+  // 本人（2026-11-12）「右クリックが2重になる」。品書きは左クリックでしか閉じない作りで、
+  // 開いたまま別の物を右クリックすると新しい品書きが重なって出ていた
+  //（state/useDismissOnOutside。映像↔テロップは品書きが別物なので特に出やすい）
+  await check('品書きを開いたまま別の物を右クリックしても、品書きは1つしか出ない', async () => {
+    await resetProject()
+    const pairs = [
+      ['映像 → テロップ', v1Clips().first(), page.locator('.telop-clip').first()],
+      ['テロップ → 映像', page.locator('.telop-clip').first(), v1Clips().first()],
+      ['素材カード → テロップ', page.locator('.media-card').first(), page.locator('.telop-clip').first()]
+    ]
+    // 2つ目は**品書きに隠れていない所**を右クリックする（人も見えている所を押す）。
+    // 真ん中を押すと、すぐ上の段の品書きが覆っていて Playwright が待ち続ける
+    const rightClickVisiblePart = async (loc) => {
+      const b = await loc.boundingBox()
+      const m = await page.locator('.ctx-menu').first().boundingBox()
+      const y = b.y + b.height / 2
+      const xs = [b.x + 6, b.x + b.width - 6, b.x + b.width / 2]
+      const x = xs.find((px) => !m || px < m.x || px > m.x + m.width || y < m.y || y > m.y + m.height)
+      assert(x !== undefined, '2つ目の帯が品書きに全部隠れていて押せない（準備が成立していない）')
+      await page.mouse.click(x, y, { button: 'right' })
+    }
+    for (const [name, a, b] of pairs) {
+      assert(await a.count() && await b.count(), `${name}: 押す物が無い（準備が成立していない）`)
+      await a.click({ button: 'right' })
+      await page.waitForSelector('.ctx-menu')
+      await rightClickVisiblePart(b)
+      await page.waitForTimeout(300)
+      const n = await page.locator('.ctx-menu').count()
+      assert(n === 1, `${name}: 品書きが ${n} 個出ている（1つのはず）`)
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(200)
+    }
+  })
+
   // 本人の使い方（2026-11-11）: 見せ場の本編を色で分ける → 同じ色をまとめて選ぶ →
   // 右クリックで「コピーを先頭に並べる」。素材は 5秒×3本で、1本目にだけ
   // テロップ・効果音・画像が載っている（e2e/lib/e2eFixture）。

@@ -14,6 +14,18 @@
 // 実際にそうなっていて、他を押しても・再生しても閉じなかった）。
 // 止められても届く capture で拾い、**押した場所が中かどうかを自分で見る**方を
 // 選べるようにしてある。
+//
+// ## 右クリックでも閉じる（2026-11-12）
+//
+// 右クリックは `click` ではなく `contextmenu` なので、前は**開いたまま残った**。
+// そこへ別の物を右クリックすると新しい品書きが重なって出る（本人「右クリックが
+// 2重になる」。映像の品書きを開いたままテロップを右クリック、が典型）。
+// 新しい品書きを開く側は contextmenu を止めるので、**capture で先に拾う**。
+// 閉じる → 開くの順に積まれるので、最後に残るのは新しい方だけ。
+// 品書きの中（`.ctx-menu`）の右クリックでは閉じない。
+//
+// **品書き・小窓の閉じ方は全部ここを通す。** 前は素材ビン（useLibraryOrganize）と
+// タブ（useAppLayout）が同じ物を自前で書いていて、直すなら3か所だった。
 import { useEffect } from 'react'
 
 export interface DismissOpts {
@@ -42,12 +54,19 @@ export function useDismissOnOutside(open: boolean, close: () => void, opts?: Dis
       if (inside && t?.closest?.(inside)) return
       close()
     }
+    const onRight = (e: Event): void => {
+      const t = e.target as Element | null
+      if (t?.closest?.('.ctx-menu') || (inside && t?.closest?.(inside))) return
+      close()
+    }
     if (inside) window.addEventListener('pointerdown', onDown, true)
     else window.addEventListener('click', onDown)
+    window.addEventListener('contextmenu', onRight, true)
     window.addEventListener('keydown', onKey)
     return () => {
       if (inside) window.removeEventListener('pointerdown', onDown, true)
       else window.removeEventListener('click', onDown)
+      window.removeEventListener('contextmenu', onRight, true)
       window.removeEventListener('keydown', onKey)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
