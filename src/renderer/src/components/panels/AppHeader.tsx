@@ -21,6 +21,7 @@ import { useLibraryCtx } from '../../state/libraryContext'
 import { useHeader } from '../../state/headerContext'
 import type { JSX } from 'react'
 import { MenuBar } from '../MenuBar'
+import { useBackupMenuRow } from './useBackupMenuRow'
 import { formatCombo } from '../../../../shared/shortcuts'
 import { useToastCtx } from '../../state/toastContext'
 import { useExportCtx } from '../../state/exportContext'
@@ -52,6 +53,7 @@ export function AppHeader(): JSX.Element {
   const { recentProjects, newTelopStyle, setNewTelopStyle } = useProjectStateCtx()
   const { cues, setCues } = useDoc()
   const { selectedIds } = useSel()
+  const backupRow = useBackupMenuRow()
   /**
    * 書字方向を切り替える。
    *
@@ -202,6 +204,8 @@ export function AppHeader(): JSX.Element {
           void saveProjectFn(true)
         }
       },
+      // 時刻つきのバックアップから選んで戻す（./useBackupMenuRow）
+      backupRow,
       { kind: 'sep' },
       {
         kind: 'item',

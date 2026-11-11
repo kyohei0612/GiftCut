@@ -162,6 +162,26 @@ export default async function (C) {
     await page.waitForTimeout(400)
   })
 
+  // 素材は 5秒×3本で、2本目の上に「ふたつめ」(6〜8秒)が載っている（e2e/lib/e2eFixture）。
+  // 1本目と3本目を複製すると並びは 1・1'・2・3・3' になり、2本目は 5秒後ろへ動く。
+  // 前は「最後に選んだ切片より後ろ」しか送らなかったので、間のテロップが置き去りになった
+  await check('離れた本編を2本選んで複製しても、間のテロップが映像についていく', async () => {
+    await resetProject()
+    await v1Clips().nth(0).click()
+    await v1Clips().nth(2).click({ modifiers: ['Control'] })
+    const sel = await v1Clips().evaluateAll((els) => els.map((e) => e.classList.contains('clip-selected')))
+    assert(JSON.stringify(sel) === '[true,false,true]', `1本目と3本目が選べていない（${JSON.stringify(sel)}）`)
+    await page.keyboard.press('Control+d')
+    await page.waitForTimeout(600)
+    assert((await v1Clips().count()) === 5, `本編が5本になっていない（${await v1Clips().count()}本）`)
+    const box0 = await v1Clips().first().boundingBox()
+    const pxPerSec = box0.width / 5
+    const tel = page.locator('.telop-clip[title="ふたつめ"]').first()
+    assert(await tel.count(), '「ふたつめ」のテロップが無い')
+    const at = +(((await tel.boundingBox()).x - box0.x) / pxPerSec).toFixed(1)
+    assert(Math.abs(at - 11) <= 0.2, `2本目に載っていたテロップが 6 + 5 = 11秒へ送られていない（${at}秒）`)
+  })
+
   // 本人（2026-11-12）「動画をダブルクリックしたら配置されて2度と元に戻れない」。
   // 動画が1本も無いとき、素材ビンのダブルクリックは動画を開いて先頭に並べる。前は
   // そこで**履歴を全部捨てていた**ので、置く前にも、その前の手にも戻れなかった

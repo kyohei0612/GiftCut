@@ -120,6 +120,12 @@ export function useAutosaveDraft(): void {
           window.giftcut?.lastCrash?.(),
           window.giftcut?.startupProjectPath?.()
         ])
+        // **落ちた後に .gcproj から開いたときは、聞かない代わりに戻し方を言う**（2026-11-12）。
+        // 前は黙って進み、開いたプロジェクトの自動保存で下書きが上書きされて消えていた
+        if (crash?.crashed && startup)
+          showToast(
+            '前回は正常に終わりませんでした。保存していなかった作業は、ファイル →「バックアップから復元」から戻せます。'
+          )
         if (!crash?.crashed || startup) return
         const when = (ms?: number): string | undefined =>
           ms ? new Date(ms).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' }) : undefined
@@ -155,7 +161,10 @@ export function useAutosaveDraft(): void {
     return window.giftcut.onCloseRequest(() => {
       void askConfirm({
         title: '保存していない変更があります',
-        body: '閉じると、最後の保存以降の変更は自動保存の下書きにだけ残ります。次回の起動時に復元できます。',
+        // **「次回の起動時に復元できます」とは書かない**（2026-11-12）。起動時に聞くのは
+        // 落ちたときだけにした（10-11）ので、あの文は嘘になっていた。戻す入口は
+        // ファイルメニューのバックアップ（components/panels/useBackupMenuRow）
+        body: '閉じると、最後の保存以降の変更はバックアップにだけ残ります。あとで戻すときは、ファイル →「バックアップから復元」から選んでください。',
         okLabel: '保存せずに閉じる',
         cancelLabel: '閉じない',
         danger: true

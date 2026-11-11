@@ -3,7 +3,7 @@
 // `07-保存とプロジェクト.mjs` から出した（決まり: 600超は500以下に割る）。
 // 章「2. 保存とプロジェクトの切り替え」を名乗るのはここ。入口は ./07-保存とプロジェクト.mjs
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 
@@ -52,6 +52,55 @@ export default async function (C) {
       Array.isArray(saved.segments) && saved.segments.length > 0,
       `下書きの中身が空: ${Object.keys(saved).join(',')}`
     )
+    touchedRef.dirty = true
+  })
+
+  // 本人（2026-11-12）「復元ができない。自動保存があるのに全く役に立たなかった」。
+  // 下書きは2世代しか無く、復元を聞くのも落ちたときだけだった。時刻つきのバックアップを
+  // 貯めて、**落ちていなくても**ファイルメニューから選んで戻せるようにした
+  //（main/projectBackups）。ここは上の項目が縮めた自動保存の間隔（1.5秒）のまま使う
+  await check('全部消して自動保存されたあとでも、ファイルメニューのバックアップから消す前へ戻せる', async () => {
+    const dir = join(fx.userData, 'backups')
+    const backups = () =>
+      (existsSync(dir) ? readdirSync(dir) : [])
+        .filter((f) => f.endsWith('.gcproj'))
+        .map((f) => JSON.parse(readFileSync(join(dir, f), 'utf-8')).segments?.length ?? -1)
+    const waitFor = async (pred, what) => {
+      for (let i = 0; i < 24; i++) {
+        if (pred(backups())) return
+        await page.waitForTimeout(500)
+      }
+      assert(false, `${what}（いまあるバックアップの本編の本数: ${JSON.stringify(backups())}）`)
+    }
+    const n0 = await v1Clips().count()
+    assert(n0 > 0, '本編が無い（準備が成立していない）')
+    // 何か編集して、消す前を1つ残させる。**本編は動かさない**——動かすと頭に空きができ、
+    // 下の F が「全部消す」より先に「再生ヘッドの空きを詰める」で終わる
+    await resetProject()
+    await page.locator('.telop-clip').first().click()
+    await page.keyboard.press('Delete')
+    await waitFor((b) => b.includes(n0), `本編${n0}本のバックアップが書かれない`)
+    // 全部消して詰める（タイムラインが空になる＝壊した状態）
+    await page.keyboard.press('Control+a')
+    await page.keyboard.press('f')
+    await page.waitForTimeout(500)
+    assert((await v1Clips().count()) === 0, '全部消せていない（準備が成立していない）')
+    await waitFor((b) => b.includes(0), '消した後の状態がバックアップに書かれない')
+    assert(backups().includes(n0), '消した後の自動保存で、消す前のバックアップが無くなった')
+    // ファイル → バックアップから復元 → 消す前（本編 n0 本）のうち、いちばん新しい物
+    await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
+    const sub = page.locator('.menu-drop-sub', { hasText: 'バックアップから復元' })
+    assert(await sub.count(), 'ファイルメニューに「バックアップから復元」が無い')
+    await sub.first().click()
+    const row = page.locator('.menu-subdrop .menu-drop-recent', { hasText: `本編${n0}・` })
+    assert(await row.count(), `一覧に「本編${n0}」のバックアップが出ていない`)
+    await row.first().click()
+    await page.waitForTimeout(400)
+    const cont = page.locator('.modal-btn', { hasText: 'このまま続ける' })
+    if (await cont.count()) await cont.click()
+    await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 15000 })
+    await page.waitForTimeout(600)
+    assert((await v1Clips().count()) === n0, `バックアップを開いても本編が ${n0}本に戻らない（${await v1Clips().count()}本）`)
     touchedRef.dirty = true
   })
 

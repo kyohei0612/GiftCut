@@ -27,6 +27,7 @@
 // - `projectJson` … いまの中身を丸ごと文字列にする（保存と自動保存で共通）
 // - `saveProjectFn` … 保存する。**保留中の履歴を先に確定させてから**書く
 // - `openProjectFn` … ファイルを開く。未保存があれば先に確かめる
+// - `openBackupFn` … バックアップ（時刻つきの写し）を**名前なしで**開く
 // ※ 流し込む（`applyProjectData`）は ./useProjectApply へ出した。**同じ名前で返している**
 // ※ templateMerge / telopTemplates の保存系は ./useProjectTemplates へ一緒に出た
 //    （混ぜる話はテンプレートを当てるときにしか出てこない）。
@@ -216,6 +217,24 @@ export function useProjectFile(deps: UseProjectFileDeps) {
     if (res.path) rememberProject(res.path)
   }
 
+  /**
+   * バックアップ（時刻つきの写し。main/projectBackups）を開く。
+   *
+   * **名前なしで開く**（保存先を引き継がない）。引き継ぐと、古い状態を覗いただけの
+   * つもりの Ctrl+S が、いまのプロジェクトファイルを古い中身で上書きする。
+   * 残したければ自分で保存先を選ぶ。開く前のいまの中身も、未保存なら確かめる
+   */
+  async function openBackupFn(id: string): Promise<void> {
+    if (!(await confirmDiscard('バックアップを開く'))) return
+    const res = await window.giftcut.readBackup(id)
+    if (!res?.ok || !res.data) {
+      showToast('バックアップを開けませんでした:\n' + (res?.error ?? '不明なエラー'), 'error')
+      return
+    }
+    await applyProjectData(res.data, !!res.videoExists, null)
+    showToast('バックアップを開きました。残すには「プロジェクトを保存」で保存先を選んでください。')
+  }
+
   // テンプレJSON＝プロジェクトタブ(メディアビン)＋テロップ設定(フォルダ/お気に入り/カテゴリ)＋比率/アイコン。
   // タイムライン(カット/配置=cues/segments/seClips/videoPath)は含めない。
 
@@ -227,5 +246,5 @@ export function useProjectFile(deps: UseProjectFileDeps) {
 
   // **返すのは、外が本当に受け取っている物だけ。**
   // return の中は noUnusedLocals が見ないので、放っておくと静かに増える。
-  return { projectJson, saveProjectFn, openProjectFn, applyProjectData }
+  return { projectJson, saveProjectFn, openProjectFn, openBackupFn, applyProjectData }
 }

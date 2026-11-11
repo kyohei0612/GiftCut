@@ -36,6 +36,8 @@ import { allowProjectMedia } from './allowProjectMedia'
 import { registerPackHandlers } from './projectPackIpc'
 import { registerTemplateHandlers } from './projectTemplates'
 import { registerSrtHandlers } from './srtExport'
+// 時刻つきのバックアップ（さかのぼるための履歴。下書きの2世代とは別）
+import { registerBackupHandlers, writeBackup } from './projectBackups'
 
 // ---- 窓ごとの物（2026-10-12・窓を複数にした）----
 //
@@ -136,12 +138,21 @@ export function registerProjectFileHandlers(): void {
         target = save.filePath
       }
       try {
+        // **上書きされる前の中身を残す**（./projectBackups）。壊れた状態で保存しても戻れるように
+        if (existsSync(target)) {
+          try {
+            writeBackup(readFileSync(target, 'utf-8'), 'prev')
+          } catch {
+            /* 読めなくても保存は続ける */
+          }
+        }
         // 一時ファイルへ書いてから rename（書き込み中のクラッシュ/電源断で本体を壊さない）
         const tmpFile = target + '.tmp'
         writeFileSync(tmpFile, json, 'utf-8')
         renameSync(tmpFile, target)
         // 保存したものが壊れていないかを毎回検査する（保存自体は止めない）
         inspectProject(json, 'save')
+        writeBackup(json, 'save')
         return { ok: true, path: target }
       } catch (e) {
         return { ok: false, error: String(e) }
@@ -168,6 +179,8 @@ export function registerProjectFileHandlers(): void {
       }
       renameSync(tmpFile, dst)
       inspectProject(json, 'autosave')
+      // さかのぼるための履歴にも残す（下書きは2世代しか無い。./projectBackups）
+      writeBackup(json, 'auto')
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }
@@ -239,4 +252,5 @@ export function registerProjectFileHandlers(): void {
   registerPackHandlers()
   registerTemplateHandlers()
   registerSrtHandlers()
+  registerBackupHandlers()
 }

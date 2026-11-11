@@ -242,6 +242,12 @@ export interface GiftcutApi {
     onlyPrev?: boolean
   }>
   autosaveClear: () => Promise<{ ok: boolean }>
+  /** 時刻つきのバックアップの一覧（新しい順・直近ぶん）。main/projectBackups */
+  listBackups: () => Promise<import('../shared/backupPrune').BackupInfo[]>
+  /** バックアップを1つ読む。`id` は一覧の `id` */
+  readBackup: (
+    id: string
+  ) => Promise<{ ok: boolean; data?: unknown; videoExists?: boolean; error?: string }>
   setDirty: (dirty: boolean) => void
   /** ウィンドウを閉じる要求。戻り値は購読解除。確認後は confirmClose を呼ぶ。 */
   onCloseRequest: (fn: () => void) => () => void

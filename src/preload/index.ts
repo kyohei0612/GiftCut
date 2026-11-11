@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { BackupInfo } from '../shared/backupPrune'
 
 interface ExportFrame {
   png: string
@@ -401,6 +402,12 @@ const api = {
     onlyPrev?: boolean
   }> => ipcRenderer.invoke('project:autosaveCheck'),
   autosaveClear: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('project:autosaveClear'),
+  // 時刻つきのバックアップ（main/projectBackups）。一覧と、1つ読む
+  listBackups: (): Promise<BackupInfo[]> => ipcRenderer.invoke('project:backups'),
+  readBackup: (
+    id: string
+  ): Promise<{ ok: boolean; data?: unknown; videoExists?: boolean; error?: string }> =>
+    ipcRenderer.invoke('project:backupRead', id),
   // 未保存の変更があるかをメインへ通知（ウィンドウを閉じるときの確認に使う）
   setDirty: (dirty: boolean): void => ipcRenderer.send('project:dirty', dirty),
   // 閉じる要求。確認はアプリ内のモーダルで行い、了承したら confirmClose を返す。
