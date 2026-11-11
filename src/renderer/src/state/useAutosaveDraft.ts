@@ -83,6 +83,18 @@ export function useAutosaveDraft(): void {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // **確認（e2e）が、いまの中身を読める口。** 画面の帯の位置では「戻したら本当に同じ中身か」を
+  // 比べ切れない（拡大率やスクロールでも動く）。下書きに書くのと同じ文字列をそのまま返す。
+  // 読むだけで、アプリ自身は使わない（e2e/checks/05 の「戻す・やり直すの総当たり」）
+  useEffect(() => {
+    const w = window as unknown as { __gcProjectJson?: () => string }
+    w.__gcProjectJson = () => currentJsonRef.current()
+    return () => {
+      delete w.__gcProjectJson
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // 終了/リロード直前に、その時点の内容を自動保存へ流し込む。
   // （間隔タイマーだけだと、閉じた瞬間に最大その間隔ぶんの編集が無警告で消える）
   // ※ここでは閉じるのをキャンセルしない（Electronでは無言で閉じられなくなるため）。

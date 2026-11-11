@@ -24,7 +24,7 @@
 // 素通りして、見ていない場所のクリップが消える事故があった。
 
 import { useEffect, useRef } from 'react'
-import { resolveShortcut, shouldBlur } from '../../../shared/keymap'
+import { blursOnEnter, resolveShortcut, shouldBlur } from '../../../shared/keymap'
 import { vcLen } from '../../../shared/timeline'
 import type { ShortcutId, Shortcuts } from '../../../shared/shortcuts'
 import { useDoc } from './contentContext'
@@ -200,6 +200,9 @@ export function useKeyboard(): void {
   keyHandlerRef.current = (e: KeyboardEvent): void => {
     const el = e.target as HTMLElement | null
     const target = { tag: el?.tagName, type: (el as HTMLInputElement | null)?.type }
+    // 数値欄は Enter で確定したら手放す（その後の Ctrl+Z をアプリへ届かせる。shared/keymap）。
+    // キーそのものは止めない——欄や囲いが Enter を見ていることがある
+    if (blursOnEnter(target, e.key)) el?.blur()
     const id = resolveShortcut(e, target, {
       shortcuts: deps.shortcuts,
       capturing: deps.capturing,

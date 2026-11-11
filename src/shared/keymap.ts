@@ -80,6 +80,36 @@ export function isTypingTarget(t: KeyTarget): boolean {
  */
 const ALLOW_WHILE_TYPING = new Set(['saveProject'])
 
+/**
+ * 値を**選ぶだけ**の物か（ドロップダウン・チェック・ラジオ・色）。
+ *
+ * ここには「打った文字の取り消し」が無いので、元に戻す・やり直すをアプリへ通してよい。
+ * 2026-11-12 までは文字を打つ欄と同じ扱いで、**フォントを選んだ直後・チェックを入れた
+ * 直後は、別の所を押すまで Ctrl+Z が何も起こさなかった**（選んだ物にフォーカスが残る）。
+ * 本人「一番見るのは、やり直しが効かないみたいな挙動」。
+ * 数値欄は入れない——打っている数字の取り消しとぶつかる（下の ALLOW_WHILE_TYPING の説明）。
+ * 数値欄は Enter で確定したらフォーカスを手放す方で届かせる（`blursOnEnter`）
+ */
+export function isChoiceControl(t: KeyTarget): boolean {
+  if (t.tag === 'SELECT') return true
+  return t.tag === 'INPUT' && (t.type === 'checkbox' || t.type === 'radio' || t.type === 'color')
+}
+
+/** 選ぶだけの物の上でも通す操作 */
+const ALLOW_ON_CHOICE = new Set(['undo', 'redo'])
+
+/**
+ * Enter を押したら、その欄からフォーカスを手放すか。**数値欄だけ。**
+ *
+ * 数値欄は打つたびに反映していて、Enter は「これで決まり」の合図でしかない。なのに
+ * フォーカスが残るので、**値を入れた直後の Ctrl+Z が欄に吸われて効かなかった**。
+ * 手放せば次のキーはアプリへ届く。文字の欄（テロップの本文・名前）は対象外——
+ * あちらの Enter は改行や確定で、欄ごとに意味が違う
+ */
+export function blursOnEnter(t: KeyTarget, key: string): boolean {
+  return key === 'Enter' && t.tag === 'INPUT' && t.type === 'number'
+}
+
 /** 修飾キーの無い1文字か（"s" など、打てば文字になってしまう割り当て） */
 function isPlainCharacter(combo: string): boolean {
   const parts = combo.split('+')
@@ -136,7 +166,11 @@ export function resolveShortcut(
   // 文字を打っている最中は、打っている文字への操作でないものだけ通す。
   // どの操作かを決めてから見るのは、キー割当を変えられるから
   // （"ctrl+s" が保存とは限らない）。
-  if (isTypingTarget(target) && !isAllowedWhileTyping(id, combo)) return null
+  if (isTypingTarget(target) && !isAllowedWhileTyping(id, combo)) {
+    // 選ぶだけの物（ドロップダウン・チェック・色）の上では、元に戻す・やり直すも通す
+    const onChoice = isChoiceControl(target) && !!id && ALLOW_ON_CHOICE.has(id) && !isPlainCharacter(combo)
+    if (!onChoice) return null
+  }
   return id
 }
 

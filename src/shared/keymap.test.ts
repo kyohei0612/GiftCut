@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
+  blursOnEnter,
   comboFromEvent,
+  isChoiceControl,
   isSlider,
   isTypingTarget,
   resolveShortcut,
@@ -81,6 +83,37 @@ describe('文字を打っている最中でも保存だけは通す', () => {
     expect(resolveShortcut(key('z', { ctrlKey: true }), t, state())).toBeNull()
     expect(resolveShortcut(key('y', { ctrlKey: true }), t, state())).toBeNull()
     expect(resolveShortcut(key('z', { ctrlKey: true, shiftKey: true }), t, state())).toBeNull()
+  })
+
+  it('報告された不具合: フォントを選んだ直後・チェックを入れた直後でも、元に戻す・やり直すが効く', () => {
+    // 選ぶだけの物には「打った文字の取り消し」が無い。フォーカスが残るので、
+    // 前は別の所を押すまで Ctrl+Z が何も起こさなかった
+    const targets = [
+      { tag: 'SELECT' },
+      { tag: 'INPUT', type: 'checkbox' },
+      { tag: 'INPUT', type: 'radio' },
+      { tag: 'INPUT', type: 'color' }
+    ]
+    for (const t of targets) {
+      expect(isChoiceControl(t)).toBe(true)
+      expect(resolveShortcut(key('z', { ctrlKey: true }), t, state())).toBe('undo')
+      expect(resolveShortcut(key('y', { ctrlKey: true }), t, state())).toBe('redo')
+      expect(resolveShortcut(key('z', { ctrlKey: true, shiftKey: true }), t, state())).toBe('redo')
+      // 通すのは戻す・やり直すだけ（ドロップダウンは文字キーで項目を選ぶ）
+      expect(resolveShortcut(key('d'), t, state())).toBeNull()
+      expect(resolveShortcut(key('Delete'), t, state())).toBeNull()
+    }
+    // 元に戻すを1文字に割り当て直した人は、ドロップダウンの文字選びを優先する
+    const z = state({ shortcuts: { ...SHORTCUTS, undo: 'z' } })
+    expect(resolveShortcut(key('z'), { tag: 'SELECT' }, z)).toBeNull()
+  })
+
+  it('数値欄は Enter で確定したらフォーカスを手放す（その後の Ctrl+Z がアプリへ届く）', () => {
+    expect(blursOnEnter({ tag: 'INPUT', type: 'number' }, 'Enter')).toBe(true)
+    expect(blursOnEnter({ tag: 'INPUT', type: 'number' }, 'a')).toBe(false)
+    // 文字の欄の Enter は改行や確定で、欄ごとに意味が違うので触らない
+    expect(blursOnEnter({ tag: 'INPUT', type: 'text' }, 'Enter')).toBe(false)
+    expect(blursOnEnter({ tag: 'TEXTAREA' }, 'Enter')).toBe(false)
   })
 
   it('削除・再生・分割も、これまでどおり通さない', () => {
