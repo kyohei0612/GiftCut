@@ -25,12 +25,9 @@
 
 import { useEffect, useRef } from 'react'
 import { blursOnEnter, resolveShortcut, shouldBlur } from '../../../shared/keymap'
-import { vcLen } from '../../../shared/timeline'
 import type { ShortcutId, Shortcuts } from '../../../shared/shortcuts'
 import { useDoc } from './contentContext'
 import { useSel } from './selectionContext'
-import { useTracksCtx } from './tracksContext'
-import { useToastCtx } from './toastContext'
 import { usePlaybackStableCtx } from './playbackContext'
 // 下は `useKeyboardDeps` が集める先。**配線を通さず自分で見に行く**（2026-08-04）
 import { useAppChromeCtx } from './appChromeContext'
@@ -90,24 +87,16 @@ export interface UseKeyboardDeps {
   deleteSelectedTrans: () => void
   deleteSelectedTelopTrans: () => void
   deleteTrack: (id: string) => void
-  deleteSelected: () => void
-  /** 選んだ物を消して、同じ段の後ろを詰める（本編の切片以外） */
-  rippleDeleteSelected: () => void
-  deleteSelectedSE: () => void
-  deleteSelectedImg: () => void
-  deleteSelectedVClip: () => void
-  deleteVideoSegmentsLeavingGap: () => void
-
-  /** 選んでいる空きを詰める。詰めたら true */
-  closeSelectedGaps: () => boolean
-  /** 再生ヘッドの所の空きを詰める。詰めたら true */
-  closeGapAtPlayhead: () => boolean
-  rippleDeleteVideoSegments: () => void
+  /**
+   * 選んでいる物を消す／消して詰める／複製する。**右クリックの品書きと同じ物**
+   *（state/useSelectionEdit。種類ごとの振り分けはあちらに1つ）
+   */
+  deleteSelection: () => void
+  rippleDeleteSelection: () => void
+  duplicateSelection: () => void
   rippleToPrevCut: () => void
   rippleToNextCut: () => void
 
-  duplicateSelected: () => void
-  duplicateSelectedSegments: () => void
   cutAtPlayhead: () => void
   addTelop: () => void
   addMarkerAtPlayhead: () => void
@@ -140,13 +129,11 @@ function useKeyboardDeps(): UseKeyboardDeps {
   const { copySelected, pasteClipboard } = useCopyPasteCtx()
   const { copyAttributes, pasteAttributes } = useAttrCopyCtx()
   const {
-    cutSelected, deleteSelected, rippleDeleteSelected, deleteSelectedSE, deleteVideoSegmentsLeavingGap,
-    closeSelectedGaps, closeGapAtPlayhead, rippleDeleteVideoSegments,
-    rippleToPrevCut, rippleToNextCut, duplicateSelected, duplicateSelectedSegments,
-    cutAtPlayhead
+    cutSelected, deleteSelection, rippleDeleteSelection, duplicateSelection,
+    rippleToPrevCut, rippleToNextCut, cutAtPlayhead
   } = useTimelineEditCtx()
   const { undo, redo } = useHistoryCtx()
-  const { removeMedia, deleteSelectedImg, deleteSelectedVClip } = useMediaDropCtx()
+  const { removeMedia } = useMediaDropCtx()
   const { deleteMarker, addMarkerAtPlayhead } = useMarkersCtx()
   const { deleteSelectedTrans } = useTransitionsCtx()
   const { deleteSelectedTelopTrans } = useTelopAnimCtx()
@@ -172,27 +159,22 @@ function useKeyboardDeps(): UseKeyboardDeps {
     togglePlay, shuttleForward, shuttleReverse, stopPlayback, seekTo, contentEndRef,
     copyAttributes, pasteAttributes, copySelected, cutSelected, pasteClipboard, undo, redo,
     removeMedia, deleteMarker, deleteSelectedTrans, deleteSelectedTelopTrans, deleteTrack,
-    deleteSelected, rippleDeleteSelected, deleteSelectedSE, deleteSelectedImg, deleteSelectedVClip,
-    deleteVideoSegmentsLeavingGap,
-    closeSelectedGaps, closeGapAtPlayhead, rippleDeleteVideoSegments,
+    deleteSelection, rippleDeleteSelection, duplicateSelection,
     rippleToPrevCut, rippleToNextCut,
-    duplicateSelected, duplicateSelectedSegments, cutAtPlayhead, addTelop, addMarkerAtPlayhead,
+    cutAtPlayhead, addTelop, addMarkerAtPlayhead,
     saveProjectFn, openProjectFn, openExportDialog, zoomAtPlayhead
   }
 }
 
 export function useKeyboard(): void {
   const deps = useKeyboardDeps()
-  const { cues, segments, seClips, setSeClips, seIdCounter, imgClips, setImgClips, imgIdCounter, vClips, setVClips, vClipIdCounter } = useDoc()
+  const { cues, segments, seClips, imgClips, vClips } = useDoc()
   const {
-    selectedIds, setSelectedIds, setSelectedVideoIds, setSelectedAudioIds,
-    selectedSeIds, setSelectedSeIds, selectedImgIds, setSelectedImgIds,
-    selectedVClipIds, setSelectedVClipIds, selectedVideoIds,
+    setSelectedIds, setSelectedVideoIds, setSelectedAudioIds,
+    setSelectedSeIds, setSelectedImgIds, setSelectedVClipIds,
     selectedTrans, selectedTelopTrans, selectedTrackId, selectedMarkerId, selectedMediaId,
-    setEditingId, anySegSelected, clearAll: clearAllSelections
+    setEditingId, clearAll: clearAllSelections
   } = useSel()
-  const { trackStates } = useTracksCtx()
-  const { showToast } = useToastCtx()
   const { currentTimeRef, durationRef, fpsRef } = usePlaybackStableCtx()
 
   // **中身は毎回作り直されるが、聞き耳は張り替えない。** ref に最新を入れる
@@ -272,16 +254,9 @@ export function useKeyboard(): void {
           deps.deleteTrack(selectedTrackId)
           return
         }
-        // 空きを選んでいるなら、D でも詰まる。
-        // 「消す」＝その空きが無くなるということなので、詰まるのが自然な結果になる
-        // （クリップを消したときに空きが残るのとは、意味が逆になる）。
-        if (deps.closeSelectedGaps()) return
-        if (selectedIds.length) deps.deleteSelected()
-        // 本編は消すだけ＝そこは空きになり、後ろのクリップもテロップも動かない
-        if (anySegSelected()) deps.deleteVideoSegmentsLeavingGap()
-        if (selectedSeIds.length) deps.deleteSelectedSE()
-        if (selectedImgIds.length) deps.deleteSelectedImg()
-        if (selectedVClipIds.length) deps.deleteSelectedVClip()
+        // 選んでいる物を全種類消す（空きを選んでいれば詰める。本編は空きが残る）。
+        // **右クリックの「削除」と同じ物**（state/useSelectionEdit の deleteSelection）
+        deps.deleteSelection()
       },
       rippleDel: () => {
         if (selectedMarkerId != null) {
@@ -300,24 +275,9 @@ export function useKeyboard(): void {
           deps.deleteTrack(selectedTrackId)
           return
         }
-        // 空きを選んでいるなら、まずそれを詰める（途中に別のクリップがあれば手前で止まる）
-        if (deps.closeSelectedGaps()) return
-        if (deps.closeGapAtPlayhead()) return
-        // **本編の切片を選んでいないなら、選んだ物を消して同じ段の後ろを詰める**
-        //（2026-10-04）。前は消すだけで空きが残り、映像レイヤー・効果音・画像では
-        // F が D と同じになっていた——「F が効かない」の片割れ。右クリックの
-        // 「削除して詰める」と同じ物（state/useSelectionEdit の rippleDeleteSelected）
-        if (!anySegSelected()) {
-          deps.rippleDeleteSelected()
-          return
-        }
-        // 本編の切片を選んでいるときは、詰めは切片が駆動する
-        //（テロップを独立して詰めると映像とズレるため。テロップ・SE・画像は消すだけ）
-        if (selectedIds.length) deps.deleteSelected()
-        deps.rippleDeleteVideoSegments()
-        if (selectedSeIds.length) deps.deleteSelectedSE()
-        if (selectedImgIds.length) deps.deleteSelectedImg()
-        if (selectedVClipIds.length) deps.deleteSelectedVClip()
+        // 空き・選んでいる物・再生ヘッドの空き、の順に詰める。**右クリックの
+        // 「削除して詰める」と同じ物**（state/useSelectionEdit の rippleDeleteSelection）
+        deps.rippleDeleteSelection()
       },
       rippleToPrevCut: () => deps.rippleToPrevCut(),
       rippleToNextCut: () => deps.rippleToNextCut(),
@@ -344,48 +304,9 @@ export function useKeyboard(): void {
       copy: () => deps.copySelected(),
       cut: () => deps.cutSelected(),
       paste: () => deps.pasteClipboard(),
-      duplicate: () => {
-        // ロック中トラックのクリップは複製しない（削除は守っているので揃える）
-        const lockedSel =
-          vClips.some((c) => selectedVClipIds.includes(c.id) && trackStates[c.track]?.locked) ||
-          imgClips.some((c) => selectedImgIds.includes(c.id) && trackStates[c.track]?.locked) ||
-          seClips.some((c) => selectedSeIds.includes(c.id) && trackStates[c.track]?.locked)
-        if (lockedSel) {
-          showToast('このトラックはロックされています。')
-          return
-        }
-        if (selectedVClipIds.length) {
-          const dupes = vClips
-            .filter((c) => selectedVClipIds.includes(c.id))
-            .map((c) => ({
-              ...c,
-              id: vClipIdCounter.current++,
-              tStart: c.tStart + vcLen(c)
-            }))
-          setVClips((prev) => [...prev, ...dupes])
-          setSelectedVClipIds(dupes.map((d) => d.id))
-          return
-        }
-        if (selectedImgIds.length) {
-          // 画像は「直後に同じ長さで複製」（動画切片の複製と同じ考え方）
-          const dupes = imgClips
-            .filter((c) => selectedImgIds.includes(c.id))
-            .map((c) => ({ ...c, id: imgIdCounter.current++, tStart: c.tStart + c.duration }))
-          setImgClips((prev) => [...prev, ...dupes])
-          setSelectedImgIds(dupes.map((d) => d.id))
-          return
-        }
-        if (selectedSeIds.length) {
-          const dupes = seClips
-            .filter((c) => selectedSeIds.includes(c.id))
-            .map((c) => ({ ...c, id: seIdCounter.current++, tStart: c.tStart + c.duration }))
-          setSeClips((prev) => [...prev, ...dupes])
-          setSelectedSeIds(dupes.map((d) => d.id))
-          return
-        }
-        if (selectedVideoIds.length) deps.duplicateSelectedSegments()
-        else if (!anySegSelected()) deps.duplicateSelected()
-      },
+      // **右クリックの「複製」と同じ物**（state/useSelectionEdit の duplicateSelection）。
+      // 前はここに同じ処理の写しがあり、「組」の番号を振り直していなかった
+      duplicate: () => deps.duplicateSelection(),
       // 何も選んでいなければ再生ヘッドの位置を全部、選んでいればその物だけ。
       // 判断は cutAtPlayhead が1か所で持つ（ここで種類ごとに分けない）
       split: () => deps.cutAtPlayhead(),

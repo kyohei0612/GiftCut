@@ -104,7 +104,7 @@ export default async function (C) {
     await imgs.nth(0).click()
     await imgs.nth(0).click({ button: 'right' })
     await page.waitForSelector('.ctx-menu')
-    await page.locator('.ctx-item', { hasText: 'リップル削除' }).first().click()
+    await page.locator('.ctx-item', { hasText: '削除して詰める' }).first().click()
     await page.waitForTimeout(600)
     const xs2 = await imgs.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x)))
     assert(xs2.length === xs.length - 1, '画像が1つ減っていない')
@@ -122,13 +122,12 @@ export default async function (C) {
     await page.locator('.telop-clip').first().click()
     await page.locator('.telop-clip').first().click({ button: 'right' })
     await page.waitForSelector('.ctx-menu')
-    const item = page.locator('.ctx-item', { hasText: 'リップル削除' })
-    if (await item.count()) {
-      await item.first().click()
-      await page.waitForTimeout(500)
-    } else {
-      await page.keyboard.press('Escape')
-    }
+    const item = page.locator('.ctx-item', { hasText: '削除して詰める' })
+    // **無ければ落とす。** 前は無いと Escape で閉じて通していた——品書きの名前を変えた日に
+    // 「押していないので消えていない」で緑になる（CLAUDE.md 7番）
+    assert(await item.count(), '品書きに「削除して詰める」が無い（押せていないので、鍵を確かめられない）')
+    await item.first().click()
+    await page.waitForTimeout(500)
     assert((await page.locator('.telop-clip').count()) === n0, '鍵をかけたのに消えた')
     await lock.click()
     await page.waitForTimeout(300)

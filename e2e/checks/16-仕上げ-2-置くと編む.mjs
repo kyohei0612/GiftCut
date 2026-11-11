@@ -209,7 +209,7 @@ export default async function (C) {
     await lower.click()
     await lower.click({ button: 'right' })
     await page.waitForSelector('.ctx-menu')
-    await page.locator('.ctx-item', { hasText: 'リップル削除' }).first().click()
+    await page.locator('.ctx-item', { hasText: '削除して詰める' }).first().click()
     await page.waitForTimeout(600)
     const se1 = await page.locator('.se-clip').first().boundingBox()
     const img1 = await page.locator('.img-clip:not(.se-ghost)').first().boundingBox()

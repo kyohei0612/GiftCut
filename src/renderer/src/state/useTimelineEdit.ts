@@ -133,7 +133,12 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
   const selEdit = useSelectionEdit({
     copySelected, cueTrack, deleteSelectedImg, deleteSelectedVClip, idCounter,
     revealPlayhead, setTime, telopLocked, vcLen,
-    duplicateSelectedSegments: seg.duplicateSelectedSegments
+    duplicateSelectedSegments: seg.duplicateSelectedSegments,
+    // 「全種類を消す／消して詰める」が本編と空きも扱えるように貸す（決めるのはあちら）
+    deleteVideoSegmentsLeavingGap: seg.deleteVideoSegmentsLeavingGap,
+    rippleDeleteVideoSegments: seg.rippleDeleteVideoSegments,
+    closeSelectedGaps: gap.closeSelectedGaps,
+    closeGapAtPlayhead: gap.closeGapAtPlayhead
   })
   // 再生ヘッドを基準に詰める・割る（state/usePlayheadRipple）。
   // **心臓（collapseContent）と `razorSegment` は貸すだけ**
@@ -146,12 +151,11 @@ export function useTimelineEdit(deps: UseTimelineEditDeps) {
   // 受け取る側（useAppWiring・品書き・キー操作）を1行も書き換えずに済ませるため
   return {
     // 選んでいる物を消す・複製する（state/useSelectionEdit）
-    deleteSelected: selEdit.deleteSelected,
-    rippleDeleteSelected: selEdit.rippleDeleteSelected,
+    // **キーと右クリックが同じ3つを呼ぶ**（種類ごとの消し方・複製はもう外へ出さない）
+    deleteSelection: selEdit.deleteSelection,
+    rippleDeleteSelection: selEdit.rippleDeleteSelection,
+    duplicateSelection: selEdit.duplicateSelection,
     cutSelected: selEdit.cutSelected,
-    duplicateSelected: selEdit.duplicateSelected,
-    deleteSelectedSE: selEdit.deleteSelectedSE,
-    duplicateClipsFromMenu: selEdit.duplicateClipsFromMenu,
     // 再生ヘッドで詰める・割る（state/usePlayheadRipple）
     rippleToPrevCut: ripple.rippleToPrevCut,
     rippleToNextCut: ripple.rippleToNextCut,

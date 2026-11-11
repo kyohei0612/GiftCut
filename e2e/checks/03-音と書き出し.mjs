@@ -171,7 +171,26 @@ export default async function (C) {
     assert(a > -70, `そもそも音が入っていない（${a} dB）`)
     // 差が無音＝ダッキングが1つも効いていない
     assert(d > -70, `ダッキングの有無で音が変わっていない（差 ${d} dB）`)
-    assert(b <= a + 0.5, `ダッキングを入れたのに音が大きくなった（${a} → ${b} dB）`)
+    // **全体の平均では比べない**（2026-11-12）。書き出しの最後に全体の音量を揃える処理
+    //（loudnorm）があり、BGM を下げたぶん全体が持ち上がる。素材が入れ替わった日に
+    // 「入れたのに 0.9dB 大きくなった」で赤になった——フィルタには正しい指定
+    //（声の間は 0.0631倍）が出ていて、アプリは無罪だった。
+    // 見たいのは **BGM そのものが下がったか**。BGM は 880Hz のサイン波が 2〜4秒に
+    // 置いてある（e2e/lib/e2eFixture）ので、その高さ・その区間だけを抜いて比べる
+    const bgm = async (f) => {
+      const r = await sh('ffmpeg', [
+        '-hide_banner', '-i', f,
+        '-af', 'atrim=2.3:3.8,bandpass=f=880:width_type=h:w=40,volumedetect',
+        '-f', 'null', '-'
+      ])
+      const m = /mean_volume:\s*(-?[\d.]+) dB/.exec(r.err)
+      return m ? parseFloat(m[1]) : null
+    }
+    const ba = await bgm(before)
+    const bb = await bgm(after)
+    assert(ba !== null && bb !== null, 'BGM の大きさを測れなかった')
+    assert(ba > -50, `ダッキング前の BGM がそもそも入っていない（${ba} dB）＝比べられない`)
+    assert(bb <= ba - 6, `ダッキングを入れても BGM が下がっていない（${ba} → ${bb} dB。全体は ${a} → ${b} dB）`)
   })
 
   // =========================================================================

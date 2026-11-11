@@ -440,6 +440,96 @@ export default async function (C) {
     }
   })
 
+  // ---- 品書きとキーが同じ動きをする（2026-11-12）----
+  // 前は同じ操作が2か所に書いてあり、右クリックの削除・複製は「押した種類だけ」だった
+  //（見出しは全種類の数を出すのに）。テロップの品書きには複製もコピーも無かった。
+  // 道は state/useSelectionEdit の deleteSelection / duplicateSelection に1つ
+  const ctxItem = (re) => page.locator('.ctx-menu button').filter({ hasText: re }).first()
+  const counts = async () => ({
+    telop: await page.locator('.telop-clip').count(),
+    seg: await v1Clips().count(),
+    se: await page.locator('.se-clip').count(),
+    img: await page.locator('.img-clip:not(.se-ghost)').count()
+  })
+
+  await check('種類をまたいで選んで右クリックの「削除」を押すと、選んだ全種類が消える', async () => {
+    await resetProject()
+    const c0 = await counts()
+    assert(c0.telop && c0.seg && c0.se && c0.img, `4種類そろっていない（準備が成立していない）: ${JSON.stringify(c0)}`)
+    await page.keyboard.press('Control+a')
+    await page.waitForTimeout(300)
+    // 効果音から開く（前は「効果音だけ」が消えた側）
+    await page.locator('.se-clip').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const del = ctxItem(/^削除(?!して)/)
+    assert(await del.count(), '品書きに「削除」が無い')
+    await del.click()
+    await page.waitForTimeout(500)
+    const c1 = await counts()
+    assert(
+      !c1.telop && !c1.seg && !c1.se && !c1.img,
+      `右クリックの削除で、選んだ物が残っている: ${JSON.stringify(c1)}`
+    )
+  })
+
+  await check('テロップの品書きにも「複製」と「コピー」があり、複製は1枚増える', async () => {
+    await resetProject()
+    const n0 = (await counts()).telop
+    await page.locator('.telop-clip').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    assert(await ctxItem(/^コピー/).count(), 'テロップの品書きに「コピー」が無い')
+    const dup = ctxItem(/^複製/)
+    assert(await dup.count(), 'テロップの品書きに「複製」が無い')
+    await dup.click()
+    await page.waitForTimeout(500)
+    assert((await counts()).telop === n0 + 1, `複製してもテロップが増えない（${(await counts()).telop}枚）`)
+  })
+
+  await check('組にした物を Ctrl+D で複製すると、複製は元とは別の組になる（複製を動かしても元は動かない）', async () => {
+    await resetProject()
+    const groups = () =>
+      page.evaluate(() => {
+        const d = JSON.parse(window.__gcProjectJson())
+        return { cue: d.cues.map((c) => c.group ?? null), se: d.seClips.map((c) => c.group ?? null) }
+      })
+    // 全部選んで組にする（組に入るのはテロップ・効果音・画像。本編は入らない）
+    await page.keyboard.press('Control+a')
+    await page.waitForTimeout(300)
+    await page.locator('.se-clip').first().click({ button: 'right' })
+    await page.waitForSelector('.ctx-menu')
+    const nest = ctxItem(/ネストする/)
+    assert(await nest.count(), '品書きに「ネストする」が無い（準備が成立していない）')
+    await nest.click()
+    await page.waitForTimeout(500)
+    const g0 = await groups()
+    const orig = g0.se[0]
+    assert(
+      orig != null && g0.cue.length > 0 && g0.cue.every((g) => g === orig),
+      `組になっていない（準備が成立していない）: ${JSON.stringify(g0)}`
+    )
+    // 選択を外してから、組の1つを押す（組ごと選ばれる。**本編は選ばない**——
+    // 本編を選んでいると Ctrl+D は本編だけを複製する）
+    await page.keyboard.press('Escape')
+    await page.locator('.telop-clip').first().click()
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Control+d')
+    await page.waitForTimeout(600)
+    const g1 = await groups()
+    assert(
+      g1.cue.length === g0.cue.length * 2 && g1.se.length === g0.se.length * 2,
+      `組ごと複製されていない: ${JSON.stringify(g1)}`
+    )
+    assert(
+      g1.cue.filter((g) => g === orig).length === g0.cue.length && g1.se.filter((g) => g === orig).length === g0.se.length,
+      `複製が元と同じ組に入った（複製を動かすと元まで動く）: ${JSON.stringify(g1)}`
+    )
+    const fresh = [...new Set([...g1.cue, ...g1.se].filter((g) => g !== orig))]
+    assert(
+      fresh.length === 1 && fresh[0] != null,
+      `複製した物どうしが、新しい1つの組になっていない: ${JSON.stringify(g1)}`
+    )
+  })
+
   // 本人の使い方（2026-11-11）: 見せ場の本編を色で分ける → 同じ色をまとめて選ぶ →
   // 右クリックで「コピーを先頭に並べる」。素材は 5秒×3本で、1本目にだけ
   // テロップ・効果音・画像が載っている（e2e/lib/e2eFixture）。

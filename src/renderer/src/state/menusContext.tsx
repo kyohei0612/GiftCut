@@ -23,7 +23,6 @@ import { useClipboardCtx } from './clipboardContext'
 import { useCopyPasteCtx } from './copyPasteContext'
 import { useLabelsPresetsCtx } from './labelsPresetsContext'
 import { useLayout } from './layoutContext'
-import { useMediaDropCtx } from './mediaDropContext'
 import { useProjectStateCtx } from './projectStateContext'
 import { useShortcutPrefsCtx } from './shortcutPrefsContext'
 import { useSilenceDuckCtx } from './silenceDuckContext'
@@ -62,15 +61,13 @@ export interface MenusValue {
   setLabelFor: W['setLabelFor']
   labelCountFor: W['labelCountFor']
   selectByLabel: W['selectByLabel']
-  /** 編集の操作 */
-  deleteSelected: W['deleteSelected']
-  rippleDeleteSelected: W['rippleDeleteSelected']
-  deleteSelectedSE: W['deleteSelectedSE']
-  deleteSelectedImg: W['deleteSelectedImg']
-  deleteSelectedVClip: W['deleteSelectedVClip']
-  deleteVideoSegmentsLeavingGap: W['deleteVideoSegmentsLeavingGap']
-  rippleDeleteVideoSegments: W['rippleDeleteVideoSegments']
-  duplicateClipsFromMenu: W['duplicateClipsFromMenu']
+  /**
+   * 編集の操作。消す・消して詰める・複製は**キー操作と同じ物**
+   *（state/useSelectionEdit。選んでいる全種類に効く）
+   */
+  deleteSelection: W['deleteSelection']
+  rippleDeleteSelection: W['rippleDeleteSelection']
+  duplicateSelection: W['duplicateSelection']
   splitVideoAtPlayhead: W['splitVideoAtPlayhead']
   toggleBlankSelectedVideo: W['toggleBlankSelectedVideo']
   findSilences: W['findSilences']
@@ -101,11 +98,9 @@ export function useMenusValue() {
   const { customCats } = useProjectStateCtx()
   const { setLabelFor, labelCountFor, selectByLabel } = useLabelsPresetsCtx()
   const {
-    deleteSelected, rippleDeleteSelected, deleteSelectedSE, deleteVideoSegmentsLeavingGap,
-    rippleDeleteVideoSegments, duplicateClipsFromMenu, splitVideoAtPlayhead,
+    deleteSelection, rippleDeleteSelection, duplicateSelection, splitVideoAtPlayhead,
     toggleBlankSelectedVideo, findSilences
   } = useTimelineEditCtx()
-  const { deleteSelectedImg, deleteSelectedVClip } = useMediaDropCtx()
   const { silenceCut, setDuckOpen } = useSilenceDuckCtx()
   const { copySelected } = useCopyPasteCtx()
   const { copyAttributes, pasteAttributes, attrSummary } = useAttrCopyCtx()
@@ -115,9 +110,8 @@ export function useMenusValue() {
     menu, setMenu, clipMenu, setClipMenu, tabMenu, setTabMenu, tabOverflow, setTabOverflow,
     tplMenu, setTplMenu, clampMenu, TAB_DEFS, orderedTabs,
     pickTab, setTabOrder, isPopped, popPane, unpopPane, monitorTab, rightTab, customCats,
-    setLabelFor, labelCountFor, selectByLabel, deleteSelected,
-    rippleDeleteSelected, deleteSelectedSE, deleteSelectedImg, deleteSelectedVClip,
-    deleteVideoSegmentsLeavingGap, rippleDeleteVideoSegments, duplicateClipsFromMenu,
+    setLabelFor, labelCountFor, selectByLabel,
+    deleteSelection, rippleDeleteSelection, duplicateSelection,
     splitVideoAtPlayhead, toggleBlankSelectedVideo, findSilences, silenceCut, setDuckOpen,
     copySelected, copyAttributes, pasteAttributes, copiedAttrs, attrSummary, shortcuts
   }

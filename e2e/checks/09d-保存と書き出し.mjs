@@ -165,6 +165,10 @@ export default async function (C) {
     await val.fill('150')
     await val.press('Enter')
     await page.waitForTimeout(400)
+    // **Enter で数値欄はカーソルを手放すようになった**（2026-11-12。その後の Ctrl+Z を
+    // アプリへ届かせるため。shared/keymap の blursOnEnter）。この確認が見たいのは
+    // 「カーソルが欄にある間でも保存が届くか」なので、欄へ戻してから保存する
+    await val.focus()
     // ★ここで欄から出ない。カーソルを残したまま保存する
     const focused = await page.evaluate(
       () => (document.activeElement)?.className ?? ''

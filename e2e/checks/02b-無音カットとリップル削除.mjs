@@ -123,7 +123,8 @@ export default async function (C) {
   await check('効果音を右クリック →「リップル削除」が出る', async () => {
     await page.locator('.se-clip').first().click({ button: 'right' })
     await page.waitForSelector('.ctx-menu')
-    const item = page.locator('.ctx-item', { hasText: 'リップル削除' })
+    // 品書きの名前は「削除して詰める」（2026-11-12 に本編と同じ名前へ揃えた）
+    const item = page.locator('.ctx-item', { hasText: '削除して詰める' })
     assert(await item.count(), 'メニューに「リップル削除」が無い')
     await page.keyboard.press('Escape')
   })
@@ -134,7 +135,7 @@ export default async function (C) {
     await page.locator('.telop-clip').nth(0).click()
     await page.locator('.telop-clip').nth(0).click({ button: 'right' })
     await page.waitForSelector('.ctx-menu')
-    await page.locator('.ctx-item', { hasText: 'リップル削除' }).first().click()
+    await page.locator('.ctx-item', { hasText: '削除して詰める' }).first().click()
     await page.waitForTimeout(400)
     assert((await page.locator('.telop-clip').count()) === 1, '文字が1つになっていない')
     const rest = await page.locator('.telop-clip').first().boundingBox()

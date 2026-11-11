@@ -34,7 +34,9 @@
 // - `regroupCopies` … 複製した物の「組」を振り直す（元と混ざらないように）
 // - `duplicateSelected` … テロップを複製する
 // - `deleteSelectedSE` … 選んだ効果音を消す
-// - `duplicateClipsFromMenu` … 右クリックからの複製（種類ごと）
+// - `duplicateSelection` … 選んでいる物を複製する。**キーと右クリックが通る1つの道**
+// - `deleteSelection` … 選んでいる物を全種類消す（同上）
+// - `rippleDeleteSelection` … 選んでいる物を全種類消して詰める（同上）
 import { clamp, rippleShifted } from '../../../shared/timeline'
 import { nextGroupId, remapGroups } from '../../../shared/group'
 // 重なりの解決。**呼び方は state/cueOverwrite に1つだけ**（掴む側・貼り付けも同じ）
@@ -61,12 +63,19 @@ export interface UseSelectionEditDeps {
   vcLen: (c: VClip) => number
   /** 本編の切片を複製する。**state/useSegmentEdit の物を借りる**（持ち出さない） */
   duplicateSelectedSegments: () => void
+  /** 本編の切片を消して空きを残す／消して詰める（同じく state/useSegmentEdit） */
+  deleteVideoSegmentsLeavingGap: () => void
+  rippleDeleteVideoSegments: () => void
+  /** 選んでいる空き／再生ヘッドの空きを詰める。詰めたら true（state/useGapClose） */
+  closeSelectedGaps: () => boolean
+  closeGapAtPlayhead: () => boolean
 }
 
 export function useSelectionEdit(deps: UseSelectionEditDeps) {
   const {
     copySelected, cueTrack, deleteSelectedImg, deleteSelectedVClip, idCounter,
-    revealPlayhead, setTime, telopLocked, vcLen, duplicateSelectedSegments
+    revealPlayhead, setTime, telopLocked, vcLen, duplicateSelectedSegments,
+    deleteVideoSegmentsLeavingGap, rippleDeleteVideoSegments, closeSelectedGaps, closeGapAtPlayhead
   } = deps
   const {
     cues, setCues, seClips, setSeClips, seIdCounter,
@@ -74,7 +83,8 @@ export function useSelectionEdit(deps: UseSelectionEditDeps) {
   } = useDoc()
   const {
     selectedIds, setSelectedIds, selectedSeIds, setSelectedSeIds,
-    selectedImgIds, setSelectedImgIds, selectedVClipIds, setSelectedVClipIds, isSelected
+    selectedImgIds, setSelectedImgIds, selectedVClipIds, setSelectedVClipIds, isSelected,
+    selectedVideoIds, anySegSelected
   } = useSel()
   const { trackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
@@ -219,11 +229,12 @@ export function useSelectionEdit(deps: UseSelectionEditDeps) {
     return (g) => (g == null ? undefined : m.get(g))
   }
 
-  function duplicateSelected(): void {
+  /** テロップの複製。`rgIn` は、他の種類と一緒に複製するときの「組」の振り直し（duplicateSelection） */
+  function duplicateSelected(rgIn?: (g?: number) => number | undefined): void {
     if (!selectedIds.length) return
     if (cues.some((c) => isSelected(c.id) && telopLocked(c))) return
     const picked = cues.filter((c) => isSelected(c.id))
-    const rg = regroupCopies(picked)
+    const rg = rgIn ?? regroupCopies(picked)
     const dupes = picked.map((c) => {
       const len = c.end - c.start
       return {
@@ -265,56 +276,114 @@ export function useSelectionEdit(deps: UseSelectionEditDeps) {
 
 
 
+  // ---- キーと右クリックが通る、ただ1つの道（2026-11-12）----
+  //
+  // 前は**同じ操作が2か所に書いてあった**（キーは state/useKeyboard の中、右クリックは
+  // 品書きの中と duplicateClipsFromMenu）。片方だけ直るので食い違っていた:
+  //
+  //   複製   Ctrl+D は「組」の番号を振り直さない（複製を動かすと元まで動く）・最初に見つけた
+  //          1種類だけ／右クリックは振り直すが、押した種類だけ
+  //   削除   Delete は選んだ全種類／右クリックは押した種類だけ（見出しは全種類の数を出すのに）
+  //   詰める F は全種類／右クリックは本編なら本編だけ
+  //
+  // 種類をまたいだ選択は普通に起きる（範囲選択・Ctrl+A・同じ色をまとめて選択）。
+
   /**
-   * 右クリックの「複製」。選んでいるクリップを、自分のすぐ後ろに複製する。
-   * 種類ごとに置き場所も採番も違うので、ここで振り分ける
-   * （以前は右クリックメニューの中に直接書いてあった）。
+   * 選んでいる物を複製する（自分のすぐ後ろへ）。
+   *
+   * **本編を選んでいるときは本編だけ。** 本編の複製は後ろの中身を全部送るので、
+   * 載っている物の複製（自分の尻に置く）と同時にやると置き場所が食い違う。
+   * それ以外は、選んでいる4種類（テロップ・効果音・画像・映像レイヤー）を全部。
+   * 「組」の番号は4種類まとめて振り直す（種類をまたいだ組が、複製の側でも1つの組のまま）
    */
-  function duplicateClipsFromMenu(kind: 'seg' | 'se' | 'img' | 'vclip'): void {
-    if (kind === 'seg') {
+  function duplicateSelection(): void {
+    if (selectedVideoIds.length) {
       seg.duplicateSelectedSegments()
       return
     }
-    if (kind === 'vclip') {
-      const picked = vClips.filter((c) => selectedVClipIds.includes(c.id))
-      const rg = regroupCopies(picked)
-      const dupes = picked.map((c) => ({
-        ...c,
-        id: vClipIdCounter.current++,
-        tStart: c.tStart + vcLen(c),
-        group: rg(c.group)
+    // 本編を音声側だけで選んでいるときは何もしない（前からのキーの動き）
+    if (anySegSelected()) return
+    const pCue = cues.filter((c) => isSelected(c.id))
+    const pSe = seClips.filter((c) => selectedSeIds.includes(c.id))
+    const pImg = imgClips.filter((c) => selectedImgIds.includes(c.id))
+    const pVc = vClips.filter((c) => selectedVClipIds.includes(c.id))
+    // 鍵の掛かった段の物は複製しない（削除は守っているので揃える）
+    const lockedSel =
+      pCue.some(telopLocked) || [...pSe, ...pImg, ...pVc].some((c) => trackStates[c.track]?.locked)
+    if (lockedSel) {
+      showToast('このトラックはロックされています。')
+      return
+    }
+    const rg = regroupCopies([...pCue, ...pSe, ...pImg, ...pVc])
+    if (pVc.length) {
+      const dupes = pVc.map((c) => ({
+        ...c, id: vClipIdCounter.current++, tStart: c.tStart + vcLen(c), group: rg(c.group)
       }))
       setVClips((prev) => [...prev, ...dupes])
       setSelectedVClipIds(dupes.map((d) => d.id))
-      return
     }
-    if (kind === 'se') {
-      const picked = seClips.filter((c) => selectedSeIds.includes(c.id))
-      const rg = regroupCopies(picked)
-      const dupes = picked.map((c) => ({
-        ...c,
-        id: seIdCounter.current++,
-        tStart: c.tStart + c.duration,
-        group: rg(c.group)
+    if (pSe.length) {
+      const dupes = pSe.map((c) => ({
+        ...c, id: seIdCounter.current++, tStart: c.tStart + c.duration, group: rg(c.group)
       }))
       setSeClips((prev) => [...prev, ...dupes])
       setSelectedSeIds(dupes.map((d) => d.id))
+    }
+    if (pImg.length) {
+      const dupes = pImg.map((c) => ({
+        ...c, id: imgIdCounter.current++, tStart: c.tStart + c.duration, group: rg(c.group)
+      }))
+      setImgClips((prev) => [...prev, ...dupes])
+      setSelectedImgIds(dupes.map((d) => d.id))
+    }
+    duplicateSelected(rg)
+  }
+
+  /**
+   * 選んでいる物を消す（後ろは動かない。本編は空きが残る）。**全種類。**
+   * 空きを選んでいるなら、それを詰める（「消す」＝その空きが無くなる、なので）
+   */
+  function deleteSelection(): void {
+    if (closeSelectedGaps()) return
+    deleteSelected()
+    if (anySegSelected()) deleteVideoSegmentsLeavingGap()
+    deleteSelectedSE()
+    deleteSelectedImg()
+    deleteSelectedVClip()
+  }
+
+  /**
+   * 選んでいる物を消して詰める。**全種類。**
+   *
+   * 本編を選んでいるときは、詰めは本編が駆動する（載っている物を独立に詰めると映像と
+   * ずれるので、テロップ・効果音・画像は消すだけ）。選んでいなければ、同じ段の後ろを詰める。
+   *
+   * **選んでいる物が、再生ヘッドの空きより先。** 前は「再生ヘッドが空きの上に居ると、
+   * 選んだ物を消さずにその空きを詰めて終わり」だった（本編を動かした直後に全部選んで F を
+   * 押しても消えない。e2e の準備で踏んだ）。何も選んでいないときだけ、ヘッドの空きを詰める
+   */
+  function rippleDeleteSelection(): void {
+    if (closeSelectedGaps()) return
+    const anySel =
+      anySegSelected() || selectedIds.length || selectedSeIds.length ||
+      selectedImgIds.length || selectedVClipIds.length
+    if (!anySel) {
+      closeGapAtPlayhead()
       return
     }
-    const pickedImg = imgClips.filter((c) => selectedImgIds.includes(c.id))
-    const rgImg = regroupCopies(pickedImg)
-    const dupes = pickedImg.map((c) => ({
-      ...c,
-      id: imgIdCounter.current++,
-      tStart: c.tStart + c.duration,
-      group: rgImg(c.group)
-    }))
-    setImgClips((prev) => [...prev, ...dupes])
-    setSelectedImgIds(dupes.map((d) => d.id))
+    if (!anySegSelected()) {
+      rippleDeleteSelected()
+      return
+    }
+    deleteSelected()
+    rippleDeleteVideoSegments()
+    deleteSelectedSE()
+    deleteSelectedImg()
+    deleteSelectedVClip()
   }
 
   return {
-    deleteSelected, rippleDeleteSelected, cutSelected, regroupCopies,
-    duplicateSelected, deleteSelectedSE, duplicateClipsFromMenu
+    rippleDeleteSelected, cutSelected, regroupCopies,
+    deleteSelection, rippleDeleteSelection, duplicateSelection
   }
 }
