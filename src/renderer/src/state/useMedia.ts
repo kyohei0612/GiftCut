@@ -14,6 +14,17 @@
 //   videoPath … 書き出しに使う原本。**こちらは絶対に差し替えない**
 //
 // 一緒にすると、焼き直した粗い映像で書き出してしまう。
+//
+// ## 消した物は「控え」に残す（2026-11-12）
+//
+// 元に戻す（state/useHistory）は、タイムラインの中身を戻す。ところが置き場から
+// 素材を消すと、元動画の登録（sources）も置き場の札（mediaItems）もここから消える。
+// 前は消えたきりだったので、戻しても**指す先の動画が無い切片**だけが帰ってきていた
+// （本人「プロジェクトに入れた動画とかが、戻すで戻らない」）。
+//
+// → 一覧から外れた物を、外れた瞬間の中身（波形・尺・サムネ込み）で控えておく
+//   （`sourceGraveRef` / `mediaGraveRef`）。戻すときはここから生き返らせる
+//   （`state/useMainSource`）。**使うのは履歴だけ**。保存はしない。
 
 import { useEffect, useRef, useState } from 'react'
 import type { Source, VSeg } from '../lib/projectTypes'
@@ -56,6 +67,10 @@ export interface Media {
   sources: Source[]
   setSources: React.Dispatch<React.SetStateAction<Source[]>>
   sourcesRef: React.MutableRefObject<Source[]>
+  /** 一覧から外れた元動画の控え（id → 外れた瞬間の中身）。元に戻すが生き返らせる */
+  sourceGraveRef: React.MutableRefObject<Map<number, Source>>
+  /** 「いまこの瞬間」の原本のパス（元に戻すが、主が入れ替わったかを見る） */
+  videoPathRef: React.MutableRefObject<string | null>
   /**
    * 元動画を登録した時刻。掃除が「置く直前の物」を消す競合を防ぐ猶予に使う。
    *
@@ -82,12 +97,19 @@ export interface Media {
   /** 取り込んで並べてある素材（まだ使っていなくてよい） */
   mediaItems: MediaItem[]
   setMediaItems: React.Dispatch<React.SetStateAction<MediaItem[]>>
+  /** 「いまこの瞬間」の置き場の並び（履歴が控えを取るときに読む） */
+  mediaItemsRef: React.MutableRefObject<MediaItem[]>
+  /** 置き場から外れた素材の控え（id → 外れた瞬間の中身）。元に戻すが生き返らせる */
+  mediaGraveRef: React.MutableRefObject<Map<number, MediaItem>>
   mediaIdCounter: React.MutableRefObject<number>
 }
 
 export function useMedia(): Media {
   const [videoSrc, setVideoSrc] = useState<string | null>(null)
   const [videoPath, setVideoPath] = useState<string | null>(null)
+  // 描くたびに写す。読むのは「元に戻す」の押した瞬間で、そのときには描き終わっている
+  const videoPathRef = useRef<string | null>(null)
+  videoPathRef.current = videoPath
   const [videoName, setVideoName] = useState<string | null>(null)
   const [videoDuration, setVideoDuration] = useState(0)
   const videoDurationRef = useRef(0)
@@ -120,15 +142,31 @@ export function useMedia(): Media {
   const setSources: React.Dispatch<React.SetStateAction<Source[]>> = (v) => {
     // ※ **この1行を消すと本当に赤くなることを確かめてある**（2026-08-03）。
     //   useMedia.test.ts の3件が落ちる（写しが空のまま＝ここが唯一の更新経路）。
-    sourcesRef.current = typeof v === 'function' ? v(sourcesRef.current) : v
+    const prev = sourcesRef.current
+    const next = typeof v === 'function' ? v(prev) : v
+    // 外れた物を控える（冒頭「消した物は控えに残す」）。外れた瞬間の中身＝波形や尺が
+    // 入った後の物なので、生き返らせたとき解析をやり直さなくて済む
+    for (const s of prev) if (!next.some((n) => n.id === s.id)) sourceGraveRef.current.set(s.id, s)
+    sourcesRef.current = next
     setSourcesState(v)
   }
+  const sourceGraveRef = useRef<Map<number, Source>>(new Map())
   const sourceIdCounter = useRef(1)
   const curSourceIdRef = useRef<number | null>(null)
   const [activeSrcId, setActiveSrcId] = useState<number | null>(null)
 
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
   const mediaIdCounter = useRef(1)
+  // **元動画（setSources）と違って、書く側を包まない。** 置き場へ足す所は updater の
+  // 中で採番している（`mediaIdCounter.current++`）ので、こちらで updater をもう一度
+  // 呼ぶと番号が2つ進んで、写しと実物の id が食い違う。描くときに写す
+  const mediaItemsRef = useRef<MediaItem[]>([])
+  const mediaGraveRef = useRef<Map<number, MediaItem>>(new Map())
+  if (mediaItemsRef.current !== mediaItems) {
+    const now = new Set(mediaItems.map((m) => m.id))
+    for (const m of mediaItemsRef.current) if (!now.has(m.id)) mediaGraveRef.current.set(m.id, m)
+    mediaItemsRef.current = mediaItems
+  }
 
   // 「いまこの瞬間」の一覧を引く。掴んでいる最中も読むので state ではなく写しを見る
   const srcOfSeg = (seg: VSeg | undefined): Source | undefined => {
@@ -159,12 +197,16 @@ export function useMedia(): Media {
     sources,
     setSources,
     sourcesRef,
+    sourceGraveRef,
+    videoPathRef,
     sourceIdCounter,
     curSourceIdRef,
     activeSrcId,
     setActiveSrcId,
     mediaItems,
     setMediaItems,
+    mediaItemsRef,
+    mediaGraveRef,
     mediaIdCounter
   }
 }

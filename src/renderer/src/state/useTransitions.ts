@@ -149,8 +149,15 @@ export function useTransitions(deps: UseTransitionsDeps) {
     const z = zoomRef.current
     // 上限は**クリップ自身の長さだけ**（秒数の上限はやめた。`lib/transitions` の TRANS_MAX_SEC の説明）
     const cap = maxDur
+    // **3px 動くまでは長さを変えない。** 持ち手は細い帯だと帯をほぼ覆うので、
+    // 「選ぶつもりで押した」がここへ来る。手が1px ぶれただけで長さが変わると、
+    // 選ぶたびに演出の長さが少しずつ狂う（遊びは ◆ の `KeyMarks` と同じ 3px）
+    let moved = false
     const onMove = (ev: PointerEvent): void => {
-      apply(clamp(startDur + (sign * (ev.clientX - startX)) / z, 0.05, cap))
+      const dx = ev.clientX - startX
+      if (!moved && Math.abs(dx) < 3) return
+      moved = true
+      apply(clamp(startDur + (sign * dx) / z, 0.05, cap))
     }
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove)

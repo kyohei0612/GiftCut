@@ -25,7 +25,13 @@ export default async function (C) {
     //
     // 5分は待てないので、確認のときだけ間隔を縮められるようにしてある。
     const draft = join(fx.userData, 'giftcut-autosave.json')
-    rmSync(draft, { force: true })
+    // **開き直したあと復元する下書きは、ここで自分で書く。** 前は消すだけで、
+    // 閉じ際の書き直しに任せていた。中身が直前の下書きと同じだと書き直されないので、
+    // **1つ前の古い下書き**（前の章が途中で残した物）から復元してしまう。
+    // 2026-11-12、5章が「動画が置き場にあるだけで本編が空」を通るようになり、
+    // 直列の並びでここから下の5件が「本編が無い」で落ちた（アプリは無罪）
+    const wrote0 = await page.evaluate(() => window.giftcut.autosaveProject(window.__gcProjectJson()))
+    assert(wrote0?.ok !== false, '復元用の下書きを書けない（準備が成立していない）')
     await page.evaluate(() => localStorage.setItem('giftcut.autosaveMs', '1500'))
     await page.reload()
     await page.waitForSelector('.app', { timeout: 20000 })
@@ -35,6 +41,7 @@ export default async function (C) {
       await cont.first().click()
       await page.waitForTimeout(1200)
     }
+    assert((await v1Clips().count()) > 0, '開き直したあと本編が無い（準備が成立していない）')
     rmSync(draft, { force: true }) // 起動時に書かれた物は数えない
 
     await dragBy(v1Clips().nth(0), (await clipW()) * 0.3) // 何か編集する

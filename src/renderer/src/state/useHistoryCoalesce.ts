@@ -21,6 +21,7 @@ import { useDoc } from './contentContext'
 import { useTracksCtx } from './tracksContext'
 import { useExportCtx } from './exportContext'
 import { useHistoryCtx } from './historyContext'
+import { useMediaCtx } from './mediaContext'
 import type { Snap } from './useHistory'
 import type { Ratio } from './useExportSettings'
 
@@ -59,6 +60,11 @@ export function useHistoryCoalesce(): void {
   } = useDoc()
   const { tracks, tracksRef, trackStates, trackStatesRef } = useTracksCtx()
   const { ratio } = useExportCtx()
+  // 置き場の出し入れも1手にする。**id の並びを文字にして見張る**——配列そのものを
+  // 見張ると、サムネや尺が後から入るたびに待ち時間が延びる（中身の差し替えで
+  // 配列は毎回新しくなる）。写し（mediaItemsRef）は持ち主が描くときに更新済み
+  const { mediaItems } = useMediaCtx()
+  const mediaKey = mediaItems.map((m) => m.id).join(',')
 
   // cues / segments / seClips / markers / imgClips の変更を 450ms コアレスして1履歴にまとめる
   useEffect(() => {
@@ -89,5 +95,5 @@ export function useHistoryCoalesce(): void {
     return () => {
       if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current)
     }
-  }, [cues, segments, seClips, markers, imgClips, vClips, tracks, trackStates, ratio])
+  }, [cues, segments, seClips, markers, imgClips, vClips, tracks, trackStates, ratio, mediaKey])
 }

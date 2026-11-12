@@ -33,8 +33,6 @@ export interface UseMediaOpsDeps {
   /** 履歴の控え（読み込みで積み直すため） */
   baselineRef: React.MutableRefObject<Snap>
   redoStackRef: React.MutableRefObject<Snap[]>
-  pendingTimerRef: React.MutableRefObject<number | null>
-  undoStackRef: React.MutableRefObject<Snap[]>
   suppressHistoryRef: React.MutableRefObject<boolean>
   /** まだ確定していない変更を、その場で1つ積む（state/useHistory） */
   commitPending: () => void
@@ -43,10 +41,10 @@ export interface UseMediaOpsDeps {
 }
 
 export function useMediaOps(deps: UseMediaOpsDeps) {
-  const { stopPlayback, setTime, kindOf, setOpenAccSec, videoElsRef, proxyForPathRef, srcAddedAtRef, initializedForPathRef, baselineRef, redoStackRef, pendingTimerRef, undoStackRef, suppressHistoryRef, commitPending, pushUndo } = deps
-  const { setSegments, segIdCounter, cuesRef, segsRef, seClipsRef } = useDoc()
+  const { stopPlayback, setTime, kindOf, setOpenAccSec, videoElsRef, proxyForPathRef, srcAddedAtRef, initializedForPathRef, baselineRef, redoStackRef, suppressHistoryRef, commitPending, pushUndo } = deps
+  const { setSegments, segsRef } = useDoc()
   const { clearSegSel } = useSel()
-  const { setVideoPath, setVideoSrc, setVideoName, setWaveform, setThumbnailSrc, setSources, sourcesRef, sourceIdCounter, curSourceIdRef, setActiveSrcId, mediaItems, setMediaItems, mediaIdCounter } = useMediaCtx()
+  const { setVideoPath, setVideoSrc, setVideoName, setWaveform, setThumbnailSrc, setSources, sourcesRef, sourceIdCounter, curSourceIdRef, setActiveSrcId, mediaItems, mediaItemsRef, setMediaItems, mediaIdCounter } = useMediaCtx()
   const { showToast } = useToastCtx()
   const { setFps } = usePlaybackStableCtx()
 
@@ -96,38 +94,32 @@ export function useMediaOps(deps: UseMediaOpsDeps) {
   // placed=true: 切片は呼び出し側が置くので、読み込み時の自動配置（先頭に全長1本）はしない。
   async function loadVideo(path: string, opts?: { placed?: boolean }): Promise<void> {
     stopPlayback()
-    // **履歴を捨てるのは「前の動画がある＝差し替え」のときだけ**（2026-11-12・本人
-    // 「動画をダブルクリックしたら配置されて2度と元に戻れない」）。
+    // **履歴は捨てない。差し替えでも同じ**（2026-11-12・本人「動画をダブルクリックしたら
+    // 配置されて2度と元に戻れない」「アプリを開きっぱなしなら、戻し続ければ開いた状態
+    // まで戻れるのが理想」）。
     //
-    // 差し替えは素材の一覧（sources）を新しい1本に入れ替えるので、前の動画で作った
-    // カットを履歴から戻すと、指す先の動画が無い切片になって壊れる。だから捨てる
-    //（ファイルメニューの差し替えは、カットがあれば「破棄します」と確認を取ってから来る）。
+    // 前は、ここで履歴を全部捨てていた。差し替えは元動画の一覧（sources）を新しい
+    // 1本に入れ替えるので、前の動画で作ったカットを戻すと「指す先の動画が無い切片」に
+    // なって壊れたから。**いまは戻すときに元動画ごと生き返る**（`state/useMainSource` の
+    // reviveFor。外した元動画は `state/useMedia` が控えている）ので、捨てる理由が無い。
     //
-    // まだ動画が1本も無いとき（素材ビンのダブルクリック・最初の1本を落とす・最初の
-    // 読み込み）は、戻した先に壊れる切片が無い。前は**ここでも全部捨てていた**ので、
-    // 動画を置く前に打ったテロップの手順ごと戻れなくなっていた。
-    // → 「置く前」を1手として積む。置いた後の自動配置は札（suppressHistory）で
-    //   基準だけ進むので、Ctrl+Z 1回で置く前へ、続けて押せばその前の手へ戻る
-    const replacing = sourcesRef.current.length > 0
-    if (replacing) {
-      if (pendingTimerRef.current) {
-        clearTimeout(pendingTimerRef.current)
-        pendingTimerRef.current = null
-      }
-      undoStackRef.current = []
-      redoStackRef.current = []
-      baselineRef.current = { cues: cuesRef.current, segments: [], seClips: seClipsRef.current }
-    } else {
-      commitPending()
-      pushUndo(baselineRef.current)
-      redoStackRef.current = []
-    }
+    // → 「読み込む前」を1手として積む。そのときの主の元動画と置き場の並びも一緒に
+    //   控える（主は比べる対象に入っていないので、基準が古いままのことがある）。
+    //   置いた後の自動配置は札（suppressHistory）で基準だけ進むので、Ctrl+Z 1回で
+    //   読み込む前へ、続けて押せばその前の手へ戻る
+    commitPending()
+    pushUndo({
+      ...baselineRef.current,
+      media: mediaItemsRef.current,
+      mainSrcId: sourcesRef.current[0]?.id ?? null
+    })
+    redoStackRef.current = []
     segsRef.current = []
     suppressHistoryRef.current = true
     setSegments([])
     clearSegSel()
-    // 番号を1へ戻すのも差し替えのときだけ。履歴を残すなら、戻した先の切片と番号が重なる
-    if (replacing) segIdCounter.current = 1
+    // ※ 切片の番号（segIdCounter）は1へ戻さない。履歴を残すので、戻した先の切片と
+    //   番号が重なる
     setVideoSrc(toGcUrl(path))
     setVideoPath(path)
     setVideoName(path.split(/[\\/]/).pop() ?? null)

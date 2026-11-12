@@ -26,7 +26,7 @@ export interface MediaItem {
 const KIND_LABEL = { video: '動画', audio: 'SE / 音声', image: '画像' } as const
 const KIND_ICO = { video: '🎬', audio: '🔊', image: '🖼' } as const
 const KIND_HINT = {
-  video: 'タイムラインへドラッグ=置いた位置に配置（Ctrl=挿入）/ ダブルクリック=読み込み',
+  video: 'タイムラインへドラッグ=置いた位置に配置（Ctrl=挿入）',
   audio: 'タイムラインにドラッグでSE/BGM配置',
   image: 'タイムラインの映像トラック(V2/V3)へドラッグで画像を配置'
 } as const
@@ -120,7 +120,7 @@ export function ProjectBinTab({
   onImportSrt,
   onSelect,
   onSelectMany,
-  onOpenVideo,
+  onVideoHint,
   onRemove,
   onCutout,
   onDragStart,
@@ -158,8 +158,8 @@ export function ProjectBinTab({
    *（Ctrl のときだけ中身が入る＝足す）。
    */
   onSelectMany: (ids: number[], base: number[]) => void
-  /** 動画のダブルクリック（読み込み or 案内） */
-  onOpenVideo: (item: MediaItem) => void
+  /** 動画のダブルクリック。置かない——ドラッグで置く、と案内するだけ */
+  onVideoHint: () => void
   onRemove: (id: number) => void
   /** 画像の「透過」ボタン。背景を抜く窓を開く */
   onCutout: (item: MediaItem) => void
@@ -215,7 +215,7 @@ export function ProjectBinTab({
               他のタブには出ているのにここだけ無く、
               「置いたあと何ができるのか」がどこにも書いていなかった。 */}
           <div className="tpl-hint">
-            タイムラインへドラッグで配置／ダブルクリックで再生ヘッドへ／右クリックで送り先
+            タイムラインへドラッグで配置／音・画像はダブルクリックで再生ヘッドへ／右クリックで送り先
           </div>
           {KIND_ORDER.map((kind) => {
             const list = items.filter((m) => m.kind === kind)
@@ -269,10 +269,10 @@ export function ProjectBinTab({
                     }}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
-                      // 動画のダブルクリックは前からある「開く」のまま（意味を変えない）。
-                      // 音・画像は置き場所を指す必要が無いので、再生ヘッドへ足す。
-                      // ドラッグしないと置けないのは、ただの手間だった。
-                      if (m.kind === 'video') onOpenVideo(m)
+                      // **動画は置かない**（本人の指定・2026-11-12。置き方の案内だけ出す）。
+                      // 動画は本編の並びを変えるので、押しただけで入ると事故になる。
+                      // 音・画像は重ねるだけで他を動かさないので、再生ヘッドへ足す
+                      if (m.kind === 'video') onVideoHint()
                       else onAddAtPlayhead(m)
                     }}
                   >

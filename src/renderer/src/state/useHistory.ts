@@ -5,8 +5,21 @@
 // タイムラインに載っている物と、段の構成・比率まで。
 // **段を足して Ctrl+Z したのに、1つ前の別の操作が取り消される**、を防ぐため。
 //
-// 元動画（sources）は**控えない**。波形・焼き直し・尺は後から非同期で入る
+// 元動画（sources）は**そのままでは控えない**。波形・焼き直し・尺は後から非同期で入る
 // キャッシュなので、履歴に混ぜると Ctrl+Z で解析結果まで巻き戻って波形が消える。
+//
+// ## 素材の出し入れも戻せる（2026-11-12）
+//
+// 本人「プロジェクトに入れた動画とかが、戻すで戻らない」「アプリを開きっぱなしなら、
+// 保存しようが、戻し続ければ開いた状態まで戻れるのが理想」。
+//
+//   置き場の並び（`media`）    … **比べるのは id の並びだけ**。サムネや尺が後から
+//                                入っても「変わった」と数えない（1手に化けない）
+//   主の元動画（`mainSrcId`）  … srcId の無い切片が指す先。**比べない**（主が替わる
+//                                ときは切片か置き場も必ず変わるので、そちらで積まれる）
+//
+// 戻すときは、控えが指している元動画を「消した物の控え」から生き返らせる
+// （`state/useMainSource` の reviveFor・控えの持ち主は `state/useMedia`）。
 //
 // ## なぜ ref なのか
 //
@@ -20,6 +33,9 @@ import { useTracksCtx } from './tracksContext'
 import { usePlaybackStableCtx } from './playbackContext'
 import { useSel } from './selectionContext'
 import { useExportCtx } from './exportContext'
+import { useMediaCtx } from './mediaContext'
+import { useMainSource } from './useMainSource'
+import type { MediaItem } from '../components/panels/ProjectBinTab'
 import type { Cue } from '../lib/srt'
 import type { ImgClip, Marker, SEClip, Track, TrackState, VClip, VSeg } from '../lib/projectTypes'
 import type { Ratio } from './useExportSettings'
@@ -38,6 +54,10 @@ export interface Snap {
   tracks?: Track[]
   trackStates?: Record<string, TrackState>
   ratio?: Ratio
+  /** 置き場（プロジェクト）の並び。比べるのは id の並びだけ（冒頭の説明） */
+  media?: MediaItem[]
+  /** その時点の主の元動画。srcId の無い切片が指す先（冒頭の説明） */
+  mainSrcId?: number | null
   // ※sources は履歴に含めない。波形/プロキシ/尺は非同期で後追いで入るキャッシュなので、
   //   履歴に混ぜると Undo で解析結果まで巻き戻って波形が消える。
   //   参照されなくなったソースは専用の GC effect で片付ける。
@@ -79,6 +99,14 @@ export interface History {
   resetHistory: (base: Snap) => void
 }
 
+/** 置き場の並びが同じか。**id の並びだけ**で比べる（サムネ・尺の後入りを数えない） */
+export function sameMedia(a: MediaItem[], b: MediaItem[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i].id !== b[i].id) return false
+  return true
+}
+
 export function useHistory(deps: UseHistoryDeps): History {
   const { preparedRef, previewResRef, lastPaintRef, ratioRef } = deps
   const {
@@ -89,6 +117,8 @@ export function useHistory(deps: UseHistoryDeps): History {
   const { currentTimeRef, setCurrentTime } = usePlaybackStableCtx()
   const { setSelectedIds, setEditingId, clearSegSel } = useSel()
   const { setRatio } = useExportCtx()
+  const { mediaItemsRef, mediaGraveRef, setMediaItems, sourcesRef } = useMediaCtx()
+  const { reviveFor } = useMainSource()
   const undoStackRef = useRef<Snap[]>([])
   const redoStackRef = useRef<Snap[]>([])
   const baselineRef = useRef<Snap>({ cues: [], segments: [], seClips: [] })
@@ -146,7 +176,8 @@ export function useHistory(deps: UseHistoryDeps): History {
     vClipsRef.current !== (baselineRef.current.vClips ?? vClipsRef.current) ||
     tracksRef.current !== (baselineRef.current.tracks ?? tracksRef.current) ||
     trackStatesRef.current !== (baselineRef.current.trackStates ?? trackStatesRef.current) ||
-    ratioRef.current !== (baselineRef.current.ratio ?? ratioRef.current)
+    ratioRef.current !== (baselineRef.current.ratio ?? ratioRef.current) ||
+    !sameMedia(mediaItemsRef.current, baselineRef.current.media ?? mediaItemsRef.current)
   const snapNow = (): Snap => ({
     cues: cuesRef.current,
     segments: segsRef.current,
@@ -156,7 +187,9 @@ export function useHistory(deps: UseHistoryDeps): History {
     vClips: vClipsRef.current,
     tracks: tracksRef.current,
     trackStates: trackStatesRef.current,
-    ratio: ratioRef.current
+    ratio: ratioRef.current,
+    media: mediaItemsRef.current,
+    mainSrcId: sourcesRef.current[0]?.id ?? null
   })
 
   /**
@@ -189,7 +222,7 @@ export function useHistory(deps: UseHistoryDeps): History {
   /**
    * 控えを画面へ戻す（元に戻す・やり直すの、戻す側）。
    *
-   * **書き戻す相手は9種類ある。** 新しく控える物を足したら、必ずここへも足すこと。
+   * **書き戻す相手は10種類ある**（＋元動画の生き返らせ）。新しく控える物を足したら、必ずここへも足すこと。
    * 1つ忘れると、そこだけ戻らずに「Ctrl+Z したのに一部だけ残る」になる。
    *
    * 古い控え（markers や imgClips がまだ無かった頃の物）は、その項目が
@@ -212,6 +245,14 @@ export function useHistory(deps: UseHistoryDeps): History {
     if (s.tracks) setTracks(s.tracks)
     if (s.trackStates) setTrackStates(s.trackStates)
     if (s.ratio) setRatio(s.ratio)
+    // 置き場の並びを戻す。**中身は新しい方を使う**（いま在る物 → 消した物の控え →
+    // 控えを取った時点の物）。控えた時点の札はサムネや尺が入る前のことがある
+    if (s.media && !sameMedia(s.media, mediaItemsRef.current)) {
+      const cur = new Map(mediaItemsRef.current.map((m) => [m.id, m]))
+      setMediaItems(s.media.map((m) => cur.get(m.id) ?? mediaGraveRef.current.get(m.id) ?? m))
+    }
+    // 控えが指している元動画が消えていたら生き返らせ、主も合わせる
+    reviveFor(s.segments, s.mainSrcId)
     // 戻したあとも、残っている物は選んだままにする。
     // 毎回外すと、打っている最中に戻すたび選び直しになる（手数が増える）。
     // 消えた物だけ選択から外す。

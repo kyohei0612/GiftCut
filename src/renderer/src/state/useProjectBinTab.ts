@@ -22,7 +22,7 @@ import { useCutoutCtx } from './cutoutContext'
 export function useProjectBinTab() {
   const {
     rightBodyRef, srtPath, labelGroups, addFilesToProject, addFolderToProject,
-    handleImportSrt, addMediaAtPlayhead, loadVideo, removeMedia, beginMediaDrag,
+    handleImportSrt, addMediaAtPlayhead, removeMedia, beginMediaDrag,
     draggingMediaRef, selectByLabel, genThumbFor, prepareMediaMeta
   } = useRightPanel()
   // 置き場（★・フォルダ・畳み）は**配線を通さず、直に見に行く**
@@ -71,13 +71,14 @@ export function useProjectBinTab() {
     onSelectMany: (ids: number[], base: number[]): void =>
       setSelectedMediaIds([...new Set([...base, ...ids])]),
     /**
-     * ダブルクリック。**何も読み込んでいなければ読み込む。**
-     * 既に編集中なら**タイムラインを壊さない**（ダブルクリックで全消しは事故になる）
+     * 動画のダブルクリック。**何も置かない。置き方を案内するだけ**
+     *（本人の指定・2026-11-12「クリックしたら動画入れなくてよい。基本はドラッグで
+     *   プロジェクトからタイムラインに配置する」）。
+     * 前は、まだ動画が無いときだけ読み込んで先頭に並べていた——押しただけで
+     * タイムラインが変わるので、置いたつもりの無い動画が入っていた
      */
-    onOpenVideo: (m: MediaItem): void => {
-      if (!videoPath) void loadVideo(m.path)
-      else showToast('タイムラインへドラッグして配置してください（Ctrl+ドロップで挿入）。')
-    },
+    onVideoHint: (): void =>
+      showToast('動画はタイムラインへドラッグして配置します（Ctrl+ドロップで挿入）。'),
     onRemove: removeMedia,
     /** 画像の「透過」。背景を抜く窓を開く（設定は画像ごと。state/useCutout） */
     onCutout: (m: MediaItem): void => openCutout(m.id),

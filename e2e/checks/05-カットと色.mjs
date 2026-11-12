@@ -9,6 +9,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import mediaUndo from './05b-素材の出し入れを戻す.mjs'
 
 export default async function (C) {
   const {
@@ -16,6 +17,7 @@ export default async function (C) {
     assert,
     check,
     clipLayout,
+    dndFromBin,
     dragBy,
     fx,
     near,
@@ -353,10 +355,14 @@ export default async function (C) {
   })
 
   // 本人（2026-11-12）「動画をダブルクリックしたら配置されて2度と元に戻れない」。
-  // 動画が1本も無いとき、素材ビンのダブルクリックは動画を開いて先頭に並べる。前は
-  // そこで**履歴を全部捨てていた**ので、置く前にも、その前の手にも戻れなかった
-  //（state/useMediaOps の loadVideo）。**置く前の手（テロップを消す）を自分で作ってから**確かめる
-  await check('動画の無いプロジェクトで素材をダブルクリックして置いても、Ctrl+Z で置く前とその前へ戻れる', async () => {
+  // 動画を読み込むと、前は**履歴を全部捨てていた**ので、置く前にも、その前の手にも
+  // 戻れなかった（state/useMediaOps の loadVideo）。
+  // **置く前の手（テロップを消す）を自分で作ってから**確かめる。
+  //
+  // 同じ日のうちに、ダブルクリックでは**置かない**ことになった（本人「クリックしたら
+  // 動画入れなくてよい。基本はドラッグでプロジェクトからタイムラインに配置する」）。
+  // 置かれないことを見てから、ドラッグで置いて戻る
+  await check('動画はダブルクリックでは置かれない。ドラッグで置けば、Ctrl+Z で置く前とその前へ戻れる', async () => {
     const proj = JSON.parse(readFileSync(fx.gcprojOrig, 'utf-8'))
     Object.assign(proj, { videoPath: null, sources: [], segments: [] })
     const p = join(fx.dir, 'no-video.gcproj')
@@ -379,9 +385,14 @@ export default async function (C) {
     const card = page.locator('.media-card', { hasText: 'test_video' }).first()
     assert(await card.count(), '素材ビンに動画のカードが無い')
     await card.dblclick()
+    await page.waitForTimeout(1500)
+    assert((await v1Clips().count()) === 0, 'ダブルクリックしただけで、動画がタイムラインに置かれた')
+    const hint = (await page.locator('.toast').allTextContents()).join(' ')
+    assert(hint.includes('ドラッグ'), `置き方の案内が出ていない: ${hint}`)
+    await dndFromBin('test_video', '[data-tid="V1"]', { x: 60, y: 10 })
     await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 15000 })
     await page.waitForTimeout(700)
-    assert((await v1Clips().count()) === 1, 'ダブルクリックで動画が1本並んでいない（準備が成立していない）')
+    assert((await v1Clips().count()) === 1, 'ドラッグで動画が1本並んでいない（準備が成立していない）')
     await page.keyboard.press('Control+z')
     await page.waitForTimeout(500)
     assert((await v1Clips().count()) === 0, 'Ctrl+Z で「動画を置く前」に戻らない')
@@ -389,6 +400,9 @@ export default async function (C) {
     await page.waitForTimeout(500)
     assert((await telops()) === t0, `もう一度 Ctrl+Z で、置く前に消したテロップが戻らない（${await telops()}枚）`)
   })
+
+  // 素材の出し入れ・差し替えを戻す（./05b）。自分で開き直してから始める
+  await mediaUndo(C)
 
   // =========================================================================
   section('15. クリップの色分け')

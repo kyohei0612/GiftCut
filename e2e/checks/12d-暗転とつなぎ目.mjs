@@ -237,4 +237,47 @@ export default async function (C) {
         revived.slice(0, 4).map((r) => `#${r.i} ${r.op.toFixed(2)}/${r.t.join(',')}`).join(' ') + '）'
     )
   })
+
+  // 本人（2026-11-12）「エフェクト周りの使い勝手が悪い」。帯の端の持ち手は 7px と
+  // 書いてあったが、帯（overflow: hidden）に切られて実質 6px しか掴めなかった。
+  // → 帯の端をまたいで 12px（内へ6・外へ6）。**外側から実際に掴めること**を見る
+  //   （幅の数字は `shared/hitArea.test` が見ている。ここは画面で当たるかどうか）
+  await check('演出の帯の持ち手は、帯の外側からでも掴めて長さを変えられる。押しただけでは長さが変わらない', async () => {
+    await resetProject()
+    await openWithXfade('fade', 0.5)
+    const band = page.locator('.ttrans-xfade').first()
+    assert(await band.count(), '間の演出の帯が出ていない（準備が成立していない）')
+    const durOf = async () => Number(/([\d.]+)s/.exec((await band.getAttribute('title')) ?? '')?.[1] ?? 'NaN')
+    const d0 = await durOf()
+    assert(Math.abs(d0 - 0.5) < 0.01, `帯の長さが読めない（${d0}）`)
+    const box = await band.boundingBox()
+    // 帯の左端より 4px 外。前の作りでは、ここは帯の外＝クリップの本体だった
+    const x = box.x - 4
+    const y = box.y + box.height / 2
+    const hit = await page.evaluate(([px, py]) => document.elementFromPoint(px, py)?.className ?? '', [x, y])
+    assert(String(hit).includes('ttrans-resize'), `帯の端から 4px 外で、持ち手に当たらない（当たったのは「${hit}」）`)
+
+    // 押して離すだけ → 選ばれるが、長さは変わらない
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x - 1, y)
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+    assert(await page.locator('.ttrans-xfade.ttrans-sel').count(), '持ち手を押しても帯が選ばれない')
+    assert((await durOf()) === d0, `押しただけで長さが変わった（${d0} → ${await durOf()}）`)
+
+    // 左へ引く → 長くなる（帯は [カット-d, カット) なので、左端を引くと伸びる）
+    // 1秒あたりの画素は1本目のクリップ（5秒）から取る。帯の幅は下限（12px）で
+    // 押し上げられていることがあるので、物差しにしない
+    const pxPerSec = (await v1Clips().nth(0).boundingBox()).width / 5
+    assert(pxPerSec * 0.5 > 6, `引く量が小さすぎて確かめられない（0.5秒 = ${(pxPerSec * 0.5).toFixed(1)}px）`)
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x - pxPerSec * 0.5, y, { steps: 8 })
+    await page.mouse.up()
+    await page.waitForTimeout(500)
+    const d1 = await durOf()
+    assert(Math.abs(d1 - 1.0) <= 0.1, `外側から掴んで引いても長さが変わらない（${d0} → ${d1}。約1.0 のはず）`)
+    await resetProject()
+  })
 }

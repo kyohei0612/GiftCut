@@ -183,7 +183,7 @@ export function useSegmentPlace(deps: UseSegmentPlaceDeps) {
         return
       }
       void loadVideo(path, { placed: true })
-      // segIdCounter は loadVideo が同期的に 1 へ戻すので、採番はその後で行う
+      // 採番は loadVideo の後で行う（あちらが同期的に切片を空にする。番号は戻さない）
       placeSegAt({ id: segIdCounter.current++, srcStart: 0, srcEnd: dur }, Math.max(0, t), insert)
       return
     }

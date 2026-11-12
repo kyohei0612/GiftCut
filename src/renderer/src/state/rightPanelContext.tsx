@@ -25,7 +25,6 @@ import { useLabelsPresetsCtx } from './labelsPresetsContext'
 import { useLayout } from './layoutContext'
 import { useLibraryCtx } from './libraryContext'
 import { useMediaDropCtx } from './mediaDropContext'
-import { useMediaOpsCtx } from './mediaOpsContext'
 import { useMotionCtx } from './motionContext'
 import { useProjectIOCtx } from './projectIOContext'
 import { useProjectStateCtx } from './projectStateContext'
@@ -66,7 +65,6 @@ export interface RightPanelValue {
   addFilesToProject: W['addFilesToProject']
   addFolderToProject: W['addFolderToProject']
   handleImportSrt: W['handleImportSrt']
-  loadVideo: W['loadVideo']
   selectByLabel: W['selectByLabel']
   genThumbFor: W['genThumbFor']
   prepareMediaMeta: W['prepareMediaMeta']
@@ -113,7 +111,6 @@ export function useRightPanelValue(deps: { addMediaAtPlayhead: (m: MediaItem) =>
   const { localTemplates, openTplSec, refreshPresets } = useLibraryCtx()
   const { addFilesToProject, addFolderToProject, genThumbFor } = useProjectIOCtx()
   const { handleImportSrt } = useSubtitlesCtx()
-  const { loadVideo } = useMediaOpsCtx()
   const { iconLibrary, addIconImages, addIconFiles, removeIconImage } = useIconLibraryCtx()
   const { previewSE } = useSeAudioCtx()
   const { setSelectedTransType, updateSelectedTransDur, deleteSelectedTrans } =
@@ -126,7 +123,7 @@ export function useRightPanelValue(deps: { addMediaAtPlayhead: (m: MediaItem) =>
     rightBodyRef, addMediaAtPlayhead: deps.addMediaAtPlayhead, srtPath,
     labelGroups, removeMedia, beginMediaDrag, draggingMediaRef, localTemplates,
     TELOP_MOTIONS, addFilesToProject, addFolderToProject, handleImportSrt,
-    loadVideo, selectByLabel, genThumbFor, prepareMediaMeta, openTplSec,
+    selectByLabel, genThumbFor, prepareMediaMeta, openTplSec,
     tplSecRefs, saveCurrentAsTemplate, refreshPresets,
     applyTemplate, deleteUserTemplate, iconLibrary,
     addIconImages, addIconFiles, removeIconImage,

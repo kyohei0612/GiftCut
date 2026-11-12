@@ -95,11 +95,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  /* **ここで切らない**（overflow を付けない）。持ち手は帯の端をまたいで外へ
+     半分はみ出している（下の `.ttrans-resize`）。ここで切ると外の半分が消えて、
+     掴める幅が帯の内側ぶんだけに戻る——前は 7px の持ち手が 6px に欠けていた。
+     はみ出す文字は、文字の側（`.ttrans-lb`）で切る。見張りは `shared/hitArea.test` */
   box-sizing: border-box;
   border: 1px solid transparent;
 }
 .ttrans-lb {
+  /* 帯より長い名前はここで切る（帯の側では切らない。上の説明） */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   font-size: 9px;
   font-weight: 700;
   color: #fff;
@@ -165,20 +172,39 @@
   border-color: #ffcf4a;
   z-index: 7;
 }
-/* トランジションの長さ変更ハンドル（プレミア風・端をドラッグ） */
+/* トランジションの長さ変更ハンドル（プレミア風・端をドラッグ）。
+   **帯の端をまたいで置く**（内へ 6px・外へ 6px＝掴める幅 12px）。
+   前は帯の内側に 7px（実質 6px）で、0.3秒の演出だと帯ごと 8px しか無く、
+   狙って掴めなかった（本人「使い勝手が悪い」2026-11-12）。
+
+   - 外の半分は**同じクリップの本体の上**に出る（頭の演出は右端、尻と間は左端に
+     持ち手がある）。隣のクリップの端（トリムの持ち手）には掛からない
+   - 帯がクリップいっぱいの長さのときだけ外がクリップの端を越えるので、
+     そのときは内側へ寄せる（`.ttrans-resize-flush`。付けるのは帯の部品）
+   - 持ち手を押しても**選ばれる**（押した時点で選択が入る）。細い帯で持ち手が
+     帯をほぼ覆っても、選ぶ所は無くならない。動かさなければ長さは変わらない
+     （`state/useTransitions` の startTransResize に 3px の遊びがある）
+   - 頭と尻の帯がくっ付くと持ち手どうしが重なる。**選んでいる帯が前に出る**
+     （`.ttrans-sel` の z-index）ので、先に帯を押せば掴める */
 .ttrans-resize {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 7px;
+  width: 12px;
   cursor: ew-resize;
   z-index: 8;
 }
 .ttrans-resize-l {
-  left: -1px;
+  left: -6px;
 }
 .ttrans-resize-r {
-  right: -1px;
+  right: -6px;
+}
+.ttrans-resize-l.ttrans-resize-flush {
+  left: 0px;
+}
+.ttrans-resize-r.ttrans-resize-flush {
+  right: 0px;
 }
 .ttrans-resize::after {
   content: '';

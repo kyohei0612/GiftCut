@@ -132,3 +132,31 @@ describe('拡大バーの●', () => {
     expect(はみ出し).toBeLessThanOrEqual(余白(2))
   })
 })
+
+describe('つなぎ目の演出の帯の持ち手（長さを変える）', () => {
+  const w = px('.ttrans-resize', 'width')
+
+  it('掴める幅が 12px ある（前は 7px で、帯に切られて実質 6px だった）', () => {
+    expect(w).toBeGreaterThanOrEqual(12)
+  })
+
+  it('帯の端をまたいで、内と外へ半分ずつ出ている', () => {
+    expect(px('.ttrans-resize-l', 'left')).toBe(-w / 2)
+    expect(px('.ttrans-resize-r', 'right')).toBe(-w / 2)
+  })
+
+  // 外の半分は帯の外にあるので、帯が中身を切る（overflow: hidden）と消える。
+  // 2026-11-12 まで実際にそうで、7px と書いた持ち手が 6px しか掴めなかった。
+  // **文字は文字の側で切る**（帯より長い名前がはみ出さないこと、も一緒に見る）
+  it('**帯の側で切っていない**（切ると外の半分が消えて、掴める幅が元へ戻る）', () => {
+    expect(rule('.ttrans')).not.toMatch(/overflow:\s*hidden/)
+    expect(rule('.ttrans-lb')).toMatch(/overflow:\s*hidden/)
+  })
+
+  // クリップいっぱいの帯では、外の半分が隣のクリップの端を横取りする。
+  // そのときだけ内側へ寄せる（付けるのは `components/timeline/TransitionBands`）
+  it('クリップいっぱいの帯では、外へ出さない', () => {
+    expect(px('.ttrans-resize-l.ttrans-resize-flush', 'left')).toBe(0)
+    expect(px('.ttrans-resize-r.ttrans-resize-flush', 'right')).toBe(0)
+  })
+})

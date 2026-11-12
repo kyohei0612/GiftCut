@@ -63,6 +63,10 @@ export function TransitionBands({
     <>
       {segLayout.flatMap((L) => {
         const boxes: ReactNode[] = []
+        // 持ち手は帯の端をまたいで外へ 6px 出る（`styles/overlays.css` の .ttrans-resize）。
+        // **帯がクリップいっぱいのときだけ、内側へ寄せる**——外の半分がクリップの端を
+        // 越えて、隣のクリップの端（トリムの持ち手）を横取りするため
+        const flush = (d: number): string => (d >= L.len - 6 / zoom ? ' ttrans-resize-flush' : '')
         // 削除(映像なし)切片は V1 に何も描かないのでトランジション帯も出さない
         if ((L.seg as any).videoBlank) return boxes
         // 頭ディップ（明転/白）: [tStart, tStart+dur]。
@@ -85,7 +89,7 @@ export function TransitionBands({
                 {transIco(L.seg.transIn.type)} {d.toFixed(1)}s
               </span>
               <div
-                className="ttrans-resize ttrans-resize-r"
+                className={`ttrans-resize ttrans-resize-r${flush(d)}`}
                 title="ドラッグで長さ変更"
                 onPointerDown={(e) => {
                   onSelect(L.seg.id, 'in')
@@ -114,7 +118,7 @@ export function TransitionBands({
                 {transIco(L.seg.transOut.type)} {d.toFixed(1)}s
               </span>
               <div
-                className="ttrans-resize ttrans-resize-l"
+                className={`ttrans-resize ttrans-resize-l${flush(d)}`}
                 title="ドラッグで長さ変更"
                 onPointerDown={(e) => {
                   onSelect(L.seg.id, 'out')
@@ -149,7 +153,7 @@ export function TransitionBands({
                   係数が 2 だったのも、カットを中心に描いていた時代の名残
                   （中心配置では端が d/2 ずつ動く）。左端は動く量と1対1なので -1。 */}
               <div
-                className="ttrans-resize ttrans-resize-l"
+                className={`ttrans-resize ttrans-resize-l${flush(xd)}`}
                 title="ドラッグで長さ変更"
                 onPointerDown={(e) => {
                   onSelect(L.seg.id, 'xfade')

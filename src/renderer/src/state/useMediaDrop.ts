@@ -35,6 +35,7 @@ import { useSel } from './selectionContext'
 import { useTracksCtx } from './tracksContext'
 import { useToastCtx } from './toastContext'
 import { useMediaCtx } from './mediaContext'
+import { useMainSource } from './useMainSource'
 // 落とし先を決めて、置く側（13個）。**このファイルは取り込みと消す方を持つ**
 import { useMediaPlace } from './useMediaPlace'
 // **useHistory の Snap と名前がぶつかる**ので別名で受ける
@@ -108,9 +109,9 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
   const { trackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
   const {
-    mediaItems, setMediaItems, sourcesRef, setSources, videoPath, setVideoPath,
-    setVideoSrc, setVideoName, setVideoDuration, setThumbnailSrc
+    mediaItems, setMediaItems, sourcesRef, setSources, videoPath
   } = useMediaCtx()
+  const { adoptMain } = useMainSource()
 
   // 落とし先を決めて、置く所（state/useMediaPlace）。**自分で心臓を見に行く**ので、
   // ここから渡すのは deps と、取り込み側にしか無い prepareMediaMeta だけ
@@ -238,15 +239,15 @@ export function useMediaDrop(deps: UseMediaDropDeps) {
       const stale = Array.from(
         new Set([...staleSourceIds(m.path, refs), ...sourcesRef.current.filter((s) => s.path === m.path).map((s) => s.id)])
       )
-      if (stale.length) setSources((prev) => prev.filter((s) => !stale.includes(s.id)))
-      // 消した素材をプレビューが映したままにしない（ビンに無い動画が出続ける）
-      if (videoPath === m.path) {
-        setVideoPath(null)
-        setVideoSrc(null)
-        setVideoName(null)
-        setVideoDuration(0)
-        setThumbnailSrc(null)
-      }
+      // ※ ここで外した元動画は、心臓（`state/useMedia`）が控えている。
+      //   元に戻すと、置き場の札・切片と一緒に生き返る（`state/useMainSource`）
+      const left = sourcesRef.current.filter((s) => !stale.includes(s.id))
+      if (stale.length) setSources(left)
+      // 消した素材をプレビューが映したままにしない（ビンに無い動画が出続ける）。
+      // **他の元動画が残っていれば、その先頭を主に据え直す**（2026-11-12）。
+      // 前はここで原本のパスを空にするだけだったので、別の動画がタイムラインに
+      // 残っていても書き出せず、保存すると元動画の一覧ごと失われていた
+      if (videoPath === m.path) adoptMain(left[0] ?? null)
     }
     setMediaItems((prev) => prev.filter((x) => x.id !== id))
     // まとめて選んでいることがあるので、消した物だけを選択から外す
