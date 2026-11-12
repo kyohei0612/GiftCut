@@ -213,6 +213,11 @@ export function usePreviewFrame(deps: UsePreviewFrameDeps) {
   // 中央(p=0.5)で覆いが最大＝一度色に沈み、B が出てくる。
   const xfDipOverlay = (() => {
     if (!xfPreview || xfPreview.blank) return null
+    // **ディゾルブ（fade）には出さない。** `dipColor` は頭/尻用に fade も黒扱いするが、
+    // 「間」の fade は書き出しでは xfade の fade＝溶け合うだけで黒くならない。
+    // 2026-11-12 までここで黒を返していて、**プレビューのディゾルブだけ真ん中で真っ黒**
+    // になっていた（e2e で覆い 1.00 を測ってから直した）
+    if (xfPreview.type === 'fade') return null
     const col = dipColor(xfPreview.type)
     if (!col) return null
     return { color: col, opacity: 1 - Math.abs(1 - 2 * xfPreview.p) }

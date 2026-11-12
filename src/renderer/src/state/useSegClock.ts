@@ -441,6 +441,13 @@ export function useSegClock(deps: UseSegClockDeps) {
         return { opacity: 1, transform: bx, clipPath: `inset(0 0 0 ${off}%)` }
       case 'wiperight':
         return { opacity: 1, transform: bx, clipPath: `inset(0 ${off}% 0 0)` }
+      // 黒／白フェード（書き出しは xfade の fadeblack / fadewhite）は「前 → 色 → 次」。
+      // **次は真ん中（色がいちばん濃い所）を過ぎてから全部出す**——溶かして重ねると、
+      // 色が明ける後半に前のシーンが透けて見えた（2026-11-12・本人「一回復活する」）。
+      // 明けていくのは上に乗った色の覆い（state/usePreviewFrame の xfDipOverlay）の方
+      case 'dipblack':
+      case 'dipwhite':
+        return { opacity: p < 0.5 ? 0 : 1, transform: bx }
       default:
         return { opacity: p, transform: bx } // fade（クロスディゾルブ）
     }
