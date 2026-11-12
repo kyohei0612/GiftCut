@@ -41,6 +41,7 @@ import { useIconLibraryCtx } from './iconLibraryContext'
 import { useIconsCtx } from './iconsContext'
 import { useHistoryCtx } from './historyContext'
 import { useMarkersCtx } from './markersContext'
+import { useMotionCtx } from './motionContext'
 import { useMediaDropCtx } from './mediaDropContext'
 import { usePlaybackEngineCtx } from './playbackEngineContext'
 import { useProjectFileCtx } from './projectFileContext'
@@ -93,6 +94,8 @@ export interface UseKeyboardDeps {
    */
   deleteSelection: () => void
   rippleDeleteSelection: () => void
+  /** 帯の上の◆を消す（選んでいる◆があるとき。state/useMotion） */
+  removeKeyAtTime: (target: { kind: 'telop' | 'video' | 'img' | 'vclip'; id: number }, t: number) => void
   duplicateSelection: () => void
   rippleToPrevCut: () => void
   rippleToNextCut: () => void
@@ -135,6 +138,7 @@ function useKeyboardDeps(): UseKeyboardDeps {
   const { undo, redo } = useHistoryCtx()
   const { removeMedia } = useMediaDropCtx()
   const { deleteMarker, addMarkerAtPlayhead } = useMarkersCtx()
+  const { removeKeyAtTime } = useMotionCtx()
   const { deleteSelectedTrans } = useTransitionsCtx()
   const { deleteSelectedTelopTrans } = useTelopAnimCtx()
   const { deleteTrack } = useTracksAdminCtx()
@@ -159,7 +163,7 @@ function useKeyboardDeps(): UseKeyboardDeps {
     togglePlay, shuttleForward, shuttleReverse, stopPlayback, seekTo, contentEndRef,
     copyAttributes, pasteAttributes, copySelected, cutSelected, pasteClipboard, undo, redo,
     removeMedia, deleteMarker, deleteSelectedTrans, deleteSelectedTelopTrans, deleteTrack,
-    deleteSelection, rippleDeleteSelection, duplicateSelection,
+    deleteSelection, rippleDeleteSelection, duplicateSelection, removeKeyAtTime,
     rippleToPrevCut, rippleToNextCut,
     cutAtPlayhead, addTelop, addMarkerAtPlayhead,
     saveProjectFn, openProjectFn, openExportDialog, zoomAtPlayhead
@@ -173,7 +177,7 @@ export function useKeyboard(): void {
     setSelectedIds, setSelectedVideoIds, setSelectedAudioIds,
     setSelectedSeIds, setSelectedImgIds, setSelectedVClipIds,
     selectedTrans, selectedTelopTrans, selectedTrackId, selectedMarkerId, selectedMediaId,
-    setEditingId, clearAll: clearAllSelections
+    selectedKey, setSelectedKey, setEditingId, clearAll: clearAllSelections
   } = useSel()
   const { currentTimeRef, durationRef, fpsRef } = usePlaybackStableCtx()
 
@@ -238,6 +242,14 @@ export function useKeyboard(): void {
           deps.removeMedia(selectedMediaId)
           return
         }
+        // 帯の上の◆を選んでいるなら、**その◆だけ**を消す（テロップは消さない）。
+        // 前は◆を押すと下のテロップが選ばれ、Delete でテロップごと消えた（2026-11-12）
+        if (selectedKey) {
+          const { t, ...target } = selectedKey
+          deps.removeKeyAtTime(target as never, t)
+          setSelectedKey(null)
+          return
+        }
         if (selectedMarkerId != null) {
           deps.deleteMarker(selectedMarkerId)
           return
@@ -259,6 +271,13 @@ export function useKeyboard(): void {
         deps.deleteSelection()
       },
       rippleDel: () => {
+        // ◆を選んでいるなら、F でも◆だけ（Delete と同じ。詰める物ではないので）
+        if (selectedKey) {
+          const { t, ...target } = selectedKey
+          deps.removeKeyAtTime(target as never, t)
+          setSelectedKey(null)
+          return
+        }
         if (selectedMarkerId != null) {
           deps.deleteMarker(selectedMarkerId)
           return

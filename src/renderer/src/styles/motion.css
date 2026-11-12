@@ -299,6 +299,16 @@
   background: #fff;
   border-color: var(--playhead);
 }
+/* 選んでいる◆（Delete でこれだけ消える）。白抜きで大きく——帯の色に紛れないように */
+.kf-mark-sel {
+  background: #fff;
+  border: 2px solid var(--playhead);
+  box-shadow: 0 0 0 2px #0009;
+}
+/* 掴める◆は横に動かすので、指の形も左右 */
+.kf-mark-hot:active {
+  cursor: ew-resize;
+}
 
 /* タイムラインの下の拡大バー（components/timeline/ZoomBar.tsx）。
    掴む所で意味が変わる: 真ん中＝移動 / 左右の●＝拡大・縮小。 */

@@ -30,7 +30,6 @@ import type { AnimIn, TelopAnim } from '../../lib/telopStyle'
 import type { Cue } from '../../lib/srt'
 import { clamp } from '../../../../shared/timeline'
 import { useDoc } from '../../state/contentContext'
-import { useTimelineOps } from '../../state/timelineOpsContext'
 import { useSel } from '../../state/selectionContext'
 import { usePlaybackStableCtx } from '../../state/playbackContext'
 import { usePreviewCtx } from '../../state/previewContext'
@@ -110,8 +109,6 @@ export function TelopBands({
     applyTemplateToCue,
     applyIconToCue
   } = usePreviewCtx()
-  // ◆を右クリックで消す（心臓は state/useMotion の removeKeyAtTime）
-  const { removeKeyAtTime } = useTimelineOps()
   const { currentTimeRef } = usePlaybackStableCtx()
   const mine = cues.filter((cue) => cueTrack(cue) === trackId)
   // **引いているときは1枚の絵にする。** 理由と測った数字は ./TrackSummary。
@@ -224,7 +221,8 @@ export function TelopBands({
             times={motionKeyTimes(cue.motion)}
             zoom={zoom}
             clipStart={cue.start}
-            onRemove={(t) => removeKeyAtTime({ kind: 'telop', id: cue.id }, t)}
+            len={cue.end - cue.start}
+            target={{ kind: 'telop', id: cue.id }}
           />
           {/* 出入りの動きの帯（components/timeline/TelopAnimBand.tsx）。
               動画のトランジションと同じ流儀: 範囲表示＋クリック選択。 */}

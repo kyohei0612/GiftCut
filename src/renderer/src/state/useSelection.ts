@@ -23,6 +23,7 @@
 //（足し忘れると、上の事故がそのまま戻ってくる）。
 
 import { useState } from 'react'
+import { useDismissOnOutside } from './useDismissOnOutside'
 
 /** 動画クリップのトランジション（頭・尻・カット間） */
 export interface TransSel {
@@ -33,6 +34,19 @@ export interface TransSel {
 export interface TelopTransSel {
   cueId: number
   kind: 'in' | 'out'
+}
+/**
+ * 帯の上の◆（動きの印）。**どの物の、どの時刻の印か。**
+ *
+ * 2026-11-12 まで◆は選べず、押すと下の帯（テロップ）が選ばれた。そこで Delete を押すと
+ * **テロップごと消えた**（本人「印を選択して消すとテロップごと消える」）。
+ * 選んでいる間は Delete が◆だけを消す（state/useKeyboard の del）
+ */
+export interface KeySel {
+  kind: 'telop' | 'video' | 'img' | 'vclip'
+  id: number
+  /** 印の時刻（クリップの頭からの秒） */
+  t: number
 }
 
 export interface Selection {
@@ -59,6 +73,9 @@ export interface Selection {
   /** 段（トラック）そのもの。残ったまま Delete するとトラック削除に化ける */
   selectedTrackId: string | null
   setSelectedTrackId: React.Dispatch<React.SetStateAction<string | null>>
+  /** 帯の上の◆（動きの印）。選んでいる間は Delete がこれだけを消す */
+  selectedKey: KeySel | null
+  setSelectedKey: React.Dispatch<React.SetStateAction<KeySel | null>>
   /** 目印 */
   selectedMarkerId: number | null
   setSelectedMarkerId: React.Dispatch<React.SetStateAction<number | null>>
@@ -99,6 +116,10 @@ export function useSelection(): Selection {
   const [selectedTelopTrans, setSelectedTelopTrans] = useState<TelopTransSel | null>(null)
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null)
   const [selectedMarkerId, setSelectedMarkerId] = useState<number | null>(null)
+  const [selectedKey, setSelectedKey] = useState<KeySel | null>(null)
+  // **◆以外を押したら◆の選択を外す。** 残っていると、テロップを選び直して Delete を
+  // 押したつもりが◆の削除に横取りされる（逆向きの事故）。◆の上の押下は◆自身が扱う
+  useDismissOnOutside(!!selectedKey, () => setSelectedKey(null), { inside: '.kf-mark' })
   const [editingMarkerId, setEditingMarkerId] = useState<number | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   /**
@@ -128,6 +149,8 @@ export function useSelection(): Selection {
     setSelectedTelopTrans(null)
     // 目印も外す（残っていると Delete が目印の削除に横取りされる）
     setSelectedMarkerId(null)
+    // ◆も外す（同じ理由。残っていると Delete が印の削除に横取りされる）
+    setSelectedKey(null)
   }
 
   const clearAll = (): void => {
@@ -159,6 +182,8 @@ export function useSelection(): Selection {
     setSelectedTrackId,
     selectedMarkerId,
     setSelectedMarkerId,
+    selectedKey,
+    setSelectedKey,
     editingMarkerId,
     setEditingMarkerId,
     editingId,

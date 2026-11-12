@@ -9,8 +9,40 @@ import {
   hasKeys,
   keysToExpr,
   sanitizeKeys,
+  moveKey,
   type Keys
 } from './keyframes'
+
+describe('moveKey — 帯の◆を掴んでずらす', () => {
+  const base: Keys = [
+    { t: 0, v: 0 },
+    { t: 1, v: 50, e: 'ease' },
+    { t: 2, v: 100 }
+  ]
+  it('値とつなぎ方はそのままで、時刻だけ動き、時刻順に並び直す', () => {
+    expect(moveKey(base, 1, 1.5)).toEqual([
+      { t: 0, v: 0 },
+      { t: 1.5, v: 50, e: 'ease' },
+      { t: 2, v: 100 }
+    ])
+    expect(moveKey(base, 0, 3)).toEqual([
+      { t: 1, v: 50, e: 'ease' },
+      { t: 2, v: 100 },
+      { t: 3, v: 0 }
+    ])
+  })
+  it('動かした先に別のキーがあれば、動かした方が勝つ（2つ置かない）', () => {
+    expect(moveKey(base, 1, 2)).toEqual([
+      { t: 0, v: 0 },
+      { t: 2, v: 50, e: 'ease' }
+    ])
+  })
+  it('0秒より前には出ない・その時刻にキーが無ければ何もしない', () => {
+    expect(moveKey(base, 1, -3)?.[0]).toEqual({ t: 0, v: 50, e: 'ease' })
+    expect(moveKey(base, 0.5, 1.7)).toBe(base)
+    expect(moveKey(undefined, 1, 2)).toBeUndefined()
+  })
+})
 
 const K: Keys = [
   { t: 0, v: 1 },

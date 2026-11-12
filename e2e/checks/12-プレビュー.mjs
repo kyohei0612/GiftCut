@@ -22,10 +22,14 @@
 import direct from './12a-直接操作.mjs'
 import overwrite from './12b-上書き.mjs'
 import transform from './12c-変形と拡大.mjs'
+// 2026-11-12 に足した。**いちばん後ろ**に置く（自分で開き直してから始めるので、
+// 手前の並びには影響しない）
+import dip from './12d-暗転とつなぎ目.mjs'
 
 export default async function (C) {
   // ↓ 元のファイルの並びそのまま。**入れ替えない**（上の「呼ぶ順」を読むこと）
   await direct(C)
   await overwrite(C)
   await transform(C)
+  await dip(C)
 }

@@ -22,7 +22,6 @@ import { KeyMarks } from './KeyMarks'
 import WaveformCanvas from '../WaveformCanvas'
 import { clipMotionKeyTimes } from '../../../../shared/clipMotion'
 import { useDoc } from '../../state/contentContext'
-import { useTimelineOps } from '../../state/timelineOpsContext'
 import { useSel } from '../../state/selectionContext'
 import { useTracksCtx } from '../../state/tracksContext'
 import { useToastCtx } from '../../state/toastContext'
@@ -52,8 +51,6 @@ export function VideoLayerBand({
   openClipMenu: OpenClipMenu
 }): JSX.Element {
   const { selectedVClipIds } = useSel()
-  // ◆を右クリックで消す（心臓は state/useMotion の removeKeyAtTime）
-  const { removeKeyAtTime } = useTimelineOps()
   return (
     <>
       {clips.map((clip) => (
@@ -80,7 +77,8 @@ export function VideoLayerBand({
             times={clipMotionKeyTimes(clip.motion)}
             zoom={zoom}
             clipStart={clip.tStart}
-            onRemove={(t) => removeKeyAtTime({ kind: 'vclip', id: clip.id }, t)}
+            len={vcLen(clip)}
+            target={{ kind: 'vclip', id: clip.id }}
           />
         </ClipBand>
       ))}
@@ -161,8 +159,6 @@ export function ImageBand({
 }): JSX.Element {
   const { setImgClips } = useDoc()
   const { selectedImgIds, setSelectedImgIds } = useSel()
-  // ◆を右クリックで消す（心臓は state/useMotion の removeKeyAtTime）
-  const { removeKeyAtTime } = useTimelineOps()
   const { trackStates } = useTracksCtx()
   const { showToast } = useToastCtx()
   return (
@@ -198,7 +194,8 @@ export function ImageBand({
             times={clipMotionKeyTimes(clip.motion)}
             zoom={zoom}
             clipStart={clip.tStart}
-            onRemove={(t) => removeKeyAtTime({ kind: 'img', id: clip.id }, t)}
+            len={clip.duration}
+            target={{ kind: 'img', id: clip.id }}
           />
         </ClipBand>
       ))}

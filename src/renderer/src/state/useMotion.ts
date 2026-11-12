@@ -19,7 +19,10 @@
 
 import { useRef } from 'react'
 import { clamp } from '../../../shared/timeline'
-import { hasKeys, putKey, removeKey, valueAt, type Keys } from '../../../shared/keyframes'
+import { hasKeys, moveKey, putKey, removeKey, valueAt, type Keys } from '../../../shared/keyframes'
+
+/** 印を付け替える相手（テロップか、映像の3種類） */
+export type KeyTarget = { kind: 'telop'; id: number } | { kind: 'video' | 'img' | 'vclip'; id: number }
 import { hasClipMotion, type ClipMotion } from '../../../shared/clipMotion'
 import { hasMotion, sanitizeMotion, type Motion } from '../lib/telopStyle'
 import { DEFAULT_ZOOM, isNeutralZoom } from '../lib/clipLook'
@@ -97,16 +100,32 @@ export function useMotion(deps: UseMotionDeps) {
    * 消すときも同じ時刻の印を全項目から外す（見えている◆と一致させる）。
    * 印が1つも残らなくなった項目は、動き自体を外す（空の入れ物を残さない）。
    */
-  function removeKeyAtTime(
-    target: { kind: 'telop'; id: number } | { kind: 'video' | 'img' | 'vclip'; id: number },
-    t: number
-  ): void {
+  function removeKeyAtTime(target: KeyTarget, t: number): void {
+    mapKeysOf(target, (keys) => removeKey(keys, t))
+  }
+
+  /**
+   * ◆を掴んでずらす。**その時刻に印がある項目を全部、同じだけ**動かす
+   *（◆は同じ時刻の印をまとめて1つに出しているので、消すときと同じ単位）。
+   * 2026-11-12・本人「文字を順に出すやつ、せっかく印で出るのにタイミングを調整できない」
+   */
+  function moveKeyAtTime(target: KeyTarget, from: number, to: number): void {
+    mapKeysOf(target, (keys) => moveKey(keys, from, to))
+  }
+
+  /**
+   * 印の付け替えを、**種類ごとの持ち方の違いを吸収して**1つの物に当てる。
+   * テロップは項目が多く（位置・拡大・回転・不透明度・波…）、映像は3つ（拡大・位置）。
+   * 印が1つも残らなくなった項目は、動き自体を外す（空の入れ物を残さない）。
+   * 消すと動かすで同じ道を通すため（片方だけ「空の入れ物」を残す、を起こさない）
+   */
+  function mapKeysOf(target: KeyTarget, f: (keys: Keys | undefined) => Keys | undefined): void {
     if (target.kind === 'telop') {
       setCues((prev) =>
         prev.map((c) => {
           if (c.id !== target.id || !c.motion) return c
           const next: Record<string, unknown> = { ...c.motion }
-          for (const k of Object.keys(next)) next[k] = removeKey(next[k] as Keys, t)
+          for (const k of Object.keys(next)) next[k] = f(next[k] as Keys)
           const m = sanitizeMotion(next as Motion)
           return { ...c, motion: hasMotion(m) ? m : undefined }
         })
@@ -115,11 +134,7 @@ export function useMotion(deps: UseMotionDeps) {
     }
     const strip = <T extends { motion?: ClipMotion }>(c: T): T => {
       if (!c.motion) return c
-      const next: ClipMotion = {
-        sc: removeKey(c.motion.sc, t),
-        x: removeKey(c.motion.x, t),
-        y: removeKey(c.motion.y, t)
-      }
+      const next: ClipMotion = { sc: f(c.motion.sc), x: f(c.motion.x), y: f(c.motion.y) }
       return { ...c, motion: hasClipMotion(next) ? next : undefined }
     }
     if (target.kind === 'video')
@@ -345,7 +360,7 @@ export function useMotion(deps: UseMotionDeps) {
   //    使う側（useExport）が直接読むので、ここから中継する必要も無くなった。
 
   return {
-    setMotion, removeKeyAtTime, resetClipChannel, clearClipMotions, toggleKeys, nudgeClips,
+    setMotion, removeKeyAtTime, moveKeyAtTime, resetClipChannel, clearClipMotions, toggleKeys, nudgeClips,
     applyMotionPreset, applyMotionPresetTo, motionSelRef, motionRowsRef
   }
 }

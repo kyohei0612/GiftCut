@@ -56,7 +56,7 @@ export function usePreviewFrame(deps: UsePreviewFrameDeps) {
   const { segLayout, srcOfSeg, curSegZoom, curCropInset, previewUrl } = deps
   const { segments } = useDoc()
   const { videoSrc, sources } = useMediaCtx()
-  const { currentTime } = usePlaybackCtx()
+  const { currentTime, playing } = usePlaybackCtx()
 
   // 再生ヘッド位置の切片の「寄り・回転・反転」（CSS transform）。**正典1つで作る。**
   // `curSegZoom` は動きの印を当てたあとの値（`useCurrentLook`）なので、
@@ -90,6 +90,22 @@ export function usePreviewFrame(deps: UsePreviewFrameDeps) {
   })()
   // dip系の色オーバーレイ（頭=色→映像、尻=映像→色）。slide/wipe のときは null（映像側で表現）。
   const transOverlay = (() => {
+    // **尻の暗転のあと、カットを過ぎてもしばらく覆いを残す**（再生中だけ）。
+    //
+    // 覆いは「再生位置が今のクリップの中にある間」しか出ないので、カットを過ぎた瞬間に
+    // 消える。ところが映像の面の入れ替えは数コマ遅れる（下のディゾルブの XF_GRACE と
+    // 同じ理由）。その間、**前のシーンの最後のコマが素通しで見えた**——本人「暗転が
+    // 終わったら、後ろにシーンがあると一回復活する」（2026-11-12）。e2e で 240Hz の
+    // 8コマ（約33ms）を数えてから直した（e2e/checks/12d-暗転とつなぎ目）。
+    // 止まっているときは残さない——書き出しはカットの直後から次のシーンが出るので、
+    // 止めた絵はそちらに合わせる。
+    if (!inOutPreview && playing) {
+      const L = segLayout.find((l) => currentTime >= l.tStart && currentTime < l.tEnd)
+      const prev = L && L.index > 0 ? segLayout[L.index - 1] : undefined
+      const to = prev?.seg.transOut
+      const col = to && to.dur > 0 && !xfadeDurAt(segLayout, prev!.index) ? dipColor(to.type) : null
+      if (L && col && currentTime - L.tStart < XF_GRACE) return { color: col, opacity: 1 }
+    }
     if (!inOutPreview) return null
     const col = dipColor(inOutPreview.type)
     if (!col) return null

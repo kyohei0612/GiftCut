@@ -104,6 +104,22 @@ export function removeKey(keys: Keys | undefined, t: number): Keys | undefined {
   return rest.length ? rest : undefined
 }
 
+/**
+ * その時刻のキーを、別の時刻へ動かす（値・つなぎ方・接線はそのまま）。
+ *
+ * 帯の上の◆を掴んで左右へずらすため（2026-11-12・本人「文字を順に出すやつ、
+ * せっかく印で出るのにタイミングを調整できない」）。動かした先に別のキーがあれば、
+ * **動かした方が勝つ**（同じ時刻に2つ置かない＝ sortKeys と同じ決まり）。
+ * 0秒より前へは出さない（キーの時刻はクリップの頭からの秒）。
+ */
+export function moveKey(keys: Keys | undefined, from: number, to: number): Keys | undefined {
+  const k = keyAt(keys, from)
+  if (!keys || !k) return keys
+  const t = Math.max(0, to)
+  const rest = keys.filter((x) => x !== k && Math.abs(x.t - t) > 1e-4)
+  return sortKeys([...rest, { ...k, t }])
+}
+
 /** その時刻にキーがあるか（ストップウォッチの◆を光らせる判定） */
 export function keyAt(keys: Keys | undefined, t: number): Key<number> | undefined {
   return (keys ?? []).find((k) => Math.abs(k.t - t) <= 1e-4)

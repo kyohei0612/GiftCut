@@ -115,8 +115,10 @@ export interface TimelineOps {
   applyTelopTransDrop: W['applyTelopTransDrop']
   selectTelopTrans: W['selectTelopTrans']
   patchCueAnim: W['patchCueAnim']
-  /** タイムラインの◆を1つ消す（右クリック） */
+  /** タイムラインの◆を1つ消す（右クリック・選んで Delete） */
   removeKeyAtTime: W['removeKeyAtTime']
+  /** タイムラインの◆を掴んでずらす */
+  moveKeyAtTime: W['moveKeyAtTime']
 
   // ---- 道具立て（ツールバー）----
   undo: W['undo']
@@ -161,7 +163,7 @@ export interface TimelineOps {
  * 選択の見直しと品書きを同時に触るのでどの心臓の持ち物でもない。
  */
 export function useTimelineOpsValue(deps: { openClipMenu: OpenClipMenu }) {
-  const { removeKeyAtTime } = useMotionCtx()
+  const { removeKeyAtTime, moveKeyAtTime } = useMotionCtx()
   const {
     onClipPointerDown, onClipContextMenu, onTrimStart, onSePointerDown, onImgPointerDown,
     onVClipPointerDown, onTrackAreaPointerDown, startScrub
@@ -194,7 +196,7 @@ export function useTimelineOpsValue(deps: { openClipMenu: OpenClipMenu }) {
   const { askText } = useAskCtx()
   const { stopPlayback, seekTo } = usePlaybackEngineCtx()
   return {
-    removeKeyAtTime,
+    removeKeyAtTime, moveKeyAtTime,
     onClipPointerDown, onClipContextMenu, onTrimStart, onSegPointerDown, onSegTrimStart,
     onSePointerDown, onImgPointerDown, onVClipPointerDown, onMarkerPointerDown,
     onTrackAreaPointerDown, startScrub, startGroupResize, startTransResize,
