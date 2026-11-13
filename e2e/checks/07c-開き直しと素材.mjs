@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process'
 export default async function (C) {
   const {
     app, assert, check, clipLayout, clipW, dndFromBin, dragBy, fx, outDir, page,
-    resetProject, section, setDialogFiles, touchedRef, v1Clips, zipNames
+    resetProject, section, setDialogFiles, touchedRef, v1Clips, zipNames, zipRead
   } = C
   await check('保存したプロジェクトは、そのファイルから開き直しても中身が残っている', async () => {
     // **「保存したつもり」が一番損害が大きい。**
@@ -298,7 +298,21 @@ export default async function (C) {
     const storeFile = join(fx.userData, 'ユーザー設定.json')
     mkdirSync(seDir, { recursive: true })
     writeFileSync(seFile, 'E2E_SE_中身', 'utf-8')
-    writeFileSync(storeFile, JSON.stringify({ 'giftcut.e2e移行': 'ここに在った' }), 'utf-8')
+    // **控えの印は手で書かない。設定（localStorage）へ入れて、アプリに写させる。**
+    // アプリは4秒おきに「設定が変わっていたら控えを書き直す」（lib/userStore の
+    // startUserStoreMirror）。前は控えのファイルを直接書いていたので、その書き直しに
+    // 当たると印が消えて「控えは戻ったが、中身が違う」で落ちた（2026-11-12 の solo と
+    // 並列で1回ずつ。`--fast` 無しだと待ちが長く、当たりやすい。アプリは無罪）
+    const 印 = () => {
+      try {
+        return JSON.parse(readFileSync(storeFile, 'utf-8'))['giftcut.e2e移行'] ?? null
+      } catch {
+        return null // まだ無い／書いている途中
+      }
+    }
+    await page.evaluate(() => localStorage.setItem('giftcut.e2e移行', 'ここに在った'))
+    for (let i = 0; i < 24 && 印() !== 'ここに在った'; i++) await page.waitForTimeout(500)
+    assert(印() === 'ここに在った', '設定に入れた印が、控えのファイルへ写らない（準備が成立していない）')
 
     await setDialogFiles(null, zip)
     await page.locator('.menu-item', { hasText: 'ファイル' }).first().click()
@@ -327,9 +341,18 @@ export default async function (C) {
       }）`
     )
     assert(names.includes('設定/ユーザー設定.json'), 'ZIP にお気に入り等の控えが入っていない')
+    assert(
+      String(await zipRead(zip, '設定/ユーザー設定.json')).includes('ここに在った'),
+      'ZIP の控えに印が入っていない（まとめる前に写っていたのに、入った物が違う）'
+    )
 
     // **まっさらなサブPCの真似。** ここで消さないと、次の assert は
     // 「元から在っただけ」でも通る（＝何も試さないまま緑になる）
+    // 控えは**設定からも印を抜いて、抜けた版が書かれるのを待ってから**消す。
+    // 設定に残したままだと、開いて戻らなくても次の書き直しで印が蘇る（空振り合格）
+    await page.evaluate(() => localStorage.removeItem('giftcut.e2e移行'))
+    for (let i = 0; i < 24 && 印() !== null; i++) await page.waitForTimeout(500)
+    assert(印() === null, '設定から抜いた印が、控えのファイルに残っている（準備が成立していない）')
     rmSync(seFile, { force: true })
     rmSync(storeFile, { force: true })
     assert(!existsSync(seFile), '消せていない（この先の確認が意味を持たない）')
