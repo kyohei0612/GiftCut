@@ -412,7 +412,7 @@ export function useMediaPlace(deps: UseMediaPlaceDeps) {
     const res = await window.giftcut.addMedia()
     if (!res?.paths?.length) return
     const track = trackForNewBgm(currentTimeRef.current)
-    // まだ何も置いていなければ 0秒から（落とす道・ダブルクリックと同じ規則）
+    // まだ何も置いていなければ 0秒から（落とす道・再生ヘッドへ置く道と同じ規則）
     const t = placeStartSec(currentTimeRef.current, timelineEmpty())
     for (const p of res.paths) {
       const name = p.split(/[\\/]/).pop() ?? '音声'
@@ -424,7 +424,7 @@ export function useMediaPlace(deps: UseMediaPlaceDeps) {
     placeImage, updateDropGhost, imgLaneAt, dragList, durOf, placeDropped,
     clearDropGhosts, dropMediaNearest, videoDropLane, placeVClip, placeSE,
     trackForNewBgm, addBgm,
-    // 置く道は落とす以外にもある（ビンのダブルクリック）ので、判定だけ外へ出す
+    // 置く道は落とす以外にもある（再生ヘッドの位置へ置く）ので、判定だけ外へ出す
     timelineEmpty
   }
 }

@@ -120,12 +120,11 @@ export function ProjectBinTab({
   onImportSrt,
   onSelect,
   onSelectMany,
-  onVideoHint,
+  onDragHint,
   onRemove,
   onCutout,
   onDragStart,
   onContextMenu,
-  onAddAtPlayhead,
   onDragEnd,
   onPickLabel,
   onVisible
@@ -158,16 +157,14 @@ export function ProjectBinTab({
    *（Ctrl のときだけ中身が入る＝足す）。
    */
   onSelectMany: (ids: number[], base: number[]) => void
-  /** 動画のダブルクリック。置かない——ドラッグで置く、と案内するだけ */
-  onVideoHint: () => void
+  /** ダブルクリック。置かない——ドラッグで置く、と案内するだけ（動画・音・画像とも） */
+  onDragHint: () => void
   onRemove: (id: number) => void
   /** 画像の「透過」ボタン。背景を抜く窓を開く */
   onCutout: (item: MediaItem) => void
   onDragStart: (item: MediaItem, e: React.DragEvent) => void
   /** 右クリック（SEへ送る等）。渡さなければ何も出ない */
   onContextMenu?: (item: MediaItem, e: React.MouseEvent) => void
-  /** ダブルクリックで再生ヘッドの位置へ足す（音・画像） */
-  onAddAtPlayhead: (item: MediaItem) => void
   onDragEnd: () => void
   onPickLabel: (color: string) => void
   /** いま見えている素材（サムネと波形は見えている物だけ用意する） */
@@ -215,7 +212,7 @@ export function ProjectBinTab({
               他のタブには出ているのにここだけ無く、
               「置いたあと何ができるのか」がどこにも書いていなかった。 */}
           <div className="tpl-hint">
-            タイムラインへドラッグで配置／音・画像はダブルクリックで再生ヘッドへ／右クリックで送り先
+            タイムラインへドラッグで配置／右クリックで送り先
           </div>
           {KIND_ORDER.map((kind) => {
             const list = items.filter((m) => m.kind === kind)
@@ -269,11 +266,11 @@ export function ProjectBinTab({
                     }}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
-                      // **動画は置かない**（本人の指定・2026-11-12。置き方の案内だけ出す）。
-                      // 動画は本編の並びを変えるので、押しただけで入ると事故になる。
-                      // 音・画像は重ねるだけで他を動かさないので、再生ヘッドへ足す
-                      if (m.kind === 'video') onVideoHint()
-                      else onAddAtPlayhead(m)
+                      // **何も置かない**（本人の指定。置き方の案内だけ出す）。
+                      // 2026-11-12「クリックしたら動画入れなくてよい。基本はドラッグで」
+                      // 2026-11-14「音と画像のダブルクリックもなくして」
+                      // ＝この置き場から置く道は、種類を問わずドラッグ1本
+                      onDragHint()
                     }}
                   >
                     <button

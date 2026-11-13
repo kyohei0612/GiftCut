@@ -253,7 +253,7 @@ export function useMediaOps(deps: UseMediaOpsDeps) {
     // 波形は全長デコードなので、見てもいない素材のぶんまで抱えると効く。
     // 追加しただけではタイムラインに載せない。置く位置は自分で決めるもので、
     // 勝手に先頭へ置かれると2本目以降が後ろに回って並べ直しになる。
-    // タイムラインへドラッグするか、ビンでダブルクリックすると読み込まれる。
+    // タイムラインへドラッグすると読み込まれる（ビンのダブルクリックでは置かない）。
   }
 
   return { updateSource, hydrateSource, loadVideo, registerSource, addMediaPaths }

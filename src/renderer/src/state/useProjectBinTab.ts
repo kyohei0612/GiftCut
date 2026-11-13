@@ -49,7 +49,6 @@ export function useProjectBinTab() {
     onAddFiles: addFilesToProject,
     onAddFolder: addFolderToProject,
     onImportSrt: handleImportSrt,
-    onAddAtPlayhead: addMediaAtPlayhead,
     onSelect: (id: number, mode: 'toggle' | 'range' | 'one', shown: number[]): void =>
       setSelectedMediaIds((prev) => {
         if (mode === 'toggle') return toggleSelect(prev, id)
@@ -71,14 +70,15 @@ export function useProjectBinTab() {
     onSelectMany: (ids: number[], base: number[]): void =>
       setSelectedMediaIds([...new Set([...base, ...ids])]),
     /**
-     * 動画のダブルクリック。**何も置かない。置き方を案内するだけ**
+     * ダブルクリック。**何も置かない。置き方を案内するだけ**
      *（本人の指定・2026-11-12「クリックしたら動画入れなくてよい。基本はドラッグで
-     *   プロジェクトからタイムラインに配置する」）。
-     * 前は、まだ動画が無いときだけ読み込んで先頭に並べていた——押しただけで
-     * タイムラインが変わるので、置いたつもりの無い動画が入っていた
+     *   プロジェクトからタイムラインに配置する」／11-14「音と画像のダブルクリックも
+     *   なくして」）。
+     * 前は、動画は「まだ無いときだけ読み込んで先頭に並べる」、音・画像は「再生ヘッドへ
+     * 足す」だった——押しただけでタイムラインが変わるので、置いたつもりの無い物が入る
      */
-    onVideoHint: (): void =>
-      showToast('動画はタイムラインへドラッグして配置します（Ctrl+ドロップで挿入）。'),
+    onDragHint: (): void =>
+      showToast('素材はタイムラインへドラッグして配置します（動画は Ctrl+ドロップで挿入）。'),
     onRemove: removeMedia,
     /** 画像の「透過」。背景を抜く窓を開く（設定は画像ごと。state/useCutout） */
     onCutout: (m: MediaItem): void => openCutout(m.id),

@@ -251,7 +251,7 @@ export function useAppWiring() {
   // 素材を掴んで落とす（どの段の、どこへ置くか）は state/useMediaDrop
   const { placeImage, placeSE, timelineEmpty } = useMediaDropCtx()
   /**
-   * 素材を**再生ヘッドの位置へ置く**（素材をダブルクリックしたとき）。
+   * 素材を**再生ヘッドの位置へ置く**（置き場の右クリック／効果音タブのダブルクリック）。
    *
    * 置く場所をマウスで指す必要があるのはドラッグだけで、
    * 「とりあえず今いる所に足したい」ときにドラッグを強いるのは手間なだけ。

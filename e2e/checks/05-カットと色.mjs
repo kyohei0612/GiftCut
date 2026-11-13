@@ -389,6 +389,28 @@ export default async function (C) {
     assert((await v1Clips().count()) === 0, 'ダブルクリックしただけで、動画がタイムラインに置かれた')
     const hint = (await page.locator('.toast').allTextContents()).join(' ')
     assert(hint.includes('ドラッグ'), `置き方の案内が出ていない: ${hint}`)
+    // **音・画像も同じ**（本人・2026-11-14「音と画像のダブルクリックもなくして」）。
+    // 前は再生ヘッドへ足していた。数は保存の中身で見る（画面の帯は段が畳まれていると出ない）
+    const placed = () =>
+      page.evaluate(() => {
+        const d = JSON.parse(window.__gcProjectJson())
+        // 鍵が無ければ -1（**`?? []` で守らない**。名前が変わると、置かれても 0→0 で通る）
+        const n = (a) => (Array.isArray(a) ? a.length : -1)
+        return { se: n(d.seClips), img: n(d.imgClips) }
+      })
+    const p0 = await placed()
+    assert(p0.se >= 0 && p0.img >= 0, `保存の中身に音・画像の並びが無い（音 ${p0.se} / 画像 ${p0.img}。測れていない）`)
+    for (const name of ['test_sound', 'test_image']) {
+      const c = page.locator('.media-card', { hasText: name }).first()
+      assert(await c.count(), `素材ビンに ${name} のカードが無い（準備が成立していない）`)
+      await c.dblclick()
+      await page.waitForTimeout(900)
+    }
+    const p1 = await placed()
+    assert(
+      p1.se === p0.se && p1.img === p0.img,
+      `音・画像をダブルクリックしただけで、タイムラインに置かれた（音 ${p0.se}→${p1.se} / 画像 ${p0.img}→${p1.img}）`
+    )
     await dndFromBin('test_video', '[data-tid="V1"]', { x: 60, y: 10 })
     await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 15000 })
     await page.waitForTimeout(700)
