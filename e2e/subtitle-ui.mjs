@@ -31,7 +31,10 @@ import { tmpdir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
+import assert from 'node:assert/strict'
 import { clearModals, watchdog, step } from './dismiss.mjs'
+import { makeAppHelpers } from './lib/appHelpers.mjs'
+import { launchEnv } from './lib/placeWindow.mjs'
 import { speechRanges } from '../src/shared/alignCues.ts'
 import { DB_LADDER, enoughSilences } from '../src/shared/silenceLadder.ts'
 
@@ -73,7 +76,9 @@ async function collectFromApp() {
   app = await electron.launch({
     executablePath: require('electron'),
     args: [ROOT, `--user-data-dir=${ud}`, '--gc-auto'],
-    cwd: ROOT
+    cwd: ROOT,
+    // 窓は最初から画面の外に作る（通しと同じ。眺めるなら GIFTCUT_E2E_VISIBLE=1）
+    env: launchEnv()
   })
   page = await app.firstWindow()
   // 黙って止まり続けないよう、頭打ちを決めておく（e2e/dismiss.mjs）
@@ -91,12 +96,18 @@ async function collectFromApp() {
   step('動画を読み込ませる')
   await page.locator('button', { hasText: 'ファイル追加' }).first().click({ timeout: 15000 })
   await page.waitForTimeout(3000)
-  const card = page.locator('.media-card').first()
-  if (await card.count()) {
-    step('タイムラインへ置く')
-    await card.dblclick()
-    await page.waitForTimeout(6000)
-  }
+  // **ドラッグで置く。** 前はカードをダブルクリックしていたが、v0.1.67 から
+  // ダブルクリックでは何も置かれない（案内が出るだけ）。しかも `if (count())` で
+  // 守っていたので、置けていなくても黙って先へ進み、動画の無いまま字幕を押していた。
+  // 掴んで落とす手順は通しと同じ物を使う（e2e/lib/appHelpers の dndFromBin）
+  step('タイムラインへ置く')
+  const v1Clips = () => page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)')
+  const { dndFromBin } = makeAppHelpers(page, assert, v1Clips)
+  const name = src.split(/[\\/]/).pop()
+  await page.waitForSelector('.media-card', { timeout: 30000 })
+  await dndFromBin(name, '[data-tid="V1"]', { x: 60, y: 10 })
+  await page.waitForSelector('[data-tid="V1"] .video-clip', { timeout: 60000 })
+  await page.waitForTimeout(3000)
 
   step('字幕ボタンを押す')
   await page.locator('.mode-tab', { hasText: '字幕' }).first().click({ timeout: 15000 })
@@ -293,22 +304,51 @@ for (const c of cues.slice(0, 12))
 if (page) {
 step('波形と並べて撮る')
 // **寄って撮る。** 4分ぶん全体を1枚に写しても、頭が0.5秒ずれているかは見えない。
-// 拡大のつまみを矢印キーで動かす（React の onChange が素直に走る）。
-const zoomSlider = page.locator('input[type=range]').first()
-if (await zoomSlider.count()) {
-  await zoomSlider.click().catch(() => {})
-  for (let i = 0; i < 14; i++) await page.keyboard.press('ArrowRight')
-  await page.waitForTimeout(600)
+// **Ctrl+ホイールで寄せる。** 前は「最初の input[type=range]」を拡大のつまみと
+// 決め打ちしていたが、そのつまみは 2026-08-03 に消えている（ZoomBar へ移った）。
+// 画面に在る別のつまみを黙って動かすだけになっていたので、中身の幅で確かめる。
+const innerW = () =>
+  page.evaluate(() => parseFloat(document.querySelector('.track-inner')?.style.width || '0') || 0)
+const sc = await page.locator('.track-scroll').boundingBox()
+assert(sc, 'タイムラインが見つからない（.track-scroll）')
+const w0 = await innerW()
+assert(w0 > 0, 'タイムラインの中身の幅が読めない（.track-inner）')
+await page.mouse.move(sc.x + sc.width / 2, sc.y + sc.height / 2)
+// 1ノッチで ×1.15。14回で約7倍
+for (let i = 0; i < 14; i++) {
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, -120)
+  await page.keyboard.up('Control')
+  await page.waitForTimeout(60)
 }
+await page.waitForTimeout(600)
+const w1 = await innerW()
+assert(w1 > w0 * 2, `寄せられていない（中身の幅 ${w0} → ${w1}）`)
+// 中身（置いた動画）の長さ。`.track-inner` の幅は後ろの余白込みなので使わない
+const clipBox = await page.locator('[data-tid="V1"] .video-clip:not(.se-ghost)').first().boundingBox()
+assert(clipBox && clipBox.width > 0, '置いた動画の帯が測れない')
+const contentW = clipBox.width
 
 // 頭・中ほど・終わりの3か所。**画面の中身に触らず、横に送るだけ**にする
 //（アプリの内側に手を入れると、測っている物が測るために変わってしまう）
 for (const [i, ratio] of [0, 0.5, 0.9].entries()) {
-  await page.evaluate((r) => {
-    const el = document.querySelector('.timeline')
-    if (el) el.scrollLeft = (el.scrollWidth - el.clientWidth) * r
-  }, ratio)
+  // 横に動くのは `.track-scroll`（`.timeline` は外枠で、送っても動かない）。
+  // **送る量は中身の長さで決める。** スクロールできる幅には後ろの余白が入っていて、
+  // その割合で送ると何も無い所を撮る（実際に2枚目・3枚目が空だった）
+  const left = await page.evaluate(
+    ({ r, w }) => {
+      const el = document.querySelector('.track-scroll')
+      if (!el) return null
+      el.scrollLeft = Math.max(0, w * r - (r > 0 ? el.clientWidth / 2 : 0))
+      return el.scrollLeft
+    },
+    { r: ratio, w: contentW }
+  )
+  assert(left !== null, '横に送る先が無い（.track-scroll）')
+  assert(ratio === 0 || left > 0, `横に送れていない（${ratio} の位置で ${left}px）`)
   await page.waitForTimeout(700)
+  const shown = await page.locator('.telop-clip').count()
+  assert(shown > 0, `撮る所にテロップが1枚も無い（${ratio} の位置。何も無い所を撮っている）`)
   const box = await page.locator('.timeline').boundingBox()
   const f = join(OUT, `字幕-波形${i + 1}.png`)
   if (box) await page.screenshot({ path: f, clip: box })
